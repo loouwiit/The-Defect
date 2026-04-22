@@ -52,3 +52,15 @@
 * 接口：MIPI 2line（ESP）
 * 分辨率：720p
 * 尺寸：6寸
+
+# 通信架构
+
+|通信设备|通信设备|协议|
+|:-:|:-:|:-:|
+|p4|c6|ESP HOST|
+|p4|c6|滑轨内UART|
+|c6|按钮|GPIO|
+|c6|摇杆|ADC|
+|p4|p4|esp-now|
+|p4|电源|ADC/IIC|
+|p4|屏幕|2line MIPI|
