@@ -64,3 +64,10 @@
 |p4|p4|esp-now|
 |p4|电源|ADC/IIC|
 |p4|屏幕|2line MIPI|
+
+# 软件架构
+
+## 要求
+支持触摸（clickAble，内部有三个指针）
+支持方向键（做绑定，focusAble，内部有四个指针）
+支持返回键
