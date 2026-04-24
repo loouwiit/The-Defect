@@ -1,0 +1,59 @@
+dependencies:
+  espressif/esp-brookesia:
+    component_hash: da224da7a829bb930793c0c779b44227238a57191ca360908c8f2b051d220223
+    dependencies:
+    - name: espressif/esp-lib-utils
+      registry_url: https://components.espressif.com
+      require: public
+      version: 0.2.*
+    - name: idf
+      require: private
+      version: '>=5.3'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: public
+      version: 9.2.*
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.0
+  espressif/esp-lib-utils:
+    component_hash: 9e81fa27e3a8292bed95d91754ebcb8f27f47117328b0b646446f29fc5a847fb
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.2.3
+  espressif/esp_lcd_ili9881c:
+    component_hash: 0288df12755c95d406ccea245a427595f314df0b14a61846286d926ea6f3698e
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32p4
+    version: 1.1.0
+  idf:
+    source:
+      type: idf
+    version: 5.5.2
+  lvgl/lvgl:
+    component_hash: 096c69af22eaf8a2b721e3913da91918c5e6bf1a762a113ec01f401aa61337a0
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 9.2.2
+direct_dependencies:
+- espressif/esp-brookesia
+- espressif/esp_lcd_ili9881c
+- idf
+manifest_hash: 8807adfdcfd912dfc25f0e424423ce8b86d3b31e8a7cdb7a402520959b3da998
+target: esp32p4
+version: 2.0.0
