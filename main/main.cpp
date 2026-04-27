@@ -1,52 +1,115 @@
-/*
- * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: CC0-1.0
- */
+#include <esp_log.h>
 
-#include <stdio.h>
-#include <inttypes.h>
-#include "sdkconfig.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_chip_info.h"
-#include "esp_flash.h"
-#include "esp_system.h"
+#include "task/task.hpp"
+#include "mutex/mutex.hpp"
 
 extern "C" void app_main(void)
 {
-    printf("Hello world!\n");
+	constexpr static char TAG[] = "main";
+	ESP_LOGI(TAG, "started");
 
-    /* Print chip information */
-    esp_chip_info_t chip_info;
-    uint32_t flash_size;
-    esp_chip_info(&chip_info);
-    printf("This is %s chip with %d CPU core(s), %s%s%s%s, ",
-           CONFIG_IDF_TARGET,
-           chip_info.cores,
-           (chip_info.features & CHIP_FEATURE_WIFI_BGN) ? "WiFi/" : "",
-           (chip_info.features & CHIP_FEATURE_BT) ? "BT" : "",
-           (chip_info.features & CHIP_FEATURE_BLE) ? "BLE" : "",
-           (chip_info.features & CHIP_FEATURE_IEEE802154) ? ", 802.15.4 (Zigbee/Thread)" : "");
+	// 初始化自定义任务调度器（创建2个工作线程）
+	Task::init(2);
 
-    unsigned major_rev = chip_info.revision / 100;
-    unsigned minor_rev = chip_info.revision % 100;
-    printf("silicon revision v%d.%d, ", major_rev, minor_rev);
-    if(esp_flash_get_size(NULL, &flash_size) != ESP_OK) {
-        printf("Get flash size failed");
-        return;
-    }
+	// 共享资源（必须为static以确保在app_main返回后仍然有效）
+	static Mutex shared_mutex{};  // 保护共享变量的互斥锁
+	static int shared_count{};    // 被多个任务并发访问的计数器
+	static bool start_flag{};     // 控制任务开始执行的标志
 
-    printf("%" PRIu32 "MB %s flash\n", flash_size / (uint32_t)(1024 * 1024),
-           (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+	// 参数结构体，用于传递给自定义Task
+	struct TaskParam
+	{
+		Mutex& mutex;
+		int& count;
+		bool& start;
+	};
+	static TaskParam task_params{ shared_mutex, shared_count, start_flag };
 
-    printf("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
+	// 创建10个自定义Task，每个Task会增加计数器10000次
+	for (int i = 0; i < 10; i++)
+	{
+		Task::addTask([](void* param) -> TickType_t {
+			constexpr static char TAG[] = "custom_task";
 
-    for (int i = 10; i >= 0; i--) {
-        printf("Restarting in %d seconds...\n", i);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    printf("Restarting now.\n");
-    fflush(stdout);
-    esp_restart();
+			auto& [mutex, count, start] = *(TaskParam*)param;
+
+			// 等待开始信号
+			if (!start) return 1; // 1ms后再次检查
+
+			ESP_LOGI(TAG, "started with count %d", count);
+
+			// 执行10000次原子递增操作
+			for (int i = 0; i < 10000; i++)
+			{
+				Lock lock{ mutex }; // 自动获取和释放锁
+				count++;
+			}
+
+			ESP_LOGI(TAG, "stopped with count %d", count);
+
+			// 任务完成后永久休眠
+			return Task::infinityTime;
+			}, "custom_task", &task_params);
+	}
+
+	// 创建10个标准FreeRTOS线程，每个线程也会增加计数器10000次
+	static Thread threads[10]{};
+	struct ThreadParam
+	{
+		Thread& self;
+		Mutex& mutex;
+		int& count;
+		bool& start;
+	};
+
+	for (auto& thread : threads)
+	{
+		thread = Thread{ [](void* param)
+		{
+			constexpr static char TAG[] = "freertos_thread";
+
+			auto& [self, mutex, count, start] = *(ThreadParam*)param;
+
+			ESP_LOGI(TAG, "started with count %d", count);
+			vTaskDelay(0); // 强制调度
+
+			// 执行10000次原子递增操作
+			for (int i = 0; i < 10000; i++)
+			{
+				{
+					Lock lock{mutex}; // 限制锁的作用域
+					count++;
+				}
+
+				// 周期性让出CPU，避免饿死其他任务
+				if (i % 0x40 == 0)
+					vTaskDelay(0); // 强制调度
+			}
+
+			ESP_LOGI(TAG, "stopped with count %d", count);
+
+			// 清理动态分配的参数
+			delete (ThreadParam*)param;
+
+			// 安全删除自身（通过析构函数）
+			self = Thread{};
+
+			// 终止当前任务执行
+			vTaskDelete(NULL); // 可能是bug，析构函数应该会delete
+		}, "freertos_thread", new ThreadParam{thread, shared_mutex, shared_count, start_flag} };
+	}
+
+	// 添加监控任务，每秒打印一次计数值
+	Task::addTask([](void* param) -> TickType_t
+		{
+			constexpr static char TAG[] = "monitor";
+			int value = *(int*)param;
+			ESP_LOGI(TAG, "current count = %d", value);
+			return 100; // 每100ms执行一次
+		}, "monitor", &shared_count, 0, Task::Affinity::None);
+
+	// 发送开始信号，所有任务开始执行
+	start_flag = true;
+
+	ESP_LOGI(TAG, "main function completed");
 }
