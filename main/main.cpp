@@ -8,20 +8,31 @@
 extern "C" void app_main(void)
 {
 	constexpr static char TAG[] = "main";
-	ESP_LOGI(TAG, "started");
 
 	Task::init(2);
 
+	ESP_LOGI(TAG, "esp_event_loop_create_default");
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+	ESP_LOGI(TAG, "nvsInit");
 	nvsInit();
 
+	ESP_LOGI(TAG, "wifiInit");
 	wifiInit(true);
+
+	ESP_LOGI(TAG, "wifiStart");
 	wifiStart();
+
+	ESP_LOGI(TAG, "wifiStationStart");
 	wifiStationStart();
 
-	wifi_ap_record_t wifis[20]{};
-	wifiStationScan(wifis, sizeof(wifis));
+	ESP_LOGI(TAG, "wifiStationScan");
+	constexpr static size_t wifiSize = 20;
+	wifi_ap_record_t* wifis = new wifi_ap_record_t[wifiSize];
+	wifiStationScan(wifis, wifiSize);
 
-	for (auto& i : wifis)
-		ESP_LOGI(TAG, "RSSI: %d, SSID: %s", i.rssi, i.ssid);
+	for (int i = 0; i < wifiSize; i++)
+		ESP_LOGI(TAG, "RSSI: %d, SSID: %s", wifis[i].rssi, wifis[i].ssid);
+
+	delete[] wifis;
 }
