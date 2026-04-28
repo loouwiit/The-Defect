@@ -1,17 +1,21 @@
 #include "uart.hpp"
 
-UART::UART(uart_port_t port)
+UART::UART(GPIO RX, GPIO TX, GPIO RTS, GPIO CTS, UartPort port, int baudRate)
 {
 	this->port = port;
 	uart_config_t uart_config{};
-	uart_config.baud_rate = 115200;
+	uart_config.baud_rate = baudRate;
 	uart_config.data_bits = UART_DATA_8_BITS;
 	uart_config.parity = UART_PARITY_DISABLE;
 	uart_config.stop_bits = UART_STOP_BITS_1;
 	uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
 	uart_config.rx_flow_ctrl_thresh = 122;
+
+    uart_set_pin(port, TX, RX, RTS, CTS);
+
 	// Configure UART parameters
 	ESP_ERROR_CHECK(uart_param_config(port, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(port, TX, RX, RTS, CTS));
 }
 
 UART::~UART()
@@ -19,9 +23,21 @@ UART::~UART()
 	stop();
 }
 
-void UART::setPin(int Tx, int Rx, int RTS, int CTS)
+UART::UART(UART&& move)
 {
-	ESP_ERROR_CHECK(uart_set_pin(port, Tx, Rx, RTS, CTS));
+    port = move.port;
+    move.port = uart_port_t::UART_NUM_MAX;
+}
+
+UART& UART::operator=(UART&& move)
+{
+    if (this != &move)
+    {
+        stop();
+        port = move.port;
+        move.port = uart_port_t::UART_NUM_MAX;
+    }
+    return *this;
 }
 
 void UART::start()
