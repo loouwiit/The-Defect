@@ -1,38 +1,43 @@
 #include <esp_log.h>
 #include <esp_event.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "wifi/nvs.hpp"
 #include "wifi/wifi.hpp"
 #include "task/task.hpp"
+#include "display/display.hpp"
+
+static const char* TAG = "main";
 
 extern "C" void app_main(void)
 {
-	constexpr static char TAG[] = "main";
+	ESP_LOGI(TAG, "Initializing display...");
 
-	Task::init(2);
+	// Create display object
+	Display* display = new Display();
+	if (!display->init()) {
+		ESP_LOGE(TAG, "Display initialization failed!");
+		return;
+	}
 
-	ESP_LOGI(TAG, "esp_event_loop_create_default");
-	ESP_ERROR_CHECK(esp_event_loop_create_default());
+	ESP_LOGI(TAG, "Display initialized successfully!");
 
-	ESP_LOGI(TAG, "nvsInit");
-	nvsInit();
+	// Create a simple label showing "Hello World"
+	lv_obj_t* label = lv_label_create(lv_screen_active());
+	lv_label_set_text(label, "Hello World!");
+	lv_obj_center(label);
+	lv_obj_set_style_text_color(label, lv_color_make(255, 255, 255), 0);
+	lv_obj_set_style_text_font(label, &lv_font_montserrat_18, 0);
 
-	ESP_LOGI(TAG, "wifiInit");
-	wifiInit(true);
+	ESP_LOGI(TAG, "Hello World displayed!");
 
-	ESP_LOGI(TAG, "wifiStart");
-	wifiStart();
+	// Main loop - LVGL needs periodic tick handling
+	while (true) {
+		lv_timer_handler();
+		vTaskDelay(pdMS_TO_TICKS(5));
+	}
 
-	ESP_LOGI(TAG, "wifiStationStart");
-	wifiStationStart();
-
-	ESP_LOGI(TAG, "wifiStationScan");
-	constexpr static size_t wifiSize = 20;
-	wifi_ap_record_t* wifis = new wifi_ap_record_t[wifiSize];
-	wifiStationScan(wifis, wifiSize);
-
-	for (int i = 0; i < wifiSize; i++)
-		ESP_LOGI(TAG, "RSSI: %d, SSID: %s", wifis[i].rssi, wifis[i].ssid);
-
-	delete[] wifis;
+	// Never reaches here
+	delete display;
 }
