@@ -1,38 +1,35 @@
-#include <esp_log.h>
-#include <esp_event.h>
+/*
+ * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: CC0-1.0
+ */
 
-#include "wifi/nvs.hpp"
-#include "wifi/wifi.hpp"
-#include "task/task.hpp"
+#include "esp_log.h"
+#include "esp_task.h"
+
+#include "iic/iic.hpp"
+
+constexpr static char TAG[] = "main";
 
 extern "C" void app_main(void)
 {
-	constexpr static char TAG[] = "main";
+	GPIO reset{ GPIO_NUM_46 };
+	reset = 0;
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+	reset = 1;
+	vTaskDelay(100 / portTICK_PERIOD_MS);
 
-	Task::init(2);
+	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	while (true)
+	{
+		if (iic.detect(0x5D))
+			ESP_LOGI(TAG, "Device detected at address 0x5D\n");
+		else ESP_LOGE(TAG, "Device not detected at address 0x5D\n");
 
-	ESP_LOGI(TAG, "esp_event_loop_create_default");
-	ESP_ERROR_CHECK(esp_event_loop_create_default());
+		if (iic.detect(0x14))
+			ESP_LOGI(TAG, "Device detected at address 0x14\n");
+		else ESP_LOGE(TAG, "Device not detected at address 0x14\n");
 
-	ESP_LOGI(TAG, "nvsInit");
-	nvsInit();
-
-	ESP_LOGI(TAG, "wifiInit");
-	wifiInit(true);
-
-	ESP_LOGI(TAG, "wifiStart");
-	wifiStart();
-
-	ESP_LOGI(TAG, "wifiStationStart");
-	wifiStationStart();
-
-	ESP_LOGI(TAG, "wifiStationScan");
-	constexpr static size_t wifiSize = 20;
-	wifi_ap_record_t* wifis = new wifi_ap_record_t[wifiSize];
-	wifiStationScan(wifis, wifiSize);
-
-	for (int i = 0; i < wifiSize; i++)
-		ESP_LOGI(TAG, "RSSI: %d, SSID: %s", wifis[i].rssi, wifis[i].ssid);
-
-	delete[] wifis;
+		vTaskDelay(1000 / portTICK_PERIOD_MS);
+	}
 }
