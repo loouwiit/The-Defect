@@ -7,6 +7,8 @@
 #include "esp_ldo_regulator.h"
 #include "gpio/gpio.hpp"
 
+#include "task/task.hpp"
+
 static const char* TAG = "minimal_mipi_test";
 
 #define PIN_BL      (GPIO_NUM_47)
@@ -36,14 +38,14 @@ extern "C" void app_main(void)
 	ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &ldo_phy));
 	ESP_LOGI(TAG, "PHY power on");
 
-	// 创建 MIPI DSI 总线 (2-lane, 500 Mbps)
+	// 创建 MIPI DSI 总线 (2-lane, 288 Mbps)
 	esp_lcd_dsi_bus_config_t bus_cfg = {};
 	bus_cfg.bus_id = 0;
 	bus_cfg.num_data_lanes = LANE_NUM;
 	bus_cfg.phy_clk_src = MIPI_DSI_PHY_CLK_SRC_DEFAULT;
-	bus_cfg.lane_bit_rate_mbps = 500;
+	bus_cfg.lane_bit_rate_mbps = 288;
 	ESP_ERROR_CHECK(esp_lcd_new_dsi_bus(&bus_cfg, &mipi_dsi_bus));
-	ESP_LOGI(TAG, "DSI bus created (500 Mbps)");
+	ESP_LOGI(TAG, "DSI bus created (288 Mbps)");
 
 	// 直接创建 DPI 面板（不需要 DBI 接口，不涉及任何 LCD 寄存器通信）
 	esp_lcd_dpi_panel_config_t dpi_cfg = {};
@@ -71,12 +73,25 @@ extern "C" void app_main(void)
 	ESP_ERROR_CHECK(esp_lcd_panel_init(dpi_panel));
 	ESP_LOGI(TAG, "DPI panel initialized");
 
-	// 设置硬件测试图案：垂直彩条（由 MIPI DSI 第部硬件生成，不依赖 LCD 初始化）
-	ESP_LOGI(TAG, "Setting pattern: vertical color bars");
-	ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(dpi_panel, MIPI_DSI_PATTERN_BAR_VERTICAL));
+	// 设置硬件测试图案
 
-	// 保持图案显示 30 秒以便观察
-	vTaskDelay(pdMS_TO_TICKS(30000));
+	Task::init(1);
+	Task::addTask([](void*)->TickType_t {ESP_LOGI("heartbeat", "heartbeat"); return 100; }, "heartbeat", nullptr, 0, Task::Affinity::None);
+
+	while (true)
+	{
+		ESP_LOGI(TAG, "Setting pattern: vertical color bars");
+		ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(dpi_panel, mipi_dsi_pattern_type_t::MIPI_DSI_PATTERN_BAR_VERTICAL));
+		vTaskDelay(pdMS_TO_TICKS(1000));
+
+		ESP_LOGI(TAG, "Setting pattern: horizontal color bars");
+		ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(dpi_panel, mipi_dsi_pattern_type_t::MIPI_DSI_PATTERN_BAR_HORIZONTAL));
+		vTaskDelay(pdMS_TO_TICKS(1000));
+
+		ESP_LOGI(TAG, "Setting pattern: vertical BER");
+		ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(dpi_panel, mipi_dsi_pattern_type_t::MIPI_DSI_PATTERN_BER_VERTICAL));
+		vTaskDelay(pdMS_TO_TICKS(1000));
+	}
 
 	// 取消测试图案
 	ESP_LOGI(TAG, "Clearing pattern");
