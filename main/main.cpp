@@ -25,11 +25,8 @@ extern "C" void app_main(void)
 {
 	ESP_LOGI(TAG, "Starting minimal MIPI DSI test with built-in pattern");
 
-	// 拉高reset
-	GPIO{ GPIO_NUM_48, GPIO::Mode::GPIO_MODE_OUTPUT } = 1;
-
-	// 开启背光
-	GPIO{ PIN_BL, GPIO::Mode::GPIO_MODE_OUTPUT } = BL_ON_LEVEL;
+	// 拉低复位
+	GPIO{ GPIO_NUM_48, GPIO::Mode::GPIO_MODE_OUTPUT } = 0;
 
 	// LDO 供电
 	esp_ldo_channel_config_t ldo_cfg = {};
@@ -37,6 +34,19 @@ extern "C" void app_main(void)
 	ldo_cfg.voltage_mv = LDO_VOLTAGE;
 	ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &ldo_phy));
 	ESP_LOGI(TAG, "PHY power on");
+
+	vTaskDelay(200);
+
+	// 拉高复位（启动）
+	GPIO{ GPIO_NUM_48 } = 1;
+	vTaskDelay(1);
+	GPIO{ GPIO_NUM_48 } = 0;
+	vTaskDelay(1);
+	GPIO{ GPIO_NUM_48 } = 1;
+	vTaskDelay(200);
+
+	// 开启背光
+	GPIO{ PIN_BL, GPIO::Mode::GPIO_MODE_OUTPUT } = BL_ON_LEVEL;
 
 	// 创建 MIPI DSI 总线 (2-lane, 288 Mbps)
 	esp_lcd_dsi_bus_config_t bus_cfg = {};
