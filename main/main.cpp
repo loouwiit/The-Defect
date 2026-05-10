@@ -10,6 +10,8 @@
 
 #include "gpio/gpio.hpp"
 
+#include "ili9881c_init_cmds.h"
+
 static const char* TAG = "ili9881c_example";
 
 // ================ 请根据实际硬件修改以下参数 ================
@@ -18,7 +20,7 @@ static const char* TAG = "ili9881c_example";
 #define BL_ON_LEVEL             1
 
 // 复位引脚（-1表示不使用硬件复位，或自己接）
-#define PIN_RST                 (-1)
+#define PIN_RST                 (GPIO_NUM_48)
 // MIPI DSI PHY 供电 LDO 通道
 #define LDO_CHAN                3
 #define LDO_VOLTAGE_MV          2500
@@ -44,9 +46,6 @@ static IRAM_ATTR bool on_color_trans_done(esp_lcd_panel_handle_t panel,
 
 static void lcd_init(void)
 {
-	// 0. 屏幕RESET拉高，虽然软件不用但是硬件上得是高
-	GPIO{ GPIO_NUM_48, GPIO::Mode::GPIO_MODE_OUTPUT } = 1;
-
 	// 1. 开启背光
 #if PIN_BL >= 0
 	GPIO{ PIN_BL, GPIO::Mode::GPIO_MODE_OUTPUT } = BL_ON_LEVEL;
@@ -83,20 +82,26 @@ static void lcd_init(void)
 	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
 	dpi_config.out_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
 	dpi_config.num_fbs = 1;
+	// ========== 修改 dpi_config 视频时序为 720×1280 ==========
 	dpi_config.video_timing.h_size = 720;
 	dpi_config.video_timing.v_size = 1280;
-	dpi_config.video_timing.hsync_back_porch = 140;
-	dpi_config.video_timing.hsync_pulse_width = 40;
-	dpi_config.video_timing.hsync_front_porch = 40;
-	dpi_config.video_timing.vsync_back_porch = 16;
-	dpi_config.video_timing.vsync_pulse_width = 4;
-	dpi_config.video_timing.vsync_front_porch = 16;
+	dpi_config.video_timing.hsync_back_porch = 30;   // 从 dts 取
+	dpi_config.video_timing.hsync_pulse_width = 4;
+	dpi_config.video_timing.hsync_front_porch = 30;
+	dpi_config.video_timing.vsync_back_porch = 14;
+	dpi_config.video_timing.vsync_pulse_width = 2;
+	dpi_config.video_timing.vsync_front_porch = 20;
+	// clock-frequency = 62 MHz，但 dpi_clock_freq_mhz 需匹配 lane_rate
+	// 先设 30 MHz 试试
+	dpi_config.dpi_clock_freq_mhz = 30;
+
 	dpi_config.flags.use_dma2d = true;
 
 	// 6. vendor_config 必须传入，否则 esp_lcd_new_panel_ili9881c 返回 ESP_ERR_INVALID_ARG
 	ili9881c_vendor_config_t vendor_config = {};
-	vendor_config.init_cmds = NULL;        // 使用组件内默认初始化序列
-	vendor_config.init_cmds_size = 0;
+	// ========== 修改 vendor_config 使用自定义序列 ==========
+	vendor_config.init_cmds = vendor_init_cmds;
+	vendor_config.init_cmds_size = sizeof(vendor_init_cmds) / sizeof(vendor_init_cmds[0]);
 	vendor_config.mipi_config.dsi_bus = mipi_dsi_bus;
 	vendor_config.mipi_config.dpi_config = &dpi_config;
 	vendor_config.mipi_config.lane_num = MIPI_LANE_NUM;
@@ -153,7 +158,7 @@ static void lcd_deinit(void)
 static void fill_screen(uint8_t r, uint8_t g, uint8_t b)
 {
 	int bpp = 3;
-	size_t buf_size = 800 * 1280 * bpp;
+	size_t buf_size = 720 * 1280 * bpp;
 	uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
 	if (!buf) {
 		ESP_LOGE(TAG, "malloc failed");
