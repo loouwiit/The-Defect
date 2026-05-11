@@ -32,7 +32,7 @@ static esp_lcd_panel_handle_t panel_handle = NULL;
 static esp_lcd_dsi_bus_handle_t mipi_dsi_bus = NULL;
 static esp_lcd_panel_io_handle_t mipi_dbi_io = NULL;
 static esp_ldo_channel_handle_t ldo_mipi_phy = NULL;
-static SemaphoreHandle_t refresh_finish = NULL;
+static SemaphoreHandle_t flushReady = NULL;
 
 static IRAM_ATTR bool on_color_trans_done(esp_lcd_panel_handle_t panel,
 	esp_lcd_dpi_panel_event_data_t* edata,
@@ -63,7 +63,7 @@ static void lcd_init(void)
 	bus_config.bus_id = 0;
 	bus_config.num_data_lanes = MIPI_LANE_NUM;
 	bus_config.phy_clk_src = mipi_dsi_phy_pllref_clock_source_t::MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT_LEGACY;
-	bus_config.lane_bit_rate_mbps = 744;
+	bus_config.lane_bit_rate_mbps = 1300;
 	ESP_ERROR_CHECK(esp_lcd_new_dsi_bus(&bus_config, &mipi_dsi_bus));
 
 	// 4. 创建 DBI 命令接口（用于初始化命令）
@@ -76,7 +76,7 @@ static void lcd_init(void)
 	// 5. 配置 DPI 时序（根据你的 ILI9881C 屏幕规格调整）
 	esp_lcd_dpi_panel_config_t dpi_config = {};
 	dpi_config.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
-	dpi_config.dpi_clock_freq_mhz = 744;
+	dpi_config.dpi_clock_freq_mhz = 62;
 	dpi_config.virtual_channel = 0;
 	dpi_config.pixel_format = lcd_color_rgb_pixel_format_t::LCD_COLOR_PIXEL_FORMAT_RGB888;
 	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
@@ -85,15 +85,12 @@ static void lcd_init(void)
 	// ========== 修改 dpi_config 视频时序为 720×1280 ==========
 	dpi_config.video_timing.h_size = 720;
 	dpi_config.video_timing.v_size = 1280;
-	dpi_config.video_timing.hsync_back_porch = 30;   // 从 dts 取
+	dpi_config.video_timing.hsync_back_porch = 30;
 	dpi_config.video_timing.hsync_pulse_width = 4;
 	dpi_config.video_timing.hsync_front_porch = 30;
 	dpi_config.video_timing.vsync_back_porch = 14;
 	dpi_config.video_timing.vsync_pulse_width = 2;
 	dpi_config.video_timing.vsync_front_porch = 20;
-	// clock-frequency = 62 MHz，但 dpi_clock_freq_mhz 需匹配 lane_rate
-	dpi_config.dpi_clock_freq_mhz = 62;
-
 	dpi_config.flags.use_dma2d = true;
 
 	// 6. vendor_config 必须传入，否则 esp_lcd_new_panel_ili9881c 返回 ESP_ERR_INVALID_ARG
@@ -110,7 +107,7 @@ static void lcd_init(void)
 	// 返回的 panel_handle 直接就是 DPI 面板句柄，不要额外再创建一次！
 	esp_lcd_panel_dev_config_t panel_config = {};
 	panel_config.reset_gpio_num = PIN_RST;
-	panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+	panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
 	panel_config.bits_per_pixel = 24;
 	panel_config.vendor_config = &vendor_config;
 	ESP_ERROR_CHECK(esp_lcd_new_panel_ili9881c(mipi_dbi_io, &panel_config, &panel_handle));
@@ -121,10 +118,11 @@ static void lcd_init(void)
 	ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
 	// 9. 注册刷新完成回调
-	refresh_finish = xSemaphoreCreateBinary();
+	flushReady = xSemaphoreCreateBinary();
 	esp_lcd_dpi_panel_event_callbacks_t cbs = {};
 	cbs.on_color_trans_done = on_color_trans_done;
-	ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(panel_handle, &cbs, refresh_finish));
+	ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(panel_handle, &cbs, flushReady));
+	xSemaphoreGive(flushReady);
 
 	ESP_LOGI(TAG, "LCD initialized");
 }
@@ -147,9 +145,9 @@ static void lcd_deinit(void)
 		esp_ldo_release_channel(ldo_mipi_phy);
 		ldo_mipi_phy = NULL;
 	}
-	if (refresh_finish) {
-		vSemaphoreDelete(refresh_finish);
-		refresh_finish = NULL;
+	if (flushReady) {
+		vSemaphoreDelete(flushReady);
+		flushReady = NULL;
 	}
 	ESP_LOGI(TAG, "LCD deinitialized");
 }
@@ -158,39 +156,41 @@ static void fill_screen(uint8_t r, uint8_t g, uint8_t b)
 {
 	int bpp = 3;
 	size_t buf_size = 720 * 1280 * bpp;
-	uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
-	if (!buf) {
-		ESP_LOGE(TAG, "malloc failed");
-		heap_caps_print_heap_info(MALLOC_CAP_SPIRAM);
-		return;
-	}
+	static uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+	assert(buf);
 	for (int i = 0; i < 720 * 1280; i++) {
 		buf[i * bpp] = r;
 		buf[i * bpp + 1] = g;
 		buf[i * bpp + 2] = b;
 	}
+	if (xSemaphoreTake(flushReady, 0) != pdTRUE)
+	{
+		ESP_LOGI(TAG, "Failed to take semaphore for flushReady");
+		xSemaphoreTake(flushReady, portMAX_DELAY);
+	}
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, 720, 1280, buf));
-	xSemaphoreTake(refresh_finish, portMAX_DELAY);
-	free(buf);
 }
 
 extern "C" void app_main(void)
 {
 	lcd_init();
 
+	constexpr static TickType_t waitTime = 1;
+	unsigned frameCount = 0;
+
 	while (true)
 	{
-		ESP_LOGI(TAG, "Show red");
+		ESP_LOGI(TAG, "Show red, frame %u", frameCount++);
 		fill_screen(255, 0, 0);
-		vTaskDelay(pdMS_TO_TICKS(2000));
+		vTaskDelay(pdMS_TO_TICKS(waitTime));
 
-		ESP_LOGI(TAG, "Show green");
+		ESP_LOGI(TAG, "Show green, frame %u", frameCount++);
 		fill_screen(0, 255, 0);
-		vTaskDelay(pdMS_TO_TICKS(2000));
+		vTaskDelay(pdMS_TO_TICKS(waitTime));
 
-		ESP_LOGI(TAG, "Show blue");
+		ESP_LOGI(TAG, "Show blue, frame %u", frameCount++);
 		fill_screen(0, 0, 255);
-		vTaskDelay(pdMS_TO_TICKS(2000));
+		vTaskDelay(pdMS_TO_TICKS(waitTime));
 	}
 
 	lcd_deinit();

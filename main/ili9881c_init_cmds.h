@@ -133,7 +133,7 @@ static const uint8_t cmd_88_data[]         = {0x02};
 static const uint8_t cmd_89_data[]         = {0x02};
 static const uint8_t cmd_8A_data[]         = {0x02};
 static const uint8_t cmd_FF_04_data[]      = {0x98, 0x81, 0x04};
-static const uint8_t cmd_00_data[]         = {0x80};
+// static const uint8_t cmd_00_data[]         = {0x00};
 static const uint8_t cmd_38_01_data[]      = {0x01};
 static const uint8_t cmd_39_00_data[]      = {0x00};
 static const uint8_t cmd_6C_15_data[]      = {0x15};
@@ -202,7 +202,7 @@ static const uint8_t cmd_D1_data[]         = {0x4B};
 static const uint8_t cmd_D2_data[]         = {0x60};
 static const uint8_t cmd_D3_data[]         = {0x39};
 static const uint8_t cmd_FF_00_data[]      = {0x98, 0x81, 0x00};
-static const uint8_t cmd_36_00_data[]      = {0x00};
+// static const uint8_t cmd_36_00_data[]      = {0x00};
 static const uint8_t cmd_35_00_data[]      = {0x00};
 
 // ---- 初始化命令序列 ----
@@ -338,7 +338,7 @@ static const ili9881c_lcd_init_cmd_t vendor_init_cmds[] = {
     {0x8A, cmd_8A_data, 1, 0},
     // Page 4
     {0xFF, cmd_FF_04_data, 3, 0},
-    {0x00, cmd_00_data, 1, 0},
+    // {0x00, cmd_00_data, 1, 0},
     {0x38, cmd_38_01_data, 1, 0},
     {0x39, cmd_39_00_data, 1, 0},
     {0x6C, cmd_6C_15_data, 1, 0},
@@ -411,7 +411,7 @@ static const ili9881c_lcd_init_cmd_t vendor_init_cmds[] = {
     {0xD3, cmd_D3_data, 1, 0},
     // Page 0
     {0xFF, cmd_FF_00_data, 3, 0},
-    {0x36, cmd_36_00_data, 1, 0},
+    // {0x36, cmd_36_00_data, 1, 0},
     {0x35, cmd_35_00_data, 1, 0},
     // Sleep Out
     {0x11, NULL, 0, 120},
