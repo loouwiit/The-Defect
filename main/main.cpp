@@ -15,11 +15,13 @@
 
 static const char* TAG = "minimal_mipi_test";
 
-#define PIN_BL      (GPIO_NUM_47)
+#define PIN_BL      (GPIO_NUM_4)
 #define BL_ON_LEVEL 1
 #define LDO_CHAN    3
 #define LDO_VOLTAGE 2500
 #define LANE_NUM    2
+
+#define PIN_RST     (GPIO_NUM_5)
 
 static esp_lcd_dsi_bus_handle_t mipi_dsi_bus = NULL;
 static esp_lcd_panel_io_handle_t dbi_io = NULL;
@@ -33,7 +35,7 @@ extern "C" void app_main(void)
 	new std::thread{ [](){while (true) { ESP_LOGI(TAG, "heartbeat"); vTaskDelay(1000); }} };
 
 	// 拉低复位
-	GPIO{ GPIO_NUM_48, GPIO::Mode::GPIO_MODE_OUTPUT } = 0;
+	GPIO{ PIN_RST, GPIO::Mode::GPIO_MODE_OUTPUT } = 0;
 
 	// LDO 供电
 	esp_ldo_channel_config_t ldo_cfg = {};
@@ -65,13 +67,17 @@ extern "C" void app_main(void)
 	vTaskDelay(200);
 
 	// 复位
-	GPIO{ GPIO_NUM_48 } = 1;
+	GPIO{ PIN_RST } = 1;
 	vTaskDelay(1);
-	GPIO{ GPIO_NUM_48 } = 0;
+	GPIO{ PIN_RST } = 0;
 	vTaskDelay(1);
-	GPIO{ GPIO_NUM_48 } = 1;
+	GPIO{ PIN_RST } = 1;
 	vTaskDelay(200);
 
+	ESP_LOGI(TAG, "Reciving panel ID using DBI...");
+	int commands[4] = { 0x04 };
+	esp_lcd_panel_io_rx_param(dbi_io, 1, commands, 1);
+	ESP_LOGI(TAG, "Recieved panel ID: %02x", commands[0]);
 
 	ESP_LOGI(TAG, "Sending complete init sequence...");
 	for (int i = 0; i < sizeof(vendor_init_cmds) / sizeof(vendor_init_cmds[0]); i++) {
