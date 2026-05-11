@@ -3,6 +3,8 @@
 #include "esp_dma_utils.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <esp_err.h>
+#include "initCommand.inl"
 
 static const char* TAG = "Display";
 
@@ -20,6 +22,13 @@ Display::~Display()
 bool Display::init()
 {
 	esp_err_t ret;
+
+	// 0. LDO 供电
+	esp_ldo_channel_config_t ldo_cfg = {};
+	ldo_cfg.chan_id = LDO_CHAN;
+	ldo_cfg.voltage_mv = LDO_VOLTAGE;
+	ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &ldo_phy));
+	ESP_LOGI(TAG, "PHY power on");
 
 	// 1. Create MIPI DSI bus
 	esp_lcd_dsi_bus_config_t bus_config = {};
@@ -50,20 +59,23 @@ bool Display::init()
 	// 3. Configure DPI panel
 	esp_lcd_dpi_panel_config_t dpi_config = {};
 	dpi_config.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
-	dpi_config.dpi_clock_freq_mhz = 80;
+	dpi_config.dpi_clock_freq_mhz = 62;
 	dpi_config.virtual_channel = 0;
-	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB565;
+	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
 	dpi_config.num_fbs = 1;
 	dpi_config.video_timing.h_size = H_RES;
 	dpi_config.video_timing.v_size = V_RES;
-	dpi_config.video_timing.hsync_back_porch = 140;
-	dpi_config.video_timing.hsync_pulse_width = 40;
-	dpi_config.video_timing.hsync_front_porch = 40;
-	dpi_config.video_timing.vsync_back_porch = 16;
-	dpi_config.video_timing.vsync_pulse_width = 4;
-	dpi_config.video_timing.vsync_front_porch = 16;
+	dpi_config.video_timing.hsync_back_porch = 30;
+	dpi_config.video_timing.hsync_pulse_width = 4;
+	dpi_config.video_timing.hsync_front_porch = 30;
+	dpi_config.video_timing.vsync_back_porch = 14;
+	dpi_config.video_timing.vsync_pulse_width = 2;
+	dpi_config.video_timing.vsync_front_porch = 20;
+	dpi_config.flags.use_dma2d = true;
 
 	ili9881c_vendor_config_t vendor_config = {};
+	vendor_config.init_cmds = vendor_init_cmds;
+	vendor_config.init_cmds_size = sizeof(vendor_init_cmds) / sizeof(vendor_init_cmds[0]);
 	vendor_config.mipi_config.dsi_bus = dsi_bus;
 	vendor_config.mipi_config.dpi_config = &dpi_config;
 	vendor_config.mipi_config.lane_num = MIPI_LANE_NUM;
@@ -71,7 +83,7 @@ bool Display::init()
 	esp_lcd_panel_dev_config_t panel_config = {};
 	panel_config.reset_gpio_num = RESET_GPIO;
 	panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
-	panel_config.bits_per_pixel = 16;  // RGB565
+	panel_config.bits_per_pixel = 24;  // RGB888
 	panel_config.vendor_config = &vendor_config;
 
 	ret = esp_lcd_new_panel_ili9881c(panel_io, &panel_config, &panel);
@@ -94,12 +106,13 @@ bool Display::init()
 	// 5. Turn on display
 	esp_lcd_panel_disp_on_off(panel, true);
 	ESP_LOGI(TAG, "ILI9881C panel initialized");
+	GPIO{ BACKLIGHT_GPIO, GPIO::Mode::GPIO_MODE_OUTPUT } = 1;
 
 	// 6. Initialize LVGL
 	lv_init();
 
 	// Allocate display buffers (use PSRAM for larger buffers)
-	uint32_t buffer_size = H_RES * 100;  // 100 lines buffer
+	uint32_t buffer_size = H_RES * V_RES;
 	buf1 = (lv_color_t*)heap_caps_malloc(buffer_size * sizeof(lv_color_t),
 		MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 	buf2 = (lv_color_t*)heap_caps_malloc(buffer_size * sizeof(lv_color_t),
@@ -115,13 +128,13 @@ bool Display::init()
 	// Create LVGL display
 	lvgl_disp = lv_display_create(H_RES, V_RES);
 	lv_display_set_buffers(lvgl_disp, buf1, buf2, buffer_size * sizeof(lv_color_t),
-		LV_DISPLAY_RENDER_MODE_PARTIAL);
+		LV_DISPLAY_RENDER_MODE_DIRECT);
 	lv_display_set_flush_cb(lvgl_disp, [](lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
 		// In DPI mode, hardware handles refresh automatically
 		lv_display_flush_ready(disp);
 		});
 	lv_display_set_user_data(lvgl_disp, panel);
 
-	ESP_LOGI(TAG, "Display initialized: %dx%d RGB565", H_RES, V_RES);
+	ESP_LOGI(TAG, "Display initialized: %dx%d RGB888", H_RES, V_RES);
 	return true;
 }
