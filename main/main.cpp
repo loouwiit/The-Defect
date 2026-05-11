@@ -16,11 +16,11 @@ static const char* TAG = "ili9881c_example";
 
 // ================ 请根据实际硬件修改以下参数 ================
 // 背光引脚（-1 表示未使用）
-#define PIN_BL                  (GPIO_NUM_47)
+#define PIN_BL                  (GPIO_NUM_4)
 #define BL_ON_LEVEL             1
 
 // 复位引脚（-1表示不使用硬件复位，或自己接）
-#define PIN_RST                 (GPIO_NUM_48)
+#define PIN_RST                 (GPIO_NUM_5)
 // MIPI DSI PHY 供电 LDO 通道
 #define LDO_CHAN                3
 #define LDO_VOLTAGE_MV          2500
@@ -63,7 +63,7 @@ static void lcd_init(void)
 	bus_config.bus_id = 0;
 	bus_config.num_data_lanes = MIPI_LANE_NUM;
 	bus_config.phy_clk_src = mipi_dsi_phy_pllref_clock_source_t::MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT_LEGACY;
-	bus_config.lane_bit_rate_mbps = 500;
+	bus_config.lane_bit_rate_mbps = 744;
 	ESP_ERROR_CHECK(esp_lcd_new_dsi_bus(&bus_config, &mipi_dsi_bus));
 
 	// 4. 创建 DBI 命令接口（用于初始化命令）
@@ -76,7 +76,7 @@ static void lcd_init(void)
 	// 5. 配置 DPI 时序（根据你的 ILI9881C 屏幕规格调整）
 	esp_lcd_dpi_panel_config_t dpi_config = {};
 	dpi_config.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
-	dpi_config.dpi_clock_freq_mhz = 80;
+	dpi_config.dpi_clock_freq_mhz = 744;
 	dpi_config.virtual_channel = 0;
 	dpi_config.pixel_format = lcd_color_rgb_pixel_format_t::LCD_COLOR_PIXEL_FORMAT_RGB888;
 	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
@@ -92,8 +92,7 @@ static void lcd_init(void)
 	dpi_config.video_timing.vsync_pulse_width = 2;
 	dpi_config.video_timing.vsync_front_porch = 20;
 	// clock-frequency = 62 MHz，但 dpi_clock_freq_mhz 需匹配 lane_rate
-	// 先设 30 MHz 试试
-	dpi_config.dpi_clock_freq_mhz = 30;
+	dpi_config.dpi_clock_freq_mhz = 62;
 
 	dpi_config.flags.use_dma2d = true;
 
@@ -159,17 +158,18 @@ static void fill_screen(uint8_t r, uint8_t g, uint8_t b)
 {
 	int bpp = 3;
 	size_t buf_size = 720 * 1280 * bpp;
-	uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+	uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
 	if (!buf) {
 		ESP_LOGE(TAG, "malloc failed");
+		heap_caps_print_heap_info(MALLOC_CAP_SPIRAM);
 		return;
 	}
-	for (int i = 0; i < 800 * 1280; i++) {
+	for (int i = 0; i < 720 * 1280; i++) {
 		buf[i * bpp] = r;
 		buf[i * bpp + 1] = g;
 		buf[i * bpp + 2] = b;
 	}
-	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, 800, 1280, buf));
+	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, 720, 1280, buf));
 	xSemaphoreTake(refresh_finish, portMAX_DELAY);
 	free(buf);
 }
