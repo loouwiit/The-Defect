@@ -63,6 +63,7 @@ dependencies:
     targets:
     - esp32p4
     version: 1.1.0
+<<<<<<< HEAD
   espressif/esp_lcd_touch:
     component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
     dependencies:
@@ -87,6 +88,8 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.2.0~2
+=======
+>>>>>>> origin/ili9881c
   espressif/esp_serial_slave_link:
     component_hash: ac1776806de0a6e371c84e87898bb983e19ce62aa7f1e2e5c4a3b0234a575d2c
     dependencies:
@@ -146,9 +149,15 @@ direct_dependencies:
 - espressif/esp-brookesia
 - espressif/esp_hosted
 - espressif/esp_lcd_ili9881c
+<<<<<<< HEAD
 - espressif/esp_lcd_touch_gt911
 - espressif/esp_wifi_remote
 - idf
 manifest_hash: 916738c1dd61e63e45e352b11d6ef4d85cbc9f5445c0e52914e61442bc938897
+=======
+- espressif/esp_wifi_remote
+- idf
+manifest_hash: 5f08db0b9f8f029ca303677a85a7a57105a0f8ba6cad65336bdbe03a102ca9f7
+>>>>>>> origin/ili9881c
 target: esp32p4
 version: 2.0.0
