@@ -13,6 +13,34 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.1.5
+  espressif/esp-brookesia:
+    component_hash: da224da7a829bb930793c0c779b44227238a57191ca360908c8f2b051d220223
+    dependencies:
+    - name: espressif/esp-lib-utils
+      registry_url: https://components.espressif.com
+      require: public
+      version: 0.2.*
+    - name: idf
+      require: private
+      version: '>=5.3'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: public
+      version: 9.2.*
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.0
+  espressif/esp-lib-utils:
+    component_hash: 9e81fa27e3a8292bed95d91754ebcb8f27f47117328b0b646446f29fc5a847fb
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.2.3
   espressif/esp_hosted:
     component_hash: d1f01fbe9b7ee867e1c330754fe46cb550375e27edf2159e9b670f29bd36b682
     dependencies:
@@ -23,6 +51,42 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 2.12.6
+  espressif/esp_lcd_ili9881c:
+    component_hash: 0288df12755c95d406ccea245a427595f314df0b14a61846286d926ea6f3698e
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32p4
+    version: 1.1.0
+  espressif/esp_lcd_touch:
+    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.2.1
+  espressif/esp_lcd_touch_gt911:
+    component_hash: 6029febef66eefd0910d527d7f30292779ccbf22a8dedd2bd69466acf0068a7b
+    dependencies:
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1.2.0
+    - name: idf
+      require: private
+      version: '>=5.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.2.0~2
   espressif/esp_serial_slave_link:
     component_hash: ac1776806de0a6e371c84e87898bb983e19ce62aa7f1e2e5c4a3b0234a575d2c
     dependencies:
@@ -71,10 +135,20 @@ dependencies:
     source:
       type: idf
     version: 5.5.2
+  lvgl/lvgl:
+    component_hash: 096c69af22eaf8a2b721e3913da91918c5e6bf1a762a113ec01f401aa61337a0
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 9.2.2
 direct_dependencies:
+- espressif/esp-brookesia
 - espressif/esp_hosted
+- espressif/esp_lcd_ili9881c
+- espressif/esp_lcd_touch_gt911
 - espressif/esp_wifi_remote
 - idf
-manifest_hash: d4e75e79ad71f648404439d92cfc425187de1f2dd93b0be3ca3189a68406bcc0
+manifest_hash: 916738c1dd61e63e45e352b11d6ef4d85cbc9f5445c0e52914e61442bc938897
 target: esp32p4
 version: 2.0.0
