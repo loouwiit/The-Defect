@@ -23,6 +23,7 @@ public:
 
 private:
 	friend class IICDevice;
+	friend class Touch;
 
 	i2c_master_bus_handle_t busHandle = nullptr;
 };

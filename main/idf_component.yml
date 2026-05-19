@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/esp_wifi_remote: ^1.5.0
   espressif/esp_hosted: ^2.12.0
+  espressif/esp_lcd_touch_gt911: ^1.2.0~2
