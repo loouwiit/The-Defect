@@ -24,7 +24,7 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "Display initialized successfully!");
 
 	auto screen = lv_scr_act();
-	lv_obj_set_style_bg_color(screen, lv_color_hex(0xFF00FF), 0);
+	lv_obj_set_style_bg_color(screen, lv_color_hex(0x0000FF), 0);
 	lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
 	// Create a simple label showing "Hello World"
