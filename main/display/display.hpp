@@ -28,7 +28,7 @@ public:
 	static constexpr int V_RES = 1280;
 
 	// MIPI DSI configuration
-	static constexpr int MIPI_LANE_BIT_RATE_MBPS = 1300;
+	static constexpr int MIPI_LANE_BIT_RATE_MBPS = 1200;
 	static constexpr int MIPI_LANE_NUM = 2;
 
 	// Reset GPIO
