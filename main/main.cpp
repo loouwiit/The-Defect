@@ -23,11 +23,15 @@ extern "C" void app_main(void)
 
 	ESP_LOGI(TAG, "Display initialized successfully!");
 
+	auto screen = lv_scr_act();
+	lv_obj_set_style_bg_color(screen, lv_color_hex(0xFF00FF), 0);
+	lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+
 	// Create a simple label showing "Hello World"
 	lv_obj_t* label = lv_label_create(lv_screen_active());
 	lv_label_set_text(label, "Hello World!");
 	lv_obj_center(label);
-	lv_obj_set_style_text_color(label, lv_color_make(255, 255, 255), 0);
+	lv_obj_set_style_text_color(label, lv_color_hex(0xFFFF00), 0);
 	lv_obj_set_style_text_font(label, &lv_font_montserrat_18, 0);
 
 	ESP_LOGI(TAG, "Hello World displayed!");
@@ -36,6 +40,21 @@ extern "C" void app_main(void)
 	while (true) {
 		lv_timer_handler();
 		vTaskDelay(pdMS_TO_TICKS(5));
+
+		lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
+		lv_refr_now(nullptr);
+
+		lv_timer_handler();
+		vTaskDelay(pdMS_TO_TICKS(5));
+
+		lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
+		lv_refr_now(nullptr);
+
+		lv_timer_handler();
+		vTaskDelay(pdMS_TO_TICKS(5));
+
+		lv_obj_set_style_text_color(label, lv_color_hex(0x0000FF), 0);
+		lv_refr_now(nullptr);
 	}
 
 	// Never reaches here

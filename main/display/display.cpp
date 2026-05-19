@@ -128,12 +128,21 @@ bool Display::init()
 	// Create LVGL display
 	lvgl_disp = lv_display_create(H_RES, V_RES);
 	lv_display_set_buffers(lvgl_disp, buf1, buf2, buffer_size * sizeof(lv_color_t),
-		LV_DISPLAY_RENDER_MODE_DIRECT);
+		LV_DISPLAY_RENDER_MODE_FULL);
 	lv_display_set_flush_cb(lvgl_disp, [](lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
-		// In DPI mode, hardware handles refresh automatically
-		lv_display_flush_ready(disp);
+		auto panel = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
+		esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
+		ESP_LOGI("display", "%dx%d", area->x2 - area->x1 + 1, area->y2 - area->y1 + 1);
 		});
 	lv_display_set_user_data(lvgl_disp, panel);
+
+	esp_lcd_dpi_panel_event_callbacks_t cbs = {};
+	cbs.on_color_trans_done = [](esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t* edata, void* user_ctx)->bool
+		{
+			lv_display_flush_ready((lv_display_t*)user_ctx);
+			return false;
+		};
+	ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(panel, &cbs, lvgl_disp));
 
 	ESP_LOGI(TAG, "Display initialized: %dx%d RGB888", H_RES, V_RES);
 	return true;
