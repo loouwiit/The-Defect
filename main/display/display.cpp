@@ -61,7 +61,18 @@ bool Display::init()
 	dpi_config.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
 	dpi_config.dpi_clock_freq_mhz = 62;
 	dpi_config.virtual_channel = 0;
-	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
+
+	static_assert(LV_COLOR_DEPTH == 24 || LV_COLOR_DEPTH == 16, "Color depth must be 24 or 16");
+	if constexpr (LV_COLOR_DEPTH == 24)
+		dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
+	else if constexpr (LV_COLOR_DEPTH == 16)
+		dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB565;
+	else
+	{
+		ESP_LOGE(TAG, "Color depth must be 24 or 16");
+		return false;
+	}
+
 	dpi_config.num_fbs = 1;
 	dpi_config.video_timing.h_size = H_RES;
 	dpi_config.video_timing.v_size = V_RES;
@@ -83,7 +94,7 @@ bool Display::init()
 	esp_lcd_panel_dev_config_t panel_config = {};
 	panel_config.reset_gpio_num = RESET_GPIO;
 	panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
-	panel_config.bits_per_pixel = 24;  // RGB888
+	panel_config.bits_per_pixel = LV_COLOR_DEPTH;
 	panel_config.vendor_config = &vendor_config;
 
 	ret = esp_lcd_new_panel_ili9881c(panel_io, &panel_config, &panel);
@@ -113,9 +124,9 @@ bool Display::init()
 
 	// Allocate display buffers (use PSRAM for larger buffers)
 	uint32_t buffer_size = H_RES * V_RES;
-	buf1 = (lv_color_t*)heap_caps_malloc(buffer_size * sizeof(lv_color_t),
+	buf1 = (lv_color_t*)heap_caps_malloc(buffer_size * LV_COLOR_DEPTH / 8,
 		MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-	buf2 = (lv_color_t*)heap_caps_malloc(buffer_size * sizeof(lv_color_t),
+	buf2 = (lv_color_t*)heap_caps_malloc(buffer_size * LV_COLOR_DEPTH / 8,
 		MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
 	if (!buf1 || !buf2) {
@@ -123,16 +134,20 @@ bool Display::init()
 		return false;
 	}
 	ESP_LOGI(TAG, "Display buffers allocated: %d x 2 (%d KB each)", buffer_size,
-		buffer_size * sizeof(lv_color_t) / 1024);
+		buffer_size * LV_COLOR_DEPTH / 8 / 1024);
 
 	// Create LVGL display
 	lvgl_disp = lv_display_create(H_RES, V_RES);
-	lv_display_set_buffers(lvgl_disp, buf1, buf2, buffer_size * sizeof(lv_color_t),
+	lv_display_set_buffers(lvgl_disp, buf1, buf2, buffer_size * LV_COLOR_DEPTH / 8,
 		LV_DISPLAY_RENDER_MODE_FULL);
 	lv_display_set_flush_cb(lvgl_disp, [](lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
 		auto panel = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
 		esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
-		ESP_LOGI("display", "%dx%d", area->x2 - area->x1 + 1, area->y2 - area->y1 + 1);
+
+		static TickType_t lastTime = 0;
+		TickType_t nowTime = xTaskGetTickCount();
+		ESP_LOGI("display", "%dx%d %dms", area->x2 - area->x1 + 1, area->y2 - area->y1 + 1, nowTime - lastTime);
+		lastTime = nowTime;
 		});
 	lv_display_set_user_data(lvgl_disp, panel);
 
@@ -144,6 +159,6 @@ bool Display::init()
 		};
 	ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(panel, &cbs, lvgl_disp));
 
-	ESP_LOGI(TAG, "Display initialized: %dx%d RGB888", H_RES, V_RES);
+	ESP_LOGI(TAG, "Display initialized: %dx%d", H_RES, V_RES);
 	return true;
 }
