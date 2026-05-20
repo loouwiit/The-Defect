@@ -24,13 +24,50 @@ extern "C" void app_main(void)
 	}
 
 	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
-	if (auto guard = display.lockGuard()) {
-		lv_obj_t* label = lv_label_create(lv_scr_act());
+	lv_obj_t* label{};
+	if (auto guard = display.lockGuard())
+	{
+		label = lv_label_create(lv_scr_act());
 		lv_label_set_text(label, "Hello LVGL!");
 		lv_obj_center(label);
 	} // guard 析构时自动解锁
 
+	esp_lv_adapter_fps_stats_enable(display.getLvglDisplay(), true);
+
+	auto getFps = [disp = display.getLvglDisplay()]()->uint32_t
+		{
+			uint32_t fps{};
+			auto err = esp_lv_adapter_get_fps(disp, &fps);
+			ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+			return fps;
+		};
+
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(10));
+		ESP_LOGI(TAG, "FPS: %d", getFps());
+
+		if (auto guard = display.lockGuard())
+		{
+			lv_label_set_text_fmt(label, "fps: %ld", getFps());
+			lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(10));
+		ESP_LOGI(TAG, "FPS: %d", getFps());
+
+		if (auto guard = display.lockGuard())
+		{
+			lv_label_set_text_fmt(label, "fps: %ld", getFps());
+			lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(10));
+		ESP_LOGI(TAG, "FPS: %d", getFps());
+
+		if (auto guard = display.lockGuard())
+		{
+			lv_label_set_text_fmt(label, "fps: %ld", getFps());
+			lv_obj_set_style_text_color(label, lv_color_hex(0x0000FF), 0);
+		}
 	}
 }

@@ -124,7 +124,7 @@ dependencies:
       type: service
     version: 1.0.1
   espressif/esp_lvgl_adapter:
-    component_hash: 0b7c0acb3adfb6b08b656f3cab0298ed368623b0acdd893c4907b3182c3cf3e7
+    component_hash: 7012f0b59ac05302ce516424557d40d87b9819028b9319bb583e8dab3610b068
     dependencies:
     - name: espressif/button
       registry_url: https://components.espressif.com
@@ -160,7 +160,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 0.5.0
+    version: 0.4.3~1
   espressif/esp_mmap_assets:
     component_hash: b7c559238d9f4c11048b1d7302f5474e4f4f590902433efd792bd0cbf5324f2a
     dependencies:
@@ -304,6 +304,6 @@ direct_dependencies:
 - espressif/esp_wifi_remote
 - idf
 - lvgl/lvgl
-manifest_hash: 8129c63f64251da77d3280b62df0a2f26e93d503279eccc8ce8cb4005164edad
+manifest_hash: 4736de525e60c831c740369c5c25e3674669137989598369d6a6856e61a0c00c
 target: esp32p4
 version: 2.0.0
