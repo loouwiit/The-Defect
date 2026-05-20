@@ -23,7 +23,7 @@ public:
 	static constexpr auto LDO_CHAN = 3;
 	static constexpr auto LDO_VOLTAGE = 2500;
 
-	// Screen resolution
+	// Screen resolution (landscape)
 	static constexpr int H_RES = 720;
 	static constexpr int V_RES = 1280;
 
