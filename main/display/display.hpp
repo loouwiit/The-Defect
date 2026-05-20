@@ -65,6 +65,8 @@ public:
 	 */
 	bool init(esp_lv_adapter_rotation_t rotation = ESP_LV_ADAPTER_ROTATE_0);
 
+	bool bindTouch(esp_lcd_touch_handle_t touch);
+
 	/**
 	 * @brief Start the LVGL worker task
 	 *

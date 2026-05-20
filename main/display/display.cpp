@@ -143,8 +143,17 @@ bool Display::init(esp_lv_adapter_rotation_t rotation)
 	}
 
 	ESP_LOGI(TAG, "Display + LVGL adapter initialized (%dx%d, rotation=%d)",
-			 H_RES, V_RES, (int)rotation);
+		H_RES, V_RES, (int)rotation);
 	return true;
+}
+
+bool Display::bindTouch(esp_lcd_touch_handle_t touchHandle)
+{
+	// 使用默认配置宏注册触摸设备
+	esp_lv_adapter_touch_config_t touch_cfg = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(lv_disp, touchHandle);
+	lv_indev_t* touch = esp_lv_adapter_register_touch(&touch_cfg);
+	assert(touch != NULL);
+	return touch != NULL;
 }
 
 bool Display::start()

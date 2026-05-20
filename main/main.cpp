@@ -1,4 +1,5 @@
 #include "display/display.hpp"
+#include "touch/touch.hpp"
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,6 +14,10 @@ extern "C" void app_main(void)
 		ESP_LOGE(TAG, "Failed to initialize display");
 		return;
 	}
+
+	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	Touch touch{ iic, {GPIO_NUM_46} };
+	display.bindTouch(touch.getHandle());
 
 	// (可选) 在此处注册触摸/按钮等输入设备
 	// ...
@@ -30,6 +35,20 @@ extern "C" void app_main(void)
 		label = lv_label_create(lv_scr_act());
 		lv_label_set_text(label, "Hello LVGL!");
 		lv_obj_center(label);
+
+		auto screen = lv_screen_active();
+		lv_obj_add_event_cb(screen, [](lv_event_t* event)
+			{
+				ESP_LOGI("callback", "LV_EVENT_PRESSED");
+			}, LV_EVENT_PRESSED, nullptr);
+		lv_obj_add_event_cb(screen, [](lv_event_t* event)
+			{
+				ESP_LOGI("callback", "LV_EVENT_PRESSING");
+			}, LV_EVENT_PRESSING, nullptr);
+		lv_obj_add_event_cb(screen, [](lv_event_t* event)
+			{
+				ESP_LOGI("callback", "LV_EVENT_RELEASED");
+			}, LV_EVENT_RELEASED, nullptr);
 	} // guard 析构时自动解锁
 
 	esp_lv_adapter_fps_stats_enable(display.getLvglDisplay(), true);

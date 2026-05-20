@@ -69,6 +69,20 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.2.1
+  espressif/esp_lcd_touch_gt911:
+    component_hash: 6029febef66eefd0910d527d7f30292779ccbf22a8dedd2bd69466acf0068a7b
+    dependencies:
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1.2.0
+    - name: idf
+      require: private
+      version: '>=5.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.2.0~2
   espressif/esp_lv_decoder:
     component_hash: 0328ad04fc6f28a3c78e7613a4127fdf64429f14b923718efb1ee37112010adc
     dependencies:
@@ -300,10 +314,11 @@ dependencies:
 direct_dependencies:
 - espressif/esp_hosted
 - espressif/esp_lcd_ili9881c
+- espressif/esp_lcd_touch_gt911
 - espressif/esp_lvgl_adapter
 - espressif/esp_wifi_remote
 - idf
 - lvgl/lvgl
-manifest_hash: 4736de525e60c831c740369c5c25e3674669137989598369d6a6856e61a0c00c
+manifest_hash: 664c0cac31140f8e73353cb9327fe113184dcf30be6f702c6286a1a12e81b93b
 target: esp32p4
 version: 2.0.0
