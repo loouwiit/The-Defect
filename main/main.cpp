@@ -23,13 +23,12 @@ extern "C" void app_main(void)
 		return;
 	}
 
-	// 3. 使用 LVGL API 绘制界面
-	if (display.lock()) {
+	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
+	if (auto guard = display.lockGuard()) {
 		lv_obj_t* label = lv_label_create(lv_scr_act());
 		lv_label_set_text(label, "Hello LVGL!");
 		lv_obj_center(label);
-		display.unlock();
-	}
+	} // guard 析构时自动解锁
 
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(10));

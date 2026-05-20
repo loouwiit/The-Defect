@@ -95,6 +95,46 @@ public:
 	/** @brief Unlock LVGL */
 	void unlock() const { esp_lv_adapter_unlock(); }
 
+	/**
+	 * @brief RAII lock guard for LVGL
+	 *
+	 * Locks in constructor, unlocks in destructor.
+	 * Non-copyable, non-movable.
+	 *
+	 * Usage:
+	 * @code
+	 *   if (auto guard = display.lockGuard()) {
+	 *       lv_label_create(...);
+	 *   } // auto-unlock
+	 * @endcode
+	 */
+	class LockGuard {
+	public:
+		explicit LockGuard(const Display& disp, int32_t timeout_ms = -1)
+			: m_disp(disp), m_locked(disp.lock(timeout_ms)) {}
+
+		~LockGuard() {
+			if (m_locked) m_disp.unlock();
+		}
+
+		/** @brief Check if lock was acquired */
+		explicit operator bool() const { return m_locked; }
+
+		LockGuard(const LockGuard&)            = delete;
+		LockGuard& operator=(const LockGuard&) = delete;
+		LockGuard(LockGuard&&)                 = delete;
+		LockGuard& operator=(LockGuard&&)      = delete;
+
+	private:
+		const Display& m_disp;
+		bool m_locked;
+	};
+
+	/** @brief Convenience factory for LockGuard */
+	LockGuard lockGuard(int32_t timeout_ms = -1) const {
+		return LockGuard(*this, timeout_ms);
+	}
+
 private:
 	esp_ldo_channel_handle_t ldo_phy{};
 	esp_lcd_dsi_bus_handle_t dsi_bus = nullptr;
