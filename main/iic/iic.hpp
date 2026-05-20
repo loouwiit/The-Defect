@@ -21,10 +21,9 @@ public:
 
 	bool detect(uint16_t address);
 
-private:
-	friend class IICDevice;
-	friend class Touch;
+	i2c_master_bus_handle_t getBusHandle();
 
+private:
 	i2c_master_bus_handle_t busHandle = nullptr;
 };
 

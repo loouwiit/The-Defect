@@ -8,36 +8,32 @@
 #include "esp_task.h"
 
 #include "iic/iic.hpp"
-#include "gt911/gt911.hpp"
+#include "touch/touch.hpp"
 
 constexpr static char TAG[] = "main";
 
 extern "C" void app_main(void)
 {
 	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
-	
-	GPIO reset{ GPIO_NUM_46 };
-	reset = 0;
-	vTaskDelay(100 / portTICK_PERIOD_MS);
-	reset = 1;
-	vTaskDelay(100 / portTICK_PERIOD_MS);
-
-	Touch touch{ iic };	
+	Touch touch{ iic, {GPIO_NUM_46} };
 
 	while (true)
 	{
-		auto data = touch.getPointData();
-		if (data.count > 0) {
-            ESP_LOGI(TAG, "Touched %d points:", data.count);
-            for (int i = 0; i < data.count; i++) {
-                ESP_LOGI(TAG, "  [%d] track=%d, (%d, %d), strength=%d",
-                         i, data.points[i].track_id,
-                         data.points[i].x, data.points[i].y,
-                         data.points[i].strength);
-            }
-        }
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+		touch.update();
 
-		vTaskDelay(1000 / portTICK_PERIOD_MS);
+		if (auto count = touch.getCount())
+		{
+			ESP_LOGI(TAG, "Touched %d points:", count);
+			for (auto i = 0; i < count; i++)
+			{
+				auto&& finger = touch[i];
+
+				ESP_LOGI(TAG, "[%d] track=%d, (%d, %d), strength=%d",
+					i, finger.track_id,
+					finger.x, finger.y,
+					finger.strength);
+			}
+		}
+		vTaskDelay(20 / portTICK_PERIOD_MS);
 	}
 }

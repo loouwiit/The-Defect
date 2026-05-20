@@ -38,6 +38,11 @@ bool IIC::detect(uint16_t address)
 	return ESP_OK == i2c_master_probe(busHandle, address, 2);
 }
 
+i2c_master_bus_handle_t IIC::getBusHandle()
+{
+	return busHandle;
+}
+
 IICDevice::IICDevice(IIC& iic, uint16_t address, unsigned speed) :
 	iicBus{ &iic },
 	address{ address }
@@ -48,7 +53,7 @@ IICDevice::IICDevice(IIC& iic, uint16_t address, unsigned speed) :
 	dev_cfg.device_address = address;
 	dev_cfg.scl_speed_hz = speed;
 
-	ESP_ERROR_CHECK(i2c_master_bus_add_device(iic.busHandle, &dev_cfg, &deviceHandle));
+	ESP_ERROR_CHECK(i2c_master_bus_add_device(iic.getBusHandle(), &dev_cfg, &deviceHandle));
 }
 
 IICDevice::~IICDevice()
