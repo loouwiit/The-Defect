@@ -19,9 +19,6 @@ extern "C" void app_main(void)
 	Touch touch{ iic, {GPIO_NUM_46} };
 	display.bindTouch(touch.getHandle());
 
-	// (可选) 在此处注册触摸/按钮等输入设备
-	// ...
-
 	// 2. 启动 LVGL 工作任务
 	if (!display.start()) {
 		ESP_LOGE(TAG, "Failed to start LVGL adapter");
@@ -51,41 +48,33 @@ extern "C" void app_main(void)
 			}, LV_EVENT_RELEASED, nullptr);
 	} // guard 析构时自动解锁
 
-	esp_lv_adapter_fps_stats_enable(display.getLvglDisplay(), true);
-
-	auto getFps = [disp = display.getLvglDisplay()]()->uint32_t
-		{
-			uint32_t fps{};
-			auto err = esp_lv_adapter_get_fps(disp, &fps);
-			ESP_ERROR_CHECK_WITHOUT_ABORT(err);
-			return fps;
-		};
+	display.setFpsStatisticsEnabled();
 
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", getFps());
+		ESP_LOGI(TAG, "FPS: %d", display.getFps());
 
 		if (auto guard = display.lockGuard())
 		{
-			lv_label_set_text_fmt(label, "fps: %ld", getFps());
+			lv_label_set_text_fmt(label, "fps: %ld", display.getFps());
 			lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
 		}
 
 		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", getFps());
+		ESP_LOGI(TAG, "FPS: %d", display.getFps());
 
 		if (auto guard = display.lockGuard())
 		{
-			lv_label_set_text_fmt(label, "fps: %ld", getFps());
+			lv_label_set_text_fmt(label, "fps: %ld", display.getFps());
 			lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
 		}
 
 		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", getFps());
+		ESP_LOGI(TAG, "FPS: %d", display.getFps());
 
 		if (auto guard = display.lockGuard())
 		{
-			lv_label_set_text_fmt(label, "fps: %ld", getFps());
+			lv_label_set_text_fmt(label, "fps: %ld", display.getFps());
 			lv_obj_set_style_text_color(label, lv_color_hex(0x0000FF), 0);
 		}
 	}

@@ -166,3 +166,16 @@ bool Display::start()
 	ESP_LOGI(TAG, "LVGL adapter task started");
 	return true;
 }
+
+void Display::setFpsStatisticsEnabled(bool enable) const
+{
+	esp_lv_adapter_fps_stats_enable(lv_disp, enable);
+}
+
+uint32_t Display::getFps() const
+{
+	uint32_t fps{};
+	auto err = esp_lv_adapter_get_fps(lv_disp, &fps);
+	ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+	return fps;
+}

@@ -86,11 +86,24 @@ public:
 	esp_lcd_panel_io_handle_t getPanelIo() const { return panel_io; }
 
 	/**
+	 * @brief Enable or disable FPS statistics in LVGL adapter
+	 * @param enable Enable or disable FPS statistics
+	*/
+	void setFpsStatisticsEnabled(bool enable = true) const;
+
+	/**
+	 * @brief Get FPS of the display
+	 * @return FPS value, or 0 on error
+	 */
+	uint32_t getFps() const;
+
+	/**
 	 * @brief Lock LVGL for thread-safe access
 	 * @param timeout_ms Timeout (-1 = infinite)
 	 * @return true if lock acquired
 	 */
-	bool lock(int32_t timeout_ms = -1) const {
+	bool lock(int32_t timeout_ms = -1) const
+	{
 		return esp_lv_adapter_lock(timeout_ms) == ESP_OK;
 	}
 
@@ -113,19 +126,22 @@ public:
 	class LockGuard {
 	public:
 		explicit LockGuard(const Display& disp, int32_t timeout_ms = -1)
-			: m_disp(disp), m_locked(disp.lock(timeout_ms)) {}
+			: m_disp(disp), m_locked(disp.lock(timeout_ms))
+		{
+		}
 
-		~LockGuard() {
+		~LockGuard()
+		{
 			if (m_locked) m_disp.unlock();
 		}
 
 		/** @brief Check if lock was acquired */
 		explicit operator bool() const { return m_locked; }
 
-		LockGuard(const LockGuard&)            = delete;
+		LockGuard(const LockGuard&) = delete;
 		LockGuard& operator=(const LockGuard&) = delete;
-		LockGuard(LockGuard&&)                 = delete;
-		LockGuard& operator=(LockGuard&&)      = delete;
+		LockGuard(LockGuard&&) = delete;
+		LockGuard& operator=(LockGuard&&) = delete;
 
 	private:
 		const Display& m_disp;
@@ -133,7 +149,8 @@ public:
 	};
 
 	/** @brief Convenience factory for LockGuard */
-	LockGuard lockGuard(int32_t timeout_ms = -1) const {
+	LockGuard lockGuard(int32_t timeout_ms = -1) const
+	{
 		return LockGuard(*this, timeout_ms);
 	}
 
