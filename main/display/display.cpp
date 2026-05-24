@@ -179,3 +179,8 @@ uint32_t Display::getFps() const
 	ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 	return fps;
 }
+
+void Display::applyApp(App* app) const
+{
+	lv_screen_load(app->screen);
+}

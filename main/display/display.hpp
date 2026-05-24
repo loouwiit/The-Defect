@@ -8,6 +8,7 @@
 #include "gpio/gpio.hpp"
 #include "esp_ldo_regulator.h"
 #include "esp_lv_adapter.h"
+#include "app/app.hpp"
 
 /**
  * @brief Display driver for ILI9881C with MIPI-DSI interface
@@ -96,6 +97,12 @@ public:
 	 * @return FPS value, or 0 on error
 	 */
 	uint32_t getFps() const;
+
+	/**
+	 * @brief Apply the application to the display
+	 * @param app Application to apply
+	 */
+	void applyApp(App* app) const;
 
 	/**
 	 * @brief Lock LVGL for thread-safe access

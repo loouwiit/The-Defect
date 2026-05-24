@@ -1,8 +1,12 @@
 #include "display/display.hpp"
 #include "touch/touch.hpp"
+
 #include <esp_log.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "app/testApp.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -24,58 +28,24 @@ extern "C" void app_main(void)
 		ESP_LOGE(TAG, "Failed to start LVGL adapter");
 		return;
 	}
-
-	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
-	lv_obj_t* label{};
-	if (auto guard = display.lockGuard())
-	{
-		label = lv_label_create(lv_scr_act());
-		lv_label_set_text(label, "Hello LVGL!");
-		lv_obj_center(label);
-
-		auto screen = lv_screen_active();
-		lv_obj_add_event_cb(screen, [](lv_event_t* event)
-			{
-				ESP_LOGI("callback", "LV_EVENT_PRESSED");
-			}, LV_EVENT_PRESSED, nullptr);
-		lv_obj_add_event_cb(screen, [](lv_event_t* event)
-			{
-				ESP_LOGI("callback", "LV_EVENT_PRESSING");
-			}, LV_EVENT_PRESSING, nullptr);
-		lv_obj_add_event_cb(screen, [](lv_event_t* event)
-			{
-				ESP_LOGI("callback", "LV_EVENT_RELEASED");
-			}, LV_EVENT_RELEASED, nullptr);
-	} // guard 析构时自动解锁
-
 	display.setFpsStatisticsEnabled();
 
-	while (true) {
-		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", display.getFps());
+	// 3. 启动任务管理器
+	Task::init(2);
 
-		if (auto guard = display.lockGuard())
-		{
-			lv_label_set_text_fmt(label, "fps: %ld", display.getFps());
-			lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
-		}
-
-		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", display.getFps());
-
-		if (auto guard = display.lockGuard())
-		{
-			lv_label_set_text_fmt(label, "fps: %ld", display.getFps());
-			lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
-		}
-
-		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", display.getFps());
-
-		if (auto guard = display.lockGuard())
-		{
-			lv_label_set_text_fmt(label, "fps: %ld", display.getFps());
-			lv_obj_set_style_text_color(label, lv_color_hex(0x0000FF), 0);
-		}
+	// 4. 启动测试应用
+	TestApp* app = new TestApp{ &display };
+	app->init();
+	if (auto guard = display.lockGuard())
+	{
+		// 应用(v.) 应用(n.) 到屏幕
+		display.applyApp(app);
 	}
+
+	// 5. 保持栈上变量，后续移除
+	while (true)
+		vTaskDelay(1000);
+
+	// cleanup (unreachable in this example, but good practice)
+	delete std::exchange(app, nullptr);
 }
