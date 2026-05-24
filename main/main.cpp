@@ -1,197 +1,296 @@
-#include <stdio.h>
+#include "display/display.hpp"
+#include <esp_log.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_mipi_dsi.h"
-#include "esp_ldo_regulator.h"
-#include "esp_lcd_ili9881c.h"
+#include "wifi/nvs.hpp"
+#include "wifi/wifi.hpp"
+#include "task/task.hpp"
+#include "display/display.hpp"
+#include "gui/gui.hpp"
 
-#include "gpio/gpio.hpp"
+static constexpr char TAG[] = "main";
 
-#include "ili9881c_init_cmds.h"
+// ========== 游戏数据 ==========
 
-static const char* TAG = "ili9881c_example";
+static const char* GAME_NAMES[] = {
+	"Game 1",
+	"Game 2",
+	"Game 3",
+	"Game 4",
+	"Game 5",
+};
 
-// ================ 请根据实际硬件修改以下参数 ================
-// 背光引脚（-1 表示未使用）
-#define PIN_BL                  (GPIO_NUM_4)
-#define BL_ON_LEVEL             1
+static const char* GAME_DESCS[] = {
+	"An exciting adventure awaits!",
+	"Test your puzzle-solving skills.",
+	"Fast-paced racing action.",
+	"Build and manage your world.",
+	"Epic battles and strategy.",
+};
 
-// 复位引脚（-1表示不使用硬件复位，或自己接）
-#define PIN_RST                 (GPIO_NUM_5)
-// MIPI DSI PHY 供电 LDO 通道
-#define LDO_CHAN                3
-#define LDO_VOLTAGE_MV          2500
-// MIPI 数据通道数
-#define MIPI_LANE_NUM           2
-// ============================================================
+static constexpr int GAME_COUNT = sizeof(GAME_NAMES) / sizeof(GAME_NAMES[0]);
 
-static esp_lcd_panel_handle_t panel_handle = NULL;
-static esp_lcd_dsi_bus_handle_t mipi_dsi_bus = NULL;
-static esp_lcd_panel_io_handle_t mipi_dbi_io = NULL;
-static esp_ldo_channel_handle_t ldo_mipi_phy = NULL;
-static SemaphoreHandle_t flushReady = NULL;
+// ========== 状态变量 ==========
 
-static IRAM_ATTR bool on_color_trans_done(esp_lcd_panel_handle_t panel,
-	esp_lcd_dpi_panel_event_data_t* edata,
-	void* user_ctx)
+static int selected_index = 0;
+static lv_obj_t* game_cards[GAME_COUNT] = {};
+static lv_obj_t* desc_label = nullptr;
+static lv_obj_t* info_label = nullptr;
+
+// ========== 尺寸常量 ==========
+
+static constexpr int ICON_W = 180;
+static constexpr int ICON_H = 180;
+static constexpr int ICON_SELECTED_W = 200;
+static constexpr int ICON_SELECTED_H = 200;
+
+// ========== 状态行对象 ==========
+
+static lv_obj_t* wifi_label = nullptr;
+static lv_obj_t* bluetooth_label = nullptr;
+static lv_obj_t* battery_label = nullptr;
+
+/**
+ * @brief 更新状态行显示
+ */
+static void update_status_bar()
 {
-	SemaphoreHandle_t sem = (SemaphoreHandle_t)user_ctx;
-	BaseType_t need_yield = pdFALSE;
-	xSemaphoreGiveFromISR(sem, &need_yield);
-	return need_yield == pdTRUE;
+	// 模拟 WiFi 信号强度（实际可从 wifi 模块获取）
+	static int wifi_bars = 3;
+	lv_label_set_text(wifi_label, wifi_bars >= 3 ? "\xEF\x87\xAB" :
+	                   wifi_bars >= 1 ? "\xEF\x87\xA9" : "\xEF\x87\xA8");
+
+	// 模拟蓝牙状态
+	lv_label_set_text(bluetooth_label, "\xEF\x84\x99");
+
+	// 模拟电池电量
+	static int battery_pct = 85;
+	lv_label_set_text(battery_label, battery_pct > 20 ? "\xEF\x89\x80" : "\xEF\x89\x84");
 }
 
-static void lcd_init(void)
+/**
+ * @brief 创建顶部状态行（无背景框）
+ */
+static void create_status_bar(lv_obj_t* parent)
 {
-	// 1. 开启背光
-#if PIN_BL >= 0
-	GPIO{ PIN_BL, GPIO::Mode::GPIO_MODE_OUTPUT } = BL_ON_LEVEL;
-#endif
+	auto status_row = GUI::createFlex(parent, LV_FLEX_FLOW_ROW,
+	                                  lv_pct(100), LV_SIZE_CONTENT);
+	lv_obj_set_style_pad_all(status_row, 8, 0);
+	lv_obj_set_style_pad_left(status_row, 16, 0);
+	lv_obj_set_style_pad_right(status_row, 16, 0);
+	lv_obj_set_style_border_width(status_row, 0, 0);
+	lv_obj_set_style_bg_opa(status_row, LV_OPA_TRANSP, 0);
+	lv_obj_align(status_row, LV_ALIGN_TOP_MID, 0, 0);
 
-	// 2. MIPI DSI PHY 供电
-	esp_ldo_channel_config_t ldo_config = {};
-	ldo_config.chan_id = LDO_CHAN;
-	ldo_config.voltage_mv = LDO_VOLTAGE_MV;
-	ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_config, &ldo_mipi_phy));
-	ESP_LOGI(TAG, "MIPI DSI PHY powered on");
+	auto time_label = GUI::createLabel(status_row, "21:44");
+	lv_obj_set_style_text_color(time_label, GUI::Color::TEXT, 0);
+	lv_obj_set_style_text_font(time_label, &lv_font_montserrat_24, 0);
+	lv_obj_set_flex_grow(time_label, 1);
 
-	// 3. 创建 MIPI DSI 总线
-	esp_lcd_dsi_bus_config_t bus_config = {};
-	bus_config.bus_id = 0;
-	bus_config.num_data_lanes = MIPI_LANE_NUM;
-	bus_config.phy_clk_src = mipi_dsi_phy_pllref_clock_source_t::MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT_LEGACY;
-	bus_config.lane_bit_rate_mbps = 1300;
-	ESP_ERROR_CHECK(esp_lcd_new_dsi_bus(&bus_config, &mipi_dsi_bus));
+	wifi_label = GUI::createLabel(status_row, "\xEF\x87\xAB");
+	lv_obj_set_style_text_color(wifi_label, GUI::Color::TEXT, 0);
+	lv_obj_set_style_text_font(wifi_label, &lv_font_montserrat_24, 0);
+	lv_obj_set_style_pad_right(wifi_label, 16, 0);
 
-	// 4. 创建 DBI 命令接口（用于初始化命令）
-	esp_lcd_dbi_io_config_t dbi_config = {};
-	dbi_config.virtual_channel = 0;
-	dbi_config.lcd_cmd_bits = 8;
-	dbi_config.lcd_param_bits = 8;
-	ESP_ERROR_CHECK(esp_lcd_new_panel_io_dbi(mipi_dsi_bus, &dbi_config, &mipi_dbi_io));
+	bluetooth_label = GUI::createLabel(status_row, "\xEF\x84\x99");
+	lv_obj_set_style_text_color(bluetooth_label, GUI::Color::TEXT, 0);
+	lv_obj_set_style_text_font(bluetooth_label, &lv_font_montserrat_24, 0);
+	lv_obj_set_style_pad_right(bluetooth_label, 16, 0);
 
-	// 5. 配置 DPI 时序（根据你的 ILI9881C 屏幕规格调整）
-	esp_lcd_dpi_panel_config_t dpi_config = {};
-	dpi_config.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
-	dpi_config.dpi_clock_freq_mhz = 62;
-	dpi_config.virtual_channel = 0;
-	dpi_config.pixel_format = lcd_color_rgb_pixel_format_t::LCD_COLOR_PIXEL_FORMAT_RGB888;
-	dpi_config.in_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
-	dpi_config.out_color_format = lcd_color_format_t::LCD_COLOR_FMT_RGB888;
-	dpi_config.num_fbs = 1;
-	// ========== 修改 dpi_config 视频时序为 720×1280 ==========
-	dpi_config.video_timing.h_size = 720;
-	dpi_config.video_timing.v_size = 1280;
-	dpi_config.video_timing.hsync_back_porch = 30;
-	dpi_config.video_timing.hsync_pulse_width = 4;
-	dpi_config.video_timing.hsync_front_porch = 30;
-	dpi_config.video_timing.vsync_back_porch = 14;
-	dpi_config.video_timing.vsync_pulse_width = 2;
-	dpi_config.video_timing.vsync_front_porch = 20;
-	dpi_config.flags.use_dma2d = true;
+	// 电池图标
+	battery_label = GUI::createLabel(status_row, "\xEF\x89\x80");
+	lv_obj_set_style_text_color(battery_label, GUI::Color::SUCCESS, 0);
+	lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_24, 0);
 
-	// 6. vendor_config 必须传入，否则 esp_lcd_new_panel_ili9881c 返回 ESP_ERR_INVALID_ARG
-	ili9881c_vendor_config_t vendor_config = {};
-	// ========== 修改 vendor_config 使用自定义序列 ==========
-	vendor_config.init_cmds = vendor_init_cmds;
-	vendor_config.init_cmds_size = sizeof(vendor_init_cmds) / sizeof(vendor_init_cmds[0]);
-	vendor_config.mipi_config.dsi_bus = mipi_dsi_bus;
-	vendor_config.mipi_config.dpi_config = &dpi_config;
-	vendor_config.mipi_config.lane_num = MIPI_LANE_NUM;
-
-	// 7. 创建 ILI9881C 面板
-	// 注意：esp_lcd_new_panel_ili9881c 会在内部自动调用 esp_lcd_new_panel_dpi，
-	// 返回的 panel_handle 直接就是 DPI 面板句柄，不要额外再创建一次！
-	esp_lcd_panel_dev_config_t panel_config = {};
-	panel_config.reset_gpio_num = PIN_RST;
-	panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
-	panel_config.bits_per_pixel = 24;
-	panel_config.vendor_config = &vendor_config;
-	ESP_ERROR_CHECK(esp_lcd_new_panel_ili9881c(mipi_dbi_io, &panel_config, &panel_handle));
-
-	// 8. 初始化
-	ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-	ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-	ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
-
-	// 9. 注册刷新完成回调
-	flushReady = xSemaphoreCreateBinary();
-	esp_lcd_dpi_panel_event_callbacks_t cbs = {};
-	cbs.on_color_trans_done = on_color_trans_done;
-	ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(panel_handle, &cbs, flushReady));
-	xSemaphoreGive(flushReady);
-
-	ESP_LOGI(TAG, "LCD initialized");
+	update_status_bar();
 }
 
-static void lcd_deinit(void)
+/**
+ * @brief 更新所有图标的选中状态
+ */
+static void update_selection()
 {
-	if (panel_handle) {
-		esp_lcd_panel_del(panel_handle);
-		panel_handle = NULL;
+	for (int i = 0; i < GAME_COUNT; i++) {
+		if (!game_cards[i]) continue;
+
+		bool is_selected = (i == selected_index);
+
+		// 选中：放大 + 高亮边框
+		lv_obj_set_size(game_cards[i],
+			is_selected ? ICON_SELECTED_W : ICON_W,
+			is_selected ? ICON_SELECTED_H : ICON_H);
+
+		if (is_selected) {
+			lv_obj_set_style_border_width(game_cards[i], 3, 0);
+			lv_obj_set_style_border_color(game_cards[i], GUI::Color::PRIMARY, 0);
+			lv_obj_set_style_shadow_width(game_cards[i], 16, 0);
+			lv_obj_set_style_shadow_color(game_cards[i], GUI::Color::PRIMARY, 0);
+			lv_obj_set_style_shadow_opa(game_cards[i], LV_OPA_60, 0);
+		} else {
+			lv_obj_set_style_border_width(game_cards[i], 0, 0);
+			lv_obj_set_style_shadow_width(game_cards[i], 8, 0);
+			lv_obj_set_style_shadow_color(game_cards[i], lv_color_hex(0x000000), 0);
+			lv_obj_set_style_shadow_opa(game_cards[i], LV_OPA_50, 0);
+		}
 	}
-	if (mipi_dbi_io) {
-		esp_lcd_panel_io_del(mipi_dbi_io);
-		mipi_dbi_io = NULL;
+
+	// 更新底部描述和选中信息
+	if (desc_label) {
+		lv_label_set_text(desc_label, GAME_DESCS[selected_index]);
 	}
-	if (mipi_dsi_bus) {
-		esp_lcd_del_dsi_bus(mipi_dsi_bus);
-		mipi_dsi_bus = NULL;
+	if (info_label) {
+		lv_label_set_text_fmt(info_label, "Selected: %s", GAME_NAMES[selected_index]);
 	}
-	if (ldo_mipi_phy) {
-		esp_ldo_release_channel(ldo_mipi_phy);
-		ldo_mipi_phy = NULL;
-	}
-	if (flushReady) {
-		vSemaphoreDelete(flushReady);
-		flushReady = NULL;
-	}
-	ESP_LOGI(TAG, "LCD deinitialized");
 }
 
-static void fill_screen(uint8_t r, uint8_t g, uint8_t b)
+/**
+ * @brief 选择下一个游戏（右移）
+ */
+static void select_next()
 {
-	int bpp = 3;
-	size_t buf_size = 720 * 1280 * bpp;
-	static uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
-	assert(buf);
-	for (int i = 0; i < 720 * 1280; i++) {
-		buf[i * bpp] = r;
-		buf[i * bpp + 1] = g;
-		buf[i * bpp + 2] = b;
-	}
-	if (xSemaphoreTake(flushReady, 0) != pdTRUE)
-	{
-		ESP_LOGI(TAG, "Failed to take semaphore for flushReady");
-		xSemaphoreTake(flushReady, portMAX_DELAY);
-	}
-	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, 720, 1280, buf));
+	selected_index = (selected_index + 1) % GAME_COUNT;
+	update_selection();
+	ESP_LOGI(TAG, "Selected: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
+}
+
+/**
+ * @brief 选择上一个游戏（左移）
+ */
+static void select_prev()
+{
+	selected_index = (selected_index - 1 + GAME_COUNT) % GAME_COUNT;
+	update_selection();
+	ESP_LOGI(TAG, "Selected: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
+}
+
+/**
+ * @brief 按钮事件回调：右移
+ */
+static void btn_next_cb(lv_event_t* e)
+{
+	select_next();
+}
+
+/**
+ * @brief 按钮事件回调：左移
+ */
+static void btn_prev_cb(lv_event_t* e)
+{
+	select_prev();
+}
+
+/**
+ * @brief "开始游戏"按钮回调
+ */
+static void btn_start_cb(lv_event_t* e)
+{
+	ESP_LOGI(TAG, "Starting game: %s", GAME_NAMES[selected_index]);
 }
 
 extern "C" void app_main(void)
 {
-	lcd_init();
-
-	constexpr static TickType_t waitTime = 1;
-	unsigned frameCount = 0;
-
-	while (true)
-	{
-		ESP_LOGI(TAG, "Show red, frame %u", frameCount++);
-		fill_screen(255, 0, 0);
-		vTaskDelay(pdMS_TO_TICKS(waitTime));
-
-		ESP_LOGI(TAG, "Show green, frame %u", frameCount++);
-		fill_screen(0, 255, 0);
-		vTaskDelay(pdMS_TO_TICKS(waitTime));
-
-		ESP_LOGI(TAG, "Show blue, frame %u", frameCount++);
-		fill_screen(0, 0, 255);
-		vTaskDelay(pdMS_TO_TICKS(waitTime));
+	// 1. 初始化显示（硬件 + LVGL 适配器）
+	Display display;
+	if (!display.init(ESP_LV_ADAPTER_ROTATE_90)) {
+		ESP_LOGE(TAG, "Failed to initialize display");
+		return;
 	}
 
-	lcd_deinit();
+	// 2. 启动 LVGL 工作任务
+	if (!display.start()) {
+		ESP_LOGE(TAG, "Failed to start LVGL adapter");
+		return;
+	}
+
+	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
+	if (auto guard = display.lockGuard())
+	{
+		// 创建页面（深色背景，直角）
+		auto page = GUI::createPage();
+		lv_obj_set_style_pad_top(page, 0, 0);
+		lv_obj_set_style_radius(page, 0, 0);
+		lv_obj_set_style_bg_color(page, LV_COLOR_MAKE(0x0D, 0x0D, 0x1A), 0); // 深色背景
+		lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
+
+		// ========== 顶部状态行（无黑框） ==========
+		create_status_bar(page);
+
+		// ========== 页面标题 ==========
+		auto title = GUI::createTitle(page, "Game Center");
+		lv_obj_set_style_text_color(title, GUI::Color::TEXT, 0);
+		lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
+
+		// ========== 中间一行放五个游戏图标（略微上移） ==========
+		auto flex = GUI::createFlex(page, LV_FLEX_FLOW_ROW,
+		                            LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+		lv_obj_set_style_pad_all(flex, 10, 0);
+		lv_obj_set_style_pad_column(flex, 16, 0);
+		lv_obj_align(flex, LV_ALIGN_CENTER, 0, -50);
+
+		// 创建五个白色游戏图标卡片（直角）
+		for (int i = 0; i < GAME_COUNT; i++) {
+			auto card = GUI::createCard(flex, ICON_W, ICON_H);
+			lv_obj_set_style_radius(card, 0, 16);
+			lv_obj_set_style_bg_color(card, LV_COLOR_MAKE(0xFF, 0xFF, 0xFF), 0); // 白色
+			lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+			lv_obj_set_style_pad_all(card, 0, 0);
+
+			// 图标内部：用 label 显示游戏名（深色文字）
+			auto label = GUI::createLabel(card, GAME_NAMES[i]);
+			lv_obj_set_style_text_color(label, LV_COLOR_MAKE(0x1A, 0x1A, 0x2E), 0);
+			lv_obj_center(label);
+			lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+
+			game_cards[i] = card;
+		}
+
+		// 初始化选中状态（默认选中第一个）
+		update_selection();
+
+		// ========== 左右切换按钮 ==========
+		auto btn_prev = GUI::createButton(page, "<", 60, 60);
+		lv_obj_align(btn_prev, LV_ALIGN_LEFT_MID, 20, -50);
+		lv_obj_add_event_cb(btn_prev, btn_prev_cb, LV_EVENT_CLICKED, nullptr);
+
+		auto btn_next = GUI::createButton(page, ">", 60, 60);
+		lv_obj_align(btn_next, LV_ALIGN_RIGHT_MID, -20, -50);
+		lv_obj_add_event_cb(btn_next, btn_next_cb, LV_EVENT_CLICKED, nullptr);
+
+		// ========== 底部区域：游戏说明 + 开始按钮 ==========
+		auto bottom_area = GUI::createFlex(page, LV_FLEX_FLOW_COLUMN,
+		                                   lv_pct(80), LV_SIZE_CONTENT);
+		lv_obj_set_style_pad_all(bottom_area, 16, 0);
+		lv_obj_set_style_border_width(bottom_area, 0, 0);
+		lv_obj_set_style_bg_opa(bottom_area, LV_OPA_TRANSP, 0);
+		lv_obj_align(bottom_area, LV_ALIGN_BOTTOM_MID, 0, -40);
+
+		// 游戏简要说明
+		desc_label = GUI::createLabel(bottom_area, GAME_DESCS[selected_index]);
+		lv_obj_set_style_text_color(desc_label, GUI::Color::SUBTLE, 0);
+		lv_obj_set_style_text_align(desc_label, LV_TEXT_ALIGN_CENTER, 0);
+		lv_obj_set_width(desc_label, lv_pct(100));
+
+		// 间距
+		auto spacer = GUI::createLabel(bottom_area, "");
+		lv_obj_set_height(spacer, 16);
+		lv_obj_set_style_border_width(spacer, 0, 0);
+		lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
+
+		// "开始游戏" 按钮
+		auto btn_start = GUI::createButton(bottom_area, "Start Game", 200, 50);
+		lv_obj_set_style_radius(btn_start, 25, 0);
+		lv_obj_set_style_bg_color(btn_start, GUI::Color::SUCCESS, 0);
+		lv_obj_add_event_cb(btn_start, btn_start_cb, LV_EVENT_CLICKED, nullptr);
+
+		// 底部选中信息
+		info_label = GUI::createSubtitle(page, "Selected: Game 1");
+		lv_obj_align(info_label, LV_ALIGN_BOTTOM_MID, 0, -5);
+		lv_obj_set_style_text_color(info_label, GUI::Color::PRIMARY, 0);
+
+		ESP_LOGI(TAG, "Home page created with dark theme");
+	}
+
+	while (true) {
+		vTaskDelay(pdMS_TO_TICKS(10));
+	}
 }
