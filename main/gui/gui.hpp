@@ -1,144 +1,75 @@
 #pragma once
 
+#include "lvgl.h"
 #include <cstdint>
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_mipi_dsi.h"
-#include "esp_lcd_ili9881c.h"
-#include "gpio/gpio.hpp"
-#include "esp_ldo_regulator.h"
-#include "esp_lv_adapter.h"
 
-/**
- * @brief Display driver for ILI9881C with MIPI-DSI interface
- *
- * Handles everything display-related:
- * - LCD hardware initialization (MIPI DSI bus, panel IO, panel, backlight)
- * - LVGL adapter integration (adapter init, display registration, task start)
- *
- * Usage:
- * @code
- *   Display display;
- *   if (!display.init()) return;
- *   // optional: register touch input here
- *   if (!display.start()) return;
- *   // use LVGL via display.lock() / display.unlock()
- * @endcode
- *
- * Configuration:
- * - Resolution: 720x1280
- * - MIPI DSI: 2 lanes @ 1200Mbps
- * - Color format: RGB565 / RGB888 (LV_COLOR_DEPTH=16/24)
- */
-class Display {
+class GUI {
 public:
-	// LDO configuration for display power
-	static constexpr auto LDO_CHAN = 3;
-	static constexpr auto LDO_VOLTAGE = 2500;
-
-	// Screen resolution (landscape)
-	static constexpr int H_RES = 720;
-	static constexpr int V_RES = 1280;
-
-	// MIPI DSI configuration
-	static constexpr int MIPI_LANE_BIT_RATE_MBPS = 1200;
-	static constexpr int MIPI_LANE_NUM = 2;
-
-	// Reset GPIO
-	static constexpr gpio_num_t RESET_GPIO = GPIO_NUM_5;
-
-	// Backlight GPIO
-	static constexpr gpio_num_t BACKLIGHT_GPIO = GPIO_NUM_4;
-
-	Display();
-	~Display();
-
-	/**
-	 * @brief Initialize display hardware + LVGL adapter
-	 *
-	 * Performs LCD hardware init, then initializes LVGL adapter and
-	 * registers the display. Does NOT start the LVGL worker task
-	 * (call start() after optionally registering input devices).
-	 *
-	 * @param rotation Display rotation (0/90/180/270)
-	 * @return true on success
-	 */
-	bool init(esp_lv_adapter_rotation_t rotation = ESP_LV_ADAPTER_ROTATE_0);
-
-	/**
-	 * @brief Start the LVGL worker task
-	 *
-	 * Call this after init() and after optionally registering input
-	 * devices (touch, buttons, etc.).
-	 * @return true on success
-	 */
-	bool start();
-
-	/** @brief Get LVGL display handle */
-	lv_display_t* getLvglDisplay() const { return lv_disp; }
-
-	/** @brief Get ESP LCD panel handle */
-	esp_lcd_panel_handle_t getPanel() const { return panel; }
-
-	/** @brief Get ESP LCD panel IO handle */
-	esp_lcd_panel_io_handle_t getPanelIo() const { return panel_io; }
-
-	/**
-	 * @brief Lock LVGL for thread-safe access
-	 * @param timeout_ms Timeout (-1 = infinite)
-	 * @return true if lock acquired
-	 */
-	bool lock(int32_t timeout_ms = -1) const {
-		return esp_lv_adapter_lock(timeout_ms) == ESP_OK;
-	}
-
-	/** @brief Unlock LVGL */
-	void unlock() const { esp_lv_adapter_unlock(); }
-
-	/**
-	 * @brief RAII lock guard for LVGL
-	 *
-	 * Locks in constructor, unlocks in destructor.
-	 * Non-copyable, non-movable.
-	 *
-	 * Usage:
-	 * @code
-	 *   if (auto guard = display.lockGuard()) {
-	 *       lv_label_create(...);
-	 *   } // auto-unlock
-	 * @endcode
-	 */
-	class LockGuard {
-	public:
-		explicit LockGuard(const Display& disp, int32_t timeout_ms = -1)
-			: m_disp(disp), m_locked(disp.lock(timeout_ms)) {}
-
-		~LockGuard() {
-			if (m_locked) m_disp.unlock();
-		}
-
-		/** @brief Check if lock was acquired */
-		explicit operator bool() const { return m_locked; }
-
-		LockGuard(const LockGuard&)            = delete;
-		LockGuard& operator=(const LockGuard&) = delete;
-		LockGuard(LockGuard&&)                 = delete;
-		LockGuard& operator=(LockGuard&&)      = delete;
-
-	private:
-		const Display& m_disp;
-		bool m_locked;
+	struct Color {
+		static constexpr lv_color_t BG      = LV_COLOR_MAKE(0x1a, 0x1a, 0x2e);
+		static constexpr lv_color_t CARD    = LV_COLOR_MAKE(0x2d, 0x2d, 0x3d);
+		static constexpr lv_color_t PRIMARY = LV_COLOR_MAKE(0x00, 0x88, 0xff);
+		static constexpr lv_color_t SUCCESS = LV_COLOR_MAKE(0x00, 0xc8, 0x53);
+		static constexpr lv_color_t WARNING = LV_COLOR_MAKE(0xff, 0xa8, 0x00);
+		static constexpr lv_color_t DANGER  = LV_COLOR_MAKE(0xff, 0x3b, 0x30);
+		static constexpr lv_color_t TEXT    = LV_COLOR_MAKE(0xff, 0xff, 0xff);
+		static constexpr lv_color_t SUBTLE  = LV_COLOR_MAKE(0x88, 0x88, 0x88);
 	};
 
-	/** @brief Convenience factory for LockGuard */
-	LockGuard lockGuard(int32_t timeout_ms = -1) const {
-		return LockGuard(*this, timeout_ms);
-	}
 
-private:
-	esp_ldo_channel_handle_t ldo_phy{};
-	esp_lcd_dsi_bus_handle_t dsi_bus = nullptr;
-	esp_lcd_panel_io_handle_t panel_io = nullptr;
-	esp_lcd_panel_handle_t panel = nullptr;
-	lv_display_t* lv_disp = nullptr;
+	static void setBackground(lv_color_t color = Color::BG);
+
+	static lv_obj_t* createPage();
+
+	static lv_obj_t* createCard(lv_obj_t* parent, int32_t w, int32_t h);
+
+	static lv_obj_t* createFlex(lv_obj_t* parent, lv_flex_flow_t flow,
+	                            int32_t w = LV_SIZE_CONTENT, int32_t h = LV_SIZE_CONTENT);
+
+
+	static lv_obj_t* createButton(lv_obj_t* parent, const char* text,
+	                              int32_t w = 120, int32_t h = 40);
+
+	static lv_obj_t* createTitle(lv_obj_t* parent, const char* text);
+
+	static lv_obj_t* createSubtitle(lv_obj_t* parent, const char* text);
+
+	static lv_obj_t* createValue(lv_obj_t* parent, const char* text);
+
+	static lv_obj_t* createLabel(lv_obj_t* parent, const char* text);
+
+	static lv_obj_t* createSwitch(lv_obj_t* parent);
+
+	static lv_obj_t* createSlider(lv_obj_t* parent, int32_t w,
+	                              int32_t min, int32_t max, int32_t init);
+
+	static lv_obj_t* createProgressBar(lv_obj_t* parent, int32_t w,
+	                                   int32_t min, int32_t max, int32_t init);
+
+
+	static lv_obj_t* createMetric(lv_obj_t* parent, const char* title,
+	                              const char* value, const char* unit);
+
+	static lv_obj_t* createProgressCard(lv_obj_t* parent, const char* title,
+	                                    int32_t min, int32_t max, int32_t init);
+
+	static lv_obj_t* createMenuRow(lv_obj_t* parent, const char* text,
+	                               lv_obj_t* rightWidget = nullptr);
+
+
+	static lv_obj_t* createImage(lv_obj_t* parent, const void* src);
+
+	static lv_obj_t* createImageFromFile(lv_obj_t* parent, const char* path);
 };
+
+static inline void styleCard(lv_obj_t* obj)
+{
+	lv_obj_set_style_bg_color(obj, GUI::Color::CARD, 0);
+	lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+	lv_obj_set_style_radius(obj, 12, 0);
+	lv_obj_set_style_shadow_width(obj, 8, 0);
+	lv_obj_set_style_shadow_color(obj, lv_color_hex(0x000000), 0);
+	lv_obj_set_style_shadow_opa(obj, LV_OPA_50, 0);
+	lv_obj_set_style_border_width(obj, 0, 0);
+	lv_obj_set_style_pad_all(obj, 12, 0);
+}
