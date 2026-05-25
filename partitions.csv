@@ -10,7 +10,7 @@ otadata,  data, ota,             ,0x002000,
 phy_init, data, phy,             ,0x001000,
 #4k
 
-ota_0,    app,  ota_0,           ,0x200000
+ota_0,    app,  ota_0,    0x10000,0x200000
 #2M
 
 fat,      data, fat,    0x1000000,0x1000000,

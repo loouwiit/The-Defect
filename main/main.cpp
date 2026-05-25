@@ -3,90 +3,59 @@
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <esp_event.h>
+#include <esp_err.h>
+
+
+#include "task/task.hpp"
+#include "wifi/nvs.hpp"
+#include "wifi/wifi.hpp"
+#include "server/serverKernal.hpp"
+
+#include "storage/fat.hpp"
+#include "storage/mem.hpp"
+#include "storage/sd.hpp"
 
 static constexpr char TAG[] = "main";
 
 extern "C" void app_main(void)
 {
-	// 1. 初始化显示（硬件 + LVGL 适配器）
-	Display display;
-	if (!display.init(ESP_LV_ADAPTER_ROTATE_90)) {
-		ESP_LOGE(TAG, "Failed to initialize display");
-		return;
-	}
+	Task::init(2);
 
-	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
-	Touch touch{ iic, {GPIO_NUM_46} };
-	display.bindTouch(touch.getHandle());
+	ESP_LOGI(TAG, "esp_event_loop_create_default");
+	ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-	// (可选) 在此处注册触摸/按钮等输入设备
-	// ...
+	// 存储
+	mountFlash();
+	mountMem();
+	mountSd();
 
-	// 2. 启动 LVGL 工作任务
-	if (!display.start()) {
-		ESP_LOGE(TAG, "Failed to start LVGL adapter");
-		return;
-	}
+	tree(PerfixRoot, 4);
 
-	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
-	lv_obj_t* label{};
-	if (auto guard = display.lockGuard())
+	// wifi
+	nvsInit();
+	wifiInit(true);
+
+	wifiStart();
+	auto sta = wifiStationGetInfo();
+	wifiStationStart();
+	wifiConnect((const char*)sta.ssid, (const char*)sta.password);
+	while (wifiIsWantConnect() && !wifiIsConnect())
+		vTaskDelay(100);
+
+	if (!wifiIsConnect())
 	{
-		label = lv_label_create(lv_scr_act());
-		lv_label_set_text(label, "Hello LVGL!");
-		lv_obj_center(label);
-
-		auto screen = lv_screen_active();
-		lv_obj_add_event_cb(screen, [](lv_event_t* event)
-			{
-				ESP_LOGI("callback", "LV_EVENT_PRESSED");
-			}, LV_EVENT_PRESSED, nullptr);
-		lv_obj_add_event_cb(screen, [](lv_event_t* event)
-			{
-				ESP_LOGI("callback", "LV_EVENT_PRESSING");
-			}, LV_EVENT_PRESSING, nullptr);
-		lv_obj_add_event_cb(screen, [](lv_event_t* event)
-			{
-				ESP_LOGI("callback", "LV_EVENT_RELEASED");
-			}, LV_EVENT_RELEASED, nullptr);
-	} // guard 析构时自动解锁
-
-	esp_lv_adapter_fps_stats_enable(display.getLvglDisplay(), true);
-
-	auto getFps = [disp = display.getLvglDisplay()]()->uint32_t
-		{
-			uint32_t fps{};
-			auto err = esp_lv_adapter_get_fps(disp, &fps);
-			ESP_ERROR_CHECK_WITHOUT_ABORT(err);
-			return fps;
-		};
-
-	while (true) {
-		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", getFps());
-
-		if (auto guard = display.lockGuard())
-		{
-			lv_label_set_text_fmt(label, "fps: %ld", getFps());
-			lv_obj_set_style_text_color(label, lv_color_hex(0xFF0000), 0);
-		}
-
-		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", getFps());
-
-		if (auto guard = display.lockGuard())
-		{
-			lv_label_set_text_fmt(label, "fps: %ld", getFps());
-			lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
-		}
-
-		vTaskDelay(pdMS_TO_TICKS(10));
-		ESP_LOGI(TAG, "FPS: %d", getFps());
-
-		if (auto guard = display.lockGuard())
-		{
-			lv_label_set_text_fmt(label, "fps: %ld", getFps());
-			lv_obj_set_style_text_color(label, lv_color_hex(0x0000FF), 0);
-		}
+		// 关闭wifi启动AP
+		wifiStationStop();
+		auto ap = wifiApGetInfo();
+		ESP_LOGI(TAG, "load ap ssid: %s, password: %s", sta.ssid, sta.password);
+		if (ap.ssid_len == 0)
+			wifiApSet("esp32p4", "12345678");
+		wifiApStart();
 	}
+
+	// 服务器
+	ESP_LOGI(TAG, "serverStart");
+	serverStart();
+	ESP_LOGI(TAG, "serverStart done");
 }

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>文件管理</title>
+</head>
+
+<body>
+	<div>
+		<input type="file" id="fileUploadInput" />
+		<br />
+		<button id="fileUploadButton" multiple>上传至此处</button>
+		<button id="refresh" multiple>刷新</button>
+	</div>
+	<br />
+	<div>
+		<input type="text" id="newFloorNameInput" />
+		<br />
+		<button id="newFloorButton" multiple>新建文件夹</button>
+	</div>
+	<p id="space">剩余空间/总空间:0/0(100%)</p>
+	<div id="explorer">
+		正在加载...
+	</div>
+</body>
+
+<script>
+	let fileUploadElement = document.getElementById("fileUploadInput");
+	let newFloorElement = document.getElementById("newFloorNameInput");
+	let fileExplorerElement = document.getElementById("explorer");
+	let spaceElement = document.getElementById("space");
+
+	let place = "/";
+	const splitChar = '\n';
+
+	function cd(path) {
+		if (path[path.length - 1] != '/') return;
+		if (path == '../') {
+			var i = place.length;
+			while (i >= 0) {
+				if (place[i] == '/') break;
+				else i--;
+			}
+			i--;
+			while (i >= 0) {
+				if (place[i] == '/') break;
+				else i--;
+			}
+			i++;
+			if (i <= 0) place = "/";
+			else place = place.substring(0, i);
+		}
+		else {
+			place += path.toString();
+		}
+		load();
+	}
+
+	function deleteFile(path) {
+		var request = new XMLHttpRequest();
+		request.open("DELETE", place + path);
+		request.onload = load;
+		request.send(place + path);
+	}
+
+	function deletePath(path) {
+		if (path == "/") return;
+		var request = new XMLHttpRequest();
+		request.open("DELETE", place);
+		request.onload = function () { cd("../"); };
+		request.send(place);
+	}
+
+	function spaceUpdate(spaces) {
+		var free = spaces[0];
+		var totol = spaces[1];
+
+		spaceElement.innerHTML = "剩余空间(KiB)/总空间(KiB):";
+		spaceElement.innerHTML += (free / 1000).toString() + '/' + (totol / 1000).toString();
+		spaceElement.innerHTML += "(" + (free * 100 / totol).toString() + "%)";
+	}
+
+	function getSpace() {
+		var request = new XMLHttpRequest();
+		request.open("POST", "/api/getSpace");
+		request.onload = function () { spaceUpdate(this.responseText.split(',')); };
+		request.send("");
+	}
+
+	function update(files) {
+
+		if (files[0] == "" && place != "/") {
+			explorer.innerHTML = ("<button onclick=\'cd(\"../\")\'>" + place.toString() + "</button> <button onclick='deletePath(\"" + place.toString() + "\")'>删除文件夹</button>");
+			return;
+		}
+		explorer.innerHTML = "<button onclick='cd(\"../\")'>" + place.toString() + "</button><br/>";
+
+		let file = "";
+		for (i = 0; i < files.length; i++) {
+			if (files[i][files[i].length - 1] == '/') {
+				file = "<button onclick='cd(\"" + files[i].toString() + "\")'>"
+					+ files[i].toString() + "</button> <br/>";
+			}
+			else {
+				file = "<button onclick='window.open(\"/file" + place + files[i].toString() + "\".replace(/%/g, \"%25\"))'>"
+					+ files[i].toString() + "</button> ";
+				file += "<button onclick='deleteFile(\"" + files[i].toString() + "\")'>删除</button> <br/>";
+			}
+			explorer.innerHTML += file;
+		}
+	}
+
+	function load() {
+		explorer.innerHTML = "正在读取\"" + place.toString() + "\"中的文件";
+		var request = new XMLHttpRequest();
+		request.open("POST", "/api/floor");
+		request.onload = function () { update(this.responseText.split(splitChar)); };
+		request.send(place);
+		getSpace();
+	}
+
+	function upload(place, value) {
+		var request = new XMLHttpRequest();
+		request.open("PUT", place.replace(/%/g, "%25"));
+		request.onload = load;
+		request.send(value);
+	}
+
+	function uploadPressed() {
+		let file = fileUploadElement.files[0];
+		let reader = new FileReader();
+		let path = place;
+		path += file.name;
+		reader.onload = function Fileloaded() {
+			upload(path, this.result);
+		}
+		reader.readAsArrayBuffer(file);
+	}
+
+	function newFloor() {
+		let path = newFloorElement.value.toString();
+		if (path.includes("/")) {
+			console.log("path: \"" + path + "\" is invalid");
+			return;
+		}
+		var request = new XMLHttpRequest();
+		request.open("PUT", place.toString() + path + "/");
+		request.onload = load;
+		request.send("");
+	}
+
+	document.getElementById("fileUploadButton").addEventListener("click", uploadPressed);
+	document.getElementById("newFloorButton").addEventListener("click", newFloor);
+	document.getElementById("refresh").addEventListener("click", load);
+	load();
+	console.log("\"file.js\" loaded");
+</script>
+
+<style>
+	a:link {
+		text-decoration: none;
+	}
+
+	a:visited {
+		text-decoration: none;
+	}
+
+	a:hover {
+		text-decoration: underline;
+	}
+
+	a:active {
+		text-decoration: underline;
+	}
+
+	body {
+		background-color: #c2dadf;
+	}
+</style>
+
+</html>
