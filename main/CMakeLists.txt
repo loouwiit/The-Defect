@@ -1,4 +1,5 @@
 idf_component_register(SRCS "main.cpp"
+                            "gui/gui.cpp"
                             "iic/iic.cpp"
                             "task/task.cpp"
                             "wifi/wifi.cpp"
