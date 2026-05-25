@@ -1,4 +1,5 @@
 #include "display/display.hpp"
+#include "touch/touch.hpp"
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -196,6 +197,13 @@ extern "C" void app_main(void)
 		return;
 	}
 
+	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	Touch touch{ iic, {GPIO_NUM_46} };
+	display.bindTouch(touch.getHandle());
+
+	// (可选) 在此处注册触摸/按钮等输入设备
+	// ...
+
 	// 2. 启动 LVGL 工作任务
 	if (!display.start()) {
 		ESP_LOGE(TAG, "Failed to start LVGL adapter");
@@ -205,12 +213,24 @@ extern "C" void app_main(void)
 	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
 	if (auto guard = display.lockGuard())
 	{
-		// 创建页面（深色背景，直角）
-		auto page = GUI::createPage();
-		lv_obj_set_style_pad_top(page, 0, 0);
-		lv_obj_set_style_radius(page, 0, 0);
-		lv_obj_set_style_bg_color(page, LV_COLOR_MAKE(0x0D, 0x0D, 0x1A), 0); // 深色背景
-		lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
+		label = lv_label_create(lv_scr_act());
+		lv_label_set_text(label, "Hello LVGL!");
+		lv_obj_center(label);
+
+		auto screen = lv_screen_active();
+		lv_obj_add_event_cb(screen, [](lv_event_t* event)
+			{
+				ESP_LOGI("callback", "LV_EVENT_PRESSED");
+			}, LV_EVENT_PRESSED, nullptr);
+		lv_obj_add_event_cb(screen, [](lv_event_t* event)
+			{
+				ESP_LOGI("callback", "LV_EVENT_PRESSING");
+			}, LV_EVENT_PRESSING, nullptr);
+		lv_obj_add_event_cb(screen, [](lv_event_t* event)
+			{
+				ESP_LOGI("callback", "LV_EVENT_RELEASED");
+			}, LV_EVENT_RELEASED, nullptr);
+	} // guard 析构时自动解锁
 
 		// ========== 顶部状态行（无黑框） ==========
 		create_status_bar(page);
