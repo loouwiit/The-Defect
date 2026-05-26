@@ -7,8 +7,9 @@ idf_component_register(SRCS "main.cpp"
                             "utility/stringCompare.cpp"
                             "storage/fat.cpp" "storage/mem.cpp" "storage/sd.cpp"
                             "server/serverKernal.cpp"
+                            "screen_stream/screenStream.cpp"
                             "app/app.cpp"
                             "app/testApp.cpp"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs)
+                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs espressif__esp_new_jpeg)

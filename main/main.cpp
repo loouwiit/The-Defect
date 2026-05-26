@@ -19,6 +19,7 @@
 #include "storage/sd.hpp"
 
 #include "app/testApp.hpp"
+#include "screen_stream/screenStream.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -63,8 +64,6 @@ extern "C" void app_main(void)
 	serverStart();
 	ESP_LOGI(TAG, "serverStart done");
 
-	return;
-
 	// 1. 初始化显示（硬件 + LVGL 适配器）
 	Display display;
 	if (!display.init(ESP_LV_ADAPTER_ROTATE_90)) {
@@ -72,9 +71,9 @@ extern "C" void app_main(void)
 		return;
 	}
 
-	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
-	Touch touch{ iic, {GPIO_NUM_46} };
-	display.bindTouch(touch.getHandle());
+	// IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	// Touch touch{ iic, {GPIO_NUM_46} };
+	// display.bindTouch(touch.getHandle());
 
 	// 2. 启动 LVGL 工作任务
 	if (!display.start()) {
@@ -82,6 +81,9 @@ extern "C" void app_main(void)
 		return;
 	}
 	display.setFpsStatisticsEnabled();
+
+	// 启动屏幕流模块（用于 HTTP MJPEG 流）
+	ScreenStream::instance().start(&display);
 
 	// 3. 启动任务管理器
 	Task::init(2);

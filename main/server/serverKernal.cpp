@@ -13,6 +13,9 @@
 #include "buildinHtml/file.hpp"
 #include "storage/fat.hpp"
 
+#include "screen_stream/screenStream.hpp"
+#include "esp_heap_caps.h"
+
 #include "task/task.hpp"
 
 EXT_RAM_BSS_ATTR static uint8_t autoRestartTimes = 0;
@@ -428,7 +431,46 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	const char* uri = request.getPath();
 	const size_t uriLenght = strlen(uri);
 
-	if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
+	if (stringCompare((char*)uri, uriLenght, "/api/screen/stream", 18))
+	{
+		constexpr size_t bufferSize = 512 * 1024;
+		uint8_t* out = (uint8_t*)heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA);
+		if (!out)
+		{
+			ESP_LOGI("/api/screen/stream", "alloc buf failed");
+			return;
+		}
+
+		// MJPEG stream over POST
+		socketStream.write("HTTP/1.1 200 OK\r\n"
+			"Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n"
+			"\r\n", 78);
+		socketStream.sendNow();
+
+		while (socketStream.isGood() && serverRunning)
+		{
+			size_t jpegSize = 0;
+			if (ScreenStream::instance().captureJpeg(out, bufferSize, jpegSize))
+			{
+				char partHeader[128];
+				size_t hlen = sprintf(partHeader, "--FRAME\r\n"
+					"Content-Type: image/jpeg\r\n"
+					"Content-Length: %u\r\n"
+					"\r\n", (unsigned)jpegSize);
+
+				socketStream.write(partHeader, hlen);
+				socketStream.write((const char*)out, jpegSize);
+				socketStream.write("\r\n", 2);
+				socketStream.sendNow();
+			}
+			else vTaskDelay(100 / portTICK_PERIOD_MS);
+			vTaskDelay(100 / portTICK_PERIOD_MS);
+		}
+
+		heap_caps_free(out);
+		return;
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
 	{
 		size_t pathSize = sizeof(PerfixRoot) + request.getBodyLenght();
 		char* path = new char[pathSize];
