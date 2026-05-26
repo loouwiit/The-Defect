@@ -60,6 +60,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request);
 void httpDelete(IOSocketStream& socketStream, HttpRequest& request);
 void restart();
 
+bool apiScreenStream(IOSocketStream& socketStream);
 void apiFloor(OSocketStream& socketStream, const char* path);
 
 bool serverIsStarted()
@@ -433,41 +434,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 
 	if (stringCompare((char*)uri, uriLenght, "/api/screen/stream", 18))
 	{
-		constexpr size_t bufferSize = 512 * 1024;
-		uint8_t* out = (uint8_t*)heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA);
-		if (!out)
-		{
-			ESP_LOGI("/api/screen/stream", "alloc buf failed");
-			return;
-		}
-
-		// MJPEG stream over POST
-		socketStream.write("HTTP/1.1 200 OK\r\n"
-			"Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n"
-			"\r\n", 78);
-		socketStream.sendNow();
-
-		while (socketStream.isGood() && serverRunning)
-		{
-			size_t jpegSize = 0;
-			if (ScreenStream::instance().captureJpeg(out, bufferSize, jpegSize))
-			{
-				char partHeader[128];
-				size_t hlen = sprintf(partHeader, "--FRAME\r\n"
-					"Content-Type: image/jpeg\r\n"
-					"Content-Length: %u\r\n"
-					"\r\n", (unsigned)jpegSize);
-
-				socketStream.write(partHeader, hlen);
-				socketStream.write((const char*)out, jpegSize);
-				socketStream.write("\r\n", 2);
-				socketStream.sendNow();
-			}
-			else vTaskDelay(100 / portTICK_PERIOD_MS);
-			vTaskDelay(100 / portTICK_PERIOD_MS);
-		}
-
-		heap_caps_free(out);
+		apiScreenStream(socketStream);
 		return;
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
@@ -772,6 +739,45 @@ void restart()
 		printf("restart %u times, which is the max times\n", autoRestartTimes);
 		serverRunning = false;
 	}
+}
+
+bool apiScreenStream(IOSocketStream& socketStream)
+{
+	constexpr size_t bufferSize = 512 * 1024;
+	uint8_t* out = (uint8_t*)heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA);
+	if (!out)
+	{
+		ESP_LOGI("/api/screen/stream", "alloc buf failed");
+		return false;
+	}
+
+	// MJPEG stream over POST
+	socketStream.write("HTTP/1.1 200 OK\r\n"
+		"Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n"
+		"\r\n", 78);
+	socketStream.sendNow();
+
+	while (socketStream.isGood() && serverRunning)
+	{
+		if (size_t jpegSize = ScreenStream::instance().captureJpeg(out, bufferSize))
+		{
+			char partHeader[128];
+			size_t hlen = sprintf(partHeader, "--FRAME\r\n"
+				"Content-Type: image/jpeg\r\n"
+				"Content-Length: %u\r\n"
+				"\r\n", (unsigned)jpegSize);
+
+			socketStream.write(partHeader, hlen);
+			socketStream.write((const char*)out, jpegSize);
+			socketStream.write("\r\n", 2);
+			socketStream.sendNow();
+		}
+		else vTaskDelay(100 / portTICK_PERIOD_MS);
+		vTaskDelay(100 / portTICK_PERIOD_MS);
+	}
+
+	heap_caps_free(out);
+	return true;
 }
 
 void apiFloor(OSocketStream& socketStream, const char* path)

@@ -3,25 +3,38 @@
 #include <cstddef>
 #include <cstdint>
 #include "display/display.hpp"
+#include <esp_jpeg_enc.h>
 
 class ScreenStream {
 public:
 	static ScreenStream& instance();
 
-	// 初始化并分配输出缓冲
+	/**
+	 * @brief Start the screen stream module
+	 * @param display Pointer to the initialized Display instance
+	 * @return true on success, false on failure (e.g., null display)
+	 */
 	bool start(Display* display);
 
-	// 停止并释放资源
+	/**
+	 * @brief Stop the screen stream module
+	 */
 	void stop();
 
-	// 同步抓取当前屏幕并编码为 JPEG，outBuf 必须指向足够大的缓冲区
-	// 返回 true 表示成功，并通过 outSize 输出 JPEG 大小
-	bool captureJpeg(uint8_t* outBuf, size_t outBufSize, size_t& outSize);
+	/**
+	 * @brief Capture the current screen content as a JPEG image
+	 * @param jpegBuffer Pointer to the buffer where the JPEG data will be stored
+	 * @param jpegBufSize Size of the provided buffer in bytes
+	 * @return The number of bytes written to the JPEG buffer on success, 0 on failure
+	 */
+	size_t captureJpeg(uint8_t* jpegBuffer, size_t jpegBufSize);
 
 private:
 	ScreenStream() = default;
 	~ScreenStream() = default;
 
-	Display* m_display = nullptr;
-	bool m_started = false;
+	Display* m_display{};
+	bool m_started{};
+	jpeg_enc_handle_t jpegHandle{};
+	lv_draw_buf_t* imageBuffer{};
 };
