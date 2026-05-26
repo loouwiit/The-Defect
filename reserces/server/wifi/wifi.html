@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<link rel="stylesheet" type="text/css" href="/index.css" />
+	<title>wifi管理</title>
+</head>
+
+<body>
+	<div id="ap">
+		<label for="apSsid" id="apSsidLabel">ssid:</label>
+		<input type="text" id="apSsid" />
+		<br />
+		<label for="apPassword" id="apPasswordLabel">password:</label>
+		<input type="text" id="apPassword" />
+		<br />
+
+		<button id="apStart">启动ap</button>
+		<button id="apStop">关闭ap</button>
+	</div>
+
+	<hr />
+
+	<div id="wifi">
+		<label for="wifiSsid" id="wifiSsidLabel">ssid:</label>
+		<input type="text" id="wifiSsid" />
+		<br />
+		<label for="wifiPassword" id="wifiPasswordLabel">password:</label>
+		<input type="text" id="wifiPassword" />
+		<br />
+
+		<button id="wifiConnect">连接wifi</button>
+		<button id="wifiStop">关闭wifi</button>
+	</div>
+
+	<hr />
+
+	<div id="scan">
+		<button id="wifiScan">扫描wifi</button>
+		<div id="wifiList"></div>
+	</div>
+
+</body>
+
+<script src="wifi.js" defer></script>
+
+</html>
