@@ -10,6 +10,12 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 72
 
 分区表：双 OTA (2MB×2) + FAT 数据分区 (16MB)。
 
+## Resources
+
+`reserces/` 目录下的文件会被上传到 ESP32-P4 内置 FLASH 的 FAT 分区，挂载路径为 `/root/`。
+
+`reserces/server/` 是 HTTP 服务器可访问的文件目录，用于存放网页静态资源。
+
 ## Architecture
 
 | 模块 | 路径 | 职责 |
