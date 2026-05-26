@@ -19,7 +19,7 @@
 #include "storage/sd.hpp"
 
 #include "app/testApp.hpp"
-#include "screen_stream/screenStream.hpp"
+#include "screenStream/screenStream.hpp"
 
 static constexpr char TAG[] = "main";
 
