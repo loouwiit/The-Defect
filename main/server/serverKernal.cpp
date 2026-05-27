@@ -13,10 +13,6 @@
 #include "buildinHtml/file.hpp"
 #include "storage/fat.hpp"
 
-#include "screenStream/screenStream.hpp"
-#include "esp_heap_caps.h"
-#include "virtualIndev/virtualIndev.hpp"
-
 #include "task/task.hpp"
 
 EXT_RAM_BSS_ATTR static uint8_t autoRestartTimes = 0;
@@ -61,8 +57,6 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request);
 void httpDelete(IOSocketStream& socketStream, HttpRequest& request);
 void restart();
 
-bool apiScreenStream(IOSocketStream& socketStream);
-void apiScreenTouch(IOSocketStream& socketStream, HttpRequest& request);
 void apiFloor(OSocketStream& socketStream, const char* path);
 
 bool serverIsStarted()
@@ -434,17 +428,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	const char* uri = request.getPath();
 	const size_t uriLenght = strlen(uri);
 
-	if (stringCompare((char*)uri, uriLenght, "/api/screen/stream", 18))
-	{
-		apiScreenStream(socketStream);
-		return;
-	}
-	else if (stringCompare((char*)uri, uriLenght, "/api/screen/touch", 17))
-	{
-		apiScreenTouch(socketStream, request);
-		return;
-	}
-	else if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
+	if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
 	{
 		size_t pathSize = sizeof(PerfixRoot) + request.getBodyLenght();
 		char* path = new char[pathSize];
@@ -746,76 +730,6 @@ void restart()
 		printf("restart %u times, which is the max times\n", autoRestartTimes);
 		serverRunning = false;
 	}
-}
-
-bool apiScreenStream(IOSocketStream& socketStream)
-{
-	constexpr size_t bufferSize = 512 * 1024;
-	uint8_t* out = (uint8_t*)heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA);
-	if (!out)
-	{
-		ESP_LOGI("/api/screen/stream", "alloc buf failed");
-		return false;
-	}
-
-	// MJPEG stream over POST
-	socketStream.write("HTTP/1.1 200 OK\r\n"
-		"Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n"
-		"\r\n", 78);
-	socketStream.sendNow();
-
-	while (socketStream.isGood() && serverRunning)
-	{
-		if (size_t jpegSize = ScreenStream::instance().captureJpeg(out, bufferSize))
-		{
-			char partHeader[128];
-			size_t hlen = sprintf(partHeader, "--FRAME\r\n"
-				"Content-Type: image/jpeg\r\n"
-				"Content-Length: %u\r\n"
-				"\r\n", (unsigned)jpegSize);
-
-			socketStream.write(partHeader, hlen);
-			socketStream.write((const char*)out, jpegSize);
-			socketStream.write("\r\n", 2);
-			socketStream.sendNow();
-		}
-		else vTaskDelay(100 / portTICK_PERIOD_MS);
-		vTaskDelay(100 / portTICK_PERIOD_MS);
-	}
-
-	heap_caps_free(out);
-	return true;
-}
-
-void apiScreenTouch(IOSocketStream& socketStream, HttpRequest& request)
-{
-	size_t len = request.getBodyLenght();
-	if (len == 0)
-	{
-		sendBadRequest(socketStream);
-		return;
-	}
-
-	char* buf = new char[len + 1];
-	size_t read = socketStream.read(buf, len + 1);
-	buf[read < len ? read : len] = '\0';
-
-	int x = 0, y = 0, t = 0;
-	int parsed = sscanf(buf, "%d,%d,%d", &x, &y, &t);
-	delete[] buf;
-
-	if (parsed < 2)
-	{
-		sendBadRequest(socketStream);
-		return;
-	}
-
-	lv_point_t pt{ (lv_coord_t)x, (lv_coord_t)y };
-	lv_indev_state_t state = (t == 2) ? LV_INDEV_STATE_REL : LV_INDEV_STATE_PR;
-
-	VirtualIndev::instance().sendTouch(state, pt);
-
-	sendOk(socketStream);
 }
 
 void apiFloor(OSocketStream& socketStream, const char* path)

@@ -92,20 +92,6 @@
 			50% { opacity: 0.4; }
 		}
 
-		.stats {
-			font-size: 12px;
-			color: #888;
-			display: flex;
-			gap: 16px;
-			margin-bottom: 10px;
-		}
-		.stats span {
-			white-space: nowrap;
-		}
-		.stats .value {
-			color: #e0e0e0;
-		}
-
 		#streamContainer {
 			width: 100%;
 			max-width: 1280px;
@@ -207,23 +193,6 @@
 			background-color: #3a1a1a;
 		}
 
-		#log {
-			margin-top: 12px;
-			width: 100%;
-			max-width: 720px;
-			font-size: 11px;
-			color: #666;
-			text-align: center;
-			min-height: 1.2em;
-			word-break: break-all;
-		}
-		#log.error {
-			color: #ff5252;
-		}
-		#log.info {
-			color: #00d4ff;
-		}
-
 		@media (max-width: 600px) {
 			body { padding: 8px; }
 			.header { flex-direction: column; align-items: flex-start; }
@@ -247,6 +216,10 @@
 				<span class="status-dot disconnected" id="touchStatusDot"></span>
 				<span id="touchStatusText">触控未连接</span>
 			</div>
+			<div class="status-bar" style="color:#888; font-size:12px">
+				<span id="fpsDisplay">--</span> FPS
+				<span id="frameSizeDisplay" style="margin-left:8px">--</span>
+			</div>
 		</div>
 	</div>
 
@@ -257,24 +230,16 @@
 		<button id="btnTouchStop" class="danger" disabled>✋ 断开触控</button>
 	</div>
 
-	<div class="stats">
-		<span>帧率: <span class="value" id="fpsDisplay">--</span> FPS</span>
-		<span>分辨率: <span class="value" id="resolutionDisplay">--</span></span>
-		<span>帧大小: <span class="value" id="frameSizeDisplay">--</span></span>
-		<span>已接收: <span class="value" id="totalFramesDisplay">0</span> 帧</span>
-	</div>
-
 	<div id="streamContainer">
 		<img id="streamImage" alt="屏幕串流" />
 		<div id="touchDot" class="hidden"></div>
 		<div id="placeholder">
 			<div class="icon">🖥️</div>
 			<div>点击「开始串流」连接</div>
-			<div class="hint">使用 MJPEG 流获取屏幕画面</div>
+			<div class="hint">通过 WebSocket 串流获取屏幕画面</div>
 		</div>
 	</div>
 
-	<div id="log"></div>
 
 	<script src="screen.js" defer></script>
 </body>
