@@ -317,5 +317,116 @@
 		if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
 	});
 
+	// ---- 触摸注入 (单点) ----
+	const streamContainer = document.getElementById('streamContainer');
+	const touchDot = document.getElementById('touchDot');
+	let pointerActive = false;
+	let pending = null;
+	let rafScheduled = false;
+
+	// 发包速率限制: 最小间隔 100ms (~10次/秒), 坐标无变化跳过
+	const TOUCH_MIN_INTERVAL_MS = 100;
+	let lastSentTime = 0;
+	let lastSentX = -1;
+	let lastSentY = -1;
+
+	function clientToDevice(clientX, clientY) {
+		// 用 container rect 而非 streamImage, 避免 object-fit: contain 引起的坐标偏移
+		const rect = streamContainer.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+		const relX = (clientX - rect.left) / rect.width;
+		const relY = (clientY - rect.top) / rect.height;
+		// clamp
+		const cx = Math.min(Math.max(relX, 0), 1);
+		const cy = Math.min(Math.max(relY, 0), 1);
+		// device resolution (横屏 1280×720)
+		const x = Math.round(cx * 1280);
+		const y = Math.round(cy * 720);
+		return { x, y };
+	}
+
+	function dotPosRelative(clientX, clientY) {
+		const containerRect = streamContainer.getBoundingClientRect();
+		return {
+			left: clientX - containerRect.left,
+			top: clientY - containerRect.top
+		};
+	}
+
+	function sendPendingOnce() {
+		rafScheduled = false;
+		if (!pending) return;
+		const p = pending;
+		pending = null;
+
+		const now = performance.now();
+		const samePos = (p.x === lastSentX && p.y === lastSentY);
+		const tooSoon = (now - lastSentTime < TOUCH_MIN_INTERVAL_MS);
+
+		// 释放事件(type=2)不受限, 确保能触发
+		if (p.type === 2) {
+			lastSentTime = now;
+			lastSentX = lastSentY = -1;
+			fetch('/api/screen/touch', { method: 'POST', body: `${p.x},${p.y},${p.type}` }).catch(()=>{});
+			return;
+		}
+
+		if (samePos || tooSoon) return;
+
+		lastSentTime = now;
+		lastSentX = p.x;
+		lastSentY = p.y;
+		fetch('/api/screen/touch', { method: 'POST', body: `${p.x},${p.y},${p.type}` }).catch(()=>{});
+	}
+
+	function scheduleSend(x, y, type) {
+		pending = { x, y, type };
+		if (!rafScheduled) {
+			rafScheduled = true;
+			requestAnimationFrame(sendPendingOnce);
+		}
+	}
+
+	function updateDot(clientX, clientY) {
+		if (!touchDot) return;
+		const pos = dotPosRelative(clientX, clientY);
+		touchDot.style.left = pos.left + 'px';
+		touchDot.style.top = pos.top + 'px';
+	}
+
+	streamContainer.addEventListener('pointerdown', (e) => {
+		e.preventDefault();
+		pointerActive = true;
+		streamContainer.setPointerCapture(e.pointerId);
+		const d = clientToDevice(e.clientX, e.clientY);
+		scheduleSend(d.x, d.y, 0);
+		if (touchDot) touchDot.style.display = 'block';
+		updateDot(e.clientX, e.clientY);
+	});
+
+	streamContainer.addEventListener('pointermove', (e) => {
+		if (!pointerActive) return;
+		e.preventDefault();
+		const d = clientToDevice(e.clientX, e.clientY);
+		scheduleSend(d.x, d.y, 1);
+		updateDot(e.clientX, e.clientY);
+	});
+
+	streamContainer.addEventListener('pointerup', (e) => {
+		if (!pointerActive) return;
+		pointerActive = false;
+		streamContainer.releasePointerCapture(e.pointerId);
+		const d = clientToDevice(e.clientX, e.clientY);
+		scheduleSend(d.x, d.y, 2);
+		if (touchDot) touchDot.style.display = 'none';
+	});
+
+	streamContainer.addEventListener('pointercancel', (e) => {
+		if (!pointerActive) return;
+		pointerActive = false;
+		scheduleSend(0, 0, 2);
+		if (touchDot) touchDot.style.display = 'none';
+	});
+
 	console.log('screen.js 已加载 — MJPEG 流客户端');
 })();

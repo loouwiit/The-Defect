@@ -21,6 +21,7 @@
 
 #include "app/testApp.hpp"
 #include "screenStream/screenStream.hpp"
+#include "virtualIndev/virtualIndev.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -73,6 +74,9 @@ extern "C" void app_main(void)
 
 	// 启动屏幕流模块（用于 HTTP MJPEG 流）
 	ScreenStream::instance().start(&display);
+
+	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
+	VirtualIndev::instance().start(&display);
 
 	// 启动任务管理器
 	Task::init(2);

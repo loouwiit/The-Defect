@@ -15,6 +15,7 @@
 
 #include "screenStream/screenStream.hpp"
 #include "esp_heap_caps.h"
+#include "virtualIndev/virtualIndev.hpp"
 
 #include "task/task.hpp"
 
@@ -61,6 +62,7 @@ void httpDelete(IOSocketStream& socketStream, HttpRequest& request);
 void restart();
 
 bool apiScreenStream(IOSocketStream& socketStream);
+void apiScreenTouch(IOSocketStream& socketStream, HttpRequest& request);
 void apiFloor(OSocketStream& socketStream, const char* path);
 
 bool serverIsStarted()
@@ -437,6 +439,11 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		apiScreenStream(socketStream);
 		return;
 	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/screen/touch", 17))
+	{
+		apiScreenTouch(socketStream, request);
+		return;
+	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
 	{
 		size_t pathSize = sizeof(PerfixRoot) + request.getBodyLenght();
@@ -778,6 +785,37 @@ bool apiScreenStream(IOSocketStream& socketStream)
 
 	heap_caps_free(out);
 	return true;
+}
+
+void apiScreenTouch(IOSocketStream& socketStream, HttpRequest& request)
+{
+	size_t len = request.getBodyLenght();
+	if (len == 0)
+	{
+		sendBadRequest(socketStream);
+		return;
+	}
+
+	char* buf = new char[len + 1];
+	size_t read = socketStream.read(buf, len + 1);
+	buf[read < len ? read : len] = '\0';
+
+	int x = 0, y = 0, t = 0;
+	int parsed = sscanf(buf, "%d,%d,%d", &x, &y, &t);
+	delete[] buf;
+
+	if (parsed < 2)
+	{
+		sendBadRequest(socketStream);
+		return;
+	}
+
+	lv_point_t pt{ (lv_coord_t)x, (lv_coord_t)y };
+	lv_indev_state_t state = (t == 2) ? LV_INDEV_STATE_REL : LV_INDEV_STATE_PR;
+
+	VirtualIndev::instance().sendTouch(state, pt);
+
+	sendOk(socketStream);
 }
 
 void apiFloor(OSocketStream& socketStream, const char* path)

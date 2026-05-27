@@ -101,14 +101,14 @@
 
 		#streamContainer {
 			width: 100%;
-			max-width: 720px;
+			max-width: 1280px;
 			background-color: #000;
 			border-radius: 8px;
 			overflow: hidden;
 			box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
 			position: relative;
-			aspect-ratio: 720 / 1280;
-			max-height: 80vh;
+			aspect-ratio: 1280 / 720;
+			touch-action: none;
 		}
 
 		#streamImage {
@@ -146,6 +146,18 @@
 		#placeholder .hint {
 			font-size: 13px;
 			color: #444;
+		}
+
+		#touchDot {
+			position: absolute;
+			width: 20px;
+			height: 20px;
+			border-radius: 50%;
+			background: rgba(255, 0, 0, 0.6);
+			transform: translate(-50%, -50%);
+			pointer-events: none;
+			display: none;
+			z-index: 10;
 		}
 
 		.controls {
@@ -209,7 +221,6 @@
 			body { padding: 8px; }
 			.header { flex-direction: column; align-items: flex-start; }
 			.stats { flex-wrap: wrap; }
-			#streamContainer { max-height: 60vh; }
 		}
 	</style>
 </head>
@@ -235,6 +246,7 @@
 
 	<div id="streamContainer">
 		<img id="streamImage" alt="屏幕串流" />
+		<div id="touchDot" class="hidden"></div>
 		<div id="placeholder">
 			<div class="icon">🖥️</div>
 			<div>点击「开始串流」连接</div>
