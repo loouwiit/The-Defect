@@ -5,6 +5,7 @@
 #include <esp_log.h>
 #include <esp_http_server.h>
 #include <esp_heap_caps.h>
+#include <task/task.hpp>
 
 static constexpr char TAG[] = "wsServer";
 
@@ -237,7 +238,7 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 		s_streamClient.active = true;
 		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
 			4096, &s_streamClient,
-			configMAX_PRIORITIES - 2, &s_streamClient.task);
+			Task::Priority::Deamon, &s_streamClient.task);
 		if (ret != pdPASS)
 		{
 			s_streamClient.active = false;
