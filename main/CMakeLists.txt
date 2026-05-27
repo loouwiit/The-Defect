@@ -11,6 +11,7 @@ idf_component_register(SRCS "main.cpp"
                             "screenStream/screenStream.cpp"
                             "app/app.cpp"
                             "app/testApp.cpp"
+                            "wsServer/wsServer.cpp"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs espressif__esp_new_jpeg)
+                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs espressif__esp_new_jpeg esp_http_server)

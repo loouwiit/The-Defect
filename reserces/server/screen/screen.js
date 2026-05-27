@@ -315,28 +315,97 @@
 	window.addEventListener('beforeunload', function () {
 		if (abortController) abortController.abort();
 		if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+		stopTouchWS();
 	});
 
-	// ---- 触摸注入 (单点) ----
+	// ---- WebSocket 触控连接 (端口 8080) ----
+	const TOUCH_WS_URL = 'ws://' + location.hostname + ':8080/ws/touch';
+
+	let wsTouch = null;
+	let wsTouchConnected = false;
+
+	const touchStatusDot = document.getElementById('touchStatusDot');
+	const touchStatusText = document.getElementById('touchStatusText');
+	const btnTouchStart = document.getElementById('btnTouchStart');
+	const btnTouchStop = document.getElementById('btnTouchStop');
+
+	// 触控按钮的事件绑定 (必须在 const 声明之后)
+	if (btnTouchStart) btnTouchStart.addEventListener('click', startTouchWS);
+	if (btnTouchStop) btnTouchStop.addEventListener('click', stopTouchWS);
+
+	function setTouchStatus(state, text) {
+		if (touchStatusDot) touchStatusDot.className = 'status-dot ' + state;
+		if (touchStatusText) touchStatusText.textContent = text;
+	}
+
+	function sendTouchBinary(x, y, type) {
+		if (!wsTouch || wsTouch.readyState !== WebSocket.OPEN) return;
+		const buf = new ArrayBuffer(12);
+		const view = new DataView(buf);
+		view.setInt32(0, x, true);   // 小端序
+		view.setInt32(4, y, true);
+		view.setInt32(8, type, true); // 0=down, 1=move, 2=up
+		wsTouch.send(buf);
+	}
+
+	function startTouchWS() {
+		if (wsTouch && wsTouch.readyState === WebSocket.OPEN) return;
+		setTouchStatus('connecting', '触控连接中...');
+		if (btnTouchStart) btnTouchStart.disabled = true;
+		if (btnTouchStop) btnTouchStop.disabled = false;
+
+		wsTouch = new WebSocket(TOUCH_WS_URL);
+		wsTouch.binaryType = 'arraybuffer';
+
+		wsTouch.onopen = function () {
+			wsTouchConnected = true;
+			setTouchStatus('connected', '触控已连接');
+			log('触控 WebSocket 已连接', 'info');
+		};
+
+		wsTouch.onclose = function () {
+			wsTouchConnected = false;
+			wsTouch = null;
+			setTouchStatus('disconnected', '触控未连接');
+			if (btnTouchStart) btnTouchStart.disabled = false;
+			if (btnTouchStop) btnTouchStop.disabled = true;
+			log('触控 WebSocket 已断开', '');
+		};
+
+		wsTouch.onerror = function () {
+			wsTouchConnected = false;
+			setTouchStatus('disconnected', '触控错误');
+			log('触控 WebSocket 错误', 'error');
+		};
+	}
+
+	function stopTouchWS() {
+		if (wsTouch) {
+			wsTouch.close();
+			wsTouch = null;
+		}
+		wsTouchConnected = false;
+		setTouchStatus('disconnected', '触控未连接');
+		if (btnTouchStart) btnTouchStart.disabled = false;
+		if (btnTouchStop) btnTouchStop.disabled = true;
+	}
+
+	// ---- 触摸注入 (单点, 通过 WebSocket) ----
 	const streamContainer = document.getElementById('streamContainer');
 	const touchDot = document.getElementById('touchDot');
 	let pointerActive = false;
 	let pending = null;
 	let rafScheduled = false;
 
-	// 发包速率限制: 最小间隔 100ms (~10次/秒), 坐标无变化跳过
-	const TOUCH_MIN_INTERVAL_MS = 100;
-	let lastSentTime = 0;
+	// 仅去重, 不限速率 (WebSocket 开销极低)
 	let lastSentX = -1;
 	let lastSentY = -1;
 
 	function clientToDevice(clientX, clientY) {
-		// 用 container rect 而非 streamImage, 避免 object-fit: contain 引起的坐标偏移
 		const rect = streamContainer.getBoundingClientRect();
 		if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
 		const relX = (clientX - rect.left) / rect.width;
 		const relY = (clientY - rect.top) / rect.height;
-		// clamp
 		const cx = Math.min(Math.max(relX, 0), 1);
 		const cy = Math.min(Math.max(relY, 0), 1);
 		// device resolution (横屏 1280×720)
@@ -353,30 +422,32 @@
 		};
 	}
 
+	function updateDot(clientX, clientY) {
+		if (!touchDot) return;
+		const pos = dotPosRelative(clientX, clientY);
+		touchDot.style.left = pos.left + 'px';
+		touchDot.style.top = pos.top + 'px';
+	}
+
 	function sendPendingOnce() {
 		rafScheduled = false;
 		if (!pending) return;
 		const p = pending;
 		pending = null;
 
-		const now = performance.now();
-		const samePos = (p.x === lastSentX && p.y === lastSentY);
-		const tooSoon = (now - lastSentTime < TOUCH_MIN_INTERVAL_MS);
-
-		// 释放事件(type=2)不受限, 确保能触发
+		// 释放事件(type=2)不受限
 		if (p.type === 2) {
-			lastSentTime = now;
 			lastSentX = lastSentY = -1;
-			fetch('/api/screen/touch', { method: 'POST', body: `${p.x},${p.y},${p.type}` }).catch(()=>{});
+			sendTouchBinary(p.x, p.y, p.type);
 			return;
 		}
 
-		if (samePos || tooSoon) return;
+		// 坐标无变化跳过
+		if (p.x === lastSentX && p.y === lastSentY) return;
 
-		lastSentTime = now;
 		lastSentX = p.x;
 		lastSentY = p.y;
-		fetch('/api/screen/touch', { method: 'POST', body: `${p.x},${p.y},${p.type}` }).catch(()=>{});
+		sendTouchBinary(p.x, p.y, p.type);
 	}
 
 	function scheduleSend(x, y, type) {
@@ -385,13 +456,6 @@
 			rafScheduled = true;
 			requestAnimationFrame(sendPendingOnce);
 		}
-	}
-
-	function updateDot(clientX, clientY) {
-		if (!touchDot) return;
-		const pos = dotPosRelative(clientX, clientY);
-		touchDot.style.left = pos.left + 'px';
-		touchDot.style.top = pos.top + 'px';
 	}
 
 	streamContainer.addEventListener('pointerdown', (e) => {
@@ -428,5 +492,5 @@
 		if (touchDot) touchDot.style.display = 'none';
 	});
 
-	console.log('screen.js 已加载 — MJPEG 流客户端');
+	console.log('screen.js 已加载 — MJPEG 流 + WebSocket 触控');
 })();

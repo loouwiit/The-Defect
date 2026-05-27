@@ -22,6 +22,7 @@
 #include "app/testApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
+#include "wsServer/wsServer.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -116,6 +117,11 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "serverStart");
 	serverStart();
 	ESP_LOGI(TAG, "serverStart done");
+
+	// WebSocket 服务器（端口 8080，仅用于触控回传）
+	ESP_LOGI(TAG, "wsServerStart");
+	wsServerStart();
+	ESP_LOGI(TAG, "wsServerStart done");
 
 	// 保持栈上变量，后续移除
 	while (true)

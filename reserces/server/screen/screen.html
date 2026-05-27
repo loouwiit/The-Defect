@@ -26,9 +26,9 @@
 			display: flex;
 			justify-content: space-between;
 			align-items: center;
-			margin-bottom: 12px;
+			margin-bottom: 10px;
 			flex-wrap: wrap;
-			gap: 8px;
+			gap: 6px;
 		}
 
 		.header-left {
@@ -53,10 +53,16 @@
 			text-decoration: underline;
 		}
 
+		.status-row {
+			display: flex;
+			gap: 16px;
+			align-items: center;
+		}
+
 		.status-bar {
 			display: flex;
 			align-items: center;
-			gap: 8px;
+			gap: 6px;
 			font-size: 13px;
 		}
 
@@ -91,6 +97,7 @@
 			color: #888;
 			display: flex;
 			gap: 16px;
+			margin-bottom: 10px;
 		}
 		.stats span {
 			white-space: nowrap;
@@ -231,10 +238,23 @@
 			<a class="back-link" href="/">← 返回</a>
 			<h1>📺 屏幕串流</h1>
 		</div>
-		<div class="status-bar">
-			<span class="status-dot disconnected" id="statusDot"></span>
-			<span id="statusText">未连接</span>
+		<div class="status-row">
+			<div class="status-bar">
+				<span class="status-dot disconnected" id="statusDot"></span>
+				<span id="statusText">串流未连接</span>
+			</div>
+			<div class="status-bar">
+				<span class="status-dot disconnected" id="touchStatusDot"></span>
+				<span id="touchStatusText">触控未连接</span>
+			</div>
 		</div>
+	</div>
+
+	<div class="controls">
+		<button id="btnStart" class="primary">▶ 开始串流</button>
+		<button id="btnStop" class="danger" disabled>■ 停止串流</button>
+		<button id="btnTouchStart">✋ 连接触控</button>
+		<button id="btnTouchStop" class="danger" disabled>✋ 断开触控</button>
 	</div>
 
 	<div class="stats">
@@ -250,13 +270,8 @@
 		<div id="placeholder">
 			<div class="icon">🖥️</div>
 			<div>点击「开始串流」连接</div>
-			<div class="hint">使用 POST /api/screen/stream 获取 MJPEG 流</div>
+			<div class="hint">使用 MJPEG 流获取屏幕画面</div>
 		</div>
-	</div>
-
-	<div class="controls">
-		<button id="btnStart" class="primary">▶ 开始串流</button>
-		<button id="btnStop" class="danger" disabled>■ 停止</button>
 	</div>
 
 	<div id="log"></div>
