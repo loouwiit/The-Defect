@@ -28,6 +28,18 @@
 	let lastFrameTime = 0;
 	let smoothedFps = 0;
 
+	// ---- 旋转 Canvas（竖屏 JPEG → 横屏显示） ----
+	// 面板物理分辨率 720×1280，JPEG 为竖屏。
+	// 通过 Canvas 旋转 90° 后输出 1280×720 横屏画面。
+	const ROTATE_CANVAS = document.createElement('canvas');
+	ROTATE_CANVAS.width = 1280;
+	ROTATE_CANVAS.height = 720;
+	const ROTATE_CTX = ROTATE_CANVAS.getContext('2d');
+	// 预配置变换：画布中心为原点，旋转 90°
+	// （如果方向反了，把下面这行的 1 改成 -1）
+	ROTATE_CTX.translate(640, 360);
+	ROTATE_CTX.rotate(-1 * Math.PI / 2);
+
 	// ---- 工具函数 ----
 
 	function log(msg, type) {
@@ -56,19 +68,41 @@
 		}
 		lastFrameTime = now;
 
-		// 释放上一帧 blob URL
-		if (currentObjectUrl) {
-			URL.revokeObjectURL(currentObjectUrl);
-		}
-
 		const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
-		currentObjectUrl = URL.createObjectURL(blob);
 
-		if (placeholder && !placeholder.classList.contains('hidden')) {
-			placeholder.classList.add('hidden');
-		}
+		// 通过 Canvas 旋转竖屏 JPEG → 横屏显示
+		createImageBitmap(blob).then(bitmap => {
+			// 清除上一帧
+			ROTATE_CTX.clearRect(-640, -360, 1280, 720);
 
-		requestAnimationFrame(() => {
+			// 在旋转后的坐标系中绘制：
+			// 图片 720×1280，以画布中心为原点，居中绘制
+			ROTATE_CTX.drawImage(bitmap, -360, -640, 720, 1280);
+			bitmap.close();
+
+			// 将 Canvas 重新编码为 JPEG
+			ROTATE_CANVAS.toBlob(rotatedBlob => {
+				if (currentObjectUrl) {
+					URL.revokeObjectURL(currentObjectUrl);
+				}
+				currentObjectUrl = URL.createObjectURL(rotatedBlob);
+
+				if (placeholder && !placeholder.classList.contains('hidden')) {
+					placeholder.classList.add('hidden');
+				}
+
+				streamImage.src = currentObjectUrl;
+			}, 'image/jpeg', 0.82);
+		}).catch(err => {
+			// 降级：直接显示未旋转的图片
+			console.warn('Canvas 旋转失败，降级显示:', err);
+			if (currentObjectUrl) {
+				URL.revokeObjectURL(currentObjectUrl);
+			}
+			currentObjectUrl = URL.createObjectURL(blob);
+			if (placeholder && !placeholder.classList.contains('hidden')) {
+				placeholder.classList.add('hidden');
+			}
 			streamImage.src = currentObjectUrl;
 		});
 	}

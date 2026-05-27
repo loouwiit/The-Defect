@@ -1,0 +1,157 @@
+--- a/src/display/ports/display_bridge.h	2026-05-17 17:26:28.563144814 +0800
++++ b/src/display/ports/display_bridge.h	2026-05-27 23:10:24.873612335 +0800
+@@ -96,6 +96,19 @@
+     void (*set_area_rounder)(esp_lv_adapter_display_bridge_t *bridge,
+                              void (*rounder_cb)(lv_area_t *, void *),
+                              void *user_data);
++
++    /**
++     * @brief Frame-ready notification callback
++     *
++     * Invoked after each complete frame has been flushed to the display.
++     * The frame buffer points to the currently displayed (front) buffer.
++     * User must cache-sync (C2M) before reading if using CPU access.
++     * JPEG hardware encoder DMA reads PSRAM directly -- no cache sync needed.
++     */
++    void (*on_frame_ready)(lv_display_t *disp, void *fb, size_t fb_size, void *user_ctx);
++
++    /** @brief User context for frame-ready callback */
++    void *frame_ready_user_ctx;
+ };
+ 
+ /**********************
+--- a/src/display/bridge/v9/lvgl_bridge_v9.c	2026-05-17 17:26:28.564117928 +0800
++++ b/src/display/bridge/v9/lvgl_bridge_v9.c	2026-05-27 23:10:24.875439861 +0800
+@@ -1349,6 +1349,10 @@
+     ulTaskNotifyValueClear(NULL, ULONG_MAX);
+     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+ 
++    if (impl->base.on_frame_ready) {
++        impl->base.on_frame_ready(disp, color_map, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++    }
++
+     display_manager_flush_ready(disp);
+ }
+ 
+@@ -1382,6 +1386,10 @@
+         }
+     }
+ 
++    if (impl->base.on_frame_ready) {
++        impl->base.on_frame_ready(disp, color_map, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++    }
++
+     display_manager_flush_ready(disp);
+ }
+ 
+@@ -1409,6 +1417,10 @@
+         /* Waiting for the last frame buffer to complete transmission */
+         ulTaskNotifyValueClear(NULL, ULONG_MAX);
+         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
++
++        if (impl->base.on_frame_ready) {
++            impl->base.on_frame_ready(disp, color_map, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++        }
+     }
+ 
+     display_manager_flush_ready(disp);
+@@ -1539,6 +1551,10 @@
+ #if CONFIG_ESP_LVGL_ADAPTER_PARTIAL_AUX_IMG_CACHE
+         lv_image_cache_drop(NULL);
+ #endif
++
++        if (impl->base.on_frame_ready) {
++            impl->base.on_frame_ready(disp, impl->disp_fb, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++        }
+     }
+ 
+     /* Notify LVGL that flush is complete */
+@@ -1582,6 +1598,10 @@
+     /* Sync dirty regions to another buffer */
+     flush_dirty_copy(impl, impl->draw_fb, color_map, &impl->dirty);
+ 
++    if (impl->base.on_frame_ready) {
++        impl->base.on_frame_ready(disp, impl->disp_fb, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++    }
++
+     display_manager_flush_ready(disp);
+ }
+ 
+@@ -1619,6 +1639,10 @@
+         }
+     }
+ 
++    if (impl->base.on_frame_ready) {
++        impl->base.on_frame_ready(disp, impl->disp_fb, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++    }
++
+     display_manager_flush_ready(disp);
+ }
+ 
+@@ -1684,6 +1708,10 @@
+ #if CONFIG_ESP_LVGL_ADAPTER_PARTIAL_AUX_IMG_CACHE
+         lv_image_cache_drop(NULL);
+ #endif
++
++        if (impl->base.on_frame_ready) {
++            impl->base.on_frame_ready(disp, impl->disp_fb, impl->runtime.frame_buffer_size, impl->base.frame_ready_user_ctx);
++        }
+     }
+ 
+     /* Notify LVGL that flush is complete */
+--- a/src/display/display_manager.h	2026-05-17 17:26:28.562493941 +0800
++++ b/src/display/display_manager.h	2026-05-27 23:10:24.876931871 +0800
+@@ -179,6 +179,25 @@
+  */
+ esp_err_t display_manager_rebind_draw_buffers(lv_display_t *disp);
+ 
++/**
++ * @brief Register a frame-ready callback for a display
++ *
++ * The callback is invoked after each complete frame has been flushed to the
++ * display, providing a pointer to the currently displayed front buffer.
++ * Pass NULL for cb to unregister.
++ *
++ * @param disp     Display handle
++ * @param cb       Callback function (NULL to unregister)
++ * @param user_ctx User context passed to callback
++ * @return
++ *      - ESP_OK: Success
++ *      - ESP_ERR_INVALID_ARG: Invalid display handle
++ *      - ESP_ERR_NOT_FOUND: Display not found
++ */
++esp_err_t display_manager_set_frame_ready_callback(lv_display_t *disp,
++                                                   void (*cb)(lv_display_t *disp, void *fb, size_t fb_size, void *user_ctx),
++                                                   void *user_ctx);
++
+ #ifdef __cplusplus
+ }
+ #endif
+--- a/src/display/display_manager.c	2026-05-17 17:26:28.562397268 +0800
++++ b/src/display/display_manager.c	2026-05-27 23:10:24.878362184 +0800
+@@ -1638,6 +1638,25 @@
+ }
+ 
+ /**
++ * @brief Register a frame-ready callback for a display
++ */
++esp_err_t display_manager_set_frame_ready_callback(lv_display_t *disp,
++                                                   void (*cb)(lv_display_t *disp, void *fb, size_t fb_size, void *user_ctx),
++                                                   void *user_ctx)
++{
++    ESP_RETURN_ON_FALSE(disp, ESP_ERR_INVALID_ARG, TAG, "Invalid display handle");
++
++    esp_lv_adapter_display_node_t *node = display_manager_find_node(disp);
++    ESP_RETURN_ON_FALSE(node, ESP_ERR_NOT_FOUND, TAG, "Display not found");
++    ESP_RETURN_ON_FALSE(node->bridge, ESP_ERR_INVALID_STATE, TAG, "Bridge not initialized");
++
++    node->bridge->on_frame_ready = cb;
++    node->bridge->frame_ready_user_ctx = user_ctx;
++
++    return ESP_OK;
++}
++
++/**
+  * @brief Refetch framebuffers from LCD panel and update all references
+  */
+ esp_err_t display_manager_refetch_framebuffers(lv_display_t *disp)

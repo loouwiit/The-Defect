@@ -74,7 +74,7 @@ extern "C" void app_main(void)
 	display.setFpsStatisticsEnabled();
 
 	// 启动屏幕流模块（用于 HTTP MJPEG 流）
-	ScreenStream::instance().start(&display);
+	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution, true, 1);
 
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);

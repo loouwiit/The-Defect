@@ -77,3 +77,73 @@
 支持返回键
 
 支持音效播放
+
+# 屏幕串流架构
+
+## 概述
+
+MJPEG 屏幕串流，通过 HTTP 实时投屏。
+
+**模块路径**: `main/screenStream/`
+
+**核心文件**:
+- `screenStream.hpp` — `ScreenStream` 单例类
+- `screenStream.cpp` — 回调 + JPEG 编码实现
+
+## 设计原理
+
+### 问题
+
+LVGL 的 `lv_snapshot_take_to_draw_buf()` 会**完整重绘整个 UI 对象树**到新的 draw buffer。对于 720×1280 分辨率，每次截图都要遍历所有控件并重新渲染，开销极大，不适合高帧率串流。
+
+### 方案
+
+`esp_lvgl_adapter` 的 bridge 层内部维护了累积的完整帧缓冲（`disp_fb` / `draw_fb`），可直接读取。
+
+我们在 bridge 抽象接口中新增了 `on_frame_ready` 回调，每帧 flush 完成后触发，提供 front buffer 指针。`ScreenStream` 在其回调中缓存指针，`captureJpeg()` 直接送硬件 JPEG 编码器。
+
+### 数据流
+
+```
+  LVGL 渲染
+     ↓
+  bridge flush (逐个 dirty tile)
+     ↓
+  copy_unrendered → cache sync → blit to panel → swap disp_fb/draw_fb
+     ↓
+  on_frame_ready(disp, disp_fb, size, ctx)    ← 每帧 1 次
+     ↓
+  ScreenStream::frameReadyCallback: 缓存 fb 指针
+     ↓ (定时器或 HTTP 请求触发)
+  ScreenStream::captureJpeg:
+    → jpeg_enc_process(hw, disp_fb, size, out_buf, &out_sz)
+    → 返回 JPEG 数据
+```
+
+## Bridge 补丁
+
+`esp_lvgl_adapter` 的 4 个文件被修改，以 patch 形式在 `patches/` 中管理：
+
+| 文件 | 改动 |
+|------|------|
+| `src/display/ports/display_bridge.h` | 抽象接口末尾加 `on_frame_ready` + `frame_ready_user_ctx` |
+| `src/display/bridge/v9/lvgl_bridge_v9.c` | 7 个 flush 函数的帧完成点插入回调调用 |
+| `src/display/display_manager.h` | 新增 `display_manager_set_frame_ready_callback()` 声明 |
+| `src/display/display_manager.c` | 实现注册函数 |
+
+**使用**:
+```bash
+bash patches/apply.sh           # 打补丁
+bash patches/apply.sh --revert  # 还原
+bash patches/apply.sh --check   # 检查状态
+```
+
+⚠ `idf.py reconfigure` 后 `managed_components` 会重置，需要重新 `bash patches/apply.sh`。
+
+## 性能影响
+
+| 场景 | 开销 |
+|------|------|
+| 串流关闭 | bridge 中 1 次 null 指针检查/帧（≈ 2-3 周期） |
+| 串流开启 | 回调中 2 次指针赋值 + JPEG 编码时间（硬件加速，与 UI 复杂度无关） |
+| 对比 `lv_snapshot` | 消除全部重新渲染开销，帧率提升显著 |
