@@ -1,4 +1,5 @@
 #include "display/display.hpp"
+#include "display/ili9881c.hpp"
 #include "touch/touch.hpp"
 
 #include <esp_log.h>
@@ -35,12 +36,29 @@ extern "C" void app_main(void)
 	mountMem();
 	mountSd();
 
-	// 初始化显示（硬件 + LVGL 适配器）
+	// 计算帧缓冲区数量
+	constexpr auto tearAvoidMode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_MIPI_DSI;
+	constexpr auto rotation = ESP_LV_ADAPTER_ROTATE_90;
+	const auto frameBufferCount = esp_lv_adapter_get_required_frame_buffer_count(tearAvoidMode, rotation);
+
+	constexpr auto horizontalResolution = 720;
+	constexpr auto verticalResolution = 1280;
+
+	// 初始化LVGL
 	Display display;
-	if (!display.init(ESP_LV_ADAPTER_ROTATE_90)) {
+	if (!display.init()) {
 		ESP_LOGE(TAG, "Failed to initialize display");
 		return;
 	}
+
+	// 初始化ILI9881c
+	if (!ILI9881c::getInstance().init(horizontalResolution, verticalResolution, frameBufferCount))
+	{
+		ESP_LOGE(TAG, "Failed to initialize ILI9881c hardware");
+		return;
+	}
+
+	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
 
 	// IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
 	// Touch touch{ iic, {GPIO_NUM_46} };
