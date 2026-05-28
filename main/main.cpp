@@ -19,7 +19,7 @@
 #include "storage/mem.hpp"
 #include "storage/sd.hpp"
 
-#include "app/testApp.hpp"
+#include "app/testApp/testApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
