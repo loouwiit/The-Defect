@@ -19,7 +19,7 @@
 #include "storage/mem.hpp"
 #include "storage/sd.hpp"
 
-#include "app/testApp/testApp.hpp"
+#include "app/desktopApp/desktopApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
@@ -83,8 +83,8 @@ extern "C" void app_main(void)
 	// 启动任务管理器
 	Task::init(2);
 
-	// 启动测试应用
-	TestApp* app = new TestApp{ &display };
+	// 启动桌面应用
+	DesktopApp* app = new DesktopApp{ &display };
 	app->init();
 	if (auto guard = display.lockGuard())
 	{
