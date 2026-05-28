@@ -1,7 +1,7 @@
 idf_component_register(SRCS "main.cpp"
                             "iic/iic.cpp"
                             "task/task.cpp"
-                            "wifi/wifi.cpp" "wifi/socketStream.cpp" "wifi/socketStreamWindow.cpp" "wifi/http.cpp"
+                            "wifi/wifi.cpp" "wifi/mdns.cpp" "wifi/socketStream.cpp" "wifi/socketStreamWindow.cpp" "wifi/http.cpp"
                             "display/display.cpp" "display/ili9881c.cpp"
                             "touch/touch.cpp"
                             "utility/stringCompare.cpp"
@@ -16,5 +16,5 @@ idf_component_register(SRCS "main.cpp"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display"
                        "../managed_components/espressif__esp_lvgl_adapter/src/adapter"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display/ports"
-                       REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip
+                       REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip mdns
                        PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs espressif__esp_new_jpeg esp_http_server)

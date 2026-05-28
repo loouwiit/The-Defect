@@ -25,7 +25,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 72
 | Touch | `main/touch/` | GT911 驱动 (I²C) |
 | Task | `main/task/` | 协程调度器（轮询）+ Thread 封装 |
 | Server | `main/server/` | TCP HTTP 服务器（裸 socket），端口 80，6 工作者线程 |
-| WiFi | `main/wifi/` | STA/AP 双模 + NAT，`esp_wifi_remote` 支持 C6 通信 |
+| WiFi | `main/wifi/` | STA/AP 双模 + NAT，`esp_wifi_remote` 支持 C6 通信，mDNS 服务发现 |
 | Screen Stream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + HTTP 流。直接读 bridge 帧缓冲，零额外渲染 |
 | Storage | `main/storage/` | FLASH & memFS → SD |
 | IIC | `main/iic/` | I²C 主控 + 设备封装 |

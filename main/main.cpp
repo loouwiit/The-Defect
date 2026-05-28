@@ -23,6 +23,7 @@
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
+#include "wifi/mdns.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -112,6 +113,17 @@ extern "C" void app_main(void)
 			wifiApSet("esp32p4", "12345678");
 		wifiApStart();
 	}
+
+	// mdns
+	ESP_LOGI(TAG, "mdnsInit");
+	mdnsInit();
+	mdnsStart("esp32p4", "ESP32P4 Game Console");
+	ESP_LOGI(TAG, "mdnsInit done");
+
+	ESP_LOGI(TAG, "mdnsServiceAdd");
+	mdnsServiceAdd("ESP32P4 HTTP", "_http", "_tcp", 80);
+	mdnsServiceAdd("ESP32P4 WS", "_ws", "_tcp", 8080);
+	ESP_LOGI(TAG, "mdnsServiceAdd done");
 
 	// 服务器
 	ESP_LOGI(TAG, "serverStart");

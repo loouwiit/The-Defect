@@ -120,6 +120,36 @@ LVGL 的 `lv_snapshot_take_to_draw_buf()` 会**完整重绘整个 UI 对象树**
     → 返回 JPEG 数据
 ```
 
+## mDNS 服务发现
+
+基于 ESP-IDF mdns 组件，实现 mDNS 服务发现。
+
+**模块路径**: `main/wifi/mdns.cpp`
+
+**核心文件**:
+- `mdns.hpp` — 接口声明
+- `mdns.cpp` — 实现
+
+### 功能
+
+设备在网络上广播主机名和服务，支持 mdns 客户端通过 `esp32p4.local` 发现设备，无需记忆 IP 地址。
+
+### 使用方法
+
+```cpp
+mdnsInit();                                          // 1. 初始化
+mdnsStart("esp32p4", "ESP32P4 Game Console");       // 2. 设置主机名和实例名
+mdnsServiceAdd("ESP32P4 HTTP", "_http", "_tcp", 80); // 3. 添加 HTTP 服务
+mdnsServiceAdd("ESP32P4 WS", "_ws", "_tcp", 8080);   // 4. 添加 WebSocket 服务
+```
+
+### 可发现的服务
+
+| 实例名 | 服务类型 | 协议 | 端口 |
+|--------|----------|------|------|
+| ESP32P4 HTTP | _http | _tcp | 80 |
+| ESP32P4 WS | _ws | _tcp | 8080 |
+
 ## Bridge 补丁
 
 `esp_lvgl_adapter` 的 4 个文件被修改，以 patch 形式在 `patches/` 中管理：
