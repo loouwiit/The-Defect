@@ -24,6 +24,80 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 72
 | Display | `main/display/` | ILI9881C 初始化 + LVGL 适配层，提供 `LockGuard` RAII |
 | FontLoader | `main/display/font.cpp` | FreeType 字体加载工具，提供全局默认字体 |
 | Touch | `main/touch/` | GT911 驱动 (I²C) |
+
+## App — 应用基类
+
+**模块路径**: `main/app/app.hpp`
+
+### 概述
+
+`App` 是所有应用程序的基类，采用多态设计。通过 `Display::applyApp()` 加载，管理者 LVGL screen 对象，提供初始化和清理接口。
+
+### 设计
+
+```cpp
+class App {
+public:
+    App(Display* display);
+    virtual ~App();
+
+    virtual void init()   { running = true; deletable = false; };
+    virtual void deinit() { running = false; deletable = true; };
+
+protected:
+    Display* display{};
+    lv_obj_t* screen{};
+
+    bool running{};
+    bool deletable{ true };
+
+    friend class Display;
+};
+```
+
+### 状态机
+
+| 状态 | 说明 |
+|------|------|
+| `running` | 应用是否正在运行 |
+| `deletable` | 应用是否可被删除（析构时需等待此标志） |
+
+### 生命周期
+
+1. **构造**: 简单构造，`deletable = true`
+2. **init()**: 标记 `running = true`，`deletable = false`，可在此执行耗时初始化
+3. **deinit()**: 标记 `running = false`，`deletable = true`，可在此停止耗时任务
+4. **析构**: 等待 `deletable == true` 后，删除 LVGL screen 对象
+
+### 关键特性
+
+- **构造简单**: 构造函数应轻量，复杂逻辑移至 `init()`
+- **状态管理**: 通过 `running`/`deletable` 双标志控制生命周期
+- **析构安全**: 析构函数等待 `deletable` 标志，确保清理完成
+- **多态设计**: 派生类重写 `init()`/`deinit()` 实现具体应用逻辑
+- **Display 友元**: `Display` 类可直接访问私有成员
+
+### 使用方式
+
+```cpp
+// 派生类示例
+class MyApp : public App {
+public:
+    MyApp(Display* display) : App(display) {}
+
+    void init() override {
+        App::init();  // 调用基类，设置 running/deletable 状态
+        // 执行耗时初始化任务
+    }
+
+    void deinit() override {
+        // 停止耗时任务
+        App::deinit();  // 调用基类，设置 running/deletable 状态
+    }
+};
+```
+
+## Screen Stream Architecture
 | Task | `main/task/` | 协程调度器（轮询）+ Thread 封装 |
 | Server | `main/server/` | TCP HTTP 服务器（裸 socket），端口 80，6 工作者线程 |
 | WiFi | `main/wifi/` | STA/AP 双模 + NAT，`esp_wifi_remote` 支持 C6 通信，mDNS 服务发现 |
