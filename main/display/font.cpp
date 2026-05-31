@@ -17,7 +17,8 @@ static void convert_path(const char* lvglPath, char* out, size_t outSize)
 	// lvglPath 格式: "F:system/NotoSC.ttf"
 	// 去掉 'F:' 前缀，拼接到 /root
 	const char* relPath = lvglPath;
-	if (relPath[0] == 'F' && relPath[1] == ':') {
+	if (relPath[0] == 'F' && relPath[1] == ':')
+	{
 		relPath = relPath + 2;
 	}
 	snprintf(out, outSize, "%s/%s", PerfixRoot, relPath);
@@ -29,7 +30,8 @@ static void* fs_open_cb(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
 	char vfsPath[256];
 	convert_path(path, vfsPath, sizeof(vfsPath));
 	FILE* f = fopen(vfsPath, "rb");
-	if (!f) {
+	if (!f)
+	{
 		ESP_LOGW(TAG, "fopen failed: %s", vfsPath);
 		return nullptr;
 	}
@@ -38,7 +40,8 @@ static void* fs_open_cb(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
 
 static lv_fs_res_t fs_close_cb(lv_fs_drv_t* drv, void* file_p)
 {
-	if (file_p) {
+	if (file_p)
+	{
 		fclose((FILE*)file_p);
 	}
 	return LV_FS_RES_OK;
@@ -84,19 +87,31 @@ static bool register_vfs_driver(void)
 }
 
 // 字体加载器
-const lv_font_t* FontLoader::s_defaultFont = nullptr;
+FontLoader::FontEntry FontLoader::s_fonts[MaxCount]{};
 
-const lv_font_t* FontLoader::getDefault()
+const lv_font_t* FontLoader::getDefault(FontSize size)
 {
-	return s_defaultFont;
+	for (int i = 0; i < MaxCount; i++)
+		if (s_fonts[i].size == size)
+			return s_fonts[i].font;
+
+	return s_fonts[0].font;
 }
 
-void FontLoader::setDefault(const lv_font_t* font)
+bool FontLoader::setDefault(const lv_font_t* font, FontSize size)
 {
-	s_defaultFont = font;
+	for (int i = 0; i < MaxCount; i++)
+		if (s_fonts[i].size == size || s_fonts[i].font == nullptr)
+		{
+			s_fonts[i].size = size;
+			s_fonts[i].font = font;
+			return true;
+		}
+	ESP_LOGW(TAG, "no slot for size %d", size);
+	return false;
 }
 
-const lv_font_t* FontLoader::load(const char* vfsPath)
+const lv_font_t* FontLoader::load(const char* vfsPath, uint16_t size)
 {
 	// VFS 驱动器仅注册一次
 	EXT_RAM_BSS_ATTR static bool drvRegistered = register_vfs_driver();
@@ -105,17 +120,18 @@ const lv_font_t* FontLoader::load(const char* vfsPath)
 	esp_lv_adapter_ft_font_handle_t handle;
 	esp_lv_adapter_ft_font_config_t cfg{
 		.name = vfsPath,
-		.size = 32,
+		.size = size,
 		.style = ESP_LV_ADAPTER_FT_FONT_STYLE_NORMAL,
 	};
 
 	auto ret = esp_lv_adapter_ft_font_init(&cfg, &handle);
-	if (ret != ESP_OK) {
+	if (ret != ESP_OK)
+	{
 		ESP_LOGE(TAG, "load failed: %s", esp_err_to_name(ret));
 		return nullptr;
 	}
 
 	auto font = esp_lv_adapter_ft_font_get(handle);
-	ESP_LOGI(TAG, "font loaded: %s", vfsPath);
+	ESP_LOGI(TAG, "font loaded: %s size %d", vfsPath, size);
 	return font;
 }

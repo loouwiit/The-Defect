@@ -1,5 +1,5 @@
 #include "gui.hpp"
-
+#include "display/font.hpp"
 
 lv_obj_t* GUI::createPage(lv_obj_t* parent)
 {
@@ -54,7 +54,7 @@ lv_obj_t* GUI::createTitle(lv_obj_t* parent, const char* text)
 {
 	lv_obj_t* label = lv_label_create(parent);
 	lv_label_set_text(label, text);
-	lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
+	lv_obj_set_style_text_font(label, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
 	lv_obj_set_style_text_color(label, Color::TEXT, 0);
 	return label;
 }
@@ -63,7 +63,6 @@ lv_obj_t* GUI::createSubtitle(lv_obj_t* parent, const char* text)
 {
 	lv_obj_t* label = lv_label_create(parent);
 	lv_label_set_text(label, text);
-	lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
 	lv_obj_set_style_text_color(label, Color::SUBTLE, 0);
 	return label;
 }
@@ -72,7 +71,6 @@ lv_obj_t* GUI::createValue(lv_obj_t* parent, const char* text)
 {
 	lv_obj_t* label = lv_label_create(parent);
 	lv_label_set_text(label, text);
-	lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
 	lv_obj_set_style_text_color(label, Color::PRIMARY, 0);
 	return label;
 }
@@ -124,7 +122,6 @@ lv_obj_t* GUI::createMetric(lv_obj_t* parent, const char* title,
 	lv_obj_t* titleLabel = lv_label_create(card);
 	lv_label_set_text(titleLabel, title);
 	lv_obj_set_style_text_color(titleLabel, Color::SUBTLE, 0);
-	lv_obj_set_style_text_font(titleLabel, &lv_font_montserrat_32, 0);
 
 	lv_obj_t* row = lv_obj_create(card);
 	lv_obj_set_width(row, lv_pct(100));
@@ -137,13 +134,11 @@ lv_obj_t* GUI::createMetric(lv_obj_t* parent, const char* title,
 
 	lv_obj_t* valLabel = lv_label_create(row);
 	lv_label_set_text(valLabel, value);
-	lv_obj_set_style_text_font(valLabel, &lv_font_montserrat_32, 0);
 	lv_obj_set_style_text_color(valLabel, Color::TEXT, 0);
 
 	lv_obj_t* unitLabel = lv_label_create(row);
 	lv_label_set_text(unitLabel, unit);
 	lv_obj_set_style_text_color(unitLabel, Color::SUBTLE, 0);
-	lv_obj_set_style_text_font(unitLabel, &lv_font_montserrat_32, 0);
 	lv_obj_set_style_pad_left(unitLabel, 4, 0);
 
 	return card;

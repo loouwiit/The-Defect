@@ -79,7 +79,9 @@ extern "C" void app_main(void)
 	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution, true, 1);
 
 	// 加载字体并设为默认
-	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf"));
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Default));
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large), FontLoader::FontSize::Large);
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small), FontLoader::FontSize::Small);
 
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);
