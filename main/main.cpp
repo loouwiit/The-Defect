@@ -21,6 +21,7 @@
 #include "storage/sd.hpp"
 
 #include "app/desktopApp/desktopApp.hpp"
+#include "app/tetris/tetris.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
@@ -74,6 +75,9 @@ extern "C" void app_main(void)
 		return;
 	}
 	display.setFpsStatisticsEnabled();
+
+	// 运行方块测试 (临时)
+	tetris_run_tests();
 
 	// 启动屏幕流模块（用于 HTTP MJPEG 流）
 	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution, true, 1);
