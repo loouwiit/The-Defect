@@ -22,6 +22,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 72
 |------|------|------|
 | App | `main/app/` | 应用基类，多态设计，`Display::applyApp()` 加载 |
 | Display | `main/display/` | ILI9881C 初始化 + LVGL 适配层，提供 `LockGuard` RAII |
+| FontLoader | `main/display/font.cpp` | FreeType 字体加载工具，提供全局默认字体 |
 | Touch | `main/touch/` | GT911 驱动 (I²C) |
 | Task | `main/task/` | 协程调度器（轮询）+ Thread 封装 |
 | Server | `main/server/` | TCP HTTP 服务器（裸 socket），端口 80，6 工作者线程 |
@@ -97,6 +98,67 @@ ScreenStream::instance().stop();           // 停止
 ```
 
 详细架构见 `readme.md`。
+
+## FontLoader — 字体加载
+
+**模块路径**: `main/display/font.cpp`
+
+### 概述
+
+`FontLoader` 是一个无状态的纯工具类，负责从 VFS 路径加载 FreeType 字体，并提供全局默认字体。
+
+### 设计
+
+```cpp
+class FontLoader {
+public:
+    // 加载字体文件，返回 lv_font_t*
+    // 生命周期由 esp_lv_adapter_deinit() 统一管理
+    static const lv_font_t* load(const char* vfsPath);
+
+    // 全局默认字体（供所有对象使用）
+    static const lv_font_t* getDefault();
+    static void setDefault(const lv_font_t* font);
+
+private:
+    FontLoader() = delete;
+    ~FontLoader() = delete;
+
+    static const lv_font_t* s_defaultFont;
+};
+```
+
+### VFS 驱动器 'F'
+
+FontLoader 在内部注册 LVGL VFS 驱动器 `'F'`，将 `"F:..."` 路径映射到 `/root/`：
+
+```
+FreeType "F:system/NotoSC.ttf"
+    → LVGL VFS driver 'F'
+    → convert_path: 去掉 "F:" 前缀，拼接到 "/root/"
+    → fopen("/root/system/NotoSC.ttf")
+    → VFS → FAT flash
+```
+
+### 使用方式
+
+```cpp
+// main.cpp — 初始化时加载并设为默认
+FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf"));
+
+// App 构造函数 — 自动继承字体到所有子对象
+lv_obj_set_style_text_font(screen, FontLoader::getDefault(), 0);
+
+// desktopApp — 直接使用默认字体，无需每次指定路径
+lv_obj_set_style_text_font(label, FontLoader::getDefault(), 0);
+```
+
+### 关键特性
+
+- **无状态**: FontLoader 不存储字体实例，每次 load() 返回新句柄
+- **全局默认字体**: 通过 `setDefault()` / `getDefault()` 提供共享字体
+- **样式继承**: App 基类在 screen 上设置默认字体，所有子对象自动继承
+- **生命周期**: 字体由 `esp_lv_adapter_deinit()` 统一释放，无法单独 deinit
 
 ## Startup Flow (main.cpp) — 初期阶段，可能变动
 
