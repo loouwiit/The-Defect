@@ -18,6 +18,8 @@ Display::~Display()
 bool Display::init()
 {
 	esp_lv_adapter_config_t adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+	adapter_cfg.task_stack_size = 32 * 1024;
+	adapter_cfg.stack_in_psram = true;
 	auto ret = esp_lv_adapter_init(&adapter_cfg);
 	if (ret != ESP_OK)
 	{

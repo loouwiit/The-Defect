@@ -1,5 +1,6 @@
 #include "display/display.hpp"
 #include "display/ili9881c.hpp"
+#include "display/font.hpp"
 #include "touch/touch.hpp"
 
 #include <esp_log.h>
@@ -76,6 +77,9 @@ extern "C" void app_main(void)
 
 	// 启动屏幕流模块（用于 HTTP MJPEG 流）
 	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution, true, 1);
+
+	// 加载字体并设为默认
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf"));
 
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);

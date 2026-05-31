@@ -3,25 +3,26 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "display/font.hpp"
 
 static const char* TAG = "DesktopApp";
 
 // ========== 游戏数据 ==========
 
 const char* DesktopApp::GAME_NAMES[] = {
-	"Game 1",
-	"Game 2",
-	"Game 3",
-	"Game 4",
-	"Game 5",
+	"游戏 1",
+	"游戏 2",
+	"游戏 3",
+	"游戏 4",
+	"游戏 5",
 };
 
 const char* DesktopApp::GAME_DESCS[] = {
-	"An exciting adventure awaits!",
-	"Test your puzzle-solving skills.",
-	"Fast-paced racing action.",
-	"Build and manage your world.",
-	"Epic battles and strategy.",
+	"一场激动人心的冒险等待着你！",
+	"测试你的解谜能力。",
+	"快节奏的赛车体验。",
+	"建造和管理你的世界。",
+	"史诗般的战斗和策略。",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -52,7 +53,8 @@ void DesktopApp::init()
 	create_status_bar();
 
 	// 页面标题
-	auto title = GUI::createTitle(screen, "Game Center");
+	auto title = GUI::createTitle(screen, "游戏中心");
+	lv_obj_set_style_text_font(title, FontLoader::getDefault(), 0);
 	lv_obj_set_style_text_color(title, GUI::Color::TEXT, 0);
 	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
 
@@ -105,7 +107,7 @@ void DesktopApp::init()
 	info_label = GUI::createLabel(bottom_area, "");
 	lv_obj_set_style_text_color(info_label, GUI::Color::TEXT, 0);
 
-	auto btn_start = GUI::createButton(bottom_area, "Start Game", 160, 50);
+	auto btn_start = GUI::createButton(bottom_area, "开始游戏", 160, 50);
 	lv_obj_add_event_cb(btn_start, btn_start_cb, LV_EVENT_CLICKED, this);
 	lv_obj_set_style_radius(btn_start, 12, 0);
 }
@@ -144,7 +146,7 @@ void DesktopApp::update_selection()
 		lv_label_set_text(desc_label, GAME_DESCS[selected_index]);
 	}
 	if (info_label) {
-		lv_label_set_text_fmt(info_label, "Selected: %s", GAME_NAMES[selected_index]);
+		lv_label_set_text_fmt(info_label, "已选择: %s", GAME_NAMES[selected_index]);
 	}
 }
 
@@ -184,7 +186,7 @@ void DesktopApp::btn_next_cb(lv_event_t* e)
 	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	app->selected_index = (app->selected_index + 1) % GAME_COUNT;
 	app->update_selection();
-	ESP_LOGI(TAG, "Selected: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
+	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
 }
 
 void DesktopApp::btn_prev_cb(lv_event_t* e)
@@ -192,11 +194,11 @@ void DesktopApp::btn_prev_cb(lv_event_t* e)
 	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	app->selected_index = (app->selected_index - 1 + GAME_COUNT) % GAME_COUNT;
 	app->update_selection();
-	ESP_LOGI(TAG, "Selected: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
+	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
 }
 
 void DesktopApp::btn_start_cb(lv_event_t* e)
 {
 	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	ESP_LOGI(TAG, "Starting game: %s", GAME_NAMES[app->selected_index]);
+	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[app->selected_index]);
 }
