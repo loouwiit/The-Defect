@@ -6,6 +6,12 @@
 #include "wifi/wifi.hpp"
 #include "task/task.hpp"
 #include "gui/gui.hpp"
+#include "iic/iic.hpp"
+#include "touch/touch.hpp"
+
+// ========== Touch GPIO 配置 ==========
+static constexpr gpio_num_t TOUCH_SDA = GPIO_NUM_7;
+static constexpr gpio_num_t TOUCH_SCL = GPIO_NUM_8;
 
 static constexpr char TAG[] = "main";
 
@@ -195,13 +201,22 @@ extern "C" void app_main(void)
 		return;
 	}
 
-	// 2. 启动 LVGL 工作任务
+	IIC touch_i2c{TOUCH_SCL, TOUCH_SDA};
+	Touch touch{touch_i2c};
+	if (touch.getHandle() != nullptr) {
+		display.bindTouch(touch.getHandle());
+		ESP_LOGI(TAG, "Touch initialized and bound to LVGL");
+	} else {
+		ESP_LOGW(TAG, "Touch not available, continuing without touch");
+	}
+
+	// 3. 启动 LVGL 工作任务
 	if (!display.start()) {
 		ESP_LOGE(TAG, "Failed to start LVGL adapter");
 		return;
 	}
 
-	// 3. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
+	// 4. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
 	if (auto guard = display.lockGuard())
 	{
 		// 创建页面（深色背景，直角）
