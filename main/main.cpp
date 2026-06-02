@@ -1,17 +1,30 @@
 #include "display/display.hpp"
-#include <esp_log.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "wifi/nvs.hpp"
-#include "wifi/wifi.hpp"
-#include "task/task.hpp"
-#include "gui/gui.hpp"
-#include "iic/iic.hpp"
+#include "display/ili9881c.hpp"
+#include "display/font.hpp"
 #include "touch/touch.hpp"
 
-// ========== Touch GPIO 配置 ==========
-static constexpr gpio_num_t TOUCH_SDA = GPIO_NUM_7;
-static constexpr gpio_num_t TOUCH_SCL = GPIO_NUM_8;
+#include <esp_log.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <esp_event.h>
+#include <esp_err.h>
+
+
+#include "task/task.hpp"
+#include "wifi/nvs.hpp"
+#include "wifi/wifi.hpp"
+#include "server/serverKernal.hpp"
+
+#include "storage/fat.hpp"
+#include "storage/mem.hpp"
+#include "storage/sd.hpp"
+
+#include "app/desktopApp/desktopApp.hpp"
+#include "screenStream/screenStream.hpp"
+#include "virtualIndev/virtualIndev.hpp"
+#include "wsServer/wsServer.hpp"
+#include "wifi/mdns.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -194,117 +207,121 @@ static void btn_start_cb(lv_event_t* e)
 
 extern "C" void app_main(void)
 {
-	// 1. 初始化显示（硬件 + LVGL 适配器）
+	Task::init(2);
+
+	ESP_LOGI(TAG, "esp_event_loop_create_default");
+	ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+	// 存储
+	mountFlash();
+	mountMem();
+	mountSd();
+
+	// 计算帧缓冲区数量
+	constexpr auto tearAvoidMode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_MIPI_DSI;
+	constexpr auto rotation = ESP_LV_ADAPTER_ROTATE_90;
+	const auto frameBufferCount = esp_lv_adapter_get_required_frame_buffer_count(tearAvoidMode, rotation);
+
+	constexpr auto horizontalResolution = 720;
+	constexpr auto verticalResolution = 1280;
+
+	// 初始化LVGL
 	Display display;
-	if (!display.init(ESP_LV_ADAPTER_ROTATE_90)) {
+	if (!display.init()) {
 		ESP_LOGE(TAG, "Failed to initialize display");
 		return;
 	}
 
-	IIC touch_i2c{TOUCH_SCL, TOUCH_SDA};
-	Touch touch{touch_i2c};
-	if (touch.getHandle() != nullptr) {
-		display.bindTouch(touch.getHandle());
-		ESP_LOGI(TAG, "Touch initialized and bound to LVGL");
-	} else {
-		ESP_LOGW(TAG, "Touch not available, continuing without touch");
+	// 初始化ILI9881c
+	if (!ILI9881c::getInstance().init(horizontalResolution, verticalResolution, frameBufferCount))
+	{
+		ESP_LOGE(TAG, "Failed to initialize ILI9881c hardware");
+		return;
 	}
 
-	// 3. 启动 LVGL 工作任务
+	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
+
+	// IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	// Touch touch{ iic, {GPIO_NUM_46} };
+	// display.bindTouch(touch.getHandle());
+
+	// 启动 LVGL 工作任务
 	if (!display.start()) {
 		ESP_LOGE(TAG, "Failed to start LVGL adapter");
 		return;
 	}
+	display.setFpsStatisticsEnabled();
 
-	// 4. 使用 LVGL API 绘制界面（RAII 自动加锁/解锁）
+	// 启动屏幕流模块（用于 HTTP MJPEG 流）
+	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution, true, 1);
+
+	// 加载字体并设为默认
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Default));
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large), FontLoader::FontSize::Large);
+	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small), FontLoader::FontSize::Small);
+
+	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
+	VirtualIndev::instance().start(&display);
+
+	// 启动任务管理器
+	Task::init(2);
+
+	// 启动桌面应用
+	DesktopApp* app = new DesktopApp{ &display };
+	app->init();
 	if (auto guard = display.lockGuard())
 	{
-		// 创建页面（深色背景，直角）
-		auto page = GUI::createPage();
-		lv_obj_set_style_pad_top(page, 0, 0);
-		lv_obj_set_style_radius(page, 0, 0);
-		lv_obj_set_style_bg_color(page, LV_COLOR_MAKE(0x0D, 0x0D, 0x1A), 0); // 深色背景
-		lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
-
-		// ========== 顶部状态行（无黑框） ==========
-		create_status_bar(page);
-
-		// ========== 页面标题 ==========
-		auto title = GUI::createTitle(page, "Game Center");
-		lv_obj_set_style_text_color(title, GUI::Color::TEXT, 0);
-		lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
-
-		// ========== 中间一行放五个游戏图标（略微上移） ==========
-		auto flex = GUI::createFlex(page, LV_FLEX_FLOW_ROW,
-		                            LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-		lv_obj_set_style_pad_all(flex, 10, 0);
-		lv_obj_set_style_pad_column(flex, 16, 0);
-		lv_obj_align(flex, LV_ALIGN_CENTER, 0, -50);
-
-		// 创建五个白色游戏图标卡片（直角）
-		for (int i = 0; i < GAME_COUNT; i++) {
-			auto card = GUI::createCard(flex, ICON_W, ICON_H);
-			lv_obj_set_style_radius(card, 0, 16);
-			lv_obj_set_style_bg_color(card, LV_COLOR_MAKE(0xFF, 0xFF, 0xFF), 0); // 白色
-			lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-			lv_obj_set_style_pad_all(card, 0, 0);
-
-			// 图标内部：用 label 显示游戏名（深色文字）
-			auto label = GUI::createLabel(card, GAME_NAMES[i]);
-			lv_obj_set_style_text_color(label, LV_COLOR_MAKE(0x1A, 0x1A, 0x2E), 0);
-			lv_obj_center(label);
-			lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-
-			game_cards[i] = card;
-		}
-
-		// 初始化选中状态（默认选中第一个）
-		update_selection();
-
-		// ========== 左右切换按钮 ==========
-		auto btn_prev = GUI::createButton(page, "<", 60, 60);
-		lv_obj_align(btn_prev, LV_ALIGN_LEFT_MID, 20, -50);
-		lv_obj_add_event_cb(btn_prev, btn_prev_cb, LV_EVENT_CLICKED, nullptr);
-
-		auto btn_next = GUI::createButton(page, ">", 60, 60);
-		lv_obj_align(btn_next, LV_ALIGN_RIGHT_MID, -20, -50);
-		lv_obj_add_event_cb(btn_next, btn_next_cb, LV_EVENT_CLICKED, nullptr);
-
-		// ========== 底部区域：游戏说明 + 开始按钮 ==========
-		auto bottom_area = GUI::createFlex(page, LV_FLEX_FLOW_COLUMN,
-		                                   lv_pct(80), LV_SIZE_CONTENT);
-		lv_obj_set_style_pad_all(bottom_area, 16, 0);
-		lv_obj_set_style_border_width(bottom_area, 0, 0);
-		lv_obj_set_style_bg_opa(bottom_area, LV_OPA_TRANSP, 0);
-		lv_obj_align(bottom_area, LV_ALIGN_BOTTOM_MID, 0, -40);
-
-		// 游戏简要说明
-		desc_label = GUI::createLabel(bottom_area, GAME_DESCS[selected_index]);
-		lv_obj_set_style_text_color(desc_label, GUI::Color::SUBTLE, 0);
-		lv_obj_set_style_text_align(desc_label, LV_TEXT_ALIGN_CENTER, 0);
-		lv_obj_set_width(desc_label, lv_pct(100));
-
-		// 间距
-		auto spacer = GUI::createLabel(bottom_area, "");
-		lv_obj_set_height(spacer, 16);
-		lv_obj_set_style_border_width(spacer, 0, 0);
-		lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
-
-		// "开始游戏" 按钮
-		auto btn_start = GUI::createButton(bottom_area, "Start Game", 200, 50);
-		lv_obj_set_style_radius(btn_start, 25, 0);
-		lv_obj_set_style_bg_color(btn_start, GUI::Color::SUCCESS, 0);
-		lv_obj_add_event_cb(btn_start, btn_start_cb, LV_EVENT_CLICKED, nullptr);
-
-		// 底部选中信息
-		info_label = GUI::createSubtitle(page, "Selected: Game 1");
-		lv_obj_align(info_label, LV_ALIGN_BOTTOM_MID, 0, -5);
-		lv_obj_set_style_text_color(info_label, GUI::Color::PRIMARY, 0);
-
-		ESP_LOGI(TAG, "Home page created with dark theme");
+		// 应用(v.) 应用(n.) 到屏幕
+		display.applyApp(app);
 	}
 
-	while (true) {
-		vTaskDelay(pdMS_TO_TICKS(10));
+	// wifi
+	nvsInit();
+	wifiInit(true);
+
+	wifiStart();
+	auto sta = wifiStationGetInfo();
+	wifiStationStart();
+	wifiConnect((const char*)sta.ssid, (const char*)sta.password);
+	while (wifiIsWantConnect() && !wifiIsConnect())
+		vTaskDelay(100);
+
+	if (!wifiIsConnect())
+	{
+		// 关闭wifi启动AP
+		wifiStationStop();
+		auto ap = wifiApGetInfo();
+		ESP_LOGI(TAG, "load ap ssid: %s, password: %s", sta.ssid, sta.password);
+		if (ap.ssid_len == 0)
+			wifiApSet("esp32p4", "12345678");
+		wifiApStart();
 	}
+
+	// mdns
+	ESP_LOGI(TAG, "mdnsInit");
+	mdnsInit();
+	mdnsStart("esp32p4", "ESP32P4 Game Console");
+	ESP_LOGI(TAG, "mdnsInit done");
+
+	ESP_LOGI(TAG, "mdnsServiceAdd");
+	mdnsServiceAdd("ESP32P4 HTTP", "_http", "_tcp", 80);
+	mdnsServiceAdd("ESP32P4 WS", "_ws", "_tcp", 8080);
+	ESP_LOGI(TAG, "mdnsServiceAdd done");
+
+	// 服务器
+	ESP_LOGI(TAG, "serverStart");
+	serverStart();
+	ESP_LOGI(TAG, "serverStart done");
+
+	// WebSocket 服务器（端口 8080，仅用于触控回传）
+	ESP_LOGI(TAG, "wsServerStart");
+	wsServerStart();
+	ESP_LOGI(TAG, "wsServerStart done");
+
+	// 保持栈上变量，后续移除
+	while (true)
+		vTaskDelay(1000);
+
+	// cleanup (unreachable in this example, but good practice)
+	delete std::exchange(app, nullptr);
 }
