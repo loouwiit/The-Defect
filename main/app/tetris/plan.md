@@ -259,6 +259,21 @@ main/app/tetris/
 15. **速度曲线** — Guideline 级别递增
 16. **音效** (可选) — `espressif__esp_dmx` 或简单 beep
 
+### Phase 7（未来计划）: Web 端接入
+
+由于使用 WebSocket 协议 + HTTP 服务器，天然支持 Web 客户端接入：
+
+- **目标**：手机/PC 浏览器作为 Player 3/4 加入房间
+- **优势**：零成本扩展玩家数量，无需额外硬件
+- **实现路径**：
+  - 在 port 80 的 HTTP 服务器托管 Web 客户端（HTML + JS）
+  - 浏览器通过 WebSocket 连接 `/ws/tetris` 加入房间
+  - 复用现有消息协议（piece/move/attack/garbage/board_*）
+- **附加能力**：
+  - 浏览器端调试工具（直接看 WebSocket 帧、状态）
+  - 观众/围观模式（只读 board_full）
+  - 跨平台支持（任何带浏览器的设备）
+
 ## 关键文件
 
 | 文件 | 用途 |
