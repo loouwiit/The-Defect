@@ -114,25 +114,30 @@ typedef struct {
 	int            pendingFd;
 	volatile bool  hasPending;        // 是否有等待接管的新连接
 
-	/* 双缓冲：两个 512KB JPEG buffer 复用，零 memcpy */
+	/* 双缓冲 ping-pong：严格 in-flight 跟踪
+	 * 规则：写 jpegBufs[i] 前必须等待 inFlight[i] == 0（httpd 已读完）。
+	 * 这强制生产者等消费者，防止 PSRAM buffer 被覆盖。 */
 	uint8_t*       jpegBufs[2];
 	int            bufIdx;            // 下一个要写入的 buffer 下标 (0/1)
-	int            inFlightCount;     // 尚未完成的异步发送数（由 inFlightMtx 保护）
-	Mutex          inFlightMtx;       // 保护 inFlightCount 的互斥量
+	bool           inFlight[2];       // 每个 buffer 的异步发送是否未完成（inFlightMtx 保护）
+	Mutex          inFlightMtx;       // 保护 inFlight[0/1] 的互斥量
 } StreamClient;
 
 EXT_RAM_BSS_ATTR static StreamClient s_streamClient = {};
 
-/* 异步发送完成回调：仅递减 in-flight 计数。
- * 双缓冲的 buffer 由 streamPushTask 统一释放，不再此处 free。 */
+/* 异步发送完成回调：标记对应 buffer 空闲。
+ * arg 是被发送 buffer 在 jpegBufs[] 中的下标（0 或 1）。
+ * buffer 本身由 streamPushTask 统一释放，本回调不 free。 */
 static void streamFreeCb(esp_err_t err, int socket, void* arg)
 {
-	(void)arg;  // arg 是 s_streamClient 指针（不释放 buffer）
+	int idx = (int)(intptr_t)arg;  // buffer 下标
+
 	if (err != ESP_OK)
-		ESP_LOGW(TAG, "stream send err=%d fd=%d", err, socket);
+		ESP_LOGW(TAG, "stream send err=%d fd=%d buf=%d", err, socket, idx);
 
 	Lock lock{ s_streamClient.inFlightMtx };
-	s_streamClient.inFlightCount--;
+	if (idx >= 0 && idx < 2)
+		s_streamClient.inFlight[idx] = false;
 }
 
 /* 异步踢掉当前串流客户端：仅设标志，立即返回（不阻塞 httpd 工作线程）。
@@ -163,8 +168,13 @@ static void adoptPendingStreamClient()
 	s_streamClient.hasPending = false;
 	s_streamClient.active = true;
 	s_streamClient.task = nullptr;  // 重新创建
-	s_streamClient.inFlightCount = 0;
 	s_streamClient.bufIdx = 0;
+	/* 旧任务退出时已 drain 完毕，inFlight[] 一定为 false，但仍显式重置 */
+	{
+		Lock lock{ s_streamClient.inFlightMtx };
+		s_streamClient.inFlight[0] = false;
+		s_streamClient.inFlight[1] = false;
+	}
 	ESP_LOGI(TAG, "adopted pending stream client (fd=%d)", s_streamClient.fd);
 }
 
@@ -195,7 +205,8 @@ static void streamPushTask(void* arg)
 	}
 
 	cl->bufIdx = 0;
-	cl->inFlightCount = 0;
+	cl->inFlight[0] = false;
+	cl->inFlight[1] = false;
 
 	while (cl->active && s_server)
 	{
@@ -205,6 +216,29 @@ static void streamPushTask(void* arg)
 			ESP_LOGI(TAG, "stream client disconnected");
 			break;
 		}
+
+		/* 严格 ping-pong 背压：当前 buffer 若 in-flight，必须等回调完成。
+		 * 这是修复"PSRAM buffer 踩踏"的关键——30fps 投递速度 >> 客户端消费速度时，
+		 * 生产者必须等消费者。 */
+		int waitMs = 0;
+		while (true)
+		{
+			{
+				Lock lock{ cl->inFlightMtx };
+				if (!cl->inFlight[cl->bufIdx])
+					break;  // 该 buffer 空闲，可写
+			}
+			if (!cl->active || !s_server) break;
+			vTaskDelay(pdMS_TO_TICKS(5));
+			waitMs += 5;
+			/* 超过 1s 客户端都没消费完，主动断流（保护性退出） */
+			if (waitMs >= 1000)
+			{
+				ESP_LOGW(TAG, "backpressure timeout, client too slow");
+				break;
+			}
+		}
+		if (waitMs >= 1000) break;  // 跳出主循环
 
 		/* 选当前可写的 buffer */
 		uint8_t* curBuf = cl->jpegBufs[cl->bufIdx];
@@ -217,53 +251,56 @@ static void streamPushTask(void* arg)
 			continue;
 		}
 
+		/* 标记当前 buffer 为 in-flight（必须在 send_data_async 之前） */
+		{
+			Lock lock{ cl->inFlightMtx };
+			cl->inFlight[cl->bufIdx] = true;
+		}
+
 		/* 异步发送：payload 直接指向双缓冲当前 buffer，无 memcpy。
-		 * buffer 在本任务退出前一直有效，streamFreeCb 不释放它。 */
+		 * 回调中通过 arg 知道是哪个 buffer，置 inFlight[idx]=false。 */
 		httpd_ws_frame_t frame{};
 		frame.type = HTTPD_WS_TYPE_BINARY;
 		frame.payload = curBuf;
 		frame.len = jpegSize;
 
-		/* 投递前递增 in-flight 计数 */
-		{
-			Lock lock{ cl->inFlightMtx };
-			cl->inFlightCount++;
-		}
-
-		esp_err_t ret = httpd_ws_send_data_async(cl->hd, cl->fd, &frame, streamFreeCb, cl);
+		int curIdx = cl->bufIdx;  // 捕获，避免与 bufIdx ^= 1 竞争
+		esp_err_t ret = httpd_ws_send_data_async(cl->hd, cl->fd, &frame,
+			streamFreeCb, (void*)(intptr_t)curIdx);
 		if (ret != ESP_OK)
 		{
 			ESP_LOGW(TAG, "stream push err=%d", ret);
-			/* 发送失败，回滚 in-flight 计数 */
+			/* 发送失败，回滚 in-flight 标志 */
 			Lock lock{ cl->inFlightMtx };
-			cl->inFlightCount--;
+			cl->inFlight[curIdx] = false;
 			break;
 		}
 
 		/* 切换到另一个 buffer（ping-pong） */
 		cl->bufIdx ^= 1;
 
-		/* 帧率控制 ~30fps */
+		/* 帧率控制 ~30fps（实际节奏受 in-flight 等待自适应） */
 		vTaskDelay(pdMS_TO_TICKS(33));
 	}
 
 	cl->active = false;
 
 	/* 等待所有 in-flight 异步发送完成，确保 httpd 不再读取 buffer */
-	int drainWait = 100;  // 最多 1s
-	int pending;
+	int drainWait = 200;  // 最多 1s
+	while (drainWait--)
+	{
+		{
+			Lock lock{ cl->inFlightMtx };
+			if (!cl->inFlight[0] && !cl->inFlight[1])
+				break;
+		}
+		vTaskDelay(pdMS_TO_TICKS(5));
+	}
 	{
 		Lock lock{ cl->inFlightMtx };
-		pending = cl->inFlightCount;
+		if (cl->inFlight[0] || cl->inFlight[1])
+			ESP_LOGW(TAG, "stream drain timeout, in-flight");
 	}
-	while (pending > 0 && --drainWait)
-	{
-		vTaskDelay(pdMS_TO_TICKS(10));
-		Lock lock{ cl->inFlightMtx };
-		pending = cl->inFlightCount;
-	}
-	if (pending > 0)
-		ESP_LOGW(TAG, "stream drain timeout, %d in-flight", pending);
 
 	cl->task = nullptr;
 
@@ -325,9 +362,13 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 			s_streamClient.fd = httpd_req_to_sockfd(req);
 			s_streamClient.active = false;
 			s_streamClient.task = nullptr;
-			s_streamClient.inFlightCount = 0;
 			s_streamClient.bufIdx = 0;
 			s_streamClient.hasPending = false;
+			{
+				Lock lock{ s_streamClient.inFlightMtx };
+				s_streamClient.inFlight[0] = false;
+				s_streamClient.inFlight[1] = false;
+			}
 		}
 		ESP_LOGI(TAG, "ws/stream handshake done (fd=%d)", httpd_req_to_sockfd(req));
 		return ESP_OK;
