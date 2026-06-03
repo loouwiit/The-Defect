@@ -13,7 +13,7 @@ bool mountFlash()
 	printf("fat: mounting flash\n");
 	esp_vfs_fat_mount_config_t mount_config{};
 
-	mount_config.format_if_mount_failed = false;
+	mount_config.format_if_mount_failed = true;
 	mount_config.max_files = FlashMaxFileNumber;
 	mount_config.allocation_unit_size = CONFIG_WL_SECTOR_SIZE;
 	mount_config.disk_status_check_enable = false;

@@ -2,6 +2,7 @@
 #include "display/ili9881c.hpp"
 #include "display/font.hpp"
 #include "touch/touch.hpp"
+#include "gui/gui.hpp"
 
 #include <esp_log.h>
 
