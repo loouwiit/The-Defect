@@ -1,5 +1,6 @@
 #include "desktopApp.hpp"
 #include "app/desktopApp/gui.hpp"
+#include "app/tetris/tetrisApp.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -11,7 +12,7 @@ static const char* TAG = "DesktopApp";
 
 const char* DesktopApp::GAME_NAMES[] =
 {
-	"游戏 1",
+	"俄罗斯方块",
 	"游戏 2",
 	"游戏 3",
 	"游戏 4",
@@ -20,7 +21,7 @@ const char* DesktopApp::GAME_NAMES[] =
 
 const char* DesktopApp::GAME_DESCS[] =
 {
-	"一场激动人心的冒险等待着你！",
+	"经典的方块掉落解谜游戏。多人对战正在开发中。",
 	"测试你的解谜能力。",
 	"快节奏的赛车体验。",
 	"建造和管理你的世界。",
@@ -208,4 +209,11 @@ void DesktopApp::btn_start_cb(lv_event_t* e)
 {
 	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[app->selected_index]);
+
+	if (app->selected_index == 0) {
+		// 俄罗斯方块
+		auto tetris = new TetrisApp(app->display);
+		tetris->init();
+		app->display->applyApp(tetris);
+	}
 }
