@@ -106,6 +106,13 @@ typedef struct {
 	int            fd;
 	volatile bool  active;
 	TaskHandle_t   task;
+	volatile bool  keepBuffers;       // 退出时是否保留 jpegBufs（true=新客户端将复用）
+
+	/* 异步踢掉：握手阶段不阻塞 httpd，把新连接信息存为 pending，
+	 * 旧推流任务退出时（或下一次 binary 触发时）再接管。 */
+	httpd_handle_t pendingHd;
+	int            pendingFd;
+	volatile bool  hasPending;        // 是否有等待接管的新连接
 
 	/* 双缓冲：两个 512KB JPEG buffer 复用，零 memcpy */
 	uint8_t*       jpegBufs[2];
@@ -126,6 +133,39 @@ static void streamFreeCb(esp_err_t err, int socket, void* arg)
 
 	Lock lock{ s_streamClient.inFlightMtx };
 	s_streamClient.inFlightCount--;
+}
+
+/* 异步踢掉当前串流客户端：仅设标志，立即返回（不阻塞 httpd 工作线程）。
+ * 推流任务会在下一次循环检测到 active=false 后主动退出并清理。 */
+static void kickOldStreamClientAsync()
+{
+	if (!s_streamClient.active && !s_streamClient.task)
+		return;
+
+	ESP_LOGI(TAG, "kicking old stream client (fd=%d) async", s_streamClient.fd);
+
+	/* 标记保留 buffer：旧任务退出时不会释放 jpegBufs，新任务复用 */
+	s_streamClient.keepBuffers = true;
+
+	/* 通知推流任务退出（异步，自己会在排空 in-flight 后退出） */
+	s_streamClient.active = false;
+}
+
+/* 接管 pending 连接：把暂存的新连接信息安装为当前活动客户端。
+ * 在推流任务退出排空后、或 binary 触发时调用。 */
+static void adoptPendingStreamClient()
+{
+	if (!s_streamClient.hasPending)
+		return;
+
+	s_streamClient.hd = s_streamClient.pendingHd;
+	s_streamClient.fd = s_streamClient.pendingFd;
+	s_streamClient.hasPending = false;
+	s_streamClient.active = true;
+	s_streamClient.task = nullptr;  // 重新创建
+	s_streamClient.inFlightCount = 0;
+	s_streamClient.bufIdx = 0;
+	ESP_LOGI(TAG, "adopted pending stream client (fd=%d)", s_streamClient.fd);
 }
 
 /* 专用推送任务：独立于 httpd 线程运行
@@ -226,9 +266,31 @@ static void streamPushTask(void* arg)
 		ESP_LOGW(TAG, "stream drain timeout, %d in-flight", pending);
 
 	cl->task = nullptr;
-	heap_caps_free(cl->jpegBufs[0]);
-	heap_caps_free(cl->jpegBufs[1]);
-	cl->jpegBufs[0] = cl->jpegBufs[1] = nullptr;
+
+	/* keepBuffers=true：被新客户端踢掉，buffer 保留供下一位复用（零分配）
+	 * keepBuffers=false：服务器关闭，安全释放 */
+	if (!cl->keepBuffers)
+	{
+		heap_caps_free(cl->jpegBufs[0]);
+		heap_caps_free(cl->jpegBufs[1]);
+		cl->jpegBufs[0] = cl->jpegBufs[1] = nullptr;
+	}
+	cl->keepBuffers = false;
+
+	/* 异步接管：若握手阶段有 pending 新连接，本任务退出时自动启动新的推流任务 */
+	if (cl->hasPending)
+	{
+		adoptPendingStreamClient();
+		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
+			4096, cl,
+			Task::Priority::Deamon, &cl->task);
+		if (ret != pdPASS)
+		{
+			cl->active = false;
+			ESP_LOGE(TAG, "adopted stream task create failed");
+		}
+	}
+
 	ESP_LOGI(TAG, "stream push task ended");
 	vTaskDelete(nullptr);
 }
@@ -245,19 +307,29 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 {
 	if (req->method == HTTP_GET)
 	{
-		/* 握手：保存连接信息 */
-		if (s_streamClient.active)
+		/* 握手：永不阻塞 httpd 线程。
+		 * 情况 A：当前空闲 → 直接安装连接信息。
+		 * 情况 B：当前有客户端 → 异步踢掉（旧任务退出时会自动接管 pending），
+		 *         本次握手把新连接存为 pending，等旧任务退出后接管。 */
+		if (s_streamClient.active || s_streamClient.task)
 		{
-			ESP_LOGW(TAG, "only one stream client supported, reject");
-			return ESP_FAIL;  // 拒绝第二个串流客户端
+			ESP_LOGW(TAG, "old stream client present, queuing new as pending");
+			kickOldStreamClientAsync();
+			s_streamClient.pendingHd = req->handle;
+			s_streamClient.pendingFd = httpd_req_to_sockfd(req);
+			s_streamClient.hasPending = true;
 		}
-		s_streamClient.hd = req->handle;
-		s_streamClient.fd = httpd_req_to_sockfd(req);
-		s_streamClient.active = false;
-		s_streamClient.task = nullptr;
-		s_streamClient.inFlightCount = 0;
-		s_streamClient.bufIdx = 0;
-		ESP_LOGI(TAG, "ws/stream handshake done (fd=%d)", s_streamClient.fd);
+		else
+		{
+			s_streamClient.hd = req->handle;
+			s_streamClient.fd = httpd_req_to_sockfd(req);
+			s_streamClient.active = false;
+			s_streamClient.task = nullptr;
+			s_streamClient.inFlightCount = 0;
+			s_streamClient.bufIdx = 0;
+			s_streamClient.hasPending = false;
+		}
+		ESP_LOGI(TAG, "ws/stream handshake done (fd=%d)", httpd_req_to_sockfd(req));
 		return ESP_OK;
 	}
 
@@ -279,8 +351,10 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 		}
 	}
 
-	/* 启动推送任务（如果尚未启动） */
-	if (s_streamClient.task == nullptr)
+	/* 启动推送任务：分两种情况
+	 * 1) 当前空闲且无 pending：立即启动推流（标准路径）
+	 * 2) 有 pending 但旧任务尚未退出：等旧任务退出时自动接管（见 streamPushTask 末尾） */
+	if (s_streamClient.task == nullptr && !s_streamClient.hasPending)
 	{
 		s_streamClient.active = true;
 		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
@@ -291,6 +365,12 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 			s_streamClient.active = false;
 			ESP_LOGE(TAG, "stream task create failed");
 		}
+	}
+	else if (s_streamClient.hasPending)
+	{
+		/* pending 已存在但旧任务还在退：本次 binary 触发只是确认旧客户端已断，
+		 * 不需要做任何事——adoptPendingStreamClient() 会在旧任务退出时执行。 */
+		ESP_LOGI(TAG, "trigger while pending, waiting for old task to exit");
 	}
 
 	return ESP_OK;
@@ -348,8 +428,9 @@ bool wsServerStart()
 
 void wsServerStop()
 {
-	if (s_streamClient.active)
+	if (s_streamClient.active || s_streamClient.task)
 	{
+		/* 关闭服务器时 keepBuffers 保持默认 false，buffer 会被释放 */
 		s_streamClient.active = false;
 		/* 等待推送任务退出（任务内部还会额外等 in-flight 排空，最多 1s） */
 		int wait = 150;
