@@ -2,9 +2,9 @@
 
 ## 概述
 
-在 ESP32-P4 上实现一个 **Guideline-compliant 现代俄罗斯方块**多人游戏，支持 1-4 人同屏对战（双人为 1:1 分屏，更多人则缩小显示）。玩家使用 ESP32-C6 无线手柄或触屏操作，主机通过 WiFi Direct 互联传递垃圾行。
+在 ESP32-P4 上实现一个 **Guideline-compliant 现代俄罗斯方块**多人游戏，支持 1-4 人同屏对战（双人为 1:1 分屏，更多人则缩小显示）。玩家使用 ESP32-C6 无线手柄或触屏操作，多台主机通过 WebSocket 互联传递垃圾行。
 
-**核心规则**（基于 Tetris Guideline 2006）:
+**核心规则**:
 - 棋盘: 10×20（可视），隐藏区 22 行高
 - SRS (Super Rotation System) + Wall Kick
 - 7-bag Randomizer
@@ -16,6 +16,8 @@
 - 垃圾行机制（Battle Royale 核心）
 
 **多人模式**: Battle Royale — 每人独立棋盘，消行产生垃圾行发送给其他玩家，最后存活者胜。
+
+**垃圾行目标策略**（初期）：随机选择存活玩家。后续可演进为攻击当前分数最高者。
 
 ## 架构（三层分离）
 
@@ -144,7 +146,7 @@ main/app/tetris/
 |--------|------|-------------|----------|
 | 1 | 独立全屏 | 1280×720 | ~32px |
 | 2 | **左右分屏** | 640×720 | ~32px |
-| 3 | 左 640×720 + 右上下各 320×360 | 640×720 / 320×360 | 32/16px |
+| 3 | 左 640×720 + 右上下各 640×360 | 640×720 / 640×360 | 32/16px |
 | 4 | **2×2 网格** | 640×360 | ~16px |
 
 > 分屏通过 LVGL container 实现，各 player 独立 `TetrisRenderer`。
@@ -156,7 +158,7 @@ main/app/tetris/
 
 1. **实现 `Piece` 类** (`tetris/piece.hpp/cpp`)
    - 7 种方块 (I/O/T/S/Z/J/L) 的 SRS 旋转状态
-   - Wall Kick 表 (SRS)
+   - Wall Kick 表 (SRS) — 参考 [http://tetriswiki.cn/p/%E8%B6%85%E7%BA%A7%E6%97%8B%E8%BD%AC%E7%B3%BB%E7%BB%9F](http://tetriswiki.cn/p/%E8%B6%85%E7%BA%A7%E6%97%8B%E8%BD%AC%E7%B3%BB%E7%BB%9F)
    - `rotateCW()`, `rotateCCW()`, `move()`, `hardDrop()`, `softDrop()`
 
 2. **实现 `Board` 类** (`tetris/board.hpp/cpp`)
@@ -172,6 +174,14 @@ main/app/tetris/
 5. **实现 `Scoring` 系统** — Single/Double/Triple/Tetris + T-Spin + B2B
 
 ### Phase 2: 渲染 (LVGL)
+
+> ⚠ **LVGL 线程安全**：`TetrisRenderer` 的渲染更新（创建/修改/删除任何 LVGL 对象）**必须在 `Display::LockGuard` 保护下执行**。推荐模式：
+> ```cpp
+> if (auto guard = display->lockGuard()) {
+>     renderer.update(...);  // 所有 LVGL 操作在此内部
+> }
+> ```
+> 仅在 LVGL 事件回调中可直接操作 UI（该上下文已持有锁）。
 
 6. **`TetrisRenderer` 类** (`tetris/renderer.hpp/cpp`)
    - `drawBoard(playerIndex)` — 绘制玩家棋盘
@@ -237,21 +247,28 @@ main/app/tetris/
 ### Phase 4: 多人网络
 
 10. **`TetrisNetManager` 类** (`tetris/net.hpp/cpp`)
-    - WiFi Direct 连接（作为 AP 或 STA）
-    - WebSocket `tetris` 路径消息处理
+    - 远程联机模式：Host 做 AP，Client 以 STA 模式连接，通过 WebSocket（端口 8080，路径 `/ws/tetris`）通信
+    - 局域网联机：同一 WiFi 网络下通过 mDNS 发现 Host
+    - WebSocket 消息解析与序列化
     - 状态同步 (每 4 帧广播一次，15fps)
     - 垃圾行计算与发送
 
 11. **游戏房间**: 玩家数量检测、游戏开始同步
 
+> **现有网络基础设施**：系统已有 HTTP server（端口 80）和 WebSocket server（端口 8080，`/ws/touch`、`/ws/stream`）。Phase 4 需在 `wsServer` 中注册新的 `/ws/tetris` handler，并将 `max_uri_handlers` 增至 4、`max_open_sockets` 增至 6 以容纳多人连接。
+
 ### Phase 5: 集成
 
-12. **App 接口** (`tetris/app.hpp`):
-    - `init()` — 初始化引擎 + 渲染 + 网络
-    - `deinit()` — 停止所有任务
-    - `update()` — 主循环 (60fps 逻辑更新)
+12. **TetrisApp 实现** (`tetrisApp.hpp/cpp`):
+    - `init()` — 初始化引擎 + 渲染 + 网络，启动独立 `Thread` 游戏线程（~60fps）
+    - `deinit()` — 停止游戏线程、清理渲染、断开网络
+    - 游戏线程循环：`处理输入 → 更新游戏逻辑 → LockGuard 渲染`
 
-13. **主菜单**: 开始游戏、加入房间、设置
+> **游戏循环方案**：选择 `Thread` 独立线程而非 `Task` 调度器，因游戏逻辑复杂度较高（碰撞检测、SRS 旋转、消行链、网络消息），需要稳定的独立栈空间和灵活的同步控制。`Thread` 封装了 FreeRTOS 任务创建，用法简洁。
+>
+> **注意**：`App` 基类提供 `init()`/`deinit()` 生命周期，无内置 `update()` 方法。游戏线程在 `init()` 中创建，在 `deinit()` 中停止并等待退出。
+
+13. **App 切换**: 游戏 App 的启动（从桌面菜单进入）由外部 `Display::applyApp()` 负责，不属于 Tetris 模块职责。
 
 ### Phase 6: 测试 & 调优
 
@@ -274,11 +291,13 @@ main/app/tetris/
 ## 依赖
 
 - `lvgl__lvgl` (显示)
-- `espressif__esp_new_jpeg` (ScreenStream MJPEG)
-- `espressif__esp_lcd_ili9881c` (屏幕驱动)
+- `espressif__esp_new_jpeg` (ScreenStream MJPEG，可选串流)
+- `espressif__esp_lcd_ili9881c` (屏幕驱动，同屏多人不需要)
 - `espressif__esp_lcd_touch_gt911` (触摸)
 - `espressif__freetype` (字体)
-- `espressif__esp_wifi_remote` (WiFi Direct)
+- `espressif__esp_wifi_remote` (C6 手柄通信)
+- `espressif__mdns` (服务发现，局域网联机用)
+- ESP-IDF `esp_http_server` (WebSocket 服务器，已内建)
 
 ## 后续计划
 
@@ -299,7 +318,7 @@ main/app/tetris/
 
 1. 单人模式: 方块旋转/移动/消行正常，分数正确
 2. 双人对战: 垃圾行传递正确，一人死亡另一人胜
-3. 分屏: 两人各占 640×360，画面独立
+3. 分屏: 两人各占 640×720，画面独立；四人各占 640×360
 4. 手柄: C6 摇杆/按键正确响应
 5. 远程对战: Move/board 消息正确同步
 6. 性能: 60fps 稳定，无帧丢失
