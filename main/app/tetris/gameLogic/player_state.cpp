@@ -295,22 +295,17 @@ void PlayerState::updateGame()
 
     TickType_t now = xTaskGetTickCount();
 
-    // 软降 / 重力
+    // 软降 / 重力（下落失败不锁定，交给 Lock Delay 处理）
     if (keySoft) {
         if (now - gravityTimer >= pdMS_TO_TICKS(SOFT_DROP_MS)) {
-            if (!movePiece(0, -1)) {
-                lockPiece();
-                return;
+            if (movePiece(0, -1)) {
+                scoring.processLines(0, false, false, 1, 0);
             }
-            scoring.processLines(0, false, false, 1, 0);
             gravityTimer = now;
         }
     } else {
         if (now - gravityTimer >= pdMS_TO_TICKS(gravityInterval)) {
-            if (!movePiece(0, -1)) {
-                lockPiece();
-                return;
-            }
+            movePiece(0, -1);  // 失败 = 触底，等待 Lock Delay
             gravityTimer = now;
         }
     }

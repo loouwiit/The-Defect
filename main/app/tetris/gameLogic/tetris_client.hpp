@@ -36,7 +36,7 @@ constexpr int PIECE_SIZE = 4;         // 4×4 包围盒
 
 constexpr int DAS_DELAY_MS  = 170;    // Delayed Auto Shift
 constexpr int ARR_RATE_MS   = 50;     // Auto Repeat Rate
-constexpr int LOCK_DELAY_MS = 500;    // 锁定延迟
+constexpr int LOCK_DELAY_MS = 3000;   // 锁定延迟（ms，每次移动/旋转重置）
 constexpr int SOFT_DROP_MS  = 50;     // 软降间隔
 
 // ============================================================
