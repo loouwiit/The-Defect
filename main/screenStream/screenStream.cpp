@@ -3,10 +3,11 @@
 #include "esp_lv_adapter.h"
 #include "esp_log.h"
 
-#include <cstring>
 #include <utility>
-#include <task/task.hpp>
 #include "display_manager.h"
+
+/* ESP32-P4 硬件 JPEG 编码器 */
+#include <driver/jpeg_encode.h>
 
 static constexpr char TAG[] = "ScreenStream";
 
@@ -23,11 +24,10 @@ void ScreenStream::frameReadyCallback(lv_display_t* disp, void* fb, size_t fbSiz
 	if (!self || !fb || fbSize == 0) return;
 
 	self->m_cachedFrame = fb;
-	self->m_cachedFrameSize = fbSize;
 }
 
 // ── 启动 ────────────────────────────────────────────────────
-bool ScreenStream::start(Display* display, uint16_t frameWidth, uint16_t frameHeight, bool multiCore, BaseType_t coreAffinity)
+bool ScreenStream::start(Display* display, uint16_t frameWidth, uint16_t frameHeight)
 {
 	if (m_started) return true;
 	if (display == nullptr) return false;
@@ -45,25 +45,26 @@ bool ScreenStream::start(Display* display, uint16_t frameWidth, uint16_t frameHe
 		return false;
 	}
 
-	// 配置 JPEG 编码器
-	jpeg_enc_config_t jpegConfig = DEFAULT_JPEG_ENC_CONFIG();
-	jpegConfig.width = frameWidth;
-	jpegConfig.height = frameHeight;
-	jpegConfig.src_type = JPEG_PIXEL_FORMAT_RGB565_LE;
-	jpegConfig.task_enable = multiCore;
-	jpegConfig.hfm_task_priority = Task::Priority::Verylow;
-	jpegConfig.hfm_task_core = coreAffinity;
+	// 配置 ESP32-P4 硬件 JPEG 编码器引擎
+	jpeg_encode_engine_cfg_t eng_cfg = {
+		.intr_priority = 0,       // 使用默认中断优先级
+		.timeout_ms    = 500,     // 500ms 超时（硬件 720p 约 14ms）
+	};
 
-	auto err = jpeg_enc_open(&jpegConfig, &m_jpegHandle);
-	if (err != JPEG_ERR_OK || m_jpegHandle == nullptr)
+	auto handle = reinterpret_cast<jpeg_encoder_handle_t*>(&m_jpegHandle);
+	ret = jpeg_new_encoder_engine(&eng_cfg, handle);
+	if (ret != ESP_OK)
 	{
-		ESP_LOGE(TAG, "jpeg_enc_open 失败: %d", err);
+		ESP_LOGE(TAG, "jpeg_new_encoder_engine 失败: %d", ret);
 		stop();
 		return false;
 	}
 
+	/* 预计算帧缓冲大小（RGB565，每像素 2 字节） */
+	m_cachedFrameSize = (size_t)m_frameWidth * m_frameHeight * 2;
+
 	m_started = true;
-	ESP_LOGI(TAG, "ScreenStream 已启动 (%dx%d)", frameWidth, frameHeight);
+	ESP_LOGI(TAG, "ScreenStream 已启动 (%dx%d), fbSize=%zu", frameWidth, frameHeight, m_cachedFrameSize);
 	return true;
 }
 
@@ -77,7 +78,12 @@ void ScreenStream::stop()
 		display_manager_set_frame_ready_callback(lv_disp, nullptr, nullptr);
 	}
 
-	if (m_jpegHandle) jpeg_enc_close(std::exchange(m_jpegHandle, nullptr));
+	if (m_jpegHandle)
+	{
+		auto handle = reinterpret_cast<jpeg_encoder_handle_t>(m_jpegHandle);
+		jpeg_del_encoder_engine(handle);
+		m_jpegHandle = nullptr;
+	}
 
 	m_cachedFrame = nullptr;
 	m_cachedFrameSize = 0;
@@ -87,7 +93,7 @@ void ScreenStream::stop()
 	ESP_LOGI(TAG, "ScreenStream 已停止");
 }
 
-// ── 将最新帧编码为 JPEG ────────────────────────────────────
+// ── 将最新帧编码为 JPEG（ESP32-P4 硬件加速）───────────────
 size_t ScreenStream::captureJpeg(uint8_t* jpegBuffer, size_t jpegBufSize)
 {
 	if (!m_started || jpegBuffer == nullptr || jpegBufSize == 0)
@@ -95,22 +101,31 @@ size_t ScreenStream::captureJpeg(uint8_t* jpegBuffer, size_t jpegBufSize)
 
 	if (m_cachedFrame == nullptr || m_cachedFrameSize == 0)
 	{
-		ESP_LOGW(TAG, "尚无可用帧缓冲");
 		return 0;
 	}
 
-	int out_sz = 0;
-	auto err = jpeg_enc_process(m_jpegHandle,
+	// 每帧编码配置
+	jpeg_encode_cfg_t enc_cfg = {
+		.height       = m_frameHeight,
+		.width        = m_frameWidth,
+		.src_type     = JPEG_ENCODE_IN_FORMAT_RGB565,
+		.sub_sample   = JPEG_DOWN_SAMPLING_YUV420,
+		.image_quality = 60,
+	};
+
+	uint32_t out_size = 0;
+	auto handle = reinterpret_cast<jpeg_encoder_handle_t>(m_jpegHandle);
+	auto err = jpeg_encoder_process(handle, &enc_cfg,
 		static_cast<const uint8_t*>(m_cachedFrame),
-		static_cast<int>(m_cachedFrameSize),
+		m_cachedFrameSize,
 		jpegBuffer,
-		static_cast<int>(jpegBufSize),
-		&out_sz);
-	if (err != JPEG_ERR_OK)
+		jpegBufSize,
+		&out_size);
+	if (err != ESP_OK)
 	{
-		ESP_LOGE(TAG, "jpeg_enc_process 失败: %d", err);
+		ESP_LOGE(TAG, "硬件 JPEG 编码失败: %d", err);
 		return 0;
 	}
 
-	return static_cast<size_t>(out_sz);
+	return out_size;
 }
