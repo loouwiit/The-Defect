@@ -3,18 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include "display/display.hpp"
-#include <esp_jpeg_enc.h>
 
 /**
  * @brief Screen stream module — captures frame buffer directly from bridge
  *
- * Instead of using lv_snapshot (which re-renders the entire UI), this module
- * reads the front buffer that the esp_lvgl_adapter bridge already maintains.
- * A frame-ready callback is registered with the display manager, invoked after
- * each complete frame flush. captureJpeg() reads the cached buffer directly.
- *
- * Zero rendering overhead when streaming is not active (only a null pointer
- * check per frame in the bridge).
+ * Uses ESP32-P4 hardware JPEG encoder (ESP-IDF esp_driver_jpeg).
+ * Hardware performance: 720P@70fps, 1080P@40fps (datasheet).
+ * No software encoding overhead, no multi-core task scheduling needed.
  */
 class ScreenStream {
 public:
@@ -25,11 +20,9 @@ public:
 	 * @param display Pointer to the initialized Display instance
 	 * @param frameWidth  Physical frame width in pixels (e.g. 720)
 	 * @param frameHeight Physical frame height in pixels (e.g. 1280)
-	 * @param multiCore   Whether to use multiple cores (default: false)
-	 * @param coreAffinity If multiCore is true, set JPEG encoding task affinity (default: tskNO_AFFINITY) (bug: tskNO_AFFINITY was not supported)
 	 * @return true on success
 	 */
-	bool start(Display* display, uint16_t frameWidth, uint16_t frameHeight, bool multiCore = false, BaseType_t coreAffinity = tskNO_AFFINITY);
+	bool start(Display* display, uint16_t frameWidth, uint16_t frameHeight);
 
 	/**
 	 * @brief Stop the screen stream module
@@ -39,8 +32,7 @@ public:
 	/**
 	 * @brief Capture the latest available frame as JPEG
 	 *
-	 * Uses the frame buffer cached by the on_frame_ready callback.
-	 * No LVGL re-rendering is involved.
+	 * Uses the ESP32-P4 hardware JPEG encoder.
 	 *
 	 * @param jpegBuffer Output buffer for JPEG data
 	 * @param jpegBufSize Size of output buffer
@@ -65,10 +57,10 @@ private:
 	Display* m_display{};
 	bool m_started{};
 
-	// JPEG 编码器
-	jpeg_enc_handle_t m_jpegHandle{};
+	// ESP32-P4 硬件 JPEG 编码器句柄
+	void* m_jpegHandle{};   // jpeg_encoder_handle_t
 
-	// 物理分辨率（已旋转到物理方向）
+	// 物理分辨率
 	uint16_t m_frameWidth{};
 	uint16_t m_frameHeight{};
 
