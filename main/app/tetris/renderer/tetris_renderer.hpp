@@ -39,17 +39,11 @@ public:
     //  侧栏渲染
     // ============================================================
 
-    // 更新 Hold 预览
-    void drawHold(PieceType type, bool used);
-
     // 更新 Next 队列预览（接收预览数组，4 个预览槽）
     void drawNext(const PieceType preview[4]);
 
-    // 更新分数/行数/等级
-    void drawStats(int score, int lines, int level);
-
-    // 更新垃圾行指示器
-    void drawGarbage(int pending);
+    // 更新信息栏
+    void drawInfo(int combo, int garbageFlash);
 
     // ============================================================
     //  布局
@@ -74,13 +68,14 @@ private:
     BoardCell m_visualCache[ROWS][BOARD_WIDTH]{};
 
     // 侧栏
-    lv_obj_t* m_holdPanel{};
     lv_obj_t* m_nextPanel{};
+    lv_obj_t* m_attackLabel{};
+    lv_obj_t* m_comboLabel{};
+    lv_obj_t* m_garbageLabel{};
 
     // 预览区小格子
     static constexpr int PREVIEW_SIZE = 4;
     static constexpr int PREVIEW_COUNT = 4;
-    lv_obj_t* m_holdCells[PREVIEW_SIZE][PREVIEW_SIZE]{};
     lv_obj_t* m_nextCells[PREVIEW_COUNT][PREVIEW_SIZE][PREVIEW_SIZE]{};
 
     // 前帧活动方块位置（用于局部擦除）
@@ -98,8 +93,8 @@ private:
     static lv_color_t pieceTypeToColor(PieceType type);
     void applyCellColor(int lvglRow, int col, lv_color_t color);
     void createBoardGrid();
-    void createHoldPreview();
     void createNextPreview();
+    void createInfoBar();
     void clearPreviewGrid(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE]);
     void drawPreviewPiece(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE],
                           PieceType type, lv_color_t color);

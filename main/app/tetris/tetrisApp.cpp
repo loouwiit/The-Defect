@@ -183,14 +183,16 @@ void TetrisApp::render()
         r->drawGhost(p.ghostPiece, color);
         r->drawPiece(p.currentPiece, color);
 
-        // 4. 更新侧栏
-        r->drawHold(p.holdPiece, false);
+        // 4. 更新 NEXT 预览
         PieceType preview[4];
         for (int s = 0; s < 4; s++)
             preview[s] = p.peekPreview(s);
         r->drawNext(preview);
 
-        // 5. 保存位置
+        // 5. 更新信息栏
+        r->drawInfo(p.scoring.combo(), p.garbageFlash());
+
+        // 6. 保存位置
         m_lastPiece[i] = p.currentPiece;
         m_lastGhost[i] = p.ghostPiece;
     }
@@ -244,7 +246,7 @@ void TetrisApp::createTouchButtons()
         m_btnCW[player]    = makeBtn("CW",  bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
         m_btnCCW[player]   = makeBtn("CCW", bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
         m_btnHold[player]  = makeBtn("H",   bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnPause[player] = makeBtn("||",  bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
+
     }
 }
 

@@ -61,12 +61,11 @@ TetrisRenderer::TetrisRenderer(Display* display, lv_obj_t* parent)
     lv_obj_set_scroll_dir(m_container, LV_DIR_NONE);
 
     createBoardGrid();
-    createHoldPreview();
     createNextPreview();
 
     // 初始化视觉缓存（全空）
     std::memset(m_visualCache, 0, sizeof(m_visualCache));
-    // 统计面板在 Next 下方对齐
+
     int boardX = 16;
     int boardY = 16;
     int sideX = boardX + BOARD_WIDTH * m_cellSize + 16;
@@ -75,8 +74,25 @@ TetrisRenderer::TetrisRenderer(Display* display, lv_obj_t* parent)
     auto boardContainer = lv_obj_get_child(m_container, 0);
     if (boardContainer) lv_obj_set_pos(boardContainer, boardX, boardY);
 
-    lv_obj_align(m_holdPanel, LV_ALIGN_TOP_LEFT, sideX, boardY);
-    lv_obj_align_to(m_nextPanel, m_holdPanel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 12);
+    // NEXT 面板
+    lv_obj_align(m_nextPanel, LV_ALIGN_TOP_LEFT, sideX, boardY);
+
+    // 信息栏 — 独立区域，NEXT 面板下方
+    auto makeInfo = [&](lv_obj_t*& label, lv_color_t color) {
+        label = lv_label_create(m_container);
+        lv_label_set_text(label, "");
+        lv_obj_set_style_text_color(label, color, 0);
+        lv_obj_set_style_text_font(label, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+        lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    };
+    makeInfo(m_attackLabel,  GUI::Color::SUBTLE);
+    makeInfo(m_comboLabel,   LV_COLOR_MAKE(0xFF, 0xCC, 0x00));
+    makeInfo(m_garbageLabel, LV_COLOR_MAKE(0xFF, 0x44, 0x44));
+
+    // 全部相对于 NEXT 面板定位，各自独立互不影响
+    lv_obj_align_to(m_attackLabel,  m_nextPanel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
+    lv_obj_align_to(m_comboLabel,   m_nextPanel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 32);
+    lv_obj_align_to(m_garbageLabel, m_nextPanel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 58);
 }
 
 TetrisRenderer::~TetrisRenderer()
@@ -120,53 +136,8 @@ void TetrisRenderer::createBoardGrid()
 }
 
 // ============================================================
-//  Hold / Next 预览
+//  Next 预览（原 HOLD 已合并到此面板）
 // ============================================================
-
-void TetrisRenderer::createHoldPreview()
-{
-    int previewSize = m_cellSize * 3 / 4;        // 24px
-    int gridSize = previewSize * PREVIEW_SIZE;    // 96px
-
-    // Hold 容器 — flex 列，自动居中
-    m_holdPanel = lv_obj_create(m_container);
-    lv_obj_remove_style_all(m_holdPanel);
-    lv_obj_set_style_bg_color(m_holdPanel, GUI::Color::CARD, 0);
-    lv_obj_set_style_bg_opa(m_holdPanel, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(m_holdPanel, 8, 0);
-    lv_obj_set_style_pad_all(m_holdPanel, 12, 0);
-    lv_obj_set_style_pad_row(m_holdPanel, 12, 0);
-    lv_obj_set_flex_flow(m_holdPanel, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(m_holdPanel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_height(m_holdPanel, LV_SIZE_CONTENT);   // 高度由子元素撑开
-
-    auto title = lv_label_create(m_holdPanel);
-    lv_label_set_text(title, "HOLD");
-    lv_obj_set_style_text_color(title, GUI::Color::SUBTLE, 0);
-    lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-
-    // 4×4 小格容器
-    auto grid = lv_obj_create(m_holdPanel);
-    lv_obj_remove_style_all(grid);
-    lv_obj_set_size(grid, gridSize, gridSize);
-    lv_obj_set_style_bg_color(grid, lv_color_darken(COLOR_EMPTY, 2), 0);
-    lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, 0);
-
-    for (int r = 0; r < PREVIEW_SIZE; r++) {
-        for (int c = 0; c < PREVIEW_SIZE; c++) {
-            auto cell = lv_obj_create(grid);
-            lv_obj_remove_style_all(cell);
-            lv_obj_set_size(cell, previewSize, previewSize);
-            lv_obj_set_pos(cell, c * previewSize, r * previewSize);
-            lv_obj_set_style_bg_color(cell, COLOR_EMPTY, 0);
-            lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_width(cell, 1, 0);
-            lv_obj_set_style_border_color(cell, COLOR_GRID_LINE, 0);
-            m_holdCells[r][c] = cell;
-        }
-    }
-
-}
 
 void TetrisRenderer::createNextPreview()
 {
@@ -180,17 +151,12 @@ void TetrisRenderer::createNextPreview()
     lv_obj_set_style_bg_opa(m_nextPanel, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(m_nextPanel, 8, 0);
     lv_obj_set_style_pad_all(m_nextPanel, 12, 0);
-    lv_obj_set_style_pad_row(m_nextPanel, 8, 0);
+    lv_obj_set_style_pad_row(m_nextPanel, 4, 0);
     lv_obj_set_flex_flow(m_nextPanel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(m_nextPanel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_height(m_nextPanel, LV_SIZE_CONTENT);   // 高度由子元素撑开
+    lv_obj_set_height(m_nextPanel, LV_SIZE_CONTENT);
 
-    auto title = lv_label_create(m_nextPanel);
-    lv_label_set_text(title, "NEXT");
-    lv_obj_set_style_text_color(title, GUI::Color::SUBTLE, 0);
-    lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-
-    // 4 个预览槽
+    // 4 个预览槽（无标题，玩家通过方块变化自然理解）
     for (int slot = 0; slot < PREVIEW_COUNT; slot++) {
         auto grid = lv_obj_create(m_nextPanel);
         lv_obj_remove_style_all(grid);
@@ -213,7 +179,6 @@ void TetrisRenderer::createNextPreview()
         }
     }
 
-    // 让容器自适应宽高
 }
 
 // ============================================================
@@ -361,14 +326,6 @@ void TetrisRenderer::drawPreviewPiece(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE]
     }
 }
 
-void TetrisRenderer::drawHold(PieceType type, bool used)
-{
-    if (used)
-        drawPreviewPiece(m_holdCells, type, COLOR_GHOST);
-    else
-        drawPreviewPiece(m_holdCells, type, pieceTypeToColor(type));
-}
-
 void TetrisRenderer::drawNext(const PieceType preview[4])
 {
     for (int slot = 0; slot < PREVIEW_COUNT; slot++) {
@@ -380,14 +337,35 @@ void TetrisRenderer::drawNext(const PieceType preview[4])
 //  统计更新
 // ============================================================
 
-void TetrisRenderer::drawStats(int /*score*/, int /*lines*/, int /*level*/)
-{
-    // 统计面板已移除
-}
+// ============================================================
+//  信息栏
+// ============================================================
 
-void TetrisRenderer::drawGarbage(int /*pending*/)
+void TetrisRenderer::drawInfo(int combo, int garbageFlash)
 {
-    // 垃圾行指示已移除（多人模式不需要单局统计）
+    // 攻击目标（静态，中文缩窄）
+    lv_label_set_text(m_attackLabel, "攻击：其他");
+    lv_obj_clear_flag(m_attackLabel, LV_OBJ_FLAG_HIDDEN);
+
+    // 连击（combo=-1 隐藏，0=首次不显示，1+=显示连击 2+）
+    if (combo >= 1) {
+        char buf[24];
+        snprintf(buf, sizeof(buf), "连击x%d", combo + 1);
+        lv_label_set_text(m_comboLabel, buf);
+        lv_obj_clear_flag(m_comboLabel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(m_comboLabel, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 垃圾行闪烁
+    if (garbageFlash > 0) {
+        char buf[24];
+        snprintf(buf, sizeof(buf), "垃圾+%d", garbageFlash);
+        lv_label_set_text(m_garbageLabel, buf);
+        lv_obj_clear_flag(m_garbageLabel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(m_garbageLabel, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // ============================================================

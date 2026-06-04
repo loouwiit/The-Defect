@@ -19,10 +19,12 @@ void PlayerState::reset()
 {
     board.clear();
     scoring.reset();
-    holdPiece = PieceType::NONE;
     holdUsed = false;
     gameOver = false;
     m_pieceIndex = 0;
+    m_holdSlot = PieceType::NONE;
+    m_pendingGarbage = 0;
+    m_garbageFlash = 0;
     gravityInterval = calcGravityInterval();
 
     gravityTimer = 0;
@@ -30,18 +32,15 @@ void PlayerState::reset()
     dasTimer = 0;
     arrTimer = 0;
 
-    keyLeft = keyRight = keyCW = keyCCW = keySoft = keyHard = keyHold = keyPause = false;
+    keyLeft = keyRight = keyCW = keyCCW = keySoft = keyHard = keyHold = false;
 }
 
 // ============================================================
 //  方块操作
 // ============================================================
 
-bool PlayerState::spawnPiece()
+void PlayerState::spawnType(PieceType type)
 {
-    PieceType type = nextPiece();
-
-    // I piece 居中
     int spawnX = (type == PieceType::O) ? 4 : 3;
     int spawnY = BOARD_HEIGHT - 2;  // 隐藏区顶部
 
@@ -50,15 +49,20 @@ bool PlayerState::spawnPiece()
     if (board.collides(currentPiece)) {
         gameOver = true;
         ESP_LOGI(TAG, "Game Over");
-        return false;
+        return;
     }
 
     holdUsed = false;
+    m_garbageFlash = 0;  // 新块生成，清除垃圾提示
     gravityTimer = xTaskGetTickCount();
     lockTimer = 0;
     ghostPiece = calculateGhost(currentPiece, board);
+}
 
-    return true;
+bool PlayerState::spawnPiece()
+{
+    spawnType(nextPiece());
+    return !gameOver;
 }
 
 bool PlayerState::movePiece(int dx, int dy)
@@ -151,15 +155,33 @@ void PlayerState::lockPiece()
     // 先保存 B2B 状态（scoring.processLines 内部会更新它）
     bool prevB2B = scoring.isB2B();
 
-    // 计算得分（isTSpinMini 永远 false，我们不判定 Mini）
+    // 计算得分
     scoring.processLines(lines, isTSpin, false, 0, 0);
 
-    // 计算攻击行数（使用更新前的 B2B 和 combo 状态）
-    m_attackOut = calcAttackLines(lines, isTSpin, false, prevB2B, scoring.combo());
+    // 计算本次消行的攻击力
+    int attackFromClear = calcAttackLines(lines, isTSpin, false, prevB2B, scoring.combo());
+
+    // --- 垃圾行抵消 ---
+    // 消行产生的攻击可以抵消待处理的垃圾行
+    // 抵消后仍有剩余垃圾 → 注入棋盘
+    // 攻击超出待处理垃圾 → 超出部分发给对手
+    int garbageToApply = m_pendingGarbage - attackFromClear;
+    if (garbageToApply > 0) {
+        // 仍有垃圾未抵消，注入棋盘
+        int colHole = static_cast<int>(xTaskGetTickCount() % BOARD_WIDTH);
+        board.addGarbage(garbageToApply, colHole);
+        ESP_LOGI(TAG, "garbage applied: %d", garbageToApply);
+    }
+
+    // 发送给对手的攻击 = 攻击力 - 被抵消的部分
+    m_attackOut = (garbageToApply < 0) ? -garbageToApply : 0;
+    m_pendingGarbage = 0;
 
     if (lines > 0)
         ESP_LOGI(TAG, "lock: lines=%d attack=%d score=%d",
                  lines, m_attackOut, scoring.score());
+    else if (garbageToApply > 0)
+        ESP_LOGI(TAG, "lock: no clear, garbage=%d", garbageToApply);
 
     // 更新重力速度
     gravityInterval = calcGravityInterval();
@@ -172,26 +194,17 @@ void PlayerState::doHold()
 {
     if (holdUsed) return;  // 每块只能 Hold 一次
 
-    if (holdPiece == PieceType::NONE) {
-        // 首次 Hold：保存当前块，从队列取新块
-        holdPiece = currentPiece.type();
-        spawnPiece();
+    PieceType currentType = currentPiece.type();
+
+    if (m_holdSlot == PieceType::NONE) {
+        // 首次 Hold：存进 holdSlot，直接从队列取下一块（不走 nextPiece）
+        m_holdSlot = currentType;
+        spawnType(m_queue->peek(m_pieceIndex++));
     } else {
-        // 交换
-        PieceType currentType = currentPiece.type();
-        int spawnX = (holdPiece == PieceType::O) ? 4 : 3;
-        int spawnY = BOARD_HEIGHT - 2;
-        currentPiece = Piece(holdPiece, Rotation::R0, spawnX, spawnY);
-        holdPiece = currentType;
-
-        if (board.collides(currentPiece)) {
-            gameOver = true;
-            return;
-        }
-
-        gravityTimer = xTaskGetTickCount();
-        lockTimer = 0;
-        ghostPiece = calculateGhost(currentPiece, board);
+        // 交换当前块 ↔ holdSlot
+        PieceType slotType = m_holdSlot;
+        m_holdSlot = currentType;
+        spawnType(slotType);
     }
 
     holdUsed = true;
@@ -199,11 +212,9 @@ void PlayerState::doHold()
 
 void PlayerState::addGarbage(int lines)
 {
-    int colHole = 0;
-    // 用当前 tick 做随机种子
-    uint32_t seed = static_cast<uint32_t>(xTaskGetTickCount());
-    colHole = static_cast<int>(seed % BOARD_WIDTH);
-    board.addGarbage(lines, colHole);
+    m_pendingGarbage += lines;
+    m_garbageFlash = lines;
+    ESP_LOGI(TAG, "garbage queued: %d (total pending: %d)", lines, m_pendingGarbage);
 }
 
 // ============================================================

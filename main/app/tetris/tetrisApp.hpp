@@ -54,7 +54,6 @@ private:
     lv_obj_t* m_btnSoft[PLAYER_COUNT]   = {};
     lv_obj_t* m_btnHard[PLAYER_COUNT]   = {};
     lv_obj_t* m_btnHold[PLAYER_COUNT]   = {};
-    lv_obj_t* m_btnPause[PLAYER_COUNT]  = {};
 
     // ============================================================
     //  内部方法

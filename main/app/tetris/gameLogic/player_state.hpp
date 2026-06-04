@@ -32,11 +32,24 @@ public:
 
     void setQueue(PieceQueue* q) { m_queue = q; }
 
-    /// 取下一个方块（游标前进）
-    PieceType nextPiece() { return m_queue->peek(m_pieceIndex++); }
+    /// 取下一个方块（优先消费 holdSlot，空了再走共享队列）
+    PieceType nextPiece() {
+        if (m_holdSlot != PieceType::NONE) {
+            PieceType t = m_holdSlot;
+            m_holdSlot = PieceType::NONE;
+            return t;
+        }
+        return m_queue->peek(m_pieceIndex++);
+    }
 
-    /// 预览未来第 slot 个方块
-    PieceType peekPreview(int slot) const { return m_queue->peek(m_pieceIndex + slot); }
+    /// 预览未来第 slot 个方块（slot=0 时优先返回 holdSlot）
+    PieceType peekPreview(int slot) const {
+        if (m_holdSlot != PieceType::NONE) {
+            if (slot == 0) return m_holdSlot;
+            return m_queue->peek(m_pieceIndex + slot - 1);
+        }
+        return m_queue->peek(m_pieceIndex + slot);
+    }
 
     // ============================================================
     //  游戏状态
@@ -47,7 +60,6 @@ public:
 
     Piece       currentPiece;
     Piece       ghostPiece;
-    PieceType   holdPiece   = PieceType::NONE;
     bool        holdUsed    = false;
     bool        gameOver    = false;
 
@@ -72,7 +84,6 @@ public:
     bool keySoft   = false;
     bool keyHard   = false;
     bool keyHold   = false;
-    bool keyPause  = false;
 
     // ============================================================
     //  游戏逻辑方法
@@ -119,11 +130,25 @@ public:
     int  attackOut() const { return m_attackOut; }
     void clearAttackOut()  { m_attackOut = 0; }
 
+    /// 待处理垃圾行（收到时累加，锁块时应用并可能被消行抵消）
+    int  pendingGarbage() const { return m_pendingGarbage; }
+
+    /// 垃圾行提示（收到时设置，新块生成时清除）
+    int  garbageFlash() const { return m_garbageFlash; }
+    void setGarbageFlash(int v) { m_garbageFlash = v; }
+    void clearGarbageFlash() { m_garbageFlash = 0; }
+
 private:
     PieceQueue* m_queue              = nullptr;
     int         m_pieceIndex         = 0;
     int         m_attackOut          = 0;
-    bool        m_lastActionRotated  = false;   // 最后一次成功操作是否为旋转（T-Spin 判定用）
+    int         m_pendingGarbage     = 0;
+    int         m_garbageFlash       = 0;
+    PieceType   m_holdSlot           = PieceType::NONE;
+    bool        m_lastActionRotated  = false;
+
+    /// 用指定类型生成当前方块（spawnPiece / doHold 共用）
+    void spawnType(PieceType type);
 
     /// 检测当前方块是否触底（下方有碰撞）
     bool isOnGround() const;
