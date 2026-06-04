@@ -121,6 +121,16 @@ void TetrisApp::gameLoopTask(void* param)
             app->m_players[i].updateGame();
         }
 
+        // 跨玩家应用攻击（消行 → 垃圾行）
+        for (int i = 0; i < PLAYER_COUNT; i++) {
+            int atk = app->m_players[i].attackOut();
+            if (atk > 0) {
+                int target = (i + 1) % PLAYER_COUNT;
+                app->m_players[target].addGarbage(atk);
+                app->m_players[i].clearAttackOut();
+            }
+        }
+
         // 渲染 30fps
         TickType_t now = xTaskGetTickCount();
         if (now - renderTick >= pdMS_TO_TICKS(33)) {

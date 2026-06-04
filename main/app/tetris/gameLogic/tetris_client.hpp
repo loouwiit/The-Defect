@@ -291,6 +291,18 @@ int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B
 Piece calculateGhost(const Piece& piece, const Board& board);
 
 // ============================================================
+//  T-Spin 检测
+// ============================================================
+
+// 检测 T 块是否是三角 T-Spin
+// piece: 刚锁定的 T 块（尚未放置到棋盘）
+// board: 当前棋盘（不含 piece）
+// 返回: T 块 3×3 包围盒的 4 个角中 ≥ 3 个被占用
+//
+// 注意：此函数仅检查几何条件，旋转进入的判断由调用方负责
+bool checkThreeCorner(const Piece& piece, const Board& board);
+
+// ============================================================
 //  辅助函数
 // ============================================================
 

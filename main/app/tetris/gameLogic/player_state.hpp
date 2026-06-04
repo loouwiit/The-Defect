@@ -74,10 +74,6 @@ public:
     bool keyHold   = false;
     bool keyPause  = false;
 
-private:
-    PieceQueue* m_queue        = nullptr;
-    int         m_pieceIndex   = 0;
-
     // ============================================================
     //  游戏逻辑方法
     // ============================================================
@@ -119,7 +115,16 @@ public:
     /// 当前方块颜色值
     BoardCell currentColor() const { return pieceToColor(currentPiece.type()); }
 
+    /// 上一次 lockPiece 产生的攻击行数（供外部读取后跨玩家应用）
+    int  attackOut() const { return m_attackOut; }
+    void clearAttackOut()  { m_attackOut = 0; }
+
 private:
+    PieceQueue* m_queue              = nullptr;
+    int         m_pieceIndex         = 0;
+    int         m_attackOut          = 0;
+    bool        m_lastActionRotated  = false;   // 最后一次成功操作是否为旋转（T-Spin 判定用）
+
     /// 检测当前方块是否触底（下方有碰撞）
     bool isOnGround() const;
 };

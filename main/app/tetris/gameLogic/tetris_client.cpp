@@ -565,6 +565,42 @@ int Scoring::processLines(int lines, bool isTSpin, bool isTSpinMini,
 }
 
 // ============================================================
+//  三角判定（T-Spin 几何条件）
+// ============================================================
+
+static bool isOccupied(const Board& board, int col, int y)
+{
+    // 墙壁算被占用
+    if (col < 0 || col >= BOARD_WIDTH || y < 0)
+        return true;
+    // 棋盘上方算空
+    if (y >= BOARD_HEIGHT)
+        return false;
+    return board.get(col, y) != 0;
+}
+
+bool checkThreeCorner(const Piece& piece, const Board& board)
+{
+    // 只有 T 块能触发
+    if (piece.type() != PieceType::T)
+        return false;
+
+    int x = piece.x();
+    int y = piece.y();
+
+    // 3×3 包围盒的 4 个角
+    // TL = (x, y),   TR = (x+2, y)
+    // BL = (x, y+2), BR = (x+2, y+2)
+    int corners = 0;
+    if (isOccupied(board, x,     y))     corners++;
+    if (isOccupied(board, x + 2, y))     corners++;
+    if (isOccupied(board, x,     y + 2)) corners++;
+    if (isOccupied(board, x + 2, y + 2)) corners++;
+
+    return corners >= 3;
+}
+
+// ============================================================
 //  攻击行计算
 // ============================================================
 

@@ -66,6 +66,9 @@ bool PlayerState::movePiece(int dx, int dy)
     Piece moved = currentPiece.moved(dx, dy);
     if (!board.collides(moved)) {
         currentPiece = moved;
+        // 水平移动取消旋转进入标记（T-Spin 判定用）
+        if (dx != 0)
+            m_lastActionRotated = false;
         // 下移重置 Lock Delay
         if (dy == -1)
             lockTimer = 0;
@@ -78,7 +81,6 @@ bool PlayerState::rotateCW()
 {
     Piece rotated = currentPiece.rotatedCW();
 
-    // 尝试踢墙
     auto* kicks = (currentPiece.type() == PieceType::I) ? I_KICKS : JLSTZ_KICKS;
     int from = static_cast<int>(currentPiece.rotation());
     int to   = static_cast<int>(rotated.rotation());
@@ -88,7 +90,8 @@ bool PlayerState::rotateCW()
         Piece kicked = rotated.moved(kick.dx, kick.dy);
         if (!board.collides(kicked)) {
             currentPiece = kicked;
-            lockTimer = 0;  // 旋转重置 Lock Delay
+            m_lastActionRotated = true;  // 旋转进入，T-Spin 候选
+            lockTimer = 0;
             return true;
         }
     }
@@ -108,6 +111,7 @@ bool PlayerState::rotateCCW()
         Piece kicked = rotated.moved(kick.dx, kick.dy);
         if (!board.collides(kicked)) {
             currentPiece = kicked;
+            m_lastActionRotated = true;  // 旋转进入，T-Spin 候选
             lockTimer = 0;
             return true;
         }
@@ -131,6 +135,12 @@ void PlayerState::hardDrop()
 
 void PlayerState::lockPiece()
 {
+    // 三角判定 + 旋转进入 → T-Spin
+    // 只有 T 块旋转卡入 T 槽才算，横移蹭进去不算
+    bool isTSpin = (currentPiece.type() == PieceType::T)
+                   && m_lastActionRotated
+                   && checkThreeCorner(currentPiece, board);
+
     // 放置到棋盘
     board.place(currentPiece, pieceToColor(currentPiece.type()));
 
@@ -138,13 +148,18 @@ void PlayerState::lockPiece()
     int clearedY[4];
     int lines = board.clearLines(clearedY);
 
-    // 计算得分
-    bool isTSpin = false;   // TODO: T-Spin 检测
-    bool isTSpinMini = false;
-    scoring.processLines(lines, isTSpin, isTSpinMini, 0, 0);
+    // 先保存 B2B 状态（scoring.processLines 内部会更新它）
+    bool prevB2B = scoring.isB2B();
 
-    ESP_LOGI(TAG, "lock: lines=%d score=%d total=%d",
-             lines, scoring.score(), scoring.totalLines());
+    // 计算得分（isTSpinMini 永远 false，我们不判定 Mini）
+    scoring.processLines(lines, isTSpin, false, 0, 0);
+
+    // 计算攻击行数（使用更新前的 B2B 状态）
+    m_attackOut = calcAttackLines(lines, isTSpin, false, prevB2B);
+
+    if (lines > 0)
+        ESP_LOGI(TAG, "lock: lines=%d attack=%d score=%d",
+                 lines, m_attackOut, scoring.score());
 
     // 更新重力速度
     gravityInterval = calcGravityInterval();
