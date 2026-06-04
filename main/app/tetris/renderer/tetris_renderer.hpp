@@ -42,7 +42,7 @@ public:
     // 更新 Hold 预览
     void drawHold(PieceType type, bool used);
 
-    // 更新 Next 队列预览（预览前 3 个）
+    // 更新 Next 队列预览
     void drawNext(const PieceQueue& queue);
 
     // 更新分数/行数/等级
@@ -70,14 +70,18 @@ private:
     static constexpr int ROWS = BOARD_VISIBLE_H;  // 20
     lv_obj_t* m_cells[ROWS][BOARD_WIDTH]{};
 
+    // 视觉缓存: 记录上次同步时的格子值，避免重复调用 LVGL API
+    BoardCell m_visualCache[ROWS][BOARD_WIDTH]{};
+
     // 侧栏
     lv_obj_t* m_holdPanel{};
     lv_obj_t* m_nextPanel{};
 
     // 预览区小格子
     static constexpr int PREVIEW_SIZE = 4;
+    static constexpr int PREVIEW_COUNT = 4;
     lv_obj_t* m_holdCells[PREVIEW_SIZE][PREVIEW_SIZE]{};
-    lv_obj_t* m_nextCells[3][PREVIEW_SIZE][PREVIEW_SIZE]{};
+    lv_obj_t* m_nextCells[PREVIEW_COUNT][PREVIEW_SIZE][PREVIEW_SIZE]{};
 
     // 前帧活动方块位置（用于局部擦除）
     int m_prevPieceX = -100;

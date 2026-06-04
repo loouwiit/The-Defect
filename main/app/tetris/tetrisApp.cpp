@@ -100,18 +100,22 @@ void TetrisApp::gameLoopTask(void* param)
     auto app = static_cast<TetrisApp*>(param);
 
     TickType_t lastTick = xTaskGetTickCount();
+    TickType_t renderTick = lastTick;
 
     while (app->running) {
         app->processInput();
         app->updateGame();
 
-        // 渲染 (LVGL 锁)
-        if (auto guard = app->display->lockGuard()) {
-            app->render();
+        // 渲染 30fps (33ms)，减少 LVGL 锁竞争
+        TickType_t now = xTaskGetTickCount();
+        if (now - renderTick >= pdMS_TO_TICKS(33)) {
+            if (auto guard = app->display->lockGuard()) {
+                app->render();
+            }
+            renderTick = now;
         }
 
-        // 60fps 同步
-        TickType_t now = xTaskGetTickCount();
+        // 游戏逻辑 60fps
         TickType_t elapsed = now - lastTick;
         if (elapsed < pdMS_TO_TICKS(16)) {
             vTaskDelay(pdMS_TO_TICKS(16) - elapsed);
@@ -248,22 +252,28 @@ void TetrisApp::render()
     if (!m_renderer) return;
 
     if (m_gameOver) {
-        // 游戏结束态：只保持当前画面，不做更新
         return;
     }
 
-    // 全量同步棋盘
+    // 1. 擦除上一帧的 ghost/piece（从 visual cache 恢复棋盘底色）
+    m_renderer->clearPiece(m_lastPiece);
+    m_renderer->clearGhost(m_lastGhost);
+
+    // 2. 同步棋盘变化（diff，大部分帧无操作）
     m_renderer->syncBoard(m_board);
 
-    // 绘制 Ghost
-    m_renderer->drawGhost(m_ghostPiece, pieceToColor(m_currentPiece.type()));
+    // 3. 绘制当前 ghost 和活动块
+    auto color = pieceToColor(m_currentPiece.type());
+    m_renderer->drawGhost(m_ghostPiece, color);
+    m_renderer->drawPiece(m_currentPiece, color);
 
-    // 绘制活动方块
-    m_renderer->drawPiece(m_currentPiece, pieceToColor(m_currentPiece.type()));
-
-    // 更新侧栏
+    // 4. 更新侧栏
     m_renderer->drawHold(m_holdPiece, false);
     m_renderer->drawNext(m_queue);
+
+    // 5. 保存当前位置，供下一帧擦除
+    m_lastPiece = m_currentPiece;
+    m_lastGhost = m_ghostPiece;
 }
 
 // ============================================================

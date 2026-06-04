@@ -168,7 +168,9 @@ Piece::Piece(PieceType type, Rotation rot, int x, int y)
 void Piece::getBlocks(int outCols[4], int outRows[4]) const
 {
     if (m_type == PieceType::NONE) {
-        outCols[0] = outRows[0] = 0;
+        for (int i = 0; i < 4; i++) {
+            outCols[i] = outRows[i] = 0;
+        }
         return;
     }
 
@@ -365,7 +367,7 @@ uint16_t Board::getColumnMask(int y) const
 }
 
 // ============================================================
-//  PieceQueue 实现 (7-bag)
+//  PieceQueue 实现 (7-bag 链表)
 // ============================================================
 
 static FastRng s_rng(12345678);
@@ -375,43 +377,105 @@ PieceQueue::PieceQueue()
     reset();
 }
 
-void PieceQueue::reset()
+PieceQueue::~PieceQueue()
 {
-    m_pos = 7;  // 强制首次 refill
-    refill();
+    // m_pool 是栈数组，无需额外释放
 }
 
-void PieceQueue::refill()
+void PieceQueue::reset()
 {
-    // 用 Fisher-Yates 洗牌
+    m_poolNext = 0;
+    m_pos = 7;  // 强制下次 next() 取新 bag
+
+    // 分配第一个 bag
+    m_head = allocBag();
+    shuffleBag(m_head->pieces);
+    m_head->next = nullptr;
+    m_pos = 0;
+
+    // 预分配后续 bag
+    ensureAhead();
+}
+
+BagNode* PieceQueue::allocBag()
+{
+    BagNode* node = &m_pool[m_poolNext];
+    m_poolNext = (m_poolNext + 1) % POOL_SIZE;
+    node->next = nullptr;
+    return node;
+}
+
+void PieceQueue::shuffleBag(PieceType* bag)
+{
     for (int i = 0; i < 7; i++)
-        m_bag[i] = static_cast<PieceType>(i);
+        bag[i] = static_cast<PieceType>(i);
 
     for (int i = 6; i > 0; i--) {
         int j = s_rng.range(i + 1);
-        std::swap(m_bag[i], m_bag[j]);
+        std::swap(bag[i], bag[j]);
     }
+}
 
-    m_pos = 0;
+void PieceQueue::ensureAhead()
+{
+    // 确保当前 bag 后面至少有 2 个预分配的 bag
+    BagNode* node = m_head;
+    int depth = 0;
+    while (node->next && depth < 2) {
+        node = node->next;
+        depth++;
+    }
+    while (depth < 2) {
+        node->next = allocBag();
+        node = node->next;
+        shuffleBag(node->pieces);
+        depth++;
+    }
 }
 
 PieceType PieceQueue::next()
 {
-    if (m_pos >= 7)
-        refill();
+    if (m_pos >= 7) {
+        // 前进到下一个 bag
+        m_head = m_head->next;
+        m_pos = 0;
+        // 确保后续 bag 充足
+        ensureAhead();
+    }
 
-    return m_bag[m_pos++];
+    return m_head->pieces[m_pos++];
 }
 
 PieceType PieceQueue::peek(int index) const
 {
     int pos = m_pos + index;
-    if (pos < 7)
-        return m_bag[pos];
+    const BagNode* node = m_head;
 
-    // 需要从下一个 bag 获取
-    // 简化: 返回相同 piece 序列 （实际上 peek 不需要跨 bag）
-    return m_bag[6];  // 兜底
+    while (pos >= 7) {
+        if (!node->next)
+            return PieceType::NONE;  // 不应发生（ensureAhead 保证）
+        node = node->next;
+        pos -= 7;
+    }
+
+    return node->pieces[pos];
+}
+
+int PieceQueue::serialize(PieceType* out, int maxCount) const
+{
+    int count = 0;
+    int pos = m_pos;
+    const BagNode* node = m_head;
+
+    while (node && count < maxCount) {
+        while (pos < 7 && count < maxCount) {
+            out[count++] = node->pieces[pos++];
+        }
+        node = node->next;
+        pos = 0;
+    }
+
+    return count;
 }
 
 // ============================================================

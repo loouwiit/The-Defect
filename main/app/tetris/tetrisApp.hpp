@@ -30,6 +30,8 @@ private:
 
     Piece       m_currentPiece;
     Piece       m_ghostPiece;
+    Piece       m_lastPiece;      // 上一帧活动块位置（供擦除用）
+    Piece       m_lastGhost;      // 上一帧 Ghost 位置（供擦除用）
     PieceType   m_holdPiece = PieceType::NONE;
     bool        m_holdUsed = false;    // 当前方块是否已使用 Hold
     bool        m_gameOver = false;

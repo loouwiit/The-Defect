@@ -171,31 +171,47 @@ private:
 };
 
 // ============================================================
-//  PieceQueue — 7-bag Randomizer
+//  PieceQueue — 7-bag Randomizer (链表)
 // ============================================================
+
+// 一个 bag 节点，包含 7 个洗牌后的方块和指向下一 bag 的指针
+struct BagNode {
+    PieceType pieces[7];
+    BagNode* next = nullptr;
+};
 
 class PieceQueue {
 public:
     PieceQueue();
+    ~PieceQueue();
 
-    // 重置队列 (用新的种子)
     void reset();
 
     // 取下一个方块
     PieceType next();
 
-    // 预览: peek(i) 返回接下来第 i 个 (0=下一个)
+    // 预览: peek(i) 返回接下来第 i 个 (0=下一个)，可跨 bag
     PieceType peek(int index) const;
     PieceType peek() const { return peek(0); }
 
     // 当前 bag 中剩余数量
-    int remaining() const { return m_pos; }
+    int remaining() const { return 7 - m_pos; }
+
+    // 序列化: 将剩余队列写入 out，返回写入数量（用于网络同步）
+    int serialize(PieceType* out, int maxCount) const;
 
 private:
-    void refill();
+    BagNode* allocBag();                // 从池中分配一个 bag
+    void shuffleBag(PieceType* bag);    // Fisher-Yates 洗牌
+    void ensureAhead();                 // 确保后续有足够的 bag
 
-    PieceType m_bag[7]{};
-    int       m_pos = 0;
+    BagNode* m_head = nullptr;
+    int m_pos = 0;          // 0-6，当前 bag 中的位置
+
+    // 固定池，避免运行时动态分配
+    static constexpr int POOL_SIZE = 4;
+    BagNode m_pool[POOL_SIZE]{};
+    int m_poolNext = 0;     // 下一个可用池索引
 };
 
 // ============================================================
