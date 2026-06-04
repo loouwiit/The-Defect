@@ -40,7 +40,7 @@ private:
 	// Hardware configuration
 	static constexpr auto LDO_CHAN = 3;
 	static constexpr auto LDO_VOLTAGE = 2500;
-	static constexpr int MIPI_LANE_BIT_RATE_MBPS = 1200;
+	static constexpr int MIPI_LANE_BIT_RATE_MBPS = 1100;
 	static constexpr int MIPI_LANE_NUM = 2;
 	static constexpr gpio_num_t RESET_GPIO = GPIO_NUM_5;
 	static constexpr gpio_num_t BACKLIGHT_GPIO = GPIO_NUM_4;
