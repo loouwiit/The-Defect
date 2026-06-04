@@ -369,11 +369,10 @@ void TetrisRenderer::drawHold(PieceType type, bool used)
         drawPreviewPiece(m_holdCells, type, pieceTypeToColor(type));
 }
 
-void TetrisRenderer::drawNext(const PieceQueue& queue)
+void TetrisRenderer::drawNext(const PieceType preview[4])
 {
     for (int slot = 0; slot < PREVIEW_COUNT; slot++) {
-        PieceType type = queue.peek(slot);
-        drawPreviewPiece(m_nextCells[slot], type, pieceTypeToColor(type));
+        drawPreviewPiece(m_nextCells[slot], preview[slot], pieceTypeToColor(preview[slot]));
     }
 }
 

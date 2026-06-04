@@ -42,8 +42,8 @@ public:
     // 更新 Hold 预览
     void drawHold(PieceType type, bool used);
 
-    // 更新 Next 队列预览
-    void drawNext(const PieceQueue& queue);
+    // 更新 Next 队列预览（接收预览数组，4 个预览槽）
+    void drawNext(const PieceType preview[4]);
 
     // 更新分数/行数/等级
     void drawStats(int score, int lines, int level);
