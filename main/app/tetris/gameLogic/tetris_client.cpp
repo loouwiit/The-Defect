@@ -604,7 +604,7 @@ bool checkThreeCorner(const Piece& piece, const Board& board)
 //  攻击行计算
 // ============================================================
 
-int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B)
+int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B, int combo)
 {
     int attack = 0;
 
@@ -632,6 +632,10 @@ int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B
     // Back-to-Back 加成 (+1)
     if (isB2B && attack > 0)
         attack++;
+
+    // Combo 加成（连续消行每多一次 +combo 攻击）
+    if (combo > 0)
+        attack += combo;
 
     return attack;
 }

@@ -154,8 +154,8 @@ void PlayerState::lockPiece()
     // 计算得分（isTSpinMini 永远 false，我们不判定 Mini）
     scoring.processLines(lines, isTSpin, false, 0, 0);
 
-    // 计算攻击行数（使用更新前的 B2B 状态）
-    m_attackOut = calcAttackLines(lines, isTSpin, false, prevB2B);
+    // 计算攻击行数（使用更新前的 B2B 和 combo 状态）
+    m_attackOut = calcAttackLines(lines, isTSpin, false, prevB2B, scoring.combo());
 
     if (lines > 0)
         ESP_LOGI(TAG, "lock: lines=%d attack=%d score=%d",

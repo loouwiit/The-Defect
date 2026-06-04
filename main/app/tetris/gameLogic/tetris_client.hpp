@@ -281,7 +281,7 @@ private:
 
 // 根据消行情况计算发送的垃圾行数
 // 返回攻击行数 (用于发送给对手)
-int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B);
+int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B, int combo = 0);
 
 // ============================================================
 //  Ghost Piece 计算
