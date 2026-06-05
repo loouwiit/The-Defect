@@ -11,20 +11,29 @@ static const char* TAG = "DesktopApp";
 
 const char* DesktopApp::GAME_NAMES[] =
 {
-	"游戏 1",
-	"游戏 2",
-	"游戏 3",
-	"游戏 4",
-	"游戏 5",
+	"贪吃蛇",
+	"水果忍者",
+	"俄罗斯方块",
+	"斗地主",
+	"中国象棋",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
 {
-	"一场激动人心的冒险等待着你！",
-	"测试你的解谜能力。",
-	"快节奏的赛车体验。",
-	"建造和管理你的世界。",
-	"史诗般的战斗和策略。",
+	"经典贪吃蛇游戏，吃食物成长！",
+	"快速切水果，享受爽快连击！",
+	"经典俄罗斯方块，消除行数得分！",
+	"三人斗地主，比拼牌技！",
+	"中国象棋，楚河汉界对弈！",
+};
+
+const char* DesktopApp::GAME_ICONS[] =
+{
+	"F:picture/snake.png",
+	"F:picture/fruitNinja.png",
+	"F:picture/tetris.png",
+	"F:picture/douDiZhu.png",
+	"F:picture/chess.png",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -66,7 +75,7 @@ void DesktopApp::init()
 	lv_obj_set_style_pad_column(flex, 16, 0);
 	lv_obj_align(flex, LV_ALIGN_CENTER, 0, -50);
 
-	// 创建五个游戏图标卡片
+	// 创建五个游戏图标卡片（图片替换方块）
 	for (int i = 0; i < GAME_COUNT; i++)
 	{
 		auto card = GUI::createCard(flex, ICON_W, ICON_H);
@@ -74,11 +83,12 @@ void DesktopApp::init()
 		lv_obj_set_style_bg_color(card, LV_COLOR_MAKE(0xFF, 0xFF, 0xFF), 0);
 		lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
 		lv_obj_set_style_pad_all(card, 0, 0);
+		lv_obj_set_style_clip_corner(card, true, 0);
 
-		auto label = GUI::createLabel(card, GAME_NAMES[i]);
-		lv_obj_set_style_text_color(label, LV_COLOR_MAKE(0x1A, 0x1A, 0x2E), 0);
-		lv_obj_center(label);
-		lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+		auto img = lv_image_create(card);
+		lv_image_set_src(img, GAME_ICONS[i]);
+		lv_obj_set_size(img, ICON_W, ICON_H);
+		lv_obj_center(img);
 
 		game_cards[i] = card;
 	}

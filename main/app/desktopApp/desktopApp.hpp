@@ -17,6 +17,7 @@ private:
 	static constexpr int GAME_COUNT = 5;
 	static const char* GAME_NAMES[GAME_COUNT];
 	static const char* GAME_DESCS[GAME_COUNT];
+	static const char* GAME_ICONS[GAME_COUNT];
 
 	// UI 对象
 	int selected_index = 0;
