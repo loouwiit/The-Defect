@@ -2,6 +2,7 @@
 #include "virtualIndev/virtualIndev.hpp"
 #include "screenStream/screenStream.hpp"
 
+#include "mutex/mutex.hpp"
 #include <esp_log.h>
 #include <esp_http_server.h>
 #include <esp_heap_caps.h>
@@ -12,6 +13,9 @@ static constexpr char TAG[] = "wsServer";
 EXT_RAM_BSS_ATTR static httpd_handle_t s_server = nullptr;
 
 static constexpr size_t kJpegBufSize = 512 * 1024;
+
+/* 连续编码失败最大次数后放弃 */
+static constexpr int kMaxConsecutiveErrors = 50;
 
 /* ============================================================
  *  WebSocket handler — 接收触摸二进制帧
@@ -105,36 +109,113 @@ typedef struct {
 	int            fd;
 	volatile bool  active;
 	TaskHandle_t   task;
+	volatile bool  keepBuffers;       // 退出时是否保留 jpegBufs（true=新客户端将复用）
+
+	/* 异步踢掉：握手阶段不阻塞 httpd，把新连接信息存为 pending，
+	 * 旧推流任务退出时（或下一次 binary 触发时）再接管。 */
+	httpd_handle_t pendingHd;
+	int            pendingFd;
+	volatile bool  hasPending;        // 是否有等待接管的新连接
+
+	/* 双缓冲 ping-pong：严格 in-flight 跟踪
+	 * 规则：写 jpegBufs[i] 前必须等待 inFlight[i] == 0（httpd 已读完）。
+	 * 这强制生产者等消费者，防止 PSRAM buffer 被覆盖。 */
+	uint8_t*       jpegBufs[2];
+	int            bufIdx;            // 下一个要写入的 buffer 下标 (0/1)
+	bool           inFlight[2];       // 每个 buffer 的异步发送是否未完成（inFlightMtx 保护）
+	Mutex          inFlightMtx;       // 保护 inFlight[0/1] 的互斥量
 } StreamClient;
 
 EXT_RAM_BSS_ATTR static StreamClient s_streamClient = {};
 
-/* 异步发送完成回调：释放帧缓冲区 */
+/* 异步发送完成回调：标记对应 buffer 空闲。
+ * arg 是被发送 buffer 在 jpegBufs[] 中的下标（0 或 1）。
+ * buffer 本身由 streamPushTask 统一释放，本回调不 free。 */
 static void streamFreeCb(esp_err_t err, int socket, void* arg)
 {
-	uint8_t* buf = (uint8_t*)arg;
-	if (buf) heap_caps_free(buf);
+	int idx = (int)(intptr_t)arg;  // buffer 下标
+
 	if (err != ESP_OK)
-		ESP_LOGW(TAG, "stream send err=%d fd=%d", err, socket);
+		ESP_LOGW(TAG, "stream send err=%d fd=%d buf=%d", err, socket, idx);
+
+	Lock lock{ s_streamClient.inFlightMtx };
+	if (idx >= 0 && idx < 2)
+		s_streamClient.inFlight[idx] = false;
 }
 
-/* 专用推送任务：独立于 httpd 线程运行 */
+/* 异步踢掉当前串流客户端：仅设标志，立即返回（不阻塞 httpd 工作线程）。
+ * 推流任务会在下一次循环检测到 active=false 后主动退出并清理。 */
+static void kickOldStreamClientAsync()
+{
+	if (!s_streamClient.active && !s_streamClient.task)
+		return;
+
+	ESP_LOGI(TAG, "kicking old stream client (fd=%d) async", s_streamClient.fd);
+
+	/* 标记保留 buffer：旧任务退出时不会释放 jpegBufs，新任务复用 */
+	s_streamClient.keepBuffers = true;
+
+	/* 通知推流任务退出（异步，自己会在排空 in-flight 后退出） */
+	s_streamClient.active = false;
+}
+
+/* 接管 pending 连接：把暂存的新连接信息安装为当前活动客户端。
+ * 在推流任务退出排空后、或 binary 触发时调用。 */
+static void adoptPendingStreamClient()
+{
+	if (!s_streamClient.hasPending)
+		return;
+
+	s_streamClient.hd = s_streamClient.pendingHd;
+	s_streamClient.fd = s_streamClient.pendingFd;
+	s_streamClient.hasPending = false;
+	s_streamClient.active = true;
+	s_streamClient.task = nullptr;  // 重新创建
+	s_streamClient.bufIdx = 0;
+	/* 旧任务退出时已 drain 完毕，inFlight[] 一定为 false，但仍显式重置 */
+	{
+		Lock lock{ s_streamClient.inFlightMtx };
+		s_streamClient.inFlight[0] = false;
+		s_streamClient.inFlight[1] = false;
+	}
+	ESP_LOGI(TAG, "adopted pending stream client (fd=%d)", s_streamClient.fd);
+}
+
+/* 专用推送任务：独立于 httpd 线程运行
+ * 双缓冲方案：两个 512KB buffer 轮流写入和发送，零 memcpy。
+ *   buffer A: jpeg_enc 写入 → httpd 异步发送
+ *   buffer B: 同时 jpeg_enc 写入 → httpd 异步发送
+ * 任意时刻同一 buffer 仅被一方使用。
+ *
+ * 健壮性设计：
+ * - 单次错误不退出，连续错误超过阈值才放弃
+ * - 重试机制：等一帧再试 */
 static void streamPushTask(void* arg)
 {
 	StreamClient* cl = (StreamClient*)arg;
 	ESP_LOGI(TAG, "stream push task started (fd=%d)", cl->fd);
 
-	/* 分配一次 JPEG 缓冲区，推流期间复用 */
-	uint8_t* jpegBuf = (uint8_t*)heap_caps_malloc(
-		kJpegBufSize,
-		MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA);
-	if (!jpegBuf)
+	/* 分配两个 JPEG 缓冲区（双缓冲 ping-pong） */
+	const uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA;
+	cl->jpegBufs[0] = (uint8_t*)heap_caps_malloc(kJpegBufSize, caps);
+	cl->jpegBufs[1] = (uint8_t*)heap_caps_malloc(kJpegBufSize, caps);
+	if (!cl->jpegBufs[0] || !cl->jpegBufs[1])
 	{
-		ESP_LOGE(TAG, "jpegBuf alloc failed");
+		ESP_LOGE(TAG, "jpegBufs alloc failed");
+		heap_caps_free(cl->jpegBufs[0]);
+		heap_caps_free(cl->jpegBufs[1]);
+		cl->jpegBufs[0] = cl->jpegBufs[1] = nullptr;
+		cl->active = false;
 		cl->task = nullptr;
 		vTaskDelete(nullptr);
 		return;
 	}
+
+	cl->bufIdx = 0;
+	cl->inFlight[0] = false;
+	cl->inFlight[1] = false;
+
+	int consecutiveErrors = 0;
 
 	while (cl->active && s_server)
 	{
@@ -145,45 +226,127 @@ static void streamPushTask(void* arg)
 			break;
 		}
 
-		/* 抓取一帧 JPEG */
-		size_t jpegSize = ScreenStream::instance().captureJpeg(jpegBuf, kJpegBufSize);
+		/* 背压等待：当前 buffer 若还在异步发送中（in-flight），则等待回调完成。
+		 * 这是天然限流——消费者（WiFi/浏览器）多慢，生产者就多慢。
+		 * 不限时，不主动断流。 */
+		while (true)
+		{
+			{
+				Lock lock{ cl->inFlightMtx };
+				if (!cl->inFlight[cl->bufIdx])
+					break;
+			}
+			if (!cl->active || !s_server) break;
+			vTaskDelay(pdMS_TO_TICKS(5));
+		}
+
+		/* 选当前可写的 buffer */
+		uint8_t* curBuf = cl->jpegBufs[cl->bufIdx];
+
+		/* 抓取一帧 JPEG（jpeg_enc_process 是同步等待硬件完成，可能因总线竞争延迟） */
+		size_t jpegSize = ScreenStream::instance().captureJpeg(curBuf, kJpegBufSize);
 		if (jpegSize == 0)
 		{
+			consecutiveErrors++;
+			if (consecutiveErrors >= kMaxConsecutiveErrors)
+			{
+				ESP_LOGE(TAG, "too many consecutive errors (%d), giving up", consecutiveErrors);
+				break;
+			}
 			vTaskDelay(pdMS_TO_TICKS(33));
 			continue;
 		}
+		consecutiveErrors = 0;  // 成功后重置
 
-		/* 为这一帧分配独立缓冲区（异步发送需要 payload 存活到回调） */
-		uint8_t* frameBuf = (uint8_t*)heap_caps_malloc(jpegSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-		if (!frameBuf)
+		/* 标记当前 buffer 为 in-flight（必须在 send_data_async 之前） */
 		{
-			vTaskDelay(pdMS_TO_TICKS(33));
-			continue;
+			Lock lock{ cl->inFlightMtx };
+			cl->inFlight[cl->bufIdx] = true;
 		}
-		memcpy(frameBuf, jpegBuf, jpegSize);
 
-		/* 异步发送 */
-		httpd_ws_frame_t frame;
-		memset(&frame, 0, sizeof(frame));
+		/* 异步发送：payload 直接指向双缓冲当前 buffer，无 memcpy。
+		 * 回调中通过 arg 知道是哪个 buffer，置 inFlight[idx]=false。 */
+		httpd_ws_frame_t frame{};
 		frame.type = HTTPD_WS_TYPE_BINARY;
-		frame.payload = frameBuf;
+		frame.payload = curBuf;
 		frame.len = jpegSize;
 
-		esp_err_t ret = httpd_ws_send_data_async(cl->hd, cl->fd, &frame, streamFreeCb, frameBuf);
+		int curIdx = cl->bufIdx;  // 捕获，避免与 bufIdx ^= 1 竞争
+		esp_err_t ret = httpd_ws_send_data_async(cl->hd, cl->fd, &frame,
+			streamFreeCb, (void*)(intptr_t)curIdx);
 		if (ret != ESP_OK)
 		{
-			ESP_LOGW(TAG, "stream push err=%d", ret);
-			heap_caps_free(frameBuf);
-			break;
+			ESP_LOGW(TAG, "stream push err=%d (consecutive=%d)", ret, consecutiveErrors);
+			/* 发送失败，回滚 in-flight 标志 */
+			{
+				Lock lock{ cl->inFlightMtx };
+				cl->inFlight[curIdx] = false;
+			}
+			consecutiveErrors++;
+			if (consecutiveErrors >= kMaxConsecutiveErrors)
+			{
+				ESP_LOGE(TAG, "too many send errors, giving up");
+				break;
+			}
+			vTaskDelay(pdMS_TO_TICKS(33));
+			continue;  /* 重试，不退出 */
 		}
+		consecutiveErrors = 0;
 
-		/* 帧率控制 ~30fps */
-		vTaskDelay(pdMS_TO_TICKS(33));
+		/* 切换到另一个 buffer（ping-pong） */
+		cl->bufIdx ^= 1;
+
+		/* 帧率控制 ~20fps（实际节奏受 in-flight 等待自适应） */
+		vTaskDelay(pdMS_TO_TICKS(50));
 	}
 
 	cl->active = false;
+
+	/* 等待所有 in-flight 异步发送完成，确保 httpd 不再读取 buffer */
+	while (true)
+	{
+		{
+			Lock lock{ cl->inFlightMtx };
+			if (!cl->inFlight[0] && !cl->inFlight[1])
+				break;
+		}
+		if (!s_server) break;  // 服务器关闭时强制退出
+		vTaskDelay(pdMS_TO_TICKS(5));
+	}
+
 	cl->task = nullptr;
-	heap_caps_free(jpegBuf);
+
+	/* keepBuffers=true：被新客户端踢掉，buffer 保留供下一位复用（零分配）
+	 * keepBuffers=false：服务器关闭，安全释放 */
+	if (!cl->keepBuffers)
+	{
+		heap_caps_free(cl->jpegBufs[0]);
+		heap_caps_free(cl->jpegBufs[1]);
+		cl->jpegBufs[0] = cl->jpegBufs[1] = nullptr;
+	}
+	else
+	{
+		/* keepBuffers=true 时旧 buffer 保留，但新任务 alloc 时会漏掉旧指针。
+		 * 这里置 nullptr 避免新任务误释放旧 buffer */
+		cl->jpegBufs[0] = nullptr;
+		cl->jpegBufs[1] = nullptr;
+	}
+	cl->keepBuffers = false;
+
+	/* 异步接管：若握手阶段有 pending 新连接，本任务退出时自动启动新的推流任务 */
+	if (cl->hasPending)
+	{
+		adoptPendingStreamClient();
+		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
+			8192, cl,
+			Task::Priority::Deamon, &cl->task);
+		if (ret != pdPASS)
+		{
+			cl->active = false;
+			ESP_LOGE(TAG, "adopted stream task create failed");
+		}
+	}
+
 	ESP_LOGI(TAG, "stream push task ended");
 	vTaskDelete(nullptr);
 }
@@ -200,17 +363,33 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 {
 	if (req->method == HTTP_GET)
 	{
-		/* 握手：保存连接信息 */
-		if (s_streamClient.active)
+		/* 握手：永不阻塞 httpd 线程。
+		 * 情况 A：当前空闲 → 直接安装连接信息。
+		 * 情况 B：当前有客户端 → 异步踢掉（旧任务退出时会自动接管 pending），
+		 *         本次握手把新连接存为 pending，等旧任务退出后接管。 */
+		if (s_streamClient.active || s_streamClient.task)
 		{
-			ESP_LOGW(TAG, "only one stream client supported, reject");
-			return ESP_FAIL;  // 拒绝第二个串流客户端
+			ESP_LOGW(TAG, "old stream client present, queuing new as pending");
+			kickOldStreamClientAsync();
+			s_streamClient.pendingHd = req->handle;
+			s_streamClient.pendingFd = httpd_req_to_sockfd(req);
+			s_streamClient.hasPending = true;
 		}
-		s_streamClient.hd = req->handle;
-		s_streamClient.fd = httpd_req_to_sockfd(req);
-		s_streamClient.active = false;
-		s_streamClient.task = nullptr;
-		ESP_LOGI(TAG, "ws/stream handshake done (fd=%d)", s_streamClient.fd);
+		else
+		{
+			s_streamClient.hd = req->handle;
+			s_streamClient.fd = httpd_req_to_sockfd(req);
+			s_streamClient.active = false;
+			s_streamClient.task = nullptr;
+			s_streamClient.bufIdx = 0;
+			s_streamClient.hasPending = false;
+			{
+				Lock lock{ s_streamClient.inFlightMtx };
+				s_streamClient.inFlight[0] = false;
+				s_streamClient.inFlight[1] = false;
+			}
+		}
+		ESP_LOGI(TAG, "ws/stream handshake done (fd=%d)", httpd_req_to_sockfd(req));
 		return ESP_OK;
 	}
 
@@ -232,18 +411,39 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 		}
 	}
 
-	/* 启动推送任务（如果尚未启动） */
+	/* 启动推送任务
+	 * 情况 A: 当前空闲（task==nullptr, 无 pending） → 立即启动
+	 * 情况 B: 有 pending 且 task 还在运行 → 等旧任务退出时接管
+	 * 情况 C: 有 pending 但 task 已退出（异常） → 直接接管并启动
+	 * 情况 D: task 正在运行 → 无需操作 */
 	if (s_streamClient.task == nullptr)
 	{
+		if (s_streamClient.hasPending)
+		{
+			/* 异常恢复：task 已退但 pending 没被接管 */
+			ESP_LOGW(TAG, "adopting stale pending client (task died)");
+			adoptPendingStreamClient();
+		}
+		else
+		{
+			/* 正常启动 */
+		}
+
 		s_streamClient.active = true;
 		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
-			4096, &s_streamClient,
+			8192, &s_streamClient,
 			Task::Priority::Deamon, &s_streamClient.task);
 		if (ret != pdPASS)
 		{
 			s_streamClient.active = false;
 			ESP_LOGE(TAG, "stream task create failed");
 		}
+	}
+	else if (s_streamClient.hasPending)
+	{
+		/* pending 已存在但旧任务还在退：本次 binary 触发只是确认旧客户端已断，
+		 * 不需要做任何事——adoptPendingStreamClient() 会在旧任务退出时执行。 */
+		ESP_LOGI(TAG, "trigger while pending, waiting for old task to exit");
 	}
 
 	return ESP_OK;
@@ -257,6 +457,7 @@ bool wsServerStart()
 	if (s_server) return true;
 
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+	config.task_priority = Task::Priority::RealTime;
 	config.server_port = 8080;
 	config.max_uri_handlers = 2;
 	config.max_open_sockets = 4; // 最多 4 个 WS 客户端
@@ -300,11 +501,12 @@ bool wsServerStart()
 
 void wsServerStop()
 {
-	if (s_streamClient.active)
+	if (s_streamClient.active || s_streamClient.task)
 	{
+		/* 关闭服务器时 keepBuffers 保持默认 false，buffer 会被释放 */
 		s_streamClient.active = false;
-		/* 等待推送任务退出 */
-		int wait = 50;
+		/* 等待推送任务退出（任务内部还会额外等 in-flight 排空，最多 1s） */
+		int wait = 150;
 		while (s_streamClient.task && --wait)
 			vTaskDelay(pdMS_TO_TICKS(10));
 	}

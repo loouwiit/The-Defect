@@ -52,6 +52,9 @@
 	}
 
 	function displayFrame(jpegBytes) {
+		// 断连后跳过过期帧，避免更新已清理的 DOM
+		if (!streamActive && manualStop) return;
+
 		frameSizeDisplay.textContent = (jpegBytes.length / 1024).toFixed(1) + ' KB';
 
 		// FPS 计算（指数移动平均）
@@ -134,19 +137,46 @@
 		wsStream = new WebSocket(STREAM_WS_URL);
 		wsStream.binaryType = 'arraybuffer';
 
+		// 保活定时器：定期发送触发帧，防止服务端推流任务异常退出后流永久死亡
+		let keepAliveTimer = null;
+
+		function startKeepAlive() {
+			stopKeepAlive();
+			keepAliveTimer = setInterval(() => {
+				if (wsStream && wsStream.readyState === WebSocket.OPEN) {
+					wsStream.send(new ArrayBuffer(0));
+				}
+			}, 3000);
+		}
+
+		function stopKeepAlive() {
+			if (keepAliveTimer) {
+				clearInterval(keepAliveTimer);
+				keepAliveTimer = null;
+			}
+		}
+
 		wsStream.onopen = function () {
 			streamActive = true;
 			setStatus('connected', '串流已连接');
 			// 发送触发帧，服务端收到后开始自动推送画面
 			wsStream.send(new ArrayBuffer(0));
+			startKeepAlive();
 		};
 
 		wsStream.onmessage = function (e) {
-			displayFrame(new Uint8Array(e.data));
+			// 拷贝数据：new Uint8Array(e.data) 只是视图，底层 ArrayBuffer 可能在
+			// 断连重连时被浏览器回收（detach），导致后续 createImageBitmap 报错
+			// "An attempt was made to use an object that is not, or is no longer, usable"
+			const raw = new Uint8Array(e.data);
+			const copy = new Uint8Array(raw.length);
+			copy.set(raw);
+			displayFrame(copy);
 		};
 
 		wsStream.onclose = function () {
 			streamActive = false;
+			stopKeepAlive();
 			wsStream = null;
 			if (!manualStop) {
 				setStatus('connecting', '重连中...');
