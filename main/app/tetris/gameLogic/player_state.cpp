@@ -33,6 +33,7 @@ void PlayerState::reset()
     arrTimer = 0;
 
     keyLeft = keyRight = keyCW = keyCCW = keySoft = keyHard = keyHold = false;
+    netLeftReq = netRightReq = 0;
 }
 
 // ============================================================
@@ -287,6 +288,11 @@ void PlayerState::processInput()
         // 只有在左右都没按时才重置（避免右按重置左 DAS）
         // 实际上上面 left 已经处理了 dasTimer，这里留给 right 单独处理
     }
+
+    // --- 网络请求（防吞：即使 keyLeft/keyRight 已被网络延迟的清零消息覆盖，
+    //     这里的计数仍能确保移动执行）---
+    if (netLeftReq > 0) { movePiece(-1, 0); netLeftReq--; }
+    if (netRightReq > 0) { movePiece(+1, 0); netRightReq--; }
 
     // --- 旋转 ---
     if (keyCW) {

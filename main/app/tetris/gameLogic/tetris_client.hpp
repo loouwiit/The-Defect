@@ -317,6 +317,34 @@ constexpr PieceType colorToPiece(BoardCell color) {
     return static_cast<PieceType>(color - 1);
 }
 
+// 从字符获取 PieceType (I/O/T/S/Z/J/L)
+inline PieceType pieceTypeFromChar(char c) {
+    switch (c) {
+        case 'I': return PieceType::I;
+        case 'O': return PieceType::O;
+        case 'T': return PieceType::T;
+        case 'S': return PieceType::S;
+        case 'Z': return PieceType::Z;
+        case 'J': return PieceType::J;
+        case 'L': return PieceType::L;
+        default:  return PieceType::NONE;
+    }
+}
+
+// 从 PieceType 获取单字符 (I/O/T/S/Z/J/L)
+inline char pieceTypeToChar(PieceType type) {
+    switch (type) {
+        case PieceType::I: return 'I';
+        case PieceType::O: return 'O';
+        case PieceType::T: return 'T';
+        case PieceType::S: return 'S';
+        case PieceType::Z: return 'Z';
+        case PieceType::J: return 'J';
+        case PieceType::L: return 'L';
+        default:           return '?';
+    }
+}
+
 // 随机数生成器 (Xorshift32, 轻量)
 class FastRng {
 public:

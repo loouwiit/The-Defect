@@ -85,6 +85,11 @@ public:
     bool keyHard   = false;
     bool keyHold   = false;
 
+    // 网络输入请求计数器（解决 WS 延迟吞操作）
+    // 由 onInput 回调递增，processInput 消费后递减
+    int  netLeftReq  = 0;
+    int  netRightReq = 0;
+
     // ============================================================
     //  游戏逻辑方法
     // ============================================================
@@ -132,6 +137,9 @@ public:
 
     /// 待处理垃圾行（收到时累加，锁块时应用并可能被消行抵消）
     int  pendingGarbage() const { return m_pendingGarbage; }
+
+    /// Hold 槽中的方块类型
+    PieceType holdPiece() const { return m_holdSlot; }
 
     /// 垃圾行提示（收到时设置，新块生成时清除）
     int  garbageFlash() const { return m_garbageFlash; }

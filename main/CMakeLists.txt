@@ -17,9 +17,10 @@ idf_component_register(SRCS "main.cpp"
                             "app/tetris/gameLogic/player_state.cpp"
                             "app/tetris/renderer/tetris_renderer.cpp"
                             "app/tetris/tetrisApp.cpp"
+                            "app/tetris/net/tetris_net.cpp"
                        INCLUDE_DIRS "."
                        "../managed_components/espressif__esp_lvgl_adapter/src/display"
                        "../managed_components/espressif__esp_lvgl_adapter/src/adapter"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display/ports"
                        REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server)
+                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server json esp_websocket_client)

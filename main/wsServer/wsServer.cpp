@@ -459,8 +459,8 @@ bool wsServerStart()
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.task_priority = Task::Priority::RealTime;
 	config.server_port = 8080;
-	config.max_uri_handlers = 2;
-	config.max_open_sockets = 4; // 最多 4 个 WS 客户端
+	config.max_uri_handlers = 8;
+	config.max_open_sockets = 8;
 	config.lru_purge_enable = true;
 
 	esp_err_t ret = httpd_start(&s_server, &config);
@@ -471,24 +471,9 @@ bool wsServerStart()
 		return false;
 	}
 
-	/* 注册 WebSocket URI 处理器 */
-	auto reg = [&](const char* uri, esp_err_t(*handler)(httpd_req_t*)) -> bool
-		{
-			httpd_uri_t u{};
-			u.uri = uri;
-			u.method = HTTP_GET;
-			u.handler = handler;
-			u.is_websocket = true;
-			u.handle_ws_control_frames = false;
-			if (httpd_register_uri_handler(s_server, &u) != ESP_OK)
-			{
-				ESP_LOGE(TAG, "register %s failed", uri);
-				return false;
-			}
-			return true;
-		};
-
-	if (!reg("/ws/touch", wsTouchHandler) || !reg("/ws/stream", wsStreamHandler))
+	/* 注册内置 WebSocket URI 处理器 */
+	if (!wsServerRegisterWs("/ws/touch", wsTouchHandler)
+		|| !wsServerRegisterWs("/ws/stream", wsStreamHandler))
 	{
 		httpd_stop(s_server);
 		s_server = nullptr;
@@ -497,6 +482,107 @@ bool wsServerStart()
 
 	ESP_LOGI(TAG, "WebSocket server started on port 8080");
 	return true;
+}
+
+// ============================================================
+//  注册 / 注销（公开 API）
+// ============================================================
+
+bool wsServerRegisterWs(const char* uri, WsHandlerFn handler)
+{
+	if (!s_server)
+	{
+		ESP_LOGE(TAG, "server not started, cannot register %s", uri);
+		return false;
+	}
+
+	httpd_uri_t u{};
+	u.uri = uri;
+	u.method = HTTP_GET;
+	u.handler = handler;
+	u.is_websocket = true;
+	u.handle_ws_control_frames = false;
+
+	if (httpd_register_uri_handler(s_server, &u) != ESP_OK)
+	{
+		ESP_LOGE(TAG, "register %s failed", uri);
+		return false;
+	}
+
+	ESP_LOGI(TAG, "registered WebSocket handler: %s", uri);
+	return true;
+}
+
+void wsServerUnregister(const char* uri)
+{
+	if (!s_server) return;
+
+	httpd_unregister_uri_handler(s_server, uri, HTTP_GET);
+	ESP_LOGI(TAG, "unregistered WebSocket handler: %s", uri);
+}
+
+// ============================================================
+//  消息发送
+// ============================================================
+
+/** 异步发送完成回调：释放 arg 指向的 heap 缓冲区 */
+static void sendCompleteCb(esp_err_t err, int socket, void* arg)
+{
+	if (arg) heap_caps_free(arg);
+}
+
+esp_err_t wsServerSendText(int fd, const char* data, size_t len)
+{
+	if (!s_server) return ESP_ERR_INVALID_STATE;
+
+	/* 拷贝到 PSRAM，异步发送完成后在回调中释放 */
+	char* copy = (char*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	if (!copy) return ESP_ERR_NO_MEM;
+	memcpy(copy, data, len);
+
+	httpd_ws_frame_t frame{};
+	frame.type = HTTPD_WS_TYPE_TEXT;
+	frame.payload = (uint8_t*)copy;
+	frame.len = len;
+
+	esp_err_t ret = httpd_ws_send_data_async(s_server, fd, &frame, sendCompleteCb, copy);
+	if (ret != ESP_OK) {
+		heap_caps_free(copy);  // 异步不会执行，立即释放
+	}
+	return ret;
+}
+
+esp_err_t wsServerBroadcastText(const char* data, size_t len)
+{
+	if (!s_server) return ESP_ERR_INVALID_STATE;
+
+	/* 获取所有客户端 fd */
+	size_t maxFds = 8;
+	int* fds = (int*)heap_caps_malloc(maxFds * sizeof(int), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	if (!fds) return ESP_ERR_NO_MEM;
+
+	esp_err_t ret = httpd_get_client_list(s_server, &maxFds, fds);
+	if (ret != ESP_OK)
+	{
+		heap_caps_free(fds);
+		return ret;
+	}
+
+	/* 遍历所有 fd，只发给 WebSocket 客户端 */
+	for (size_t i = 0; i < maxFds; i++)
+	{
+		int fd = fds[i];
+		if (fd < 0) continue;
+
+		auto info = httpd_ws_get_fd_info(s_server, fd);
+		if (info == HTTPD_WS_CLIENT_WEBSOCKET)
+		{
+			wsServerSendText(fd, data, len);
+		}
+	}
+
+	heap_caps_free(fds);
+	return ESP_OK;
 }
 
 void wsServerStop()

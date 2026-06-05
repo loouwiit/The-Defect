@@ -1,4 +1,5 @@
 #include "tetrisApp.hpp"
+#include "app/tetris/net/tetris_net.hpp"
 #include "display/font.hpp"
 #include "app/desktopApp/gui.hpp"
 #include <esp_log.h>
@@ -80,6 +81,40 @@ void TetrisApp::init()
         m_players[i].init();
     }
 
+    // 初始化网络层（注册 /ws/tetris handler，Host 模式）
+    TetrisHostCallbacks hostCb;
+    hostCb.onJoin = [](int playerId, int fd) {
+        ESP_LOGI(TAG, "remote player %d joined (fd=%d)", playerId, fd);
+    };
+    hostCb.onInput = [this](int playerId, const char* key, bool down) {
+        int target = playerId;
+        if (target < 0 || target >= PLAYER_COUNT) target = 0;
+        auto& p = m_players[target];
+        if (strcmp(key, "left") == 0) {
+            p.keyLeft = down;
+            if (!down) { p.dasTimer = 0; }
+            else { p.netLeftReq++; }  // 网络防吞计数
+        }
+        else if (strcmp(key, "right") == 0) {
+            p.keyRight = down;
+            if (!down) { p.arrTimer = 0; }
+            else { p.netRightReq++; }
+        }
+        else if (strcmp(key, "soft") == 0)  { p.keySoft  = down; }
+        else if (strcmp(key, "hard") == 0)  { if(down) p.keyHard = true; }
+        else if (strcmp(key, "cw") == 0)    { if(down) p.keyCW   = true; }
+        else if (strcmp(key, "ccw") == 0)   { if(down) p.keyCCW  = true; }
+        else if (strcmp(key, "hold") == 0)  { if(down) p.keyHold = true; }
+    };
+    hostCb.onAttack = [this](int playerId, int lines) {
+        ESP_LOGI(TAG, "attack from player %d: %d lines → local player 0", playerId, lines);
+        m_players[0].addGarbage(lines);
+    };
+    hostCb.onGameOver = [](int playerId) {
+        ESP_LOGI(TAG, "player %d game over", playerId);
+    };
+    tetrisNetInit(true, hostCb, {});
+
     // 启动游戏线程
     m_gameThread = new Thread(gameLoopTask, "tetrisGame", this,
                               Thread::Priority::Normal, 4096);
@@ -87,6 +122,8 @@ void TetrisApp::init()
 
 void TetrisApp::deinit()
 {
+    tetrisNetDeinit();
+
     if (m_gameThread) {
         if (m_gameThread->isRunning()) {
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -114,6 +151,9 @@ void TetrisApp::gameLoopTask(void* param)
     TickType_t lastTick = xTaskGetTickCount();
     TickType_t renderTick = lastTick;
 
+    int remoteFd = -1;
+    TickType_t snapTick = 0;  // 快照计时器
+
     while (app->running) {
         // 更新 2 个玩家
         for (int i = 0; i < PLAYER_COUNT; i++) {
@@ -127,12 +167,31 @@ void TetrisApp::gameLoopTask(void* param)
             if (atk > 0) {
                 int target = (i + 1) % PLAYER_COUNT;
                 app->m_players[target].addGarbage(atk);
+                if (remoteFd >= 0) tetrisNetHostSendGarbage(remoteFd, atk);
                 app->m_players[i].clearAttackOut();
             }
         }
 
-        // 渲染 30fps
+        // 刷新远程客户端 fd
+        remoteFd = tetrisNetHostGetFirstClientFd();
+
+        // 发送快照给远程客户端（30fps，匹配渲染节奏）
         TickType_t now = xTaskGetTickCount();
+        if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(33)) {
+            int target = tetrisNetHostGetClientTarget();
+            if (target < 0 || target >= PLAYER_COUNT) target = 0;
+            auto& p = app->m_players[target];
+            PieceType preview[4];
+            for (int s = 0; s < 4; s++) preview[s] = p.peekPreview(s);
+            int gy = calculateGhost(p.currentPiece, p.board).y();
+            tetrisNetHostSendBoardSnapshot(remoteFd, 0,
+                p.board, p.currentPiece, gy,
+                p.scoring.score(), p.scoring.level(), p.scoring.totalLines(),
+                preview, 4, p.holdPiece(), p.pendingGarbage());
+            snapTick = now;
+        }
+
+        // 渲染 30fps
         if (now - renderTick >= pdMS_TO_TICKS(33)) {
             if (auto guard = app->display->lockGuard()) {
                 app->render();
