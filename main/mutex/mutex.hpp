@@ -18,17 +18,17 @@ public:
 		vSemaphoreDelete(rtosMutex);
 	}
 
-	bool try_lock()
+	bool try_lock() const
 	{
 		return xSemaphoreTake(rtosMutex, 0) == pdTRUE;
 	}
 
-	void lock()
+	void lock() const
 	{
 		xSemaphoreTake(rtosMutex, portMAX_DELAY);
 	}
 
-	void unlock()
+	void unlock() const
 	{
 		xSemaphoreGive(rtosMutex);
 	}
@@ -40,9 +40,9 @@ private:
 class Lock
 {
 public:
-	Lock(Mutex& mutex) : mutex{ mutex } { mutex.lock(); }
+	Lock(const Mutex& mutex) : mutex{ mutex } { mutex.lock(); }
 	~Lock() { mutex.unlock(); }
 
 private:
-	Mutex& mutex;
+	const Mutex& mutex;
 };
