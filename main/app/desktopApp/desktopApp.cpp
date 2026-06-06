@@ -1,5 +1,6 @@
 #include "desktopApp.hpp"
 #include "app/desktopApp/gui.hpp"
+#include "app/snakeGame/snakeGame.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -218,4 +219,15 @@ void DesktopApp::btn_start_cb(lv_event_t* e)
 {
 	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[app->selected_index]);
+
+	if (app->selected_index == 0)
+	{
+		// 启动贪吃蛇（模式选择菜单中选 1P/2P）
+		auto snake = new SnakeGame{ app->display };
+		snake->init();
+		if (auto guard = app->display->lockGuard())
+		{
+			app->display->applyApp(snake);
+		}
+	}
 }

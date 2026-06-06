@@ -450,6 +450,65 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 }
 
 /* ============================================================
+ *  游戏按键回调注册
+ * ============================================================ */
+
+static game_key_cb_t s_gameKeyCb = nullptr;
+static void* s_gameKeyCtx = nullptr;
+
+void wsServerRegisterGameCallback(game_key_cb_t cb, void* ctx)
+{
+	s_gameKeyCb = cb;
+	s_gameKeyCtx = ctx;
+	ESP_LOGI(TAG, "game key callback registered");
+}
+
+void wsServerUnregisterGameCallback()
+{
+	s_gameKeyCb = nullptr;
+	s_gameKeyCtx = nullptr;
+	ESP_LOGI(TAG, "game key callback unregistered");
+}
+
+/* ============================================================
+ *  WebSocket handler — 游戏按键输入
+ *  协议: 6 字节二进制
+ *    [0]    player (0 或 1)
+ *    [1]    keyCode: 0=上, 1=下, 2=左, 3=右, 4=确认, 5=取消
+ *    [2]    pressed (0=释放, 1=按下)
+ *    [3..5] 保留
+ * ============================================================ */
+static esp_err_t wsGameKeyHandler(httpd_req_t* req)
+{
+	if (req->method == HTTP_GET)
+	{
+		ESP_LOGI(TAG, "ws/game handshake done");
+		return ESP_OK;
+	}
+
+	httpd_ws_frame_t wsPkt;
+	memset(&wsPkt, 0, sizeof(wsPkt));
+	wsPkt.type = HTTPD_WS_TYPE_BINARY;
+
+	esp_err_t ret = httpd_ws_recv_frame(req, &wsPkt, 0);
+	if (ret != ESP_OK) return ret;
+
+	if (wsPkt.len < 3) return ESP_OK;
+
+	uint8_t* buf = (uint8_t*)heap_caps_malloc(wsPkt.len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	if (!buf) return ESP_ERR_NO_MEM;
+
+	wsPkt.payload = buf;
+	ret = httpd_ws_recv_frame(req, &wsPkt, wsPkt.len);
+	if (ret == ESP_OK && s_gameKeyCb)
+	{
+		s_gameKeyCb(buf[0], buf[1], buf[2] != 0, s_gameKeyCtx);
+	}
+	heap_caps_free(buf);
+	return ESP_OK;
+}
+
+/* ============================================================
  *  启动 / 停止
  * ============================================================ */
 bool wsServerStart()
@@ -459,7 +518,7 @@ bool wsServerStart()
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.task_priority = Task::Priority::RealTime;
 	config.server_port = 8080;
-	config.max_uri_handlers = 2;
+	config.max_uri_handlers = 3;
 	config.max_open_sockets = 4; // 最多 4 个 WS 客户端
 	config.lru_purge_enable = true;
 
@@ -488,7 +547,7 @@ bool wsServerStart()
 			return true;
 		};
 
-	if (!reg("/ws/touch", wsTouchHandler) || !reg("/ws/stream", wsStreamHandler))
+	if (!reg("/ws/touch", wsTouchHandler) || !reg("/ws/stream", wsStreamHandler) || !reg("/ws/game", wsGameKeyHandler))
 	{
 		httpd_stop(s_server);
 		s_server = nullptr;
