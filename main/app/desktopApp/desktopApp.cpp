@@ -70,13 +70,13 @@ void DesktopApp::init()
 	lv_obj_set_style_text_color(title, GUI::Color::TEXT, 0);
 	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
 
-	// 中间一行放五个游戏图标
+	// 中间：一行四个游戏图标（滑动窗口，左右按钮切换）
 	auto flex = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 	lv_obj_set_style_pad_all(flex, 10, 0);
 	lv_obj_set_style_pad_column(flex, 16, 0);
 	lv_obj_align(flex, LV_ALIGN_CENTER, 0, -50);
 
-	// 创建五个游戏图标卡片（图片替换方块）
+	// 创建所有游戏图标卡片
 	for (int i = 0; i < GAME_COUNT; i++)
 	{
 		auto card = GUI::createCard(flex, ICON_W, ICON_H);
@@ -132,9 +132,22 @@ void DesktopApp::deinit()
 
 void DesktopApp::update_selection()
 {
+	// 滑动窗口：选中第 5 个时自动滑动，隐藏第 1 个显示后 4 个
+	int startIdx = (selected_index >= GAME_COUNT - 1)
+		? (GAME_COUNT - ICONS_PER_PAGE)
+		: 0;
+	int endIdx = startIdx + ICONS_PER_PAGE;
+
 	for (int i = 0; i < GAME_COUNT; i++)
 	{
 		if (!game_cards[i]) continue;
+
+		// 滑动窗口：仅窗口内的图标可见
+		bool onPage = (i >= startIdx && i < endIdx);
+		if (onPage)
+			lv_obj_clear_flag(game_cards[i], LV_OBJ_FLAG_HIDDEN);
+		else
+			lv_obj_add_flag(game_cards[i], LV_OBJ_FLAG_HIDDEN);
 
 		bool is_selected = (i == selected_index);
 

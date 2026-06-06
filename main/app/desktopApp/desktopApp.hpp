@@ -29,10 +29,13 @@ private:
 	lv_obj_t* battery_label = nullptr;
 
 	// 尺寸常量
-	static constexpr int ICON_W = 180;
-	static constexpr int ICON_H = 180;
-	static constexpr int ICON_SELECTED_W = 200;
-	static constexpr int ICON_SELECTED_H = 200;
+	static constexpr int ICON_W = 248;
+	static constexpr int ICON_H = 260;
+	static constexpr int ICON_SELECTED_W = 248;
+	static constexpr int ICON_SELECTED_H = 260;
+
+	// 每页显示图标数（滑动窗口）
+	static constexpr int ICONS_PER_PAGE = 4;
 
 	// 私有方法
 	void update_selection();
