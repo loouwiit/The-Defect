@@ -38,6 +38,7 @@ void VirtualIndev::sendTouch(lv_indev_state_t state, lv_point_t point)
 {
 	if (!s_instance) return;
 	auto& self = *s_instance;
+	Lock lock(self.mutex);  // 与 indevReadCb 互斥
 	self.sample.point = point;
 	self.sample.state = state;
 	self.sample.updated = true;

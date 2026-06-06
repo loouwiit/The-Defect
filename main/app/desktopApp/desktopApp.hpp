@@ -27,6 +27,9 @@ private:
 	lv_obj_t* wifi_label = nullptr;
 	lv_obj_t* bluetooth_label = nullptr;
 	lv_obj_t* battery_label = nullptr;
+	lv_obj_t* m_btnPower = nullptr;
+	lv_obj_t* m_btnBrightness = nullptr;
+	lv_obj_t* m_btnSettings = nullptr;
 
 	// 尺寸常量
 	static constexpr int ICON_W = 248;
@@ -43,4 +46,11 @@ private:
 	static void btn_next_cb(lv_event_t* e);
 	static void btn_prev_cb(lv_event_t* e);
 	static void btn_start_cb(lv_event_t* e);
+	static void btnPowerCb(lv_event_t* e);
+	static void btnBrightnessCb(lv_event_t* e);
+	static void btnSettingsCb(lv_event_t* e);
+	static void navCb(int action);
+
+	// HTTP 导航回调：通过 VirtualIndev 注入触控到按钮坐标
+	static DesktopApp* s_instance;
 };

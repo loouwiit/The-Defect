@@ -1,6 +1,8 @@
 #include "desktopApp.hpp"
 #include "app/desktopApp/gui.hpp"
 #include "app/snakeGame/snakeGame.hpp"
+#include "server/serverKernal.hpp"
+#include "virtualIndev/virtualIndev.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -106,12 +108,43 @@ void DesktopApp::init()
 	lv_obj_align(btn_next, LV_ALIGN_RIGHT_MID, -20, -50);
 	lv_obj_add_event_cb(btn_next, btn_next_cb, LV_EVENT_CLICKED, this);
 
-	// 底部区域：游戏说明 + 开始按钮
+	// ── 底部工具栏：开机 + 亮度 ──────────────────────────────
+	auto toolRow = lv_obj_create(screen);
+	lv_obj_set_size(toolRow, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+	lv_obj_set_layout(toolRow, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(toolRow, LV_FLEX_FLOW_ROW);
+	lv_obj_set_style_border_width(toolRow, 0, 0);
+	lv_obj_set_style_bg_opa(toolRow, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_pad_column(toolRow, 24, 0);
+	lv_obj_align(toolRow, LV_ALIGN_BOTTOM_MID, 0, -130);
+
+	auto mkToolBtn = [&](lv_obj_t*& btn, const char* symbol, lv_event_cb_t cb) {
+		btn = lv_button_create(toolRow);
+		lv_obj_set_size(btn, 56, 56);
+		lv_obj_set_style_radius(btn, 28, 0);
+		lv_obj_set_style_bg_color(btn, lv_color_hex(0x441a1a2e), 0);
+		lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+		lv_obj_set_style_border_width(btn, 1, 0);
+		lv_obj_set_style_border_color(btn, lv_color_hex(0x33ffffff), 0);
+		lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
+		auto lbl = lv_label_create(btn);
+		lv_label_set_text(lbl, symbol);
+		lv_obj_set_style_text_color(lbl, lv_color_hex(0xccffffff), 0);
+		lv_obj_set_style_text_font(lbl, LV_FONT_DEFAULT, 0);
+		lv_obj_center(lbl);
+		lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
+	};
+
+	mkToolBtn(m_btnPower,LV_SYMBOL_POWER, btnPowerCb);
+	mkToolBtn(m_btnBrightness, LV_SYMBOL_VOLUME_MAX, btnBrightnessCb);
+	mkToolBtn(m_btnSettings,   LV_SYMBOL_SETTINGS, btnSettingsCb);
+
+	// 底部：游戏说明 + 开始按钮
 	auto bottom_area = GUI::createFlex(screen, LV_FLEX_FLOW_COLUMN, lv_pct(80), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_all(bottom_area, 16, 0);
+	lv_obj_set_style_pad_all(bottom_area, 12, 0);
 	lv_obj_set_style_border_width(bottom_area, 0, 0);
 	lv_obj_set_style_bg_opa(bottom_area, LV_OPA_TRANSP, 0);
-	lv_obj_align(bottom_area, LV_ALIGN_BOTTOM_MID, 0, -40);
+	lv_obj_align(bottom_area, LV_ALIGN_BOTTOM_MID, 0, -100);
 
 	desc_label = GUI::createLabel(bottom_area, "");
 	lv_obj_set_style_text_color(desc_label, GUI::Color::SUBTLE, 0);
@@ -120,13 +153,33 @@ void DesktopApp::init()
 	info_label = GUI::createLabel(bottom_area, "");
 	lv_obj_set_style_text_color(info_label, GUI::Color::TEXT, 0);
 
-	auto btn_start = GUI::createButton(bottom_area, "开始游戏", 160, 50);
+	// 开始按钮 — 右下角，绿色
+	auto btn_start = lv_button_create(screen);
+	lv_obj_set_size(btn_start, 170, 70);
+	lv_obj_set_style_radius(btn_start, 25, 0);
+	lv_obj_set_style_bg_color(btn_start, lv_color_hex(0xff00c853), 0);
+	lv_obj_set_style_bg_opa(btn_start, LV_OPA_COVER, 0);
+	lv_obj_set_style_border_width(btn_start, 0, 0);
+	lv_obj_set_style_shadow_width(btn_start, 12, 0);
+	lv_obj_set_style_shadow_color(btn_start, lv_color_hex(0xff00c853), 0);
+	lv_obj_set_style_shadow_opa(btn_start, LV_OPA_40, 0);
+	lv_obj_set_style_outline_width(btn_start, 0, LV_STATE_FOCUSED);
+	lv_obj_align(btn_start, LV_ALIGN_BOTTOM_RIGHT, -50, -50);
+	auto lbl_start = lv_label_create(btn_start);
+	lv_label_set_text(lbl_start, "开始游戏");
+	lv_obj_set_style_text_color(lbl_start, lv_color_hex(0x000000), 0);
+	lv_obj_center(lbl_start);
 	lv_obj_add_event_cb(btn_start, btn_start_cb, LV_EVENT_CLICKED, this);
-	lv_obj_set_style_radius(btn_start, 12, 0);
+
+	// 注册 HTTP 导航回调
+	s_instance = this;
+	desktopSetNavCb(navCb);
 }
 
 void DesktopApp::deinit()
 {
+	desktopSetNavCb(nullptr);
+	s_instance = nullptr;
 	App::deinit();
 }
 
@@ -202,7 +255,7 @@ void DesktopApp::create_status_bar()
 	lv_obj_set_style_text_font(wifi_label, LV_FONT_DEFAULT, 0);
 	lv_obj_set_style_pad_right(wifi_label, 16, 0);
 
-	bluetooth_label = GUI::createLabel(status_row, "\xEF\x84\x99");
+	bluetooth_label = GUI::createLabel(status_row, LV_SYMBOL_BLUETOOTH);
 	lv_obj_set_style_text_color(bluetooth_label, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(bluetooth_label, LV_FONT_DEFAULT, 0);
 	lv_obj_set_style_pad_right(bluetooth_label, 16, 0);
@@ -226,6 +279,70 @@ void DesktopApp::btn_prev_cb(lv_event_t* e)
 	app->selected_index = (app->selected_index - 1 + GAME_COUNT) % GAME_COUNT;
 	app->update_selection();
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
+}
+
+// ============================================================
+// 工具栏按钮回调
+// ============================================================
+
+void DesktopApp::btnPowerCb(lv_event_t* e)
+{
+	ESP_LOGI(TAG, "开机/关机");
+	// TODO: 系统电源管理
+}
+
+void DesktopApp::btnBrightnessCb(lv_event_t* e)
+{
+	ESP_LOGI(TAG, "亮度调节");
+	// TODO: 背光 PWM 调节
+}
+
+void DesktopApp::btnSettingsCb(lv_event_t* e)
+{
+	ESP_LOGI(TAG, "设置");
+	// TODO: 设置页面
+}
+
+// ============================================================
+// HTTP 导航回调 — 用 VirtualIndev 注入触控到按钮坐标
+// ============================================================
+
+DesktopApp* DesktopApp::s_instance = nullptr;
+
+void DesktopApp::navCb(int action)
+{
+	auto app = s_instance;
+	if (!app) return;
+
+	// LVGL 坐标系（旋转后）：1280×720
+	constexpr int SW = 1280, SH = 720;
+
+	if (action < 0)
+	{
+		// ◀ 按钮 LV_ALIGN_LEFT_MID(20,-50) 中心 = (50, 310)
+		lv_point_t pt = { 50, SH / 2 - 50 };
+		VirtualIndev::instance().sendTouch(LV_INDEV_STATE_PR, pt);
+		vTaskDelay(pdMS_TO_TICKS(30));
+		VirtualIndev::instance().sendTouch(LV_INDEV_STATE_REL, pt);
+	}
+	else if (action > 0)
+	{
+		// ▶ 按钮 LV_ALIGN_RIGHT_MID(-20,-50) 中心 = (1230, 310)
+		lv_point_t pt = { SW - 20 - 30, SH / 2 - 50 };
+		VirtualIndev::instance().sendTouch(LV_INDEV_STATE_PR, pt);
+		vTaskDelay(pdMS_TO_TICKS(30));
+		VirtualIndev::instance().sendTouch(LV_INDEV_STATE_REL, pt);
+	}
+	else
+	{
+		// 开始按钮（bottom_area LV_ALIGN_BOTTOM_MID(0,-40) 内）
+		lv_point_t pt = { SW / 2, SH - 40 - 25 - 24 };
+		VirtualIndev::instance().sendTouch(LV_INDEV_STATE_PR, pt);
+		vTaskDelay(pdMS_TO_TICKS(30));
+		VirtualIndev::instance().sendTouch(LV_INDEV_STATE_REL, pt);
+	}
+
+	ESP_LOGI(TAG, "HTTP 导航触控注入: action=%d", action);
 }
 
 void DesktopApp::btn_start_cb(lv_event_t* e)

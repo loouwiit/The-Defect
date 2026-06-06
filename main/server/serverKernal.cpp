@@ -57,6 +57,10 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request);
 void httpDelete(IOSocketStream& socketStream, HttpRequest& request);
 void restart();
 
+// ── 桌面导航回调 ──────────────────────────────────────────
+static void (*s_desktopNavCb)(int action) = nullptr;
+void desktopSetNavCb(void (*cb)(int action)) { s_desktopNavCb = cb; }
+
 void apiFloor(OSocketStream& socketStream, const char* path);
 
 bool serverIsStarted()
@@ -428,7 +432,16 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	const char* uri = request.getPath();
 	const size_t uriLenght = strlen(uri);
 
-	if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
+	if (stringCompare((char*)uri, uriLenght, "/api/nav", 8))
+	{
+		// body 为 "-1"(上一个) / "0"(开始) / "1"(下一个)
+		char buf[8] = "";
+		socketStream.read(buf, sizeof(buf) - 1);
+		int action = atoi(buf);
+		if (s_desktopNavCb) s_desktopNavCb(action);
+		sendOk(socketStream);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
 	{
 		size_t pathSize = sizeof(PerfixRoot) + request.getBodyLenght();
 		char* path = new char[pathSize];
