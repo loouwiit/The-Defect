@@ -180,7 +180,8 @@ void Piece::getBlocks(int outCols[4], int outRows[4]) const
         for (int col = 0; col < PIECE_SIZE && idx < 4; col++) {
             if (shape[row][col]) {
                 outCols[idx]   = m_x + col;
-                outRows[idx]   = m_y + row;
+                // row=0 = 形状顶部 → y 最大（C++ y-up）, row=3 = 形状底部 → y 最小
+                outRows[idx]   = m_y + (PIECE_SIZE - 1 - row);
                 idx++;
             }
         }
