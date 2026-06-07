@@ -4,6 +4,7 @@
 #include "touch/touch.hpp"
 
 #include <esp_log.h>
+#include <cmath>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,6 +26,7 @@
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
+#include "audio/audioManager.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -64,9 +66,47 @@ extern "C" void app_main(void)
 
 	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
 
-	// IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	// I2C 总线（触摸和音频编解码器共用）
+	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
 	// Touch touch{ iic, {GPIO_NUM_46} };
 	// display.bindTouch(touch.getHandle());
+
+	// 音频管理器（ES8311 编解码器 + I2S）
+	ESP_LOGI(TAG, "AudioManager init");
+	AudioManager::instance().init(iic).start();
+	ESP_LOGI(TAG, "AudioManager init done");
+
+	AudioManager::instance().setMasterVolume(0.5);
+
+	// ---- 硬件隔离测试：直接向 codec 写 1kHz 正弦波 ----
+	// 如果听到声音 → render/streaming 配置问题
+	// 听不到声音 → I2S / ES8311 / PA / 喇叭 硬件问题
+	{
+		constexpr int TONE_NUM = 240;
+		uint8_t* toneBuf = (uint8_t*)malloc(TONE_NUM * 4);
+		for (int i = 0; i < TONE_NUM; i++) {
+			float t = 2.0f * 3.14159f * 1000.0f * i / 48000.0f;
+			int16_t s = (int16_t)(0.25f * 32767.0f * sinf(t));
+			((int16_t*)toneBuf)[i * 2]     = s;
+			((int16_t*)toneBuf)[i * 2 + 1] = s;
+		}
+
+		Task::addTask([](void* param)->TickType_t
+			{
+				uint8_t* buf = (uint8_t*)param;
+				static int count = 0;
+				if (count++ < 500) {
+					AudioManager::instance().writePcmDirect(buf, 960);
+					return 10;
+				}
+				free(buf);
+				ESP_LOGI("TONE", "1kHz 测试结束 (5s)");
+				vTaskDelete(nullptr);
+				return 0;
+			}, "tone test", toneBuf, 0, Task::Affinity::None);
+
+		ESP_LOGW("TONE", ">>> 1kHz 正弦波持续 5 秒，有声音吗？");
+	}
 
 	// 启动 LVGL 工作任务
 	if (!display.start()) {
