@@ -26,6 +26,7 @@
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
 #include "audio/ES8311.hpp"
+#include "audio/decoder.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -87,7 +88,7 @@ extern "C" void app_main(void)
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);
 
-	// 音频
+	// ── 音频 ES8311 编解码器 ────────────────────────────
 	ES8311 audio{};
 	if (audio.init(iic, {
 		.i2s_mck = GPIO_NUM_13,
@@ -100,22 +101,66 @@ extern "C" void app_main(void)
 		audio.setVolume(60);
 	}
 
-	constexpr size_t bufferSize = 800 * 1024;
-	char* buffer = new char[bufferSize];
-	size_t readCount{};
+	// 示例：流式播放 PCM
+	// {
+	//     IFile file{};
+	//     if (file.open("/root/test/test.pcm")) {
+	//         audio.open();
+	//         uint8_t buf[4096];
+	//         while (auto read = file.read(buf, sizeof(buf)))
+	//             audio.write(buf, read);
+	//         audio.close();
+	//     }
+	// }
 
-	IFile file{};
-	if (file.open("/root/test/test.pcm"))
-		readCount = file.read(buffer, bufferSize);
+	// 示例：解码 AAC/MP3 后播放
+	{
+		Decoder::registerAll();
 
-	audio.open();
-	ESP_LOGI(TAG, "1/2");
-	audio.write(buffer, readCount / 2);
-	ESP_LOGI(TAG, "2/2");
-	audio.write(buffer + readCount / 2, readCount - readCount / 2);
-	audio.close();
+		Decoder decoder{};
+		decoder.open(esp_audio_simple_dec_type_t::ESP_AUDIO_SIMPLE_DEC_TYPE_AAC);
 
-	delete[] buffer;
+		IFile file{};
+		constexpr size_t FeedSize = 4096;
+		constexpr size_t PcmSize = 8192;
+		uint8_t* feed = new uint8_t[FeedSize];
+		int16_t* pcm = new int16_t[PcmSize];
+
+		if (file.open("/root/sd/new/music/aac_32k/halcyon.aac"))
+		{
+			bool opened = false;
+
+			while (auto read = file.read(feed, FeedSize))
+			{
+				size_t got = decoder.decode(feed, read, pcm, PcmSize);
+				if (got > 0 && !opened)
+				{
+					Decoder::Info info;
+					decoder.getInfo(info);
+
+					esp_codec_dev_sample_info_t fs{
+						.bits_per_sample = (uint8_t)info.bitsPerSample,
+						.channel = (uint8_t)info.channel,
+						.sample_rate = (uint32_t)info.sampleRate,
+					};
+					audio.open(&fs);
+					opened = true;
+				}
+				if (got > 0) audio.write(pcm, got);
+			}
+
+			// 刷新解码器内部缓存
+			decoder.flush(pcm, sizeof(pcm), [](void* ctx, const void* data, size_t len) {
+				auto* out = (ES8311*)ctx;
+				out->write(data, len);
+				}, &audio);
+
+			if (opened) audio.close();
+		}
+
+		decoder.close();
+		Decoder::unregisterAll();
+	}
 
 	// 启动任务管理器
 	Task::init(2);
