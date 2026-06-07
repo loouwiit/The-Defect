@@ -22,3 +22,4 @@ dependencies:
   espressif/esp_lvgl_adapter: ^0.4.3
   lvgl/lvgl: ^9.4.0
   espressif/esp_codec_dev: ^1.5.10
+  espressif/esp_audio_render: ^0.8.1

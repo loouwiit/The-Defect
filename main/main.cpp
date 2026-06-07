@@ -26,6 +26,7 @@
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
 #include "audio/ES8311.hpp"
+#include "audio/Audio.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -97,28 +98,46 @@ extern "C" void app_main(void)
 		.pa_pin = GPIO_NUM_53,
 		}))
 	{
-		audio.setVolume(60);
+		audio.setVolume(100);
+		esp_codec_dev_sample_info_t config{};
+		config.bits_per_sample = 16;
+		config.channel = 2;
+		config.sample_rate = 48000;
+		audio.open(&config);
 	}
 
-	constexpr size_t bufferSize = 800 * 1024;
-	char* buffer = new char[bufferSize];
-	size_t readCount{};
+	// 初始化音频管理器
+	if (!Audio::instance().init(audio))
+		ESP_LOGE(TAG, "音频管理器初始化失败");
 
-	IFile file{};
-	if (file.open("/root/test/test.pcm"))
-		readCount = file.read(buffer, bufferSize);
+	{
+		// BGM1 — 循环，绑定生命周期
+		auto bgm1 = Audio::play("/root/sd/new/music/aac_32k/halcyon.aac").setLoop(true);
+		bgm1.setVolume(1.0f);
+		bgm1.play();              // 开始播放
 
-	audio.open();
-	ESP_LOGI(TAG, "1/2");
-	audio.write(buffer, readCount / 2);
-	ESP_LOGI(TAG, "2/2");
-	audio.write(buffer + readCount / 2, readCount - readCount / 2);
-	audio.close();
+		// BGM2 — 不循环，手动控制生命周期
+		auto bgm2 = new AudioHandle{ Audio::play("/root/sd/new/music/aac_32k/To My Dear Friends.aac") };
+		bgm2->play();
+		Task::addTask([](void* param)->TickType_t
+			{
+				auto& bgm2 = *static_cast<AudioHandle*>(param);
+				if (!bgm2.isPlaying())
+				{
+					delete static_cast<AudioHandle*>(param);
+					return Task::infinityTime;
+				}
+				float volume = bgm2.getVolume() > 0.7f ? 0.1f : 1.0f;
+				ESP_LOGI(TAG, "BGM2 volume: %.2f", volume);
+				bgm2.setVolume(volume);
+				return 3000;
+			}, "bgm2", bgm2, 0, Task::Affinity::None);
 
-	delete[] buffer;
+		// 解绑生命周期，自动 play()
+		Audio::play("/root/sd/new/music/aac_32k/清水準一 - Bloom of Youth (风华正茂).aac").setVolume(1.0f).detach();
 
-	// 启动任务管理器
-	Task::init(2);
+		vTaskDelay(10 * 1000);
+	}
 
 	// 启动桌面应用
 	DesktopApp* app = new DesktopApp{ &display };
