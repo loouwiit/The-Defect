@@ -136,6 +136,9 @@ bool ES8311::deinit()
 	}
 	initialized = false;
 
+	// 先关闭流（如果仍在流式状态）
+	close();
+
 	// 关闭 I2S 通道
 	if (txHandle) {
 		i2s_channel_disable((i2s_chan_handle_t)txHandle);
@@ -148,24 +151,32 @@ bool ES8311::deinit()
 }
 
 // ────────────────────────────────────────────────────────────
-// 播放
+// 流式播放接口
 // ────────────────────────────────────────────────────────────
 
-bool ES8311::play(const void* data, int len, esp_codec_dev_sample_info_t* fs)
+static esp_codec_dev_sample_info_t defaultSampleInfo()
 {
-	if (!initialized || codecDev == nullptr) {
-		ESP_LOGE(TAG, "音频未初始化");
-		return false;
-	}
-
-	// 使用传入格式，或默认 44.1kHz 16bit 立体声
-	esp_codec_dev_sample_info_t defaultFs = {
+	return {
 		.bits_per_sample = 16,
 		.channel         = 2,
 		.channel_mask    = 0,
 		.sample_rate     = 44100,
 		.mclk_multiple   = 0,
 	};
+}
+
+bool ES8311::open(esp_codec_dev_sample_info_t* fs)
+{
+	if (!initialized || codecDev == nullptr) {
+		ESP_LOGE(TAG, "音频未初始化");
+		return false;
+	}
+	if (streaming) {
+		ESP_LOGW(TAG, "已在流式状态，先 close");
+		return false;
+	}
+
+	esp_codec_dev_sample_info_t defaultFs = defaultSampleInfo();
 	if (fs == nullptr) {
 		fs = &defaultFs;
 	}
@@ -176,15 +187,48 @@ bool ES8311::play(const void* data, int len, esp_codec_dev_sample_info_t* fs)
 		return false;
 	}
 
-	ret = esp_codec_dev_write(codecDev, (void*)data, len);
-	if (ret != ESP_CODEC_DEV_OK) {
-		ESP_LOGE(TAG, "播放写入失败: %d", ret);
-		esp_codec_dev_close(codecDev);
+	streaming = true;
+	return true;
+}
+
+bool ES8311::write(const void* data, int len)
+{
+	if (!streaming || codecDev == nullptr) {
+		ESP_LOGE(TAG, "未处于流式状态，请先调用 open");
 		return false;
 	}
 
+	int ret = esp_codec_dev_write(codecDev, (void*)data, len);
+	if (ret != ESP_CODEC_DEV_OK) {
+		ESP_LOGE(TAG, "写入失败: %d", ret);
+		return false;
+	}
+	return true;
+}
+
+bool ES8311::close()
+{
+	if (!streaming) {
+		return true;
+	}
+	streaming = false;
+
 	esp_codec_dev_close(codecDev);
 	return true;
+}
+
+// ────────────────────────────────────────────────────────────
+// 一次性播放
+// ────────────────────────────────────────────────────────────
+
+bool ES8311::play(const void* data, int len, esp_codec_dev_sample_info_t* fs)
+{
+	if (!open(fs)) {
+		return false;
+	}
+	bool ok = write(data, len);
+	close();
+	return ok;
 }
 
 // ────────────────────────────────────────────────────────────

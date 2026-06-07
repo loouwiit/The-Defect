@@ -65,12 +65,27 @@ public:
 	// ─── 播放控制 ───────────────────────────────────────
 
 	/**
-	 * @brief 写入 PCM 数据播放（阻塞）
+	 * @brief 一次性播放（内部 open → write → close）
 	 * @param data PCM 数据
 	 * @param len  数据长度（字节）
 	 * @param fs   音频采样格式，nullptr 时默认 44.1kHz/16bit/立体声
 	 */
 	bool play(const void* data, int len, esp_codec_dev_sample_info_t* fs = nullptr);
+
+	/**
+	 * @brief 打开音频流（流式播放前调用）
+	 * @param fs 音频采样格式，nullptr 时默认 44.1kHz/16bit/立体声
+	 */
+	bool open(esp_codec_dev_sample_info_t* fs = nullptr);
+
+	/** @brief 写入一段 PCM 数据（需先调用 open） */
+	bool write(const void* data, int len);
+
+	/** @brief 关闭音频流 */
+	bool close();
+
+	/** @brief 是否正在流式播放中 */
+	bool isStreaming() const { return streaming; }
 
 	// ─── 音量控制 ───────────────────────────────────────
 
@@ -85,6 +100,7 @@ public:
 
 private:
 	bool initialized{};
+	bool streaming{};   //!< 是否处于 open → write → close 流式状态
 
 	// esp_codec_dev 句柄
 	void* codecDev{};

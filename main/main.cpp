@@ -108,7 +108,12 @@ extern "C" void app_main(void)
 	if (file.open("/root/test/test.pcm"))
 		readCount = file.read(buffer, bufferSize);
 
-	audio.play(buffer, readCount);
+	audio.open();
+	ESP_LOGI(TAG, "1/2");
+	audio.write(buffer, readCount / 2);
+	ESP_LOGI(TAG, "2/2");
+	audio.write(buffer + readCount / 2, readCount - readCount / 2);
+	audio.close();
 
 	delete[] buffer;
 
