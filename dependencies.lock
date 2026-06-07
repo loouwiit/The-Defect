@@ -1,6 +1,6 @@
 dependencies:
   espressif/button:
-    component_hash: d0afa32f0e50d60bc0c6fc23f7eea98adc6b02cfe70b590bc52c23c506745287
+    component_hash: 95babe831403e301511a22a4dfcd599abcf32cf72c7f8ac5352a61662363c9ea
     dependencies:
     - name: espressif/cmake_utilities
       registry_url: https://components.espressif.com
@@ -12,7 +12,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 4.1.6
+    version: 4.1.7
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
@@ -37,6 +37,16 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.1.5
+  espressif/esp_codec_dev:
+    component_hash: 896c67360ae1f8dedaf8a53dfe48c015317fa455f061a5165307892296990028
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.5.10
   espressif/esp_hosted:
     component_hash: d1f01fbe9b7ee867e1c330754fe46cb550375e27edf2159e9b670f29bd36b682
     dependencies:
@@ -190,7 +200,7 @@ dependencies:
       type: service
     version: 2.0.0
   espressif/esp_new_jpeg:
-    component_hash: 98823384f51ca298e2c9bebacd1c629148e528ed0902d18b16556df151519e68
+    component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
     dependencies: []
     source:
       registry_url: https://components.espressif.com
@@ -207,7 +217,7 @@ dependencies:
     - esp32c6
     - esp32c61
     - esp32h4
-    version: 1.0.1
+    version: 1.0.2
   espressif/esp_serial_slave_link:
     component_hash: ac1776806de0a6e371c84e87898bb983e19ce62aa7f1e2e5c4a3b0234a575d2c
     dependencies:
@@ -322,6 +332,7 @@ dependencies:
       type: service
     version: 9.5.0
 direct_dependencies:
+- espressif/esp_codec_dev
 - espressif/esp_hosted
 - espressif/esp_lcd_ili9881c
 - espressif/esp_lcd_touch_gt911
@@ -330,6 +341,6 @@ direct_dependencies:
 - espressif/mdns
 - idf
 - lvgl/lvgl
-manifest_hash: 7f0c30cec3e9b11b2f375aac70714dce7c6bc608b135d4a57901ce6227b75c60
+manifest_hash: 2f05832c6f935042d6d07b482cc64cff4201046ffc0b04a6f1b5f96201202549
 target: esp32p4
 version: 2.0.0

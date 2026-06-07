@@ -25,6 +25,7 @@
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
+#include "audio/ES8311.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -64,7 +65,7 @@ extern "C" void app_main(void)
 
 	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
 
-	// IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
+	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
 	// Touch touch{ iic, {GPIO_NUM_46} };
 	// display.bindTouch(touch.getHandle());
 
@@ -85,6 +86,31 @@ extern "C" void app_main(void)
 
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);
+
+	// 音频
+	ES8311 audio{};
+	if (audio.init(iic, {
+		.i2s_mck = GPIO_NUM_13,
+		.i2s_bck = GPIO_NUM_12,
+		.i2s_ws = GPIO_NUM_10,
+		.i2s_dout = GPIO_NUM_9,
+		.pa_pin = GPIO_NUM_53,
+		}))
+	{
+		audio.setVolume(60);
+	}
+
+	constexpr size_t bufferSize = 800 * 1024;
+	char* buffer = new char[bufferSize];
+	size_t readCount{};
+
+	IFile file{};
+	if (file.open("/root/test/test.pcm"))
+		readCount = file.read(buffer, bufferSize);
+
+	audio.play(buffer, readCount);
+
+	delete[] buffer;
 
 	// 启动任务管理器
 	Task::init(2);
