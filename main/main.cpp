@@ -27,6 +27,7 @@
 #include "wifi/mdns.hpp"
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
+#include "ble/ble.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -88,6 +89,7 @@ extern "C" void app_main(void)
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);
 
+#if false
 	// 音频
 	ES8311 audio{};
 	if (audio.init(iic, {
@@ -138,6 +140,7 @@ extern "C" void app_main(void)
 
 		vTaskDelay(10 * 1000);
 	}
+#endif
 
 	// 启动桌面应用
 	DesktopApp* app = new DesktopApp{ &display };
@@ -190,6 +193,11 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
 	ESP_LOGI(TAG, "wsServerStart done");
+
+	// 初始化 BLE（通过 C6 的蓝牙控制器）
+	ESP_LOGI(TAG, "bleInit");
+	Ble::instance().start();
+	ESP_LOGI(TAG, "bleInit done");
 
 	// 保持栈上变量，后续移除
 	while (true)
