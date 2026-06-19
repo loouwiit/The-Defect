@@ -23,15 +23,11 @@ public:
 	/** 注册 Gamepad Service 到 NimBLE GATT Server */
 	static int init();
 
-	/** 更新 Player ID（P4 写入手柄） */
+	/** 更新 Player ID（P4 分配后通知手柄） */
 	static int writePlayerId(uint16_t connHandle, int8_t playerId);
 
-private:
-	GamepadService() = delete;
-
-	static constexpr char TAG[] = "GamepadSvc";
-
-	// UUID 族：12b20000-0001-11f0-8b9a-0045cb5d1f2b
+	// UUID 族：12b2xxxx-0001-11f0-8b9a-0045cb5d1f2b
+	// BLE_UUID128_INIT 按数组顺序填入，与 UUID 字符串从左到右一致
 	static const ble_uuid128_t SERVICE_UUID;
 	static const ble_uuid128_t CHAR_BUTTON_UUID;
 	static const ble_uuid128_t CHAR_JOYSTICK_L_UUID;
@@ -40,10 +36,14 @@ private:
 	static const ble_uuid128_t CHAR_BATTERY_UUID;
 	static const ble_uuid128_t CHAR_PLAYER_ID_UUID;
 
-	// Characteristic value handles (用于写 Player ID)
+	// Characteristic value handles
 	static uint16_t s_playerIdValHandle;
 
-	// 各 Characteristic 的访问回调
+private:
+	GamepadService() = delete;
+
+	static constexpr char TAG[] = "GamepadSvc";
+
 	static int accessCb(uint16_t connHandle, uint16_t attrHandle,
 						struct ble_gatt_access_ctxt* ctxt, void* arg);
 };

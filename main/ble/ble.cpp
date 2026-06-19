@@ -1,4 +1,6 @@
 #include "ble.hpp"
+#include "gamepadService.hpp"
+#include "gamepadManager.hpp"
 
 #include <cstring>
 #include <esp_log.h>
@@ -27,6 +29,25 @@ static constexpr const char* DEVICE_NAME = "ESP32P4 Game Console";
 static constexpr int ADV_INTERVAL_MS = 40;
 static constexpr int ADV_INTERVAL = ADV_INTERVAL_MS * 1000 / 625;
 
+/** 启动广播 */
+void Ble::advStart()
+{
+	struct ble_gap_adv_params advParams;
+	std::memset(&advParams, 0, sizeof(advParams));
+	advParams.conn_mode = BLE_GAP_CONN_MODE_UND;
+	advParams.disc_mode = BLE_GAP_DISC_MODE_GEN;
+	advParams.itvl_min = ADV_INTERVAL;
+	advParams.itvl_max = ADV_INTERVAL;
+
+	int rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
+							   &advParams, gapEventCb, NULL);
+	if (rc == 0) {
+		ESP_LOGI(TAG, "BLE 广播已启动: \"%s\"", DEVICE_NAME);
+	} else {
+		ESP_LOGE(TAG, "BLE 广播启动失败: %d", rc);
+	}
+}
+
 // ── 单例 ────────────────────────────────────────────────
 
 Ble& Ble::instance()
@@ -39,23 +60,11 @@ Ble& Ble::instance()
 
 void Ble::syncCb(void)
 {
-	ESP_LOGI(TAG, "NimBLE 同步成功，注册 GATT 服务...");
+	ESP_LOGI(TAG, "NimBLE 同步成功，开始广播...");
 
-	// 注册 GAP Service（必需）
-	ble_svc_gap_init();
-	ble_svc_gatt_init();
-
-	// ── 在此处注册自定义 GATT Services ──
-	// Phase 3: GamepadService::init() 将被添加到这里
-	// int rc = gamepad_service_init();
-	// assert(rc == 0);
-
-	// ── 开始广播 ──
-	// 先配置广播数据，再启动
+	// 设置广播数据（设备名）
 	struct ble_hs_adv_fields advFields;
 	std::memset(&advFields, 0, sizeof(advFields));
-
-	// 广播中包含 Device Name（完整）
 	advFields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 	advFields.name = (uint8_t*)DEVICE_NAME;
 	advFields.name_len = std::strlen(DEVICE_NAME);
@@ -67,21 +76,7 @@ void Ble::syncCb(void)
 		return;
 	}
 
-	// ── 启动可连接广播 ──
-	struct ble_gap_adv_params advParams;
-	std::memset(&advParams, 0, sizeof(advParams));
-	advParams.conn_mode = BLE_GAP_CONN_MODE_UND;  // 可连接非定向
-	advParams.disc_mode = BLE_GAP_DISC_MODE_GEN;   // 通用可发现
-	advParams.itvl_min = ADV_INTERVAL;
-	advParams.itvl_max = ADV_INTERVAL;
-
-	rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
-						   &advParams, gapEventCb, NULL);
-	if (rc == 0) {
-		ESP_LOGI(TAG, "BLE 广播已启动: \"%s\"", DEVICE_NAME);
-	} else {
-		ESP_LOGE(TAG, "BLE 广播启动失败: %d", rc);
-	}
+	advStart();
 }
 
 void Ble::resetCb(int reason)
@@ -105,24 +100,32 @@ int Ble::gapEventCb(struct ble_gap_event* event, void* arg)
 	switch (event->type) {
 	case BLE_GAP_EVENT_CONNECT:
 		if (event->connect.status == 0) {
-			ESP_LOGI(TAG, "手柄已连接, conn_handle=%d",
-					 event->connect.conn_handle);
+			auto connHandle = event->connect.conn_handle;
+			ESP_LOGI(TAG, "手柄已连接, conn_handle=%d", connHandle);
+			int8_t playerId = GamepadManager::instance().assignSlot(connHandle);
+			if (playerId >= 0) {
+				ESP_LOGI(TAG, "  → 分配 Player ID=%d", playerId);
+				GamepadService::writePlayerId(connHandle, playerId);
+			} else {
+				ESP_LOGW(TAG, "  → 槽位已满，断开连接");
+				ble_gap_terminate(connHandle, BLE_ERR_CONN_TERM_LOCAL);
+			}
 		} else {
 			ESP_LOGE(TAG, "连接失败, status=%d", event->connect.status);
-			// 连接失败后重新开始广播
-			ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
-							  NULL, gapEventCb, NULL);
+			advStart();
 		}
 		return 0;
 
 	case BLE_GAP_EVENT_DISCONNECT:
-		ESP_LOGI(TAG, "手柄已断开, conn_handle=%d, reason=%d",
-				 event->disconnect.conn.conn_handle,
-				 event->disconnect.reason);
-		// 断开后重新开始广播
-		ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
-						  NULL, gapEventCb, NULL);
+	{
+		auto connHandle = event->disconnect.conn.conn_handle;
+		int8_t playerId = GamepadManager::instance().getPlayerId(connHandle);
+		ESP_LOGI(TAG, "手柄已断开 (Player ID=%d, conn=%d, reason=%d)",
+				 playerId, connHandle, event->disconnect.reason);
+		GamepadManager::instance().releaseSlot(connHandle);
+		advStart();
 		return 0;
+	}
 
 	case BLE_GAP_EVENT_CONN_UPDATE:
 		if (event->conn_update.status == 0) {
@@ -196,7 +199,20 @@ bool Ble::start()
 	// 4. 初始化 BLE 存储（用于绑定信息）
 	ble_store_config_init();
 
-	// 5. 启动 NimBLE Host FreeRTOS 任务
+	// 5. 注册 GAP/GATT 内置服务
+	ble_svc_gap_init();
+	ble_svc_gatt_init();
+
+	// 6. 注册自定义 Gamepad GATT Service
+	{
+		int rc = GamepadService::init();
+		if (rc != 0) {
+			ESP_LOGE(TAG, "GamepadService 注册失败: %d", rc);
+			return false;
+		}
+	}
+
+	// 8. 启动 NimBLE Host FreeRTOS 任务
 	nimble_port_freertos_init(hostTask);
 
 	started = true;

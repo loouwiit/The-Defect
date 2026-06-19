@@ -37,4 +37,5 @@ private:
 	static void resetCb(int reason);
 	static int gapEventCb(struct ble_gap_event* event, void* arg);
 	static void hostTask(void* param);
+	static void advStart();
 };
