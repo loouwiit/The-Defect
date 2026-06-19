@@ -3,17 +3,17 @@
 #include <cstdint>
 #include "mutex/mutex.hpp"
 
+/** 输入包长度：buttons(1) + joysX(2) + joysY(2) + battery(1) */
+static constexpr int INPUT_PACKET_SIZE = 6;
+
 /**
  * @brief 手柄数据快照（从 GATT Write 回调更新）
  */
 struct GamepadState
 {
-	uint32_t buttons = 0;       // 按钮位掩码
-	int16_t joysLx = 0;         // 左摇杆 X
-	int16_t joysLy = 0;         // 左摇杆 Y
-	int16_t joysRx = 0;         // 右摇杆 X
-	int16_t joysRy = 0;         // 右摇杆 Y
-	uint8_t dpad = 0;           // 方向键位掩码
+	uint8_t buttons = 0;        // 位掩码: bit0=A,bit1=B,bit2=X,bit3=Y,bit4=Start,bit5=Select
+	int16_t joysX = 0;          // 摇杆 X
+	int16_t joysY = 0;          // 摇杆 Y
 	uint8_t battery = 0;        // 电量 0-100
 };
 
@@ -52,12 +52,8 @@ public:
 	/** 根据 Player ID 获取槽位指针 */
 	GamepadSlot* getSlotByPlayer(int8_t playerId);
 
-	/** 更新手柄数据 */
-	void updateButtons(uint16_t connHandle, uint32_t buttons);
-	void updateJoystickL(uint16_t connHandle, int16_t x, int16_t y);
-	void updateJoystickR(uint16_t connHandle, int16_t x, int16_t y);
-	void updateDpad(uint16_t connHandle, uint8_t dpad);
-	void updateBattery(uint16_t connHandle, uint8_t level);
+	/** 从 6 字节输入包更新手柄数据 */
+	void updateInput(uint16_t connHandle, const uint8_t* data, uint16_t len);
 
 	/** 查询 */
 	int connectedCount() const;

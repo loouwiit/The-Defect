@@ -76,45 +76,18 @@ GamepadSlot* GamepadManager::getSlotByPlayer(int8_t playerId)
 	return nullptr;
 }
 
-void GamepadManager::updateButtons(uint16_t connHandle, uint32_t buttons)
+void GamepadManager::updateInput(uint16_t connHandle, const uint8_t* data, uint16_t len)
 {
-	Lock lock(mutex);
-	auto* slot = getSlot(connHandle);
-	if (slot) slot->state.buttons = buttons;
-}
+	if (len < INPUT_PACKET_SIZE) return;
 
-void GamepadManager::updateJoystickL(uint16_t connHandle, int16_t x, int16_t y)
-{
 	Lock lock(mutex);
 	auto* slot = getSlot(connHandle);
-	if (slot) {
-		slot->state.joysLx = x;
-		slot->state.joysLy = y;
-	}
-}
+	if (!slot) return;
 
-void GamepadManager::updateJoystickR(uint16_t connHandle, int16_t x, int16_t y)
-{
-	Lock lock(mutex);
-	auto* slot = getSlot(connHandle);
-	if (slot) {
-		slot->state.joysRx = x;
-		slot->state.joysRy = y;
-	}
-}
-
-void GamepadManager::updateDpad(uint16_t connHandle, uint8_t dpad)
-{
-	Lock lock(mutex);
-	auto* slot = getSlot(connHandle);
-	if (slot) slot->state.dpad = dpad;
-}
-
-void GamepadManager::updateBattery(uint16_t connHandle, uint8_t level)
-{
-	Lock lock(mutex);
-	auto* slot = getSlot(connHandle);
-	if (slot) slot->state.battery = level;
+	slot->state.buttons = data[0];
+	slot->state.joysX   = (int16_t)(data[1] | (uint16_t)(data[2] << 8));
+	slot->state.joysY   = (int16_t)(data[3] | (uint16_t)(data[4] << 8));
+	slot->state.battery = data[5];
 }
 
 int GamepadManager::connectedCount() const
