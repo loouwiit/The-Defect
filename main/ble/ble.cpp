@@ -20,11 +20,8 @@ Ble* Ble::s_instance = nullptr;
 
 // ── 广播参数 ────────────────────────────────────────────
 
-/** 广播名 — 手机 nRF Connect 扫描可见（<= 8 字符避免广播包超限） */
-static constexpr const char* DEVICE_NAME = "ESP32P4";
-
-/** 完整设备名（GAP Service 中可读） */
-static constexpr const char* DEVICE_NAME_FULL = "ESP32P4 Game";
+/** 广播名 — 手机 nRF Connect 扫描可见 */
+static constexpr const char* DEVICE_NAME = "ESP32P4 Game Console";
 
 /** 广播间隔 (40ms, unit=0.625ms) */
 static constexpr int ADV_INTERVAL_MS = 40;
@@ -44,10 +41,9 @@ void Ble::syncCb(void)
 {
 	ESP_LOGI(TAG, "NimBLE 同步成功，注册 GATT 服务...");
 
-	// 注册 GAP Service + 设置完整设备名（用于连接后读取）
+	// 注册 GAP Service（必需）
 	ble_svc_gap_init();
 	ble_svc_gatt_init();
-	ble_svc_gap_device_name_set(DEVICE_NAME_FULL);
 
 	// ── 在此处注册自定义 GATT Services ──
 	// Phase 3: GamepadService::init() 将被添加到这里
