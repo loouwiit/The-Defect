@@ -28,6 +28,8 @@
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
+#include "bleGamepad/bleGamepad.hpp"
+
 static constexpr char TAG[] = "main";
 
 extern "C" void app_main(void)
@@ -110,7 +112,7 @@ extern "C" void app_main(void)
 	if (!Audio::instance().init(audio))
 		ESP_LOGE(TAG, "音频管理器初始化失败");
 
-	{
+	if constexpr (false) {
 		// BGM1 — 循环，绑定生命周期
 		auto bgm1 = Audio::play("/root/sd/new/music/aac_32k/halcyon.aac").setLoop(true);
 		bgm1.setVolume(1.0f);
@@ -190,6 +192,11 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
 	ESP_LOGI(TAG, "wsServerStart done");
+
+	// 启动 BLE 手柄管理器
+	ESP_LOGI(TAG, "BleGamepad start");
+	BleGamepad::instance().start();
+	ESP_LOGI(TAG, "BleGamepad start done");
 
 	// 保持栈上变量，后续移除
 	while (true)
