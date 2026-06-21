@@ -3,15 +3,15 @@
 #include <cstdint>
 
 /**
- * @brief BLE 协议栈管理器
+ * @brief BLE 协议栈管理器（Central 模式）
  *
- * 单例。负责 NimBLE Host 初始化、GATT Server 注册、广播启动。
+ * 单例。P4 作为 BLE Central，扫描并连接游戏手柄（Peripheral）。
  * 蓝牙 Controller 由 C6 通过 SDIO (esp-hosted) 提供。
  *
- * 初始化顺序（参考 ESP-IDF bleprph 示例）:
- *   1. esp_nimble_init()          — 初始化 NimBLE Host
- *   2. ble_hs_cfg.sync_cb 注册    — GATT Server + 广播
- *   3. nimble_port_freertos_init() — 创建 Host 任务
+ * 流程:
+ *   1. NimBLE 初始化
+ *   2. sync 后自动扫描
+ *   3. 发现手柄 → 连接 → GATT 发现 → 订阅通知 → 接收数据
  */
 class Ble
 {
@@ -21,6 +21,9 @@ public:
 	bool start();
 	void stop();
 
+	/** 开始扫描游戏手柄 */
+	void startScan();
+
 	bool isStarted() const { return started; }
 
 private:
@@ -28,6 +31,7 @@ private:
 	~Ble() = default;
 
 	bool started = false;
+	bool scanning = false;
 
 	static Ble* s_instance;
 	static constexpr char TAG[] = "Ble";
@@ -35,7 +39,9 @@ private:
 	// NimBLE 回调
 	static void syncCb(void);
 	static void resetCb(int reason);
-	static int gapEventCb(struct ble_gap_event* event, void* arg);
 	static void hostTask(void* param);
-	static void advStart();
+
+public:
+	/* GAP 事件回调（被 discCb/Central 流程调用） */
+	static int gapEventCb(struct ble_gap_event* event, void* arg);
 };
