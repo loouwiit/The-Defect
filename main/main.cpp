@@ -200,31 +200,37 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "BleGamepad start done");
 
 	// 测试：延迟几秒后自动连接指定的手柄 MAC
-	// NimBLE 使用小端序: ce:93:8c:bd:4d:74 = 74:4D:BD:8C:93:CE
-	static constexpr uint8_t TARGET_BDA[6] = { 0xCE, 0x93, 0x8C, 0xBD, 0x4D, 0x74 };
-	Task::addTask([](void*)->TickType_t
+	// NimBLE 使用小端序
+	static constexpr uint8_t TARGET_BDA[2][6] = { {0xC2,0x04,0x8E,0x3B,0xDA,0xEC },{ 0xCE, 0x93, 0x8C, 0xBD, 0x4D, 0x74 } };
+
+	Task::addTask([](void* param)->TickType_t
 		{
 			auto& bg = BleGamepad::instance();
-			if (bg.connectedCount() > 0) {
-				ESP_LOGI(TAG, "Already connected, auto-connect stopped");
+			auto& id = *(size_t*)param;
+			const auto devices = bg.getScannedDevices();
+
+			if (id == devices.size())
+			{
+				delete& id;
 				return Task::infinityTime;
 			}
 
-			auto devices = bg.getScannedDevices();
-			ESP_LOGI(TAG, "Auto-connect check: %zu devices", devices.size());
-			for (size_t i = 0; i < devices.size(); i++) {
-				ESP_LOGI(TAG, "  [%zu] %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-					i, devices[i].name,
-					devices[i].bda[0], devices[i].bda[1], devices[i].bda[2],
-					devices[i].bda[3], devices[i].bda[4], devices[i].bda[5]);
-				if (memcmp(devices[i].bda, TARGET_BDA, 6) == 0) {
-					ESP_LOGI(TAG, "Auto-connecting to: %s", devices[i].name);
-					bg.connect(i);
-					return Task::infinityTime;
+			ESP_LOGI(TAG, "Auto-connect check: %zu / %zu devices", id, devices.size());
+
+			ESP_LOGI(TAG, "  [%zu] %s [%02x:%02x:%02x:%02x:%02x:%02x]",
+				id, devices[id].name,
+				devices[id].bda[0], devices[id].bda[1], devices[id].bda[2],
+				devices[id].bda[3], devices[id].bda[4], devices[id].bda[5]);
+			for (size_t j = 0; j < sizeof(TARGET_BDA) / sizeof(TARGET_BDA[0]); j++)
+				if (memcmp(devices[id].bda, TARGET_BDA[j], 6) == 0)
+				{
+					ESP_LOGI(TAG, "Auto-connecting to: %s", devices[id].name);
+					bg.connect(id);
 				}
-			}
-			return Task::infinityTime; // 只执行一次，直接返回infinity终止
-		}, "bleAutoConnect", nullptr, 3000, Task::Affinity::None); // 延迟300ms
+
+			id++;
+			return 5000;
+		}, "bleAutoConnect", new size_t{ 0 }, 3000, Task::Affinity::None); // 延迟300ms
 
 	// 保持栈上变量，后续移除
 	while (true)
