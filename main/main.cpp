@@ -196,7 +196,7 @@ extern "C" void app_main(void)
 
 	// 启动 BLE 手柄管理器
 	ESP_LOGI(TAG, "BleGamepad start");
-	BleGamepad::instance().start();
+	BleGamepad::instance().start(&display);
 	ESP_LOGI(TAG, "BleGamepad start done");
 
 	// 测试：延迟几秒后自动连接指定的手柄 MAC

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "esp_lv_adapter_display.h"
+#include "bleGamepad/gamepadState.hpp"
+#include <esp_log.h>
 class Display;
 
 /**
@@ -22,6 +24,11 @@ public:
 	virtual void init() { running = true; deletable = false; };
 	virtual void deinit() { running = false; deletable = true; };
 
+	// BLE 手柄输入 — 由 BleGamepad 路由到当前活跃 App
+	virtual void onGamepadInput(uint8_t playerId, const GamepadState& state) {}
+	virtual void onGamepadConnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d connected", playerId); }
+	virtual void onGamepadDisconnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d disconnected", playerId); }
+
 protected:
 	Display* display{};
 	lv_obj_t* screen{};
@@ -30,6 +37,9 @@ protected:
 	bool deletable{ true };
 
 	friend class Display;
+
+private:
+	constexpr static char TAG[] = "App";
 };
 
 #include "display/display.hpp"

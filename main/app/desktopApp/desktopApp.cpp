@@ -5,8 +5,6 @@
 #include "freertos/task.h"
 #include "display/font.hpp"
 
-static const char* TAG = "DesktopApp";
-
 // ========== 游戏数据 ==========
 
 const char* DesktopApp::GAME_NAMES[] =
@@ -117,6 +115,18 @@ void DesktopApp::init()
 void DesktopApp::deinit()
 {
 	App::deinit();
+}
+
+void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+{
+	ESP_LOGI(TAG, "player %d input: buttons=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
+		playerId, state.buttons, state.lx, state.ly, state.rx, state.ry, state.dpad);
+	if (state.isPressed(GamepadButton::BTN_A))
+		ESP_LOGI(TAG, "Player %d pressed A", playerId);
+	if (state.isPressed(GamepadButton::BTN_B))
+		ESP_LOGI(TAG, "Player %d pressed B", playerId);
+	if (state.isPressed(GamepadButton::BTN_L3))
+		ESP_LOGI(TAG, "Player %d pressed L3", playerId);
 }
 
 void DesktopApp::update_selection()

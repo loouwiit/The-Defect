@@ -86,4 +86,5 @@ uint32_t Display::getFps() const
 void Display::applyApp(App* app) const
 {
 	lv_screen_load(app->screen);
+	activeApp = app;
 }

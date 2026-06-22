@@ -70,6 +70,9 @@ public:
 		return LockGuard(*this, timeout_ms);
 	}
 
+	App* getActiveApp() const { return activeApp; }
+
 private:
 	lv_display_t* lv_disp = nullptr;
+	mutable App* activeApp{};
 };

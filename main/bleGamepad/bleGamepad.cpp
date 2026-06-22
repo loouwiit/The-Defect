@@ -87,7 +87,7 @@ void BleGamepad::hidhCallback(void* /*handler_args*/, esp_event_base_t /*base*/,
 			break;
 		}
 		auto& ctx = self.m_devices[pid];
-		ctx.dev = dev;
+		ctx.esp_hidh_dev = dev;
 		ctx.playerId = pid;
 		ctx.connected = true;
 		if (name) strncpy(ctx.name, name, sizeof(ctx.name) - 1);
@@ -264,6 +264,11 @@ void BleGamepad::processTask(void* arg)
 						evt.state.rx, evt.state.ry,
 						evt.state.dpad);
 				}
+				// 路由到当前活跃 App
+				if (self.m_display) {
+					auto* app = self.m_display->getActiveApp();
+					if (app) app->onGamepadInput(evt.playerId, evt.state);
+				}
 			}
 		}
 	}
@@ -356,11 +361,12 @@ ble_hs_cfg.reset_cb = onReset;
 	return true;
 }
 
-bool BleGamepad::start()
+bool BleGamepad::start(Display* display)
 {
 	if (m_running) return true;
 
 	s_instance = this;
+	m_display = display;
 
 	if (!initEspHostedBt()) {
 		ESP_LOGE(TAG, "ESP HOSTED BT init failed");
@@ -497,8 +503,6 @@ bool BleGamepad::connectDirect(const ScanDevice& dev)
 	uint8_t own_addr_type;
 	ble_hs_id_infer_auto(0, &own_addr_type);
 
-	m_connHandle = BLE_HS_CONN_HANDLE_NONE;
-
 	int rc = ble_gap_connect(own_addr_type, &addr, 30000, NULL,
 		connectGapEvent, nullptr);
 	if (rc != 0) {
@@ -594,13 +598,13 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 			self.startScan();
 			return 0;
 		}
-		self.m_connHandle = event->connect.conn_handle;
+		uint16_t connHandle = event->connect.conn_handle;
 
 		// 通过 conn_handle 获取连接描述符，得到对端地址
 		struct ble_gap_conn_desc desc;
-		if (ble_gap_conn_find(self.m_connHandle, &desc) == 0) {
+		if (ble_gap_conn_find(connHandle, &desc) == 0) {
 			ESP_LOGI(TAG, "Connected! handle=%d peer=%02x:%02x:%02x:%02x:%02x:%02x",
-				self.m_connHandle,
+				connHandle,
 				desc.peer_id_addr.val[0], desc.peer_id_addr.val[1],
 				desc.peer_id_addr.val[2], desc.peer_id_addr.val[3],
 				desc.peer_id_addr.val[4], desc.peer_id_addr.val[5]);
@@ -608,17 +612,24 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 			int pid = self.allocPlayerId();
 			if (pid >= 0) {
 				auto& ctx = self.m_devices[pid];
+				ctx.connHandle = connHandle;
 				ctx.playerId = pid;
 				ctx.connected = true;
-				ctx.dev = nullptr; // 非 esp_hidh 连接
 				memcpy(ctx.bda, desc.peer_id_addr.val, 6);
-				ctx.name[0] = '\0'; // 可从扫描结果中获取
-				ESP_LOGI(TAG, "Direct connect: assigned playerId=%d", pid);
+				// 从扫描结果中查找设备名
+				ctx.name[0] = '\0';
+				for (auto& sd : self.m_scanResults) {
+					if (memcmp(sd.bda, desc.peer_id_addr.val, 6) == 0) {
+						strncpy(ctx.name, sd.name, sizeof(ctx.name) - 1);
+						break;
+					}
+				}
+				ESP_LOGI(TAG, "Connected: assigned playerId=%d, name=%s", pid, ctx.name);
 			}
 		}
 
 		// 发现所有服务并打印
-		int rc = ble_gattc_disc_all_svcs(self.m_connHandle, svcDiscCb, nullptr);
+		int rc = ble_gattc_disc_all_svcs(connHandle, svcDiscCb, nullptr);
 		if (rc != 0) {
 			ESP_LOGE(TAG, "Failed to start service discovery: %d", rc);
 		}
@@ -626,16 +637,16 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 	}
 	case BLE_GAP_EVENT_DISCONNECT:
 	{
-		ESP_LOGI(TAG, "Disconnected: reason=%d", event->disconnect.reason);
-		// 清理对应的设备上下文
+		uint16_t handle = event->disconnect.conn.conn_handle;
+		ESP_LOGI(TAG, "Disconnected: handle=%d, reason=%d", handle, event->disconnect.reason);
+		// 精确匹配 conn_handle 清理设备上下文
 		for (int i = 0; i < MAX_PLAYERS; i++) {
-			if (self.m_devices[i].connected && !self.m_devices[i].dev
-				&& ble_gap_conn_find(self.m_connHandle, nullptr) != 0) {
-				ESP_LOGI(TAG, "Clearing direct-connect device playerId=%d", i);
+			if (self.m_devices[i].connected && self.m_devices[i].connHandle == handle) {
+				ESP_LOGI(TAG, "Clearing device playerId=%d", i);
 				self.m_devices[i] = {};
+				break;
 			}
 		}
-		self.m_connHandle = BLE_HS_CONN_HANDLE_NONE;
 		self.startScan();
 		break;
 	}
@@ -661,13 +672,10 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		state.lx = (uint8_t)((int8_t)report[2] + 128);
 		state.ly = (uint8_t)((int8_t)report[3] + 128);
 
-		ESP_LOGI(TAG, "GAP Notify: btn=0x%04x lx=%d ly=%d",
-			state.buttons, state.lx, state.ly);
-
 		// 找到对应的 playerId
 		int pid = -1;
 		for (int i = 0; i < MAX_PLAYERS; i++) {
-			if (self.m_devices[i].connected && !self.m_devices[i].dev) {
+			if (self.m_devices[i].connected && self.m_devices[i].connHandle == event->notify_rx.conn_handle) {
 				pid = i;
 				break;
 			}
@@ -691,10 +699,10 @@ void BleGamepad::disconnect(uint8_t playerId)
 {
 	if (playerId >= MAX_PLAYERS) return;
 	auto& ctx = m_devices[playerId];
-	if (!ctx.connected || !ctx.dev) return;
+	if (!ctx.connected || ctx.connHandle == BLE_HS_CONN_HANDLE_NONE) return;
 
-	ESP_LOGI(TAG, "Disconnecting player %d", playerId);
-	esp_hidh_dev_close(static_cast<esp_hidh_dev_t*>(ctx.dev));
+	ESP_LOGI(TAG, "Disconnecting player %d, handle=%d", playerId, ctx.connHandle);
+	ble_gap_terminate(ctx.connHandle, BLE_HS_HCI_ERR(0));
 }
 
 void BleGamepad::disconnectAll()
@@ -741,10 +749,18 @@ int BleGamepad::allocPlayerId()
 	return -1;
 }
 
+int BleGamepad::playerIdByConnHandle(uint16_t handle) const
+{
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (m_devices[i].connected && m_devices[i].connHandle == handle) return i;
+	}
+	return -1;
+}
+
 int BleGamepad::playerIdByDev(void* dev) const
 {
 	for (int i = 0; i < MAX_PLAYERS; i++) {
-		if (m_devices[i].connected && m_devices[i].dev == dev) return i;
+		if (m_devices[i].connected && m_devices[i].esp_hidh_dev == dev) return i;
 	}
 	return -1;
 }

@@ -5,6 +5,7 @@
 #include <cstring>
 #include "gamepadState.hpp"
 #include "mutex/mutex.hpp"
+#include "display/display.hpp"
 
 // 前置声明 esp_event_base_t (esp_event_base.h 定义)
 typedef const char* esp_event_base_t;
@@ -21,7 +22,7 @@ class BleGamepad
 public:
     static BleGamepad& instance();
 
-    bool start();
+    bool start(Display* display);
     void stop();
 
     void startScan();
@@ -50,24 +51,25 @@ private:
     // 查找空闲 playerId
     int allocPlayerId();
 
+    // 通过 conn_handle 查找 playerId
+    int playerIdByConnHandle(uint16_t handle) const;
+    // 通过 esp_hidh_dev_t* 查找 playerId (仅 esp_hidh 回调路径使用)
+    int playerIdByDev(void* dev) const;
+
     // 直接连接设备（原始 NimBLE GAP）
     bool connectDirect(const ScanDevice& dev);
 
     // GAP 连接事件回调（静态，用作 C 回调）
     static int connectGapEvent(struct ble_gap_event* event, void* arg);
 
-    // 通过 esp_hidh_dev_t* 查找 playerId
-    int playerIdByDev(void* dev) const;
-
     // 内部状态
+    Display* m_display{};
     DeviceContext m_devices[MAX_PLAYERS]{};
     std::vector<ScanDevice> m_scanResults;
     mutable Mutex m_mutex;
 
     QueueHandle_t m_inputQueue{};
     TaskHandle_t m_processTask{};
-
-    uint16_t m_connHandle{};
 
     bool m_scanning{false};
     bool m_running{false};

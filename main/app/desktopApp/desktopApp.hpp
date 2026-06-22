@@ -3,14 +3,18 @@
 #include "app/app.hpp"
 #include <cstdint>
 
-class DesktopApp : public App
+class DesktopApp final: public App
 {
 public:
+	constexpr static char TAG[] = "DesktopApp";
+
 	DesktopApp(Display* display);
 	~DesktopApp() override;
 
 	void init() override;
 	void deinit() override;
+	
+	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
 
 private:
 	// 游戏数据
