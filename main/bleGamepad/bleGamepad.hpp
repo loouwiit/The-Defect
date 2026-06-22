@@ -13,11 +13,8 @@ typedef const char* esp_event_base_t;
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
-// 前置声明 — NimBLE GAP 事件结构体和自由函数回调
+// 前置声明 NimBLE 类型
 struct ble_gap_event;
-int bleGapEventCb(struct ble_gap_event* event, void* arg);
-void mySyncCb();
-void myResetCb(int reason);
 
 class BleGamepad
 {
@@ -86,8 +83,9 @@ private:
     // HID Host 事件回调
     static void hidhCallback(void* handler_args, esp_event_base_t base, int32_t id, void* event_data);
 
-    // 自由函数回调——声明为友元以访问私有成员
-    friend int  ::bleGapEventCb(struct ble_gap_event* event, void* arg);
-    friend void ::mySyncCb();
-    friend void ::myResetCb(int reason);
+    // NimBLE 扫描 GAP 事件回调
+    static int scanGapEventCb(struct ble_gap_event* event, void* arg);
+    // NimBLE 同步/重置回调
+    static void onSync();
+    static void onReset(int reason);
 };

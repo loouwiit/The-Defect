@@ -41,26 +41,16 @@ BleGamepad& BleGamepad::instance()
 
 // ── 回调转发 ──
 
-// NimBLE GAP 事件（用于扫描发现）—— friend 声明在 hpp 中，此处不能 static
-int bleGapEventCb(struct ble_gap_event* event, void* arg);
-
-// NimBLE 同步/重置回调
-static void (*s_prev_sync_cb)(void) = nullptr;
-static void (*s_prev_reset_cb)(int reason) = nullptr;
-
-void mySyncCb()
+// NimBLE 同步回调
+void BleGamepad::onSync()
 {
-	ESP_LOGI(TAG, "NimBLE synced");
-	auto& self = BleGamepad::instance();
-	// 直接开始扫描——NimBLE 已就绪
-	self.startScan();
-	if (s_prev_sync_cb) s_prev_sync_cb();
+    ESP_LOGI(TAG, "NimBLE synced");
+    instance().startScan();
 }
 
-void myResetCb(int reason)
+void BleGamepad::onReset(int reason)
 {
-	ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
-	if (s_prev_reset_cb) s_prev_reset_cb(reason);
+    ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
 }
 
 // HID Host 事件回调
@@ -162,7 +152,7 @@ void BleGamepad::hidhCallback(void* /*handler_args*/, esp_event_base_t /*base*/,
 }
 
 // NimBLE GAP 事件（扫描发现）
-int bleGapEventCb(struct ble_gap_event* event, void* /*arg*/)
+int BleGamepad::scanGapEventCb(struct ble_gap_event* event, void* /*arg*/)
 {
 	auto& self = BleGamepad::instance();
 
@@ -236,7 +226,7 @@ int bleGapEventCb(struct ble_gap_event* event, void* /*arg*/)
 			struct ble_gap_disc_params params{};
 			params.passive = 1;
 			params.filter_duplicates = 1;
-			ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
+ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, scanGapEventCb, nullptr);
 		}
 		break;
 	}
@@ -313,8 +303,8 @@ bool BleGamepad::initNimbleAndHidHost()
 	// 注意: esp_hidh_init 会直接覆盖 ble_hs_cfg.sync_cb 而不链式保存!
 	// 所以必须在 esp_hidh_init() 之后重新设置我们的回调
 	// (参考: ESP-IDF v5.5.2 中 esp_ble_hidh_init 无回调链机制)
-	ble_hs_cfg.reset_cb = myResetCb;
-	ble_hs_cfg.sync_cb = mySyncCb;
+ble_hs_cfg.reset_cb = onReset;
+            ble_hs_cfg.sync_cb = onSync;
 
 	ESP_LOGI(TAG, "Before esp_hidh_init: reset=%p sync=%p",
 		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
@@ -335,9 +325,9 @@ bool BleGamepad::initNimbleAndHidHost()
 		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
 
 	// ★ 关键修复：esp_hidh 覆盖了我们的回调，现在重新设回来
-	ble_hs_cfg.reset_cb = myResetCb;
-	ble_hs_cfg.sync_cb = mySyncCb;
-	ESP_LOGI(TAG, "Our callbacks restored: reset=%p sync=%p",
+ble_hs_cfg.reset_cb = onReset;
+    ble_hs_cfg.sync_cb = onSync;
+    ESP_LOGI(TAG, "Callbacks restored: reset=%p sync=%p",
 		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
 
 	// 存储配置
@@ -442,7 +432,7 @@ void BleGamepad::startScan()
 	params.window = 0;
 	params.filter_duplicates = 1;  // 去重，减少刷屏
 
-	rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
+	rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, scanGapEventCb, nullptr);
 	if (rc == 0) {
 		ESP_LOGI(TAG, "Scan started (own_addr_type=%d)", own_addr_type);
 	}
