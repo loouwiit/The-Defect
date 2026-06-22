@@ -54,7 +54,6 @@ struct ScanDevice {
 // 已连接设备上下文
 struct DeviceContext {
     uint16_t connHandle{};       // NimBLE 连接句柄
-    void* esp_hidh_dev{};        // esp_hidh_dev_t* (仅 esp_hidh 路径使用，当前未用)
     uint8_t playerId{};
     GamepadState state;
     bool connected{false};

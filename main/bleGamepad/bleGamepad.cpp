@@ -14,9 +14,6 @@
 #include "host/util/util.h"
 #include "os/os_mbuf.h"
 
-// HID Host
-#include "esp_hidh.h"
-
 // ble_store_config_init 在 nimble/ble_store.h 中声明
 // 但该头文件不在标准包含路径中，这里前置声明
 #ifdef __cplusplus
@@ -51,104 +48,6 @@ void BleGamepad::onSync()
 void BleGamepad::onReset(int reason)
 {
     ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
-}
-
-// HID Host 事件回调
-void BleGamepad::hidhCallback(void* /*handler_args*/, esp_event_base_t /*base*/, int32_t id, void* event_data)
-{
-	auto& self = instance();
-	auto event = static_cast<esp_hidh_event_t>(id);
-	auto* param = static_cast<esp_hidh_event_data_t*>(event_data);
-
-	switch (event) {
-	case ESP_HIDH_OPEN_EVENT:
-	{
-		if (param->open.status != ESP_OK) {
-			ESP_LOGE(TAG, "OPEN failed, status=%d", param->open.status);
-			break;
-		}
-		auto* dev = param->open.dev;
-		const uint8_t* bda = esp_hidh_dev_bda_get(dev);
-		const char* name = esp_hidh_dev_name_get(dev);
-		if (bda) {
-			ESP_LOGI(TAG, "OPEN: %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-				name ? name : "?",
-				bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-		}
-		else {
-			ESP_LOGI(TAG, "OPEN: %s [??:??:??:??:??:??]", name ? name : "?");
-		}
-
-		// 分配 playerId
-		int pid = self.allocPlayerId();
-		if (pid < 0) {
-			ESP_LOGW(TAG, "No free player slot, disconnecting");
-			esp_hidh_dev_close(dev);
-			break;
-		}
-		auto& ctx = self.m_devices[pid];
-		ctx.esp_hidh_dev = dev;
-		ctx.playerId = pid;
-		ctx.connected = true;
-		if (name) strncpy(ctx.name, name, sizeof(ctx.name) - 1);
-		if (bda) memcpy(ctx.bda, bda, 6);
-
-		ESP_LOGI(TAG, "Assigned playerId=%d", pid);
-		esp_hidh_dev_dump(dev, stdout);
-		break;
-	}
-	case ESP_HIDH_CLOSE_EVENT:
-	{
-		auto* dev = param->close.dev;
-		int pid = self.playerIdByDev(dev);
-		if (pid >= 0) {
-			ESP_LOGI(TAG, "CLOSE: playerId=%d", pid);
-			self.m_devices[pid] = {}; // 清空
-		}
-		esp_hidh_dev_free(dev);
-		break;
-	}
-	case ESP_HIDH_INPUT_EVENT:
-	{
-		if (param->input.length == 0) break;
-		int pid = self.playerIdByDev(param->input.dev);
-		if (pid < 0) break;
-
-		// 打印原始 HID 报告（用于调试）
-		ESP_LOGI(TAG, "INPUT P%d: len=%u usage=%s id=%u data:",
-			pid, param->input.length,
-			esp_hid_usage_str(param->input.usage),
-			param->input.report_id);
-		ESP_LOG_BUFFER_HEX(TAG, param->input.data, param->input.length);
-
-		GamepadState state{};
-		const uint8_t* d = param->input.data;
-		size_t len = param->input.length;
-
-		// 通用 HID Gamepad 解析
-		if (len >= 1) state.buttons = d[0];
-		if (len >= 2) state.buttons |= (uint16_t(d[1]) << 8);
-		state.dpad = d[0] & 0x0F;
-		if (state.dpad > 8) state.dpad = 15;
-		if (len >= 4) { state.lx = d[2]; state.ly = d[3]; }
-		if (len >= 6) { state.rx = d[4]; state.ry = d[5]; }
-		if (len >= 8) { state.lt = d[6]; state.rt = d[7]; }
-
-		// 入队
-		GamepadInputEvent evt{ static_cast<uint8_t>(pid), state };
-		xQueueSend(self.m_inputQueue, &evt, 0);
-		break;
-	}
-	case ESP_HIDH_BATTERY_EVENT:
-	{
-		const uint8_t* bda = esp_hidh_dev_bda_get(param->battery.dev);
-		ESP_LOGI(TAG, "BATTERY: [%s] %d%%",
-			bda ? (const char*)esp_hidh_dev_name_get(param->battery.dev) : "?", param->battery.level);
-		break;
-	}
-	default:
-		break;
-	}
 }
 
 // NimBLE GAP 事件（扫描发现）
@@ -299,43 +198,15 @@ bool BleGamepad::initEspHostedBt()
 	return true;
 }
 
-bool BleGamepad::initNimbleAndHidHost()
+bool BleGamepad::initNimble()
 {
 	ESP_LOGI(TAG, "Initializing NimBLE...");
 	nimble_port_init();
 
-	// 保存当前回调，设置我们的回调
-	// 注意: esp_hidh_init 会直接覆盖 ble_hs_cfg.sync_cb 而不链式保存!
-	// 所以必须在 esp_hidh_init() 之后重新设置我们的回调
-	// (参考: ESP-IDF v5.5.2 中 esp_ble_hidh_init 无回调链机制)
-ble_hs_cfg.reset_cb = onReset;
-            ble_hs_cfg.sync_cb = onSync;
+	// 设置 NimBLE 回调
+	ble_hs_cfg.reset_cb = onReset;
+	ble_hs_cfg.sync_cb = onSync;
 
-	ESP_LOGI(TAG, "Before esp_hidh_init: reset=%p sync=%p",
-		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
-
-	// 初始化 HID Host
-	esp_hidh_config_t hidConfig = {
-		.callback = hidhCallback,
-		.event_stack_size = 4096,
-		.callback_arg = nullptr,
-	};
-	if (esp_hidh_init(&hidConfig) != ESP_OK) {
-		ESP_LOGE(TAG, "HID Host init failed");
-		return false;
-	}
-
-	// 诊断：确认 esp_hidh 覆盖了回调
-	ESP_LOGI(TAG, "After esp_hidh_init: reset=%p sync=%p",
-		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
-
-	// ★ 关键修复：esp_hidh 覆盖了我们的回调，现在重新设回来
-ble_hs_cfg.reset_cb = onReset;
-    ble_hs_cfg.sync_cb = onSync;
-    ESP_LOGI(TAG, "Callbacks restored: reset=%p sync=%p",
-		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
-
-	// 存储配置
 	ble_store_config_init();
 	ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
@@ -373,8 +244,8 @@ bool BleGamepad::start(Display* display)
 		return false;
 	}
 
-	if (!initNimbleAndHidHost()) {
-		ESP_LOGE(TAG, "NimBLE/HID Host init failed");
+	if (!initNimble()) {
+		ESP_LOGE(TAG, "NimBLE init failed");
 		return false;
 	}
 
@@ -400,7 +271,6 @@ void BleGamepad::stop()
 
 	nimble_port_stop();
 
-	esp_hidh_deinit();
 	esp_hosted_bt_controller_disable();
 	esp_hosted_bt_controller_deinit(false);
 
@@ -753,14 +623,6 @@ int BleGamepad::playerIdByConnHandle(uint16_t handle) const
 {
 	for (int i = 0; i < MAX_PLAYERS; i++) {
 		if (m_devices[i].connected && m_devices[i].connHandle == handle) return i;
-	}
-	return -1;
-}
-
-int BleGamepad::playerIdByDev(void* dev) const
-{
-	for (int i = 0; i < MAX_PLAYERS; i++) {
-		if (m_devices[i].connected && m_devices[i].esp_hidh_dev == dev) return i;
 	}
 	return -1;
 }

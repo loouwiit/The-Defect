@@ -46,15 +46,13 @@ private:
 
     // 内部初始化步骤
     bool initEspHostedBt();
-    bool initNimbleAndHidHost();
+    bool initNimble();
 
     // 查找空闲 playerId
     int allocPlayerId();
 
     // 通过 conn_handle 查找 playerId
     int playerIdByConnHandle(uint16_t handle) const;
-    // 通过 esp_hidh_dev_t* 查找 playerId (仅 esp_hidh 回调路径使用)
-    int playerIdByDev(void* dev) const;
 
     // 直接连接设备（原始 NimBLE GAP）
     bool connectDirect(const ScanDevice& dev);
@@ -81,9 +79,6 @@ private:
 
     // 输入处理任务入口
     static void processTask(void* arg);
-
-    // HID Host 事件回调
-    static void hidhCallback(void* handler_args, esp_event_base_t base, int32_t id, void* event_data);
 
     // NimBLE 扫描 GAP 事件回调
     static int scanGapEventCb(struct ble_gap_event* event, void* arg);
