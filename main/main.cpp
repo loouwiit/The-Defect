@@ -226,10 +226,12 @@ extern "C" void app_main(void)
 				{
 					ESP_LOGI(TAG, "Auto-connecting to: %s", devices[id].name);
 					bg.connect(id);
+					id++;
+					return 5000; // 5000ms后再进行第二次判断连接，给予充足时间
 				}
 
 			id++;
-			return 5000;
+			return 1;
 		}, "bleAutoConnect", new size_t{ 0 }, 3000, Task::Affinity::None); // 延迟300ms
 
 	// 保持栈上变量，后续移除
