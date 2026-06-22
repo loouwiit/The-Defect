@@ -53,6 +53,12 @@ private:
     // 查找空闲 playerId
     int allocPlayerId();
 
+    // 直接连接设备（原始 NimBLE GAP）
+    bool connectDirect(const ScanDevice& dev);
+
+    // GAP 连接事件回调（静态，用作 C 回调）
+    static int connectGapEvent(struct ble_gap_event* event, void* arg);
+
     // 通过 esp_hidh_dev_t* 查找 playerId
     int playerIdByDev(void* dev) const;
 
@@ -63,6 +69,8 @@ private:
 
     QueueHandle_t m_inputQueue{};
     TaskHandle_t m_processTask{};
+
+    uint16_t m_connHandle{};
 
     bool m_scanning{false};
     bool m_running{false};

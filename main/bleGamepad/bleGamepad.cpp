@@ -12,6 +12,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_gap.h"
 #include "host/util/util.h"
+#include "os/os_mbuf.h"
 
 // HID Host
 #include "esp_hidh.h"
@@ -72,7 +73,7 @@ void BleGamepad::hidhCallback(void* /*handler_args*/, esp_event_base_t /*base*/,
     switch (event) {
     case ESP_HIDH_OPEN_EVENT: {
         if (param->open.status != ESP_OK) {
-            ESP_LOGE(TAG, "OPEN failed");
+            ESP_LOGE(TAG, "OPEN failed, status=%d", param->open.status);
             break;
         }
         auto* dev = param->open.dev;
@@ -118,6 +119,13 @@ void BleGamepad::hidhCallback(void* /*handler_args*/, esp_event_base_t /*base*/,
         if (param->input.length == 0) break;
         int pid = self.playerIdByDev(param->input.dev);
         if (pid < 0) break;
+
+        // 打印原始 HID 报告（用于调试）
+        ESP_LOGI(TAG, "INPUT P%d: len=%u usage=%s id=%u data:",
+                 pid, param->input.length,
+                 esp_hid_usage_str(param->input.usage),
+                 param->input.report_id);
+        ESP_LOG_BUFFER_HEX(TAG, param->input.data, param->input.length);
 
         GamepadState state{};
         const uint8_t* d = param->input.data;
@@ -205,21 +213,22 @@ int bleGapEventCb(struct ble_gap_event* event, void* /*arg*/)
                 self.m_mutex.unlock();
             }
         }
-        ESP_LOGI(TAG, "SCAN: %s, RSSI=%d, appearance=0x%04x",
-                 dev.name, dev.rssi, dev.appearance);
+        ESP_LOGI(TAG, "SCAN: %s [%02x:%02x:%02x:%02x:%02x:%02x], RSSI=%d, appearance=0x%04x",
+                 dev.name,
+                 dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
+                 dev.rssi, dev.appearance);
         break;
     }
     case BLE_GAP_EVENT_DISC_COMPLETE: {
         ESP_LOGI(TAG, "Scan complete, found %zu devices", self.m_scanResults.size());
         // 扫描自动重新开始（持续模式）
         if (self.m_scanning) {
+            uint8_t own_addr_type;
+            ble_hs_id_infer_auto(0, &own_addr_type);
             struct ble_gap_disc_params params{};
-            params.filter_policy = BLE_HCI_CONN_FILT_NO_WL;
             params.passive = 1;
-            params.itvl = 0;
-            params.window = 0;
-            params.filter_duplicates = 0;
-            ble_gap_disc(BLE_OWN_ADDR_PUBLIC, 0, &params, bleGapEventCb, nullptr);
+            params.filter_duplicates = 1;
+            ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
         }
         break;
     }
@@ -423,7 +432,7 @@ void BleGamepad::startScan()
     params.passive = 1;
     params.itvl = 0;
     params.window = 0;
-    params.filter_duplicates = 0;
+    params.filter_duplicates = 1;  // 去重，减少刷屏
 
     rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
     if (rc == 0) {
@@ -461,7 +470,11 @@ void BleGamepad::connect(uint8_t scanIndex)
         m_mutex.unlock();
     }
 
-    ESP_LOGI(TAG, "Connecting to %s...", dev.name);
+    ESP_LOGI(TAG, "Connecting to %s [%02x:%02x:%02x:%02x:%02x:%02x] addr_type=%d...",
+             dev.name,
+             dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
+             dev.addrType);
+
     // 检查是否已连
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (m_devices[i].connected && memcmp(m_devices[i].bda, dev.bda, 6) == 0) {
@@ -470,10 +483,158 @@ void BleGamepad::connect(uint8_t scanIndex)
         }
     }
 
-    esp_hidh_dev_t* hidDev = esp_hidh_dev_open(dev.bda, ESP_HID_TRANSPORT_BLE, dev.addrType);
-    if (!hidDev) {
-        ESP_LOGE(TAG, "Failed to open HID device");
+    // 连接前停止扫描
+    stopScan();
+    connectDirect(dev);
+}
+
+bool BleGamepad::connectDirect(const ScanDevice& dev)
+{
+    // 使用原始 NimBLE GAP 连接
+    ble_addr_t addr;
+    memcpy(addr.val, dev.bda, 6);
+    addr.type = dev.addrType;
+
+    uint8_t own_addr_type;
+    ble_hs_id_infer_auto(0, &own_addr_type);
+
+    m_connHandle = BLE_HS_CONN_HANDLE_NONE;
+
+    int rc = ble_gap_connect(own_addr_type, &addr, 30000, NULL,
+                             connectGapEvent, nullptr);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "ble_gap_connect failed: %d", rc);
+        startScan();
+        return false;
     }
+    return true;
+}
+
+// 订阅 CCCD 写回调
+static int subWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                      struct ble_gatt_attr* attr, void* arg)
+{
+    if (error->status == 0)
+        ESP_LOGI(TAG, "    -> Subscribed! Ready for HID input.");
+    else
+        ESP_LOGE(TAG, "    -> Subscribe failed: %d", error->status);
+    return 0;
+}
+
+// HID 服务特征发现回调
+static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                        const struct ble_gatt_chr* chr, void* arg)
+{
+    if (error->status == 0 && chr) {
+        uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
+        ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
+                 chr->val_handle, uuid, chr->properties);
+
+        // HID Input Report (0x2A4D) — 订阅通知
+        if (uuid == 0x2A4D && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
+            ESP_LOGI(TAG, "    -> HID Input Report! Subscribing at handle %u...", chr->val_handle + 1);
+            uint8_t val[] = {0x01, 0x00};
+            ble_gattc_write_flat(conn_handle, chr->val_handle + 1, val, sizeof(val),
+                                 subWriteCb, nullptr);
+        }
+    } else if (error->status == BLE_HS_EDONE) {
+        ESP_LOGI(TAG, "  HID characteristic discovery complete");
+    } else if (error->status != 0) {
+        ESP_LOGE(TAG, "  HID char discovery error: %d", error->status);
+    }
+    return 0;
+}
+
+// 服务发现回调
+struct DiscoveredService {
+    uint16_t start, end, uuid;
+};
+static DiscoveredService s_svcList[20];
+static int s_svcCount = 0;
+
+static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                     const struct ble_gatt_svc* service, void* arg)
+{
+    if (error->status == 0 && service) {
+        uint16_t uuid = ble_uuid_u16(&service->uuid.u);
+        ESP_LOGI(TAG, "  Service: start=%u end=%u uuid=0x%04x",
+                 service->start_handle, service->end_handle, uuid);
+        if (s_svcCount < 20) {
+            s_svcList[s_svcCount++] = { service->start_handle, service->end_handle, uuid };
+        }
+    } else if (error->status == BLE_HS_EDONE) {
+        ESP_LOGI(TAG, "  Service discovery complete");
+
+        // 找到 HID 服务 (0x1812)，发现其特征
+        for (int i = 0; i < s_svcCount; i++) {
+            if (s_svcList[i].uuid == 0x1812) {
+                ESP_LOGI(TAG, "  -> Discovering HID service characteristics...");
+                ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
+                                        hidChrDiscCb, nullptr);
+                break;
+            }
+        }
+    } else if (error->status != 0) {
+        ESP_LOGE(TAG, "  Service discovery error: %d", error->status);
+    }
+    return 0;
+}
+
+int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
+{
+    auto& self = instance();
+    switch (event->type) {
+    case BLE_GAP_EVENT_CONNECT: {
+        if (event->connect.status != 0) {
+            ESP_LOGE(TAG, "Connect failed: %d", event->connect.status);
+            self.startScan();
+            return 0;
+        }
+        self.m_connHandle = event->connect.conn_handle;
+
+        // 通过 conn_handle 获取连接描述符，得到对端地址
+        struct ble_gap_conn_desc desc;
+        if (ble_gap_conn_find(self.m_connHandle, &desc) == 0) {
+            ESP_LOGI(TAG, "Connected! handle=%d peer=%02x:%02x:%02x:%02x:%02x:%02x",
+                     self.m_connHandle,
+                     desc.peer_id_addr.val[0], desc.peer_id_addr.val[1],
+                     desc.peer_id_addr.val[2], desc.peer_id_addr.val[3],
+                     desc.peer_id_addr.val[4], desc.peer_id_addr.val[5]);
+        }
+
+        // 发现所有服务并打印
+        int rc = ble_gattc_disc_all_svcs(self.m_connHandle, svcDiscCb, nullptr);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "Failed to start service discovery: %d", rc);
+        }
+        break;
+    }
+    case BLE_GAP_EVENT_DISCONNECT: {
+        ESP_LOGI(TAG, "Disconnected: reason=%d", event->disconnect.reason);
+        self.m_connHandle = BLE_HS_CONN_HANDLE_NONE;
+        // 检查是否是通过 esp_hidh 连接的设备
+        bool hasHidDev = false;
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            if (self.m_devices[i].connected && self.m_devices[i].dev) hasHidDev = true;
+        }
+        if (!hasHidDev) self.startScan();
+        break;
+    }
+    case BLE_GAP_EVENT_NOTIFY_RX: {
+        // 手柄发来的 HID 输入报告 — 将 mbuf 链拷贝到平坦缓冲区
+        const struct os_mbuf* om = event->notify_rx.om;
+        uint16_t total = OS_MBUF_PKTLEN(om);
+        uint8_t report[64];
+        uint16_t len = total > sizeof(report) ? sizeof(report) : total;
+        ble_hs_mbuf_to_flat(om, report, len, NULL);
+        ESP_LOGI(TAG, "HID report: len=%u", len);
+        ESP_LOG_BUFFER_HEX(TAG, report, len);
+        break;
+    }
+    default:
+        break;
+    }
+    return 0;
 }
 
 void BleGamepad::disconnect(uint8_t playerId)
