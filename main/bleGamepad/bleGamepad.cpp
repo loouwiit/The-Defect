@@ -22,7 +22,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-void ble_store_config_init(void);
+	void ble_store_config_init(void);
 #ifdef __cplusplus
 }
 #endif
@@ -35,8 +35,8 @@ BleGamepad* BleGamepad::s_instance = nullptr;
 // ── Singleton ──
 BleGamepad& BleGamepad::instance()
 {
-    static BleGamepad inst;
-    return inst;
+	static BleGamepad inst;
+	return inst;
 }
 
 // ── 回调转发 ──
@@ -50,651 +50,711 @@ static void (*s_prev_reset_cb)(int reason) = nullptr;
 
 void mySyncCb()
 {
-    ESP_LOGI(TAG, "NimBLE synced");
-    auto& self = BleGamepad::instance();
-    // 直接开始扫描——NimBLE 已就绪
-    self.startScan();
-    if (s_prev_sync_cb) s_prev_sync_cb();
+	ESP_LOGI(TAG, "NimBLE synced");
+	auto& self = BleGamepad::instance();
+	// 直接开始扫描——NimBLE 已就绪
+	self.startScan();
+	if (s_prev_sync_cb) s_prev_sync_cb();
 }
 
 void myResetCb(int reason)
 {
-    ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
-    if (s_prev_reset_cb) s_prev_reset_cb(reason);
+	ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
+	if (s_prev_reset_cb) s_prev_reset_cb(reason);
 }
 
 // HID Host 事件回调
 void BleGamepad::hidhCallback(void* /*handler_args*/, esp_event_base_t /*base*/, int32_t id, void* event_data)
 {
-    auto& self = instance();
-    auto event = static_cast<esp_hidh_event_t>(id);
-    auto* param = static_cast<esp_hidh_event_data_t*>(event_data);
+	auto& self = instance();
+	auto event = static_cast<esp_hidh_event_t>(id);
+	auto* param = static_cast<esp_hidh_event_data_t*>(event_data);
 
-    switch (event) {
-    case ESP_HIDH_OPEN_EVENT: {
-        if (param->open.status != ESP_OK) {
-            ESP_LOGE(TAG, "OPEN failed, status=%d", param->open.status);
-            break;
-        }
-        auto* dev = param->open.dev;
-        const uint8_t* bda = esp_hidh_dev_bda_get(dev);
-        const char* name = esp_hidh_dev_name_get(dev);
-        if (bda) {
-            ESP_LOGI(TAG, "OPEN: %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-                     name ? name : "?",
-                     bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        } else {
-            ESP_LOGI(TAG, "OPEN: %s [??:??:??:??:??:??]", name ? name : "?");
-        }
+	switch (event) {
+	case ESP_HIDH_OPEN_EVENT:
+	{
+		if (param->open.status != ESP_OK) {
+			ESP_LOGE(TAG, "OPEN failed, status=%d", param->open.status);
+			break;
+		}
+		auto* dev = param->open.dev;
+		const uint8_t* bda = esp_hidh_dev_bda_get(dev);
+		const char* name = esp_hidh_dev_name_get(dev);
+		if (bda) {
+			ESP_LOGI(TAG, "OPEN: %s [%02x:%02x:%02x:%02x:%02x:%02x]",
+				name ? name : "?",
+				bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+		}
+		else {
+			ESP_LOGI(TAG, "OPEN: %s [??:??:??:??:??:??]", name ? name : "?");
+		}
 
-        // 分配 playerId
-        int pid = self.allocPlayerId();
-        if (pid < 0) {
-            ESP_LOGW(TAG, "No free player slot, disconnecting");
-            esp_hidh_dev_close(dev);
-            break;
-        }
-        auto& ctx = self.m_devices[pid];
-        ctx.dev = dev;
-        ctx.playerId = pid;
-        ctx.connected = true;
-        if (name) strncpy(ctx.name, name, sizeof(ctx.name) - 1);
-        if (bda) memcpy(ctx.bda, bda, 6);
+		// 分配 playerId
+		int pid = self.allocPlayerId();
+		if (pid < 0) {
+			ESP_LOGW(TAG, "No free player slot, disconnecting");
+			esp_hidh_dev_close(dev);
+			break;
+		}
+		auto& ctx = self.m_devices[pid];
+		ctx.dev = dev;
+		ctx.playerId = pid;
+		ctx.connected = true;
+		if (name) strncpy(ctx.name, name, sizeof(ctx.name) - 1);
+		if (bda) memcpy(ctx.bda, bda, 6);
 
-        ESP_LOGI(TAG, "Assigned playerId=%d", pid);
-        esp_hidh_dev_dump(dev, stdout);
-        break;
-    }
-    case ESP_HIDH_CLOSE_EVENT: {
-        auto* dev = param->close.dev;
-        int pid = self.playerIdByDev(dev);
-        if (pid >= 0) {
-            ESP_LOGI(TAG, "CLOSE: playerId=%d", pid);
-            self.m_devices[pid] = {}; // 清空
-        }
-        esp_hidh_dev_free(dev);
-        break;
-    }
-    case ESP_HIDH_INPUT_EVENT: {
-        if (param->input.length == 0) break;
-        int pid = self.playerIdByDev(param->input.dev);
-        if (pid < 0) break;
+		ESP_LOGI(TAG, "Assigned playerId=%d", pid);
+		esp_hidh_dev_dump(dev, stdout);
+		break;
+	}
+	case ESP_HIDH_CLOSE_EVENT:
+	{
+		auto* dev = param->close.dev;
+		int pid = self.playerIdByDev(dev);
+		if (pid >= 0) {
+			ESP_LOGI(TAG, "CLOSE: playerId=%d", pid);
+			self.m_devices[pid] = {}; // 清空
+		}
+		esp_hidh_dev_free(dev);
+		break;
+	}
+	case ESP_HIDH_INPUT_EVENT:
+	{
+		if (param->input.length == 0) break;
+		int pid = self.playerIdByDev(param->input.dev);
+		if (pid < 0) break;
 
-        // 打印原始 HID 报告（用于调试）
-        ESP_LOGI(TAG, "INPUT P%d: len=%u usage=%s id=%u data:",
-                 pid, param->input.length,
-                 esp_hid_usage_str(param->input.usage),
-                 param->input.report_id);
-        ESP_LOG_BUFFER_HEX(TAG, param->input.data, param->input.length);
+		// 打印原始 HID 报告（用于调试）
+		ESP_LOGI(TAG, "INPUT P%d: len=%u usage=%s id=%u data:",
+			pid, param->input.length,
+			esp_hid_usage_str(param->input.usage),
+			param->input.report_id);
+		ESP_LOG_BUFFER_HEX(TAG, param->input.data, param->input.length);
 
-        GamepadState state{};
-        const uint8_t* d = param->input.data;
-        size_t len = param->input.length;
+		GamepadState state{};
+		const uint8_t* d = param->input.data;
+		size_t len = param->input.length;
 
-        // 通用 HID Gamepad 解析
-        if (len >= 1) state.buttons = d[0];
-        if (len >= 2) state.buttons |= (uint16_t(d[1]) << 8);
-        state.dpad = d[0] & 0x0F;
-        if (state.dpad > 8) state.dpad = 15;
-        if (len >= 4) { state.lx = d[2]; state.ly = d[3]; }
-        if (len >= 6) { state.rx = d[4]; state.ry = d[5]; }
-        if (len >= 8) { state.lt = d[6]; state.rt = d[7]; }
+		// 通用 HID Gamepad 解析
+		if (len >= 1) state.buttons = d[0];
+		if (len >= 2) state.buttons |= (uint16_t(d[1]) << 8);
+		state.dpad = d[0] & 0x0F;
+		if (state.dpad > 8) state.dpad = 15;
+		if (len >= 4) { state.lx = d[2]; state.ly = d[3]; }
+		if (len >= 6) { state.rx = d[4]; state.ry = d[5]; }
+		if (len >= 8) { state.lt = d[6]; state.rt = d[7]; }
 
-        // 入队
-        GamepadInputEvent evt{ static_cast<uint8_t>(pid), state };
-        xQueueSend(self.m_inputQueue, &evt, 0);
-        break;
-    }
-    case ESP_HIDH_BATTERY_EVENT: {
-        const uint8_t* bda = esp_hidh_dev_bda_get(param->battery.dev);
-        ESP_LOGI(TAG, "BATTERY: [%s] %d%%",
-                 bda ? (const char*)esp_hidh_dev_name_get(param->battery.dev) : "?", param->battery.level);
-        break;
-    }
-    default:
-        break;
-    }
+		// 入队
+		GamepadInputEvent evt{ static_cast<uint8_t>(pid), state };
+		xQueueSend(self.m_inputQueue, &evt, 0);
+		break;
+	}
+	case ESP_HIDH_BATTERY_EVENT:
+	{
+		const uint8_t* bda = esp_hidh_dev_bda_get(param->battery.dev);
+		ESP_LOGI(TAG, "BATTERY: [%s] %d%%",
+			bda ? (const char*)esp_hidh_dev_name_get(param->battery.dev) : "?", param->battery.level);
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 // NimBLE GAP 事件（扫描发现）
 int bleGapEventCb(struct ble_gap_event* event, void* /*arg*/)
 {
-    auto& self = BleGamepad::instance();
+	auto& self = BleGamepad::instance();
 
-    switch (event->type) {
-    case BLE_GAP_EVENT_DISC: {
-        // 检查是否为 HID 设备 — 找 HID Service UUID (0x1812) 或游戏手柄 appearance
-        struct ble_hs_adv_fields fields;
-        if (ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data) != 0)
-            return 0;
+	switch (event->type) {
+	case BLE_GAP_EVENT_DISC:
+	{
+		// 检查是否为 HID 设备 — 找 HID Service UUID (0x1812) 或游戏手柄 appearance
+		struct ble_hs_adv_fields fields;
+		if (ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data) != 0)
+			return 0;
 
-        bool isHid = false;
-        if (fields.appearance_is_present) {
-            // 0x03C4 = HID Gamepad
-            isHid = (fields.appearance >= 0x03C0 && fields.appearance <= 0x03C9);
-        }
-        if (!isHid && fields.num_uuids16 > 0) {
-            for (int i = 0; i < fields.num_uuids16; i++) {
-                if (fields.uuids16[i].value == 0x1812) { // HID Service
-                    isHid = true;
-                    break;
-                }
-            }
-        }
-        if (!isHid) return 0;
+		bool isHid = false;
+		if (fields.appearance_is_present) {
+			// 0x03C4 = HID Gamepad
+			isHid = (fields.appearance >= 0x03C0 && fields.appearance <= 0x03C9);
+		}
+		if (!isHid && fields.num_uuids16 > 0) {
+			for (int i = 0; i < fields.num_uuids16; i++) {
+				if (fields.uuids16[i].value == 0x1812) { // HID Service
+					isHid = true;
+					break;
+				}
+			}
+		}
+		if (!isHid) return 0;
 
-        // 收集设备信息
-        ScanDevice dev;
-        memcpy(dev.bda, event->disc.addr.val, 6);
-        dev.addrType = event->disc.addr.type;
-        dev.rssi = event->disc.rssi;
-        dev.appearance = fields.appearance;
-        if (fields.name_len > 0) {
-            size_t cpLen = std::min<size_t>(fields.name_len, sizeof(dev.name) - 1);
-            memcpy(dev.name, fields.name, cpLen);
-            dev.name[cpLen] = '\0';
-        } else {
-            snprintf(dev.name, sizeof(dev.name), "HID_%02X%02X%02X",
-                     dev.bda[3], dev.bda[4], dev.bda[5]);
-        }
+		// 收集设备信息
+		ScanDevice dev;
+		memcpy(dev.bda, event->disc.addr.val, 6);
+		dev.addrType = event->disc.addr.type;
+		dev.rssi = event->disc.rssi;
+		dev.appearance = fields.appearance;
+		if (fields.name_len > 0) {
+			size_t cpLen = std::min<size_t>(fields.name_len, sizeof(dev.name) - 1);
+			memcpy(dev.name, fields.name, cpLen);
+			dev.name[cpLen] = '\0';
+		}
+		else {
+			snprintf(dev.name, sizeof(dev.name), "HID_%02X%02X%02X",
+				dev.bda[3], dev.bda[4], dev.bda[5]);
+		}
 
-        {
-            if (self.m_mutex.try_lock()) {
-                // 去重: 相同 BDA 不重复添加
-                bool dup = false;
-                for (auto& d : self.m_scanResults) {
-                    if (memcmp(d.bda, dev.bda, 6) == 0) {
-                        d.rssi = dev.rssi; // 更新 RSSI
-                        dup = true;
-                        break;
-                    }
-                }
-                if (!dup) self.m_scanResults.push_back(dev);
-                self.m_mutex.unlock();
-            }
-        }
-        ESP_LOGI(TAG, "SCAN: %s [%02x:%02x:%02x:%02x:%02x:%02x], RSSI=%d, appearance=0x%04x",
-                 dev.name,
-                 dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
-                 dev.rssi, dev.appearance);
-        break;
-    }
-    case BLE_GAP_EVENT_DISC_COMPLETE: {
-        ESP_LOGI(TAG, "Scan complete, found %zu devices", self.m_scanResults.size());
-        // 扫描自动重新开始（持续模式）
-        if (self.m_scanning) {
-            uint8_t own_addr_type;
-            ble_hs_id_infer_auto(0, &own_addr_type);
-            struct ble_gap_disc_params params{};
-            params.passive = 1;
-            params.filter_duplicates = 1;
-            ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
-        }
-        break;
-    }
-    default:
-        break;
-    }
-    return 0;
+		{
+			if (self.m_mutex.try_lock()) {
+				// 去重: 相同 BDA 不重复添加
+				bool dup = false;
+				for (auto& d : self.m_scanResults) {
+					if (memcmp(d.bda, dev.bda, 6) == 0) {
+						d.rssi = dev.rssi; // 更新 RSSI
+						dup = true;
+						break;
+					}
+				}
+				if (!dup) self.m_scanResults.push_back(dev);
+				self.m_mutex.unlock();
+			}
+		}
+		ESP_LOGI(TAG, "SCAN: %s [%02x:%02x:%02x:%02x:%02x:%02x], RSSI=%d, appearance=0x%04x",
+			dev.name,
+			dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
+			dev.rssi, dev.appearance);
+		break;
+	}
+	case BLE_GAP_EVENT_DISC_COMPLETE:
+	{
+		ESP_LOGI(TAG, "Scan complete, found %zu devices", self.m_scanResults.size());
+		// 扫描自动重新开始（持续模式）
+		if (self.m_scanning) {
+			uint8_t own_addr_type;
+			ble_hs_id_infer_auto(0, &own_addr_type);
+			struct ble_gap_disc_params params{};
+			params.passive = 1;
+			params.filter_duplicates = 1;
+			ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	return 0;
 }
 
 // ── NimBLE Host 任务 ──
 void BleGamepad::hostTask(void* /*arg*/)
 {
-    ESP_LOGI(TAG, "NimBLE host task started");
-    nimble_port_run(); // 阻塞直到 nimble_port_stop()
-    nimble_port_freertos_deinit();
+	ESP_LOGI(TAG, "NimBLE host task started");
+	nimble_port_run(); // 阻塞直到 nimble_port_stop()
+	nimble_port_freertos_deinit();
 }
 
 // ── 输入处理任务 ──
 void BleGamepad::processTask(void* arg)
 {
-    auto& self = *static_cast<BleGamepad*>(arg);
-    GamepadInputEvent evt;
+	auto& self = *static_cast<BleGamepad*>(arg);
+	GamepadInputEvent evt;
 
-    while (true) {
-        if (xQueueReceive(self.m_inputQueue, &evt, portMAX_DELAY) == pdTRUE) {
-            // 更新设备状态
-            if (evt.playerId < MAX_PLAYERS) {
-                auto& ctx = self.m_devices[evt.playerId];
-                ctx.state = evt.state;
-                // 状态变化日志（调试用）
-                if (ctx.state.buttons || ctx.state.dpad < 8) {
-                    ESP_LOGD(TAG, "P%d: btn=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
-                             evt.playerId, evt.state.buttons,
-                             evt.state.lx, evt.state.ly,
-                             evt.state.rx, evt.state.ry,
-                             evt.state.dpad);
-                }
-            }
-        }
-    }
+	while (true) {
+		if (xQueueReceive(self.m_inputQueue, &evt, portMAX_DELAY) == pdTRUE) {
+			// 更新设备状态
+			if (evt.playerId < MAX_PLAYERS) {
+				auto& ctx = self.m_devices[evt.playerId];
+				ctx.state = evt.state;
+				// 状态变化日志（调试用）
+				if (ctx.state.buttons || ctx.state.dpad < 8) {
+					ESP_LOGD(TAG, "P%d: btn=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
+						evt.playerId, evt.state.buttons,
+						evt.state.lx, evt.state.ly,
+						evt.state.rx, evt.state.ry,
+						evt.state.dpad);
+				}
+			}
+		}
+	}
 }
 
 // ── 初始化 ──
 
 bool BleGamepad::initEspHostedBt()
 {
-    ESP_LOGI(TAG, "Connecting to co-processor...");
-    if (esp_hosted_connect_to_slave() != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to connect to slave");
-        return false;
-    }
+	ESP_LOGI(TAG, "Connecting to co-processor...");
+	if (esp_hosted_connect_to_slave() != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to connect to slave");
+		return false;
+	}
 
-    ESP_LOGI(TAG, "Initializing BT controller...");
-    if (esp_hosted_bt_controller_init() != ESP_OK) {
-        ESP_LOGE(TAG, "BT controller init failed");
-        return false;
-    }
+	ESP_LOGI(TAG, "Initializing BT controller...");
+	if (esp_hosted_bt_controller_init() != ESP_OK) {
+		ESP_LOGE(TAG, "BT controller init failed");
+		return false;
+	}
 
-    ESP_LOGI(TAG, "Enabling BT controller...");
-    if (esp_hosted_bt_controller_enable() != ESP_OK) {
-        ESP_LOGE(TAG, "BT controller enable failed");
-        return false;
-    }
+	ESP_LOGI(TAG, "Enabling BT controller...");
+	if (esp_hosted_bt_controller_enable() != ESP_OK) {
+		ESP_LOGE(TAG, "BT controller enable failed");
+		return false;
+	}
 
-    return true;
+	return true;
 }
 
 bool BleGamepad::initNimbleAndHidHost()
 {
-    ESP_LOGI(TAG, "Initializing NimBLE...");
-    nimble_port_init();
+	ESP_LOGI(TAG, "Initializing NimBLE...");
+	nimble_port_init();
 
-    // 保存当前回调，设置我们的回调
-    // 注意: esp_hidh_init 会直接覆盖 ble_hs_cfg.sync_cb 而不链式保存!
-    // 所以必须在 esp_hidh_init() 之后重新设置我们的回调
-    // (参考: ESP-IDF v5.5.2 中 esp_ble_hidh_init 无回调链机制)
-    ble_hs_cfg.reset_cb = myResetCb;
-    ble_hs_cfg.sync_cb = mySyncCb;
+	// 保存当前回调，设置我们的回调
+	// 注意: esp_hidh_init 会直接覆盖 ble_hs_cfg.sync_cb 而不链式保存!
+	// 所以必须在 esp_hidh_init() 之后重新设置我们的回调
+	// (参考: ESP-IDF v5.5.2 中 esp_ble_hidh_init 无回调链机制)
+	ble_hs_cfg.reset_cb = myResetCb;
+	ble_hs_cfg.sync_cb = mySyncCb;
 
-    ESP_LOGI(TAG, "Before esp_hidh_init: reset=%p sync=%p",
-             (void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
+	ESP_LOGI(TAG, "Before esp_hidh_init: reset=%p sync=%p",
+		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
 
-    // 初始化 HID Host
-    esp_hidh_config_t hidConfig = {
-        .callback = hidhCallback,
-        .event_stack_size = 4096,
-        .callback_arg = nullptr,
-    };
-    if (esp_hidh_init(&hidConfig) != ESP_OK) {
-        ESP_LOGE(TAG, "HID Host init failed");
-        return false;
-    }
+	// 初始化 HID Host
+	esp_hidh_config_t hidConfig = {
+		.callback = hidhCallback,
+		.event_stack_size = 4096,
+		.callback_arg = nullptr,
+	};
+	if (esp_hidh_init(&hidConfig) != ESP_OK) {
+		ESP_LOGE(TAG, "HID Host init failed");
+		return false;
+	}
 
-    // 诊断：确认 esp_hidh 覆盖了回调
-    ESP_LOGI(TAG, "After esp_hidh_init: reset=%p sync=%p",
-             (void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
+	// 诊断：确认 esp_hidh 覆盖了回调
+	ESP_LOGI(TAG, "After esp_hidh_init: reset=%p sync=%p",
+		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
 
-    // ★ 关键修复：esp_hidh 覆盖了我们的回调，现在重新设回来
-    ble_hs_cfg.reset_cb = myResetCb;
-    ble_hs_cfg.sync_cb = mySyncCb;
-    ESP_LOGI(TAG, "Our callbacks restored: reset=%p sync=%p",
-             (void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
+	// ★ 关键修复：esp_hidh 覆盖了我们的回调，现在重新设回来
+	ble_hs_cfg.reset_cb = myResetCb;
+	ble_hs_cfg.sync_cb = mySyncCb;
+	ESP_LOGI(TAG, "Our callbacks restored: reset=%p sync=%p",
+		(void*)ble_hs_cfg.reset_cb, (void*)ble_hs_cfg.sync_cb);
 
-    // 存储配置
-    ble_store_config_init();
-    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+	// 存储配置
+	ble_store_config_init();
+	ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-    // 创建输入事件队列
-    m_inputQueue = xQueueCreate(INPUT_QUEUE_LEN, sizeof(GamepadInputEvent));
-    if (!m_inputQueue) {
-        ESP_LOGE(TAG, "Failed to create input queue");
-        return false;
-    }
+	// 创建输入事件队列
+	m_inputQueue = xQueueCreate(INPUT_QUEUE_LEN, sizeof(GamepadInputEvent));
+	if (!m_inputQueue) {
+		ESP_LOGE(TAG, "Failed to create input queue");
+		return false;
+	}
 
-    // 创建输入处理任务
-    BaseType_t res = xTaskCreatePinnedToCore(
-        processTask, "bleGamepad", 4096, this, 5, &m_processTask,
-        tskNO_AFFINITY);
-    if (res != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create process task");
-        return false;
-    }
+	// 创建输入处理任务
+	BaseType_t res = xTaskCreatePinnedToCore(
+		processTask, "bleGamepad", 4096, this, 5, &m_processTask,
+		tskNO_AFFINITY);
+	if (res != pdPASS) {
+		ESP_LOGE(TAG, "Failed to create process task");
+		return false;
+	}
 
-    // 启动 NimBLE 任务
-    nimble_port_freertos_init(hostTask);
+	// 启动 NimBLE 任务
+	nimble_port_freertos_init(hostTask);
 
-    return true;
+	return true;
 }
 
 bool BleGamepad::start()
 {
-    if (m_running) return true;
+	if (m_running) return true;
 
-    s_instance = this;
+	s_instance = this;
 
-    if (!initEspHostedBt()) {
-        ESP_LOGE(TAG, "ESP HOSTED BT init failed");
-        return false;
-    }
+	if (!initEspHostedBt()) {
+		ESP_LOGE(TAG, "ESP HOSTED BT init failed");
+		return false;
+	}
 
-    if (!initNimbleAndHidHost()) {
-        ESP_LOGE(TAG, "NimBLE/HID Host init failed");
-        return false;
-    }
+	if (!initNimbleAndHidHost()) {
+		ESP_LOGE(TAG, "NimBLE/HID Host init failed");
+		return false;
+	}
 
-    m_running = true;
-    ESP_LOGI(TAG, "BleGamepad started");
-    return true;
+	m_running = true;
+	ESP_LOGI(TAG, "BleGamepad started");
+	return true;
 }
 
 void BleGamepad::stop()
 {
-    if (!m_running) return;
+	if (!m_running) return;
 
-    disconnectAll();
+	disconnectAll();
 
-    if (m_processTask) {
-        vTaskDelete(m_processTask);
-        m_processTask = nullptr;
-    }
-    if (m_inputQueue) {
-        vQueueDelete(m_inputQueue);
-        m_inputQueue = nullptr;
-    }
+	if (m_processTask) {
+		vTaskDelete(m_processTask);
+		m_processTask = nullptr;
+	}
+	if (m_inputQueue) {
+		vQueueDelete(m_inputQueue);
+		m_inputQueue = nullptr;
+	}
 
-    nimble_port_stop();
+	nimble_port_stop();
 
-    esp_hidh_deinit();
-    esp_hosted_bt_controller_disable();
-    esp_hosted_bt_controller_deinit(false);
+	esp_hidh_deinit();
+	esp_hosted_bt_controller_disable();
+	esp_hosted_bt_controller_deinit(false);
 
-    m_running = false;
-    s_instance = nullptr;
-    ESP_LOGI(TAG, "BleGamepad stopped");
+	m_running = false;
+	s_instance = nullptr;
+	ESP_LOGI(TAG, "BleGamepad stopped");
 }
 
 // ── 扫描 ──
 
 void BleGamepad::startScan()
 {
-    if (!m_running || m_scanning) return;
-    m_scanning = true;
+	if (!m_running || m_scanning) return;
+	m_scanning = true;
 
-    {
-        if (m_mutex.try_lock()) {
-            m_scanResults.clear();
-            m_mutex.unlock();
-        }
-    }
+	{
+		if (m_mutex.try_lock()) {
+			m_scanResults.clear();
+			m_mutex.unlock();
+		}
+	}
 
-    // 获取正确的地址类型
-    uint8_t own_addr_type;
-    int rc = ble_hs_id_infer_auto(0, &own_addr_type);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "ble_hs_id_infer_auto failed: %d", rc);
-        own_addr_type = BLE_OWN_ADDR_PUBLIC;
-    }
+	// 获取正确的地址类型
+	uint8_t own_addr_type;
+	int rc = ble_hs_id_infer_auto(0, &own_addr_type);
+	if (rc != 0) {
+		ESP_LOGE(TAG, "ble_hs_id_infer_auto failed: %d", rc);
+		own_addr_type = BLE_OWN_ADDR_PUBLIC;
+	}
 
-    struct ble_gap_disc_params params{};
-    params.filter_policy = 0;
-    params.passive = 1;
-    params.itvl = 0;
-    params.window = 0;
-    params.filter_duplicates = 1;  // 去重，减少刷屏
+	struct ble_gap_disc_params params{};
+	params.filter_policy = 0;
+	params.passive = 1;
+	params.itvl = 0;
+	params.window = 0;
+	params.filter_duplicates = 1;  // 去重，减少刷屏
 
-    rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
-    if (rc == 0) {
-        ESP_LOGI(TAG, "Scan started (own_addr_type=%d)", own_addr_type);
-    } else {
-        ESP_LOGE(TAG, "Scan start failed: %d (%s)", rc,
-                 rc == BLE_HS_EBUSY ? "BUSY" :
-                 rc == BLE_HS_ENOTSYNCED ? "NOT SYNCED" :
-                 rc == BLE_HS_EALREADY ? "ALREADY" : "OTHER");
-        m_scanning = false;
-    }
+	rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, bleGapEventCb, nullptr);
+	if (rc == 0) {
+		ESP_LOGI(TAG, "Scan started (own_addr_type=%d)", own_addr_type);
+	}
+	else {
+		ESP_LOGE(TAG, "Scan start failed: %d (%s)", rc,
+			rc == BLE_HS_EBUSY ? "BUSY" :
+			rc == BLE_HS_ENOTSYNCED ? "NOT SYNCED" :
+			rc == BLE_HS_EALREADY ? "ALREADY" : "OTHER");
+		m_scanning = false;
+	}
 }
 
 void BleGamepad::stopScan()
 {
-    if (!m_scanning) return;
-    m_scanning = false;
-    ble_gap_disc_cancel();
-    ESP_LOGI(TAG, "Scan stopped");
+	if (!m_scanning) return;
+	m_scanning = false;
+	ble_gap_disc_cancel();
+	ESP_LOGI(TAG, "Scan stopped");
 }
 
 // ── 连接管理 ──
 
 void BleGamepad::connect(uint8_t scanIndex)
 {
-    ScanDevice dev;
-    {
-        if (!m_mutex.try_lock()) return;
-        if (scanIndex >= m_scanResults.size()) {
-            m_mutex.unlock();
-            ESP_LOGE(TAG, "Invalid scan index %u", scanIndex);
-            return;
-        }
-        dev = m_scanResults[scanIndex];
-        m_mutex.unlock();
-    }
+	ScanDevice dev;
+	{
+		if (!m_mutex.try_lock()) return;
+		if (scanIndex >= m_scanResults.size()) {
+			m_mutex.unlock();
+			ESP_LOGE(TAG, "Invalid scan index %u", scanIndex);
+			return;
+		}
+		dev = m_scanResults[scanIndex];
+		m_mutex.unlock();
+	}
 
-    ESP_LOGI(TAG, "Connecting to %s [%02x:%02x:%02x:%02x:%02x:%02x] addr_type=%d...",
-             dev.name,
-             dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
-             dev.addrType);
+	ESP_LOGI(TAG, "Connecting to %s [%02x:%02x:%02x:%02x:%02x:%02x] addr_type=%d...",
+		dev.name,
+		dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
+		dev.addrType);
 
-    // 检查是否已连
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (m_devices[i].connected && memcmp(m_devices[i].bda, dev.bda, 6) == 0) {
-            ESP_LOGW(TAG, "Already connected to this device");
-            return;
-        }
-    }
+	// 检查是否已连
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (m_devices[i].connected && memcmp(m_devices[i].bda, dev.bda, 6) == 0) {
+			ESP_LOGW(TAG, "Already connected to this device");
+			return;
+		}
+	}
 
-    // 连接前停止扫描
-    stopScan();
-    connectDirect(dev);
+	// 连接前停止扫描
+	stopScan();
+	connectDirect(dev);
 }
 
 bool BleGamepad::connectDirect(const ScanDevice& dev)
 {
-    // 使用原始 NimBLE GAP 连接
-    ble_addr_t addr;
-    memcpy(addr.val, dev.bda, 6);
-    addr.type = dev.addrType;
+	// 使用原始 NimBLE GAP 连接
+	ble_addr_t addr;
+	memcpy(addr.val, dev.bda, 6);
+	addr.type = dev.addrType;
 
-    uint8_t own_addr_type;
-    ble_hs_id_infer_auto(0, &own_addr_type);
+	uint8_t own_addr_type;
+	ble_hs_id_infer_auto(0, &own_addr_type);
 
-    m_connHandle = BLE_HS_CONN_HANDLE_NONE;
+	m_connHandle = BLE_HS_CONN_HANDLE_NONE;
 
-    int rc = ble_gap_connect(own_addr_type, &addr, 30000, NULL,
-                             connectGapEvent, nullptr);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "ble_gap_connect failed: %d", rc);
-        startScan();
-        return false;
-    }
-    return true;
+	int rc = ble_gap_connect(own_addr_type, &addr, 30000, NULL,
+		connectGapEvent, nullptr);
+	if (rc != 0) {
+		ESP_LOGE(TAG, "ble_gap_connect failed: %d", rc);
+		startScan();
+		return false;
+	}
+	return true;
 }
 
 // 订阅 CCCD 写回调
 static int subWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
-                      struct ble_gatt_attr* attr, void* arg)
+	struct ble_gatt_attr* attr, void* arg)
 {
-    if (error->status == 0)
-        ESP_LOGI(TAG, "    -> Subscribed! Ready for HID input.");
-    else
-        ESP_LOGE(TAG, "    -> Subscribe failed: %d", error->status);
-    return 0;
+	if (error->status == 0)
+		ESP_LOGI(TAG, "    -> Subscribed! Ready for HID input.");
+	else
+		ESP_LOGE(TAG, "    -> Subscribe failed: %d", error->status);
+	return 0;
 }
 
 // HID 服务特征发现回调
 static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
-                        const struct ble_gatt_chr* chr, void* arg)
+	const struct ble_gatt_chr* chr, void* arg)
 {
-    if (error->status == 0 && chr) {
-        uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
-        ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
-                 chr->val_handle, uuid, chr->properties);
+	if (error->status == 0 && chr) {
+		uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
+		ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
+			chr->val_handle, uuid, chr->properties);
 
-        // HID Input Report (0x2A4D) — 订阅通知
-        if (uuid == 0x2A4D && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
-            ESP_LOGI(TAG, "    -> HID Input Report! Subscribing at handle %u...", chr->val_handle + 1);
-            uint8_t val[] = {0x01, 0x00};
-            ble_gattc_write_flat(conn_handle, chr->val_handle + 1, val, sizeof(val),
-                                 subWriteCb, nullptr);
-        }
-    } else if (error->status == BLE_HS_EDONE) {
-        ESP_LOGI(TAG, "  HID characteristic discovery complete");
-    } else if (error->status != 0) {
-        ESP_LOGE(TAG, "  HID char discovery error: %d", error->status);
-    }
-    return 0;
+		// HID Input Report (0x2A4D) — 订阅通知
+		if (uuid == 0x2A4D && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
+			ESP_LOGI(TAG, "    -> HID Input Report! Subscribing at handle %u...", chr->val_handle + 1);
+			uint8_t val[] = { 0x01, 0x00 };
+			ble_gattc_write_flat(conn_handle, chr->val_handle + 1, val, sizeof(val),
+				subWriteCb, nullptr);
+		}
+	}
+	else if (error->status == BLE_HS_EDONE) {
+		ESP_LOGI(TAG, "  HID characteristic discovery complete");
+	}
+	else if (error->status != 0) {
+		ESP_LOGE(TAG, "  HID char discovery error: %d", error->status);
+	}
+	return 0;
 }
 
 // 服务发现回调
 struct DiscoveredService {
-    uint16_t start, end, uuid;
+	uint16_t start, end, uuid;
 };
 static DiscoveredService s_svcList[20];
 static int s_svcCount = 0;
 
 static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
-                     const struct ble_gatt_svc* service, void* arg)
+	const struct ble_gatt_svc* service, void* arg)
 {
-    if (error->status == 0 && service) {
-        uint16_t uuid = ble_uuid_u16(&service->uuid.u);
-        ESP_LOGI(TAG, "  Service: start=%u end=%u uuid=0x%04x",
-                 service->start_handle, service->end_handle, uuid);
-        if (s_svcCount < 20) {
-            s_svcList[s_svcCount++] = { service->start_handle, service->end_handle, uuid };
-        }
-    } else if (error->status == BLE_HS_EDONE) {
-        ESP_LOGI(TAG, "  Service discovery complete");
+	if (error->status == 0 && service) {
+		uint16_t uuid = ble_uuid_u16(&service->uuid.u);
+		ESP_LOGI(TAG, "  Service: start=%u end=%u uuid=0x%04x",
+			service->start_handle, service->end_handle, uuid);
+		if (s_svcCount < 20) {
+			s_svcList[s_svcCount++] = { service->start_handle, service->end_handle, uuid };
+		}
+	}
+	else if (error->status == BLE_HS_EDONE) {
+		ESP_LOGI(TAG, "  Service discovery complete");
 
-        // 找到 HID 服务 (0x1812)，发现其特征
-        for (int i = 0; i < s_svcCount; i++) {
-            if (s_svcList[i].uuid == 0x1812) {
-                ESP_LOGI(TAG, "  -> Discovering HID service characteristics...");
-                ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
-                                        hidChrDiscCb, nullptr);
-                break;
-            }
-        }
-    } else if (error->status != 0) {
-        ESP_LOGE(TAG, "  Service discovery error: %d", error->status);
-    }
-    return 0;
+		// 找到 HID 服务 (0x1812)，发现其特征
+		for (int i = 0; i < s_svcCount; i++) {
+			if (s_svcList[i].uuid == 0x1812) {
+				ESP_LOGI(TAG, "  -> Discovering HID service characteristics...");
+				ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
+					hidChrDiscCb, nullptr);
+				break;
+			}
+		}
+	}
+	else if (error->status != 0) {
+		ESP_LOGE(TAG, "  Service discovery error: %d", error->status);
+	}
+	return 0;
 }
 
 int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 {
-    auto& self = instance();
-    switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT: {
-        if (event->connect.status != 0) {
-            ESP_LOGE(TAG, "Connect failed: %d", event->connect.status);
-            self.startScan();
-            return 0;
-        }
-        self.m_connHandle = event->connect.conn_handle;
+	auto& self = instance();
+	switch (event->type) {
+	case BLE_GAP_EVENT_CONNECT:
+	{
+		if (event->connect.status != 0) {
+			ESP_LOGE(TAG, "Connect failed: %d", event->connect.status);
+			self.startScan();
+			return 0;
+		}
+		self.m_connHandle = event->connect.conn_handle;
 
-        // 通过 conn_handle 获取连接描述符，得到对端地址
-        struct ble_gap_conn_desc desc;
-        if (ble_gap_conn_find(self.m_connHandle, &desc) == 0) {
-            ESP_LOGI(TAG, "Connected! handle=%d peer=%02x:%02x:%02x:%02x:%02x:%02x",
-                     self.m_connHandle,
-                     desc.peer_id_addr.val[0], desc.peer_id_addr.val[1],
-                     desc.peer_id_addr.val[2], desc.peer_id_addr.val[3],
-                     desc.peer_id_addr.val[4], desc.peer_id_addr.val[5]);
-        }
+		// 通过 conn_handle 获取连接描述符，得到对端地址
+		struct ble_gap_conn_desc desc;
+		if (ble_gap_conn_find(self.m_connHandle, &desc) == 0) {
+			ESP_LOGI(TAG, "Connected! handle=%d peer=%02x:%02x:%02x:%02x:%02x:%02x",
+				self.m_connHandle,
+				desc.peer_id_addr.val[0], desc.peer_id_addr.val[1],
+				desc.peer_id_addr.val[2], desc.peer_id_addr.val[3],
+				desc.peer_id_addr.val[4], desc.peer_id_addr.val[5]);
+			// 分配 playerId 并记录设备
+			int pid = self.allocPlayerId();
+			if (pid >= 0) {
+				auto& ctx = self.m_devices[pid];
+				ctx.playerId = pid;
+				ctx.connected = true;
+				ctx.dev = nullptr; // 非 esp_hidh 连接
+				memcpy(ctx.bda, desc.peer_id_addr.val, 6);
+				ctx.name[0] = '\0'; // 可从扫描结果中获取
+				ESP_LOGI(TAG, "Direct connect: assigned playerId=%d", pid);
+			}
+		}
 
-        // 发现所有服务并打印
-        int rc = ble_gattc_disc_all_svcs(self.m_connHandle, svcDiscCb, nullptr);
-        if (rc != 0) {
-            ESP_LOGE(TAG, "Failed to start service discovery: %d", rc);
-        }
-        break;
-    }
-    case BLE_GAP_EVENT_DISCONNECT: {
-        ESP_LOGI(TAG, "Disconnected: reason=%d", event->disconnect.reason);
-        self.m_connHandle = BLE_HS_CONN_HANDLE_NONE;
-        // 检查是否是通过 esp_hidh 连接的设备
-        bool hasHidDev = false;
-        for (int i = 0; i < MAX_PLAYERS; i++) {
-            if (self.m_devices[i].connected && self.m_devices[i].dev) hasHidDev = true;
-        }
-        if (!hasHidDev) self.startScan();
-        break;
-    }
-    case BLE_GAP_EVENT_NOTIFY_RX: {
-        // 手柄发来的 HID 输入报告 — 将 mbuf 链拷贝到平坦缓冲区
-        const struct os_mbuf* om = event->notify_rx.om;
-        uint16_t total = OS_MBUF_PKTLEN(om);
-        uint8_t report[64];
-        uint16_t len = total > sizeof(report) ? sizeof(report) : total;
-        ble_hs_mbuf_to_flat(om, report, len, NULL);
-        ESP_LOGI(TAG, "HID report: len=%u", len);
-        ESP_LOG_BUFFER_HEX(TAG, report, len);
-        break;
-    }
-    default:
-        break;
-    }
-    return 0;
+		// 发现所有服务并打印
+		int rc = ble_gattc_disc_all_svcs(self.m_connHandle, svcDiscCb, nullptr);
+		if (rc != 0) {
+			ESP_LOGE(TAG, "Failed to start service discovery: %d", rc);
+		}
+		break;
+	}
+	case BLE_GAP_EVENT_DISCONNECT:
+	{
+		ESP_LOGI(TAG, "Disconnected: reason=%d", event->disconnect.reason);
+		// 清理对应的设备上下文
+		for (int i = 0; i < MAX_PLAYERS; i++) {
+			if (self.m_devices[i].connected && !self.m_devices[i].dev
+				&& ble_gap_conn_find(self.m_connHandle, nullptr) != 0) {
+				ESP_LOGI(TAG, "Clearing direct-connect device playerId=%d", i);
+				self.m_devices[i] = {};
+			}
+		}
+		self.m_connHandle = BLE_HS_CONN_HANDLE_NONE;
+		self.startScan();
+		break;
+	}
+	case BLE_GAP_EVENT_NOTIFY_RX:
+	{
+		// 手柄发来的 4 字节 HID 输入报告
+		const struct os_mbuf* om = event->notify_rx.om;
+		uint16_t total = OS_MBUF_PKTLEN(om);
+		if (total < 4)
+		{
+			ESP_LOGW(TAG, "Received too short HID input report (%d bytes)", total);
+			break; // 至少 4 字节
+		}
+		uint8_t report[64];
+		uint16_t len = total > sizeof(report) ? sizeof(report) : total;
+		ble_hs_mbuf_to_flat(om, report, len, NULL);
+
+		// 解析 4 字节 HID 报告 → GamepadState
+		// 格式: [buttons:u16][x:int8][y:int8]
+		GamepadState state{};
+		state.buttons = report[0] | (uint16_t(report[1]) << 8);
+		// int8 → uint8 (偏移128, 使中心=128)
+		state.lx = (uint8_t)((int8_t)report[2] + 128);
+		state.ly = (uint8_t)((int8_t)report[3] + 128);
+
+		ESP_LOGI(TAG, "GAP Notify: btn=0x%04x lx=%d ly=%d",
+			state.buttons, state.lx, state.ly);
+
+		// 找到对应的 playerId
+		int pid = -1;
+		for (int i = 0; i < MAX_PLAYERS; i++) {
+			if (self.m_devices[i].connected && !self.m_devices[i].dev) {
+				pid = i;
+				break;
+			}
+		}
+		if (pid < 0) break;
+
+		// 入队
+		GamepadInputEvent evt{ (uint8_t)pid, state };
+		if (self.m_inputQueue) {
+			xQueueSend(self.m_inputQueue, &evt, 0);
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	return 0;
 }
 
 void BleGamepad::disconnect(uint8_t playerId)
 {
-    if (playerId >= MAX_PLAYERS) return;
-    auto& ctx = m_devices[playerId];
-    if (!ctx.connected || !ctx.dev) return;
+	if (playerId >= MAX_PLAYERS) return;
+	auto& ctx = m_devices[playerId];
+	if (!ctx.connected || !ctx.dev) return;
 
-    ESP_LOGI(TAG, "Disconnecting player %d", playerId);
-    esp_hidh_dev_close(static_cast<esp_hidh_dev_t*>(ctx.dev));
+	ESP_LOGI(TAG, "Disconnecting player %d", playerId);
+	esp_hidh_dev_close(static_cast<esp_hidh_dev_t*>(ctx.dev));
 }
 
 void BleGamepad::disconnectAll()
 {
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (m_devices[i].connected) disconnect(i);
-    }
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (m_devices[i].connected) disconnect(i);
+	}
 }
 
 // ── 查询 ──
 
 uint8_t BleGamepad::connectedCount() const
 {
-    uint8_t count = 0;
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (m_devices[i].connected) count++;
-    }
-    return count;
+	uint8_t count = 0;
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (m_devices[i].connected) count++;
+	}
+	return count;
 }
 
 const DeviceContext* BleGamepad::getDevice(uint8_t playerId) const
 {
-    if (playerId >= MAX_PLAYERS) return nullptr;
-    return &m_devices[playerId];
+	if (playerId >= MAX_PLAYERS) return nullptr;
+	return &m_devices[playerId];
 }
 
 std::vector<ScanDevice> BleGamepad::getScannedDevices() const
 {
-    std::vector<ScanDevice> ret;
-    if (m_mutex.try_lock()) {
-        ret = m_scanResults;
-        m_mutex.unlock();
-    }
-    return ret;
+	std::vector<ScanDevice> ret;
+	if (m_mutex.try_lock()) {
+		ret = m_scanResults;
+		m_mutex.unlock();
+	}
+	return ret;
 }
 
 // ── 内部 ──
 
 int BleGamepad::allocPlayerId()
 {
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (!m_devices[i].connected) return i;
-    }
-    return -1;
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (!m_devices[i].connected) return i;
+	}
+	return -1;
 }
 
 int BleGamepad::playerIdByDev(void* dev) const
 {
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (m_devices[i].connected && m_devices[i].dev == dev) return i;
-    }
-    return -1;
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (m_devices[i].connected && m_devices[i].dev == dev) return i;
+	}
+	return -1;
 }
