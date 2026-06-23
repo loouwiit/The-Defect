@@ -153,7 +153,7 @@ void BleGamepad::processTask(void* arg)
 	while (true) {
 		if (xQueueReceive(self.m_inputQueue, &evt, portMAX_DELAY) == pdTRUE) {
 			// 更新设备状态
-			if (evt.playerId < MAX_PLAYERS) {
+			if (evt.playerId < MaxPlayers) {
 				auto& ctx = self.m_devices[evt.playerId];
 				ctx.state = evt.state;
 				// 状态变化日志（调试用）
@@ -352,7 +352,7 @@ void BleGamepad::connect(uint8_t scanIndex)
 		dev.addrType);
 
 	// 检查是否已连
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MaxPlayers; i++) {
 		if (m_devices[i].connected && memcmp(m_devices[i].bda, dev.bda, 6) == 0) {
 			ESP_LOGW(TAG, "Already connected to this device");
 			return;
@@ -511,7 +511,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		uint16_t handle = event->disconnect.conn.conn_handle;
 		ESP_LOGI(TAG, "Disconnected: handle=%d, reason=%d", handle, event->disconnect.reason);
 		// 精确匹配 conn_handle 清理设备上下文
-		for (int i = 0; i < MAX_PLAYERS; i++) {
+		for (int i = 0; i < MaxPlayers; i++) {
 			if (self.m_devices[i].connected && self.m_devices[i].connHandle == handle) {
 				ESP_LOGI(TAG, "Clearing device playerId=%d", i);
 				self.m_devices[i] = {};
@@ -545,7 +545,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 
 		// 找到对应的 playerId
 		int pid = -1;
-		for (int i = 0; i < MAX_PLAYERS; i++) {
+		for (int i = 0; i < MaxPlayers; i++) {
 			if (self.m_devices[i].connected && self.m_devices[i].connHandle == event->notify_rx.conn_handle) {
 				pid = i;
 				break;
@@ -568,7 +568,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 
 void BleGamepad::disconnect(uint8_t playerId)
 {
-	if (playerId >= MAX_PLAYERS) return;
+	if (playerId >= MaxPlayers) return;
 	auto& ctx = m_devices[playerId];
 	if (!ctx.connected || ctx.connHandle == BLE_HS_CONN_HANDLE_NONE) return;
 
@@ -578,7 +578,7 @@ void BleGamepad::disconnect(uint8_t playerId)
 
 void BleGamepad::disconnectAll()
 {
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MaxPlayers; i++) {
 		if (m_devices[i].connected) disconnect(i);
 	}
 }
@@ -588,7 +588,7 @@ void BleGamepad::disconnectAll()
 uint8_t BleGamepad::connectedCount() const
 {
 	uint8_t count = 0;
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MaxPlayers; i++) {
 		if (m_devices[i].connected) count++;
 	}
 	return count;
@@ -596,7 +596,7 @@ uint8_t BleGamepad::connectedCount() const
 
 const DeviceContext* BleGamepad::getDevice(uint8_t playerId) const
 {
-	if (playerId >= MAX_PLAYERS) return nullptr;
+	if (playerId >= MaxPlayers) return nullptr;
 	return &m_devices[playerId];
 }
 
@@ -614,7 +614,7 @@ std::vector<ScanDevice> BleGamepad::getScannedDevices() const
 
 int BleGamepad::allocPlayerId()
 {
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MaxPlayers; i++) {
 		if (!m_devices[i].connected) return i;
 	}
 	return -1;
@@ -622,7 +622,7 @@ int BleGamepad::allocPlayerId()
 
 int BleGamepad::playerIdByConnHandle(uint16_t handle) const
 {
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MaxPlayers; i++) {
 		if (m_devices[i].connected && m_devices[i].connHandle == handle) return i;
 	}
 	return -1;

@@ -62,7 +62,7 @@ private:
 
     // 内部状态
     Display* m_display{};
-    DeviceContext m_devices[MAX_PLAYERS]{};
+    DeviceContext m_devices[MaxPlayers]{};
     std::vector<ScanDevice> m_scanResults;
     mutable Mutex m_mutex;
 
