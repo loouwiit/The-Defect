@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include "esp_lv_adapter.h"
-#include "app/app.hpp"
+
+class App;
+class AppStackManager;
 
 /**
  * @brief
@@ -27,6 +29,9 @@ public:
 	void setFpsStatisticsEnabled(bool enable = true) const;
 	uint32_t getFps() const;
 	void applyApp(App* app) const;
+
+	void setStackManager(AppStackManager* manager) { m_stackManager = manager; }
+	AppStackManager* getStackManager() const { return m_stackManager; }
 
 	bool lock(int32_t timeout_ms = -1) const
 	{
@@ -75,4 +80,5 @@ public:
 private:
 	lv_display_t* lv_disp = nullptr;
 	mutable App* activeApp{};
+	AppStackManager* m_stackManager{};
 };

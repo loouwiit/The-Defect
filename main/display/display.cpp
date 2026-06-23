@@ -1,4 +1,5 @@
 #include "display.hpp"
+#include "app/app.hpp"
 #include "lvgl.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -85,6 +86,13 @@ uint32_t Display::getFps() const
 
 void Display::applyApp(App* app) const
 {
-	lv_screen_load(app->screen);
-	activeApp = app;
+	if (auto guard = lockGuard())
+	{
+		lv_screen_load(app->screen);
+		activeApp = app;
+	}
+	else
+	{
+		ESP_LOGE(TAG, "applyApp: failed to lock display");
+	}
 }

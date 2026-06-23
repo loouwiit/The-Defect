@@ -21,6 +21,7 @@
 #include "storage/mem.hpp"
 #include "storage/sd.hpp"
 
+#include "app/appStackManager.hpp"
 #include "app/desktopApp/desktopApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
@@ -142,14 +143,14 @@ extern "C" void app_main(void)
 		vTaskDelay(10 * 1000);
 	}
 
-	// 启动桌面应用
-	DesktopApp* app = new DesktopApp{ &display };
-	app->init();
-	if (auto guard = display.lockGuard())
-	{
-		// 应用(v.) 应用(n.) 到屏幕
-		display.applyApp(app);
-	}
+	// 启动 AppStackManager — 多栈导航系统
+	AppStackManager stackManager(&display);
+	display.setStackManager(&stackManager);
+
+	// 创建根栈（索引 0）并推入桌面应用
+	stackManager.createStack();
+	DesktopApp* desktop = new DesktopApp{ &display };
+	stackManager.push(desktop);
 
 	// wifi
 	nvsInit();
@@ -234,10 +235,7 @@ extern "C" void app_main(void)
 			return 1;
 		}, "bleAutoConnect", new size_t{ 0 }, 3000, Task::Affinity::None); // 延迟300ms
 
-	// 保持栈上变量，后续移除
+	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
 	while (true)
 		vTaskDelay(1000);
-
-	// cleanup (unreachable in this example, but good practice)
-	delete std::exchange(app, nullptr);
 }

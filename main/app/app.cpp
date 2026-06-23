@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "display/font.hpp"
+#include "app/appStackManager.hpp"
 
 App::App(Display* display) :
 	display{ display },
@@ -16,8 +17,39 @@ App::~App()
 	if (running)
 		deinit();
 
-	while (deletable)
+	while (!deletable)
 		vTaskDelay(10);
 
 	lv_obj_delete(screen);
+}
+
+// ── 便利方法（委托给 AppStackManager） ──
+
+void App::pushApp(App* app)
+{
+	if (m_manager)
+		m_manager->push(app);
+	else
+		ESP_LOGE(TAG, "pushApp: no manager set");
+}
+
+void App::popApp()
+{
+	if (m_manager)
+		m_manager->pop();
+	else
+		ESP_LOGE(TAG, "popApp: no manager set");
+}
+
+void App::replaceWith(App* app)
+{
+	if (m_manager)
+		m_manager->replace(app);
+	else
+		ESP_LOGE(TAG, "replaceWith: no manager set");
+}
+
+void App::setManager(AppStackManager* manager)
+{
+	m_manager = manager;
 }

@@ -1,20 +1,27 @@
 #include "app/app.hpp"
-#include "task/task.hpp"
+#include <cstdint>
 
 class TestApp : public App
 {
 public:
 	constexpr static char TAG[] = "TestApp";
 
-	TestApp(Display* display);
+	/** @param display  Display 指针
+	 *  @param value     显示在标签上的随机值，由父 app 传入 */
+	TestApp(Display* display, uint32_t value);
 	virtual ~TestApp();
 
 	virtual void init() override;
 	virtual void deinit() override;
 
-private:
-	lv_obj_t* fps{};
-	Thread thread{};
+	virtual void onForeground() override;
 
-	static void backgroundMain(void* param);
+	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+
+private:
+	uint32_t m_value{};
+	lv_obj_t* m_label{};
+	lv_obj_t* m_hint{};
+
+	TickType_t NextAppChangeTime{};
 };

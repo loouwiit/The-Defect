@@ -1,6 +1,9 @@
 #include "desktopApp.hpp"
 #include "app/desktopApp/gui.hpp"
+#include "app/appStackManager.hpp"
+#include "app/testApp/testApp.hpp"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "display/font.hpp"
@@ -121,12 +124,22 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
 	ESP_LOGI(TAG, "player %d input: buttons=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
 		playerId, state.buttons, state.lx, state.ly, state.rx, state.ry, state.dpad);
+
 	if (state.isPressed(GamepadButton::BTN_A))
+	{
 		ESP_LOGI(TAG, "Player %d pressed A", playerId);
+	}
 	if (state.isPressed(GamepadButton::BTN_B))
-		ESP_LOGI(TAG, "Player %d pressed B", playerId);
+	{
+		ESP_LOGI(TAG, "Player %d pressed B — pop", playerId);
+		// B 键 → 退出当前 app
+		if (m_manager)
+			m_manager->pop();
+	}
 	if (state.isPressed(GamepadButton::BTN_L3))
+	{
 		ESP_LOGI(TAG, "Player %d pressed L3", playerId);
+	}
 }
 
 void DesktopApp::update_selection()
@@ -216,6 +229,17 @@ void DesktopApp::btn_prev_cb(lv_event_t* e)
 
 void DesktopApp::btn_start_cb(lv_event_t* e)
 {
-	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[app->selected_index]);
+	auto self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[self->selected_index]);
+
+	// 使用 pushToNewStack 为游戏创建独立调用栈
+	if (self->m_manager)
+	{
+		auto* testApp = new TestApp(self->display, esp_random());
+		self->m_manager->pushToNewStack(testApp);
+	}
+	else
+	{
+		ESP_LOGE(TAG, "btn_start_cb: no manager set");
+	}
 }
