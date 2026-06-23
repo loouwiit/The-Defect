@@ -48,6 +48,8 @@ void TestApp::init()
 
 void TestApp::deinit()
 {
+	ESP_LOGI(TAG, "TestApp deinit (value=%lu)", m_value);
+	vTaskDelay(3000);
 	App::deinit();
 }
 

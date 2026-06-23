@@ -125,14 +125,20 @@ void AppStackManager::pop()
 		return;
 	}
 
-	m_activeStack->pop();
+	// pop 返回 orphan 表示栈空了需要调用方处理删除
+	App* orphan = m_activeStack->pop();
 
 	// 如果 active 栈已空，且不是根栈 → 自动切回根栈
-	// 空栈不销毁（有 pendingDeletion 的异步 Task 在跑），留到 ~AppStackManager 统一清理
 	if (m_activeStack->isEmpty() && m_stacks.size() > 1 && m_activeStack != m_stacks[0])
 	{
 		ESP_LOGI(TAG, "pop: active stack empty, switching to root stack");
+
+		// 先切屏（加载 DesktopApp screen），再异步删 orphan
 		switchToStack(m_stacks[0]);
+		if (orphan)
+			AppStack::scheduleDeletion(orphan);
+
+		// 空栈不销毁 — Task 还在异步处理 pendingDeletion，留到 ~AppStackManager 统一清理
 	}
 }
 

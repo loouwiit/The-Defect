@@ -30,20 +30,20 @@ private:
 	AppStack(Display* display, AppStackManager* manager);
 	~AppStack();
 
-	// ── 栈操作（由 AppStackManager 调用，外部已持锁） ──
+	// ── 栈操作（由 AppStackManager 调用） ──
 	void push(App* app);
-	void pop();
+	/** @brief 弹出栈顶
+	 *  @return 当栈变空时返回旧 app（调用方须先切屏再调 scheduleDeletion），否则已内部处理并返回 nullptr */
+	App* pop();
 	void replace(App* app);
 
 	// ── 内部 ──
-	void transitionTo(App* app);                 // 加载 screen + 生命周期
-	void scheduleDeletion(App* app);             // 异步删除旧 app
+	static void scheduleDeletion(App* app);      // 独立 Task：deinit → 等 deletable → lockGuard → delete
 
 	Display* m_display;
 	AppStackManager* m_manager;
 
 	std::vector<App*> m_stack;
-	std::vector<App*> m_pendingDeletion;         // 等待异步删除的旧 app
 
 	static constexpr char TAG[] = "AppStack";
 };
