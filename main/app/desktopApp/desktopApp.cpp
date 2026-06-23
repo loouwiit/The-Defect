@@ -123,7 +123,7 @@ void DesktopApp::deinit()
 void DesktopApp::onForeground()
 {
 	nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
-	nextMoveTime = 0;
+	for (auto& i : nextMoveTime) i = 0;
 }
 
 void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
@@ -140,23 +140,23 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 	if (state.lx < joyStickMoveLeft)
 	{
-		if (nextMoveTime < xTaskGetTickCount())
+		if (nextMoveTime[playerId] < xTaskGetTickCount())
 		{
-			nextMoveTime = xTaskGetTickCount() + (nextMoveTime == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
+			nextMoveTime[playerId] = xTaskGetTickCount() + (nextMoveTime[playerId] == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
 			auto guard = display->lockGuard();
 			previous();
 		}
 	}
 	else if (state.lx > joyStickMoveRight)
 	{
-		if (nextMoveTime < xTaskGetTickCount())
+		if (nextMoveTime[playerId] < xTaskGetTickCount())
 		{
-			nextMoveTime = xTaskGetTickCount() + (nextMoveTime == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
+			nextMoveTime[playerId] = xTaskGetTickCount() + (nextMoveTime[playerId] == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
 			auto guard = display->lockGuard();
 			next();
 		}
 	}
-	else nextMoveTime = 0; // 摇杆归位，随时进行下一次移动
+	else nextMoveTime[playerId] = 0; // 摇杆归位，随时进行下一次移动
 }
 
 void DesktopApp::update_selection()

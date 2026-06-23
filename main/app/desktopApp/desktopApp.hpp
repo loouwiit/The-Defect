@@ -57,6 +57,6 @@ private:
 	constexpr static TickType_t joyStickMoveTimeFirst = 250;
 	constexpr static TickType_t joyStickMoveTime = 100;
 
-	TickType_t nextMoveTime{};
+	TickType_t nextMoveTime[MaxPlayers]{};
 	TickType_t nextAppChangeTime{};
 };
