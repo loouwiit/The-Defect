@@ -54,7 +54,8 @@ private:
 	constexpr static unsigned char joyStickMiddle = 127;
 	constexpr static unsigned char joyStickMoveLeft = joyStickMiddle - joyStickDeadZone;
 	constexpr static unsigned char joyStickMoveRight = joyStickMiddle + joyStickDeadZone;
-	constexpr static TickType_t joyStickMoveTime = 200;
+	constexpr static TickType_t joyStickMoveTimeFirst = 250;
+	constexpr static TickType_t joyStickMoveTime = 100;
 
 	TickType_t nextMoveTime{};
 	TickType_t nextAppChangeTime{};

@@ -128,9 +128,6 @@ void DesktopApp::onForeground()
 
 void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-	ESP_LOGI(TAG, "player %d input: buttons=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
-		playerId, state.buttons, state.lx, state.ly, state.rx, state.ry, state.dpad);
-
 	if (state.isPressed(GamepadButton::BTN_L3))
 	{
 		if (nextAppChangeTime < xTaskGetTickCount())
@@ -140,11 +137,12 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			auto guard = display->lockGuard();
 		}
 	}
+
 	if (state.lx < joyStickMoveLeft)
 	{
 		if (nextMoveTime < xTaskGetTickCount())
 		{
-			nextMoveTime = xTaskGetTickCount() + joyStickMoveTime;
+			nextMoveTime = xTaskGetTickCount() + (nextMoveTime == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
 			auto guard = display->lockGuard();
 			previous();
 		}
@@ -153,7 +151,7 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	{
 		if (nextMoveTime < xTaskGetTickCount())
 		{
-			nextMoveTime = xTaskGetTickCount() + joyStickMoveTime;
+			nextMoveTime = xTaskGetTickCount() + (nextMoveTime == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
 			auto guard = display->lockGuard();
 			next();
 		}
