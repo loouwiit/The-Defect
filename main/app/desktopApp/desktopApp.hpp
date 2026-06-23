@@ -3,7 +3,7 @@
 #include "app/app.hpp"
 #include <cstdint>
 
-class DesktopApp final: public App
+class DesktopApp final : public App
 {
 public:
 	constexpr static char TAG[] = "DesktopApp";
@@ -13,7 +13,9 @@ public:
 
 	void init() override;
 	void deinit() override;
-	
+
+	void onForeground() override;
+
 	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
 
 private:
@@ -43,4 +45,17 @@ private:
 	static void btn_next_cb(lv_event_t* e);
 	static void btn_prev_cb(lv_event_t* e);
 	static void btn_start_cb(lv_event_t* e);
+
+	void next();
+	void previous();
+	void start();
+
+	constexpr static unsigned char joyStickDeadZone = 50;
+	constexpr static unsigned char joyStickMiddle = 127;
+	constexpr static unsigned char joyStickMoveLeft = joyStickMiddle - joyStickDeadZone;
+	constexpr static unsigned char joyStickMoveRight = joyStickMiddle + joyStickDeadZone;
+	constexpr static TickType_t joyStickMoveTime = 200;
+
+	TickType_t nextMoveTime{};
+	TickType_t nextAppChangeTime{};
 };

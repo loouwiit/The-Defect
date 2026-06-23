@@ -120,26 +120,45 @@ void DesktopApp::deinit()
 	App::deinit();
 }
 
+void DesktopApp::onForeground()
+{
+	nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
+	nextMoveTime = 0;
+}
+
 void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
 	ESP_LOGI(TAG, "player %d input: buttons=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
 		playerId, state.buttons, state.lx, state.ly, state.rx, state.ry, state.dpad);
 
-	if (state.isPressed(GamepadButton::BTN_A))
-	{
-		ESP_LOGI(TAG, "Player %d pressed A", playerId);
-	}
-	if (state.isPressed(GamepadButton::BTN_B))
-	{
-		ESP_LOGI(TAG, "Player %d pressed B — pop", playerId);
-		// B 键 → 退出当前 app
-		if (m_manager)
-			m_manager->pop();
-	}
 	if (state.isPressed(GamepadButton::BTN_L3))
 	{
-		ESP_LOGI(TAG, "Player %d pressed L3", playerId);
+		if (nextAppChangeTime < xTaskGetTickCount())
+		{
+			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
+			start();
+			auto guard = display->lockGuard();
+		}
 	}
+	if (state.lx < joyStickMoveLeft)
+	{
+		if (nextMoveTime < xTaskGetTickCount())
+		{
+			nextMoveTime = xTaskGetTickCount() + joyStickMoveTime;
+			auto guard = display->lockGuard();
+			previous();
+		}
+	}
+	else if (state.lx > joyStickMoveRight)
+	{
+		if (nextMoveTime < xTaskGetTickCount())
+		{
+			nextMoveTime = xTaskGetTickCount() + joyStickMoveTime;
+			auto guard = display->lockGuard();
+			next();
+		}
+	}
+	else nextMoveTime = 0; // 摇杆归位，随时进行下一次移动
 }
 
 void DesktopApp::update_selection()
@@ -213,30 +232,45 @@ void DesktopApp::create_status_bar()
 
 void DesktopApp::btn_next_cb(lv_event_t* e)
 {
-	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	app->selected_index = (app->selected_index + 1) % GAME_COUNT;
-	app->update_selection();
-	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
+	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self.next();
 }
 
 void DesktopApp::btn_prev_cb(lv_event_t* e)
 {
-	auto app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	app->selected_index = (app->selected_index - 1 + GAME_COUNT) % GAME_COUNT;
-	app->update_selection();
-	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[app->selected_index], app->selected_index);
+	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self.previous();
 }
 
 void DesktopApp::btn_start_cb(lv_event_t* e)
 {
-	auto self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[self->selected_index]);
+	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self.start();
+}
+
+void DesktopApp::next()
+{
+	selected_index = (selected_index + 1) % GAME_COUNT;
+	update_selection();
+	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
+}
+
+void DesktopApp::previous()
+{
+	selected_index = (selected_index - 1 + GAME_COUNT) % GAME_COUNT;
+	update_selection();
+	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
+}
+
+void DesktopApp::start()
+{
+	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[selected_index]);
 
 	// 使用 pushToNewStack 为游戏创建独立调用栈
-	if (self->m_manager)
+	if (m_manager)
 	{
-		auto* testApp = new TestApp(self->display, esp_random());
-		self->m_manager->pushToNewStack(testApp);
+		auto* testApp = new TestApp(display, esp_random());
+		m_manager->pushToNewStack(testApp);
 	}
 	else
 	{
