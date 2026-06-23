@@ -23,5 +23,5 @@ private:
 	lv_obj_t* m_label{};
 	lv_obj_t* m_hint{};
 
-	TickType_t NextAppChangeTime{};
+	TickType_t nextAppChangeTime{};
 };

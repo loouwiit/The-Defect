@@ -55,7 +55,7 @@ void TestApp::deinit()
 
 void TestApp::onForeground()
 {
-	NextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
+	nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -66,22 +66,22 @@ void TestApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
 	if (state.isPressed(GamepadButton::BTN_A))
 	{
-		if (NextAppChangeTime < xTaskGetTickCount())
+		if (nextAppChangeTime < xTaskGetTickCount())
 		{
 			ESP_LOGI(TAG, "A pressed — push new layer");
 			pushApp(new TestApp(display, esp_random()));
-			NextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
+			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
 		}
 		else ESP_LOGW(TAG, "push too fast, ignoring");
 	}
 
 	if (state.isPressed(GamepadButton::BTN_L3))
 	{
-		if (NextAppChangeTime < xTaskGetTickCount())
+		if (nextAppChangeTime < xTaskGetTickCount())
 		{
 			ESP_LOGI(TAG, "BTN_L3 pressed — pop");
 			popApp();
-			NextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
+			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
 		}
 		else ESP_LOGW(TAG, "pop too fast, ignoring");
 	}
