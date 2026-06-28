@@ -864,17 +864,32 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (lyDown)
 		{
 			auto g = display->lockGuard();
-			m_focusGroup = FOCUS_LIST;
-			navListHome();
+			if (m_localScanResults.empty())
+			{
+				// 无扫描结果 → 跳过列表
+				if (m_focusSlotsIdx != MaxPlayers - 1)
+					m_focusGroup = FOCUS_SLOTS;
+				else m_focusGroup = FOCUS_SAVE;
+				applyFocus();
+			}
+			else
+			{
+				m_focusGroup = FOCUS_LIST;
+				navListHome();
+			}
 		}
 		break;
 
 	case FOCUS_LIST:
+	{
 		if (lyUp)    navListUp();
 		if (lyDown)  navListDown();
-		if (lxLeft)  navListHome();
-		if (lxRight) navListEnd();
+
+		bool haveUpDown = lyUp || lyDown; // 防止left right干扰up down，在有up down的时候禁用left right
+		if (!haveUpDown && lxLeft)  navListHome();
+		if (!haveUpDown && lxRight) navListEnd();
 		break;
+	}
 
 	case FOCUS_SLOTS:
 		if (lxLeft)  navSlotsLeft();
@@ -886,6 +901,11 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			{
 				// P4 → 保存按钮
 				m_focusGroup = FOCUS_SAVE;
+			}
+			else if (m_localScanResults.empty())
+			{
+				// P1-P3 → 跳过空列表到标题
+				m_focusGroup = FOCUS_TITLE;
 			}
 			else
 			{
@@ -908,13 +928,24 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (lyUp)
 		{
 			auto g = display->lockGuard();
-			m_focusGroup = FOCUS_LIST;
-			navListEnd();
+			if (m_localScanResults.empty())
+			{
+				// 无扫描结果 → 跳过列表到标题
+				m_focusGroup = FOCUS_TITLE;
+				m_focusTitleIdx = 1;
+				applyFocus();
+			}
+			else
+			{
+				m_focusGroup = FOCUS_LIST;
+				navListEnd();
+			}
 		}
 		if (lyDown)
 		{
 			auto g = display->lockGuard();
 			m_focusGroup = FOCUS_SLOTS;
+			m_focusSlotsIdx = MaxPlayers - 1;
 			applyFocus();
 		}
 		break;
