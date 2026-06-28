@@ -152,8 +152,15 @@ extern "C" void app_main(void)
 	DesktopApp* desktop = new DesktopApp{ &display };
 	stackManager.push(desktop);
 
-	// wifi
+	// nvs
 	nvsInit();
+
+	// 启动 BLE 手柄管理器
+	ESP_LOGI(TAG, "BleGamepad start");
+	BleGamepad::instance().start(&display);
+	ESP_LOGI(TAG, "BleGamepad start done");
+
+	// wifi
 	wifiInit(true);
 
 	wifiStart();
@@ -194,11 +201,6 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
 	ESP_LOGI(TAG, "wsServerStart done");
-
-	// 启动 BLE 手柄管理器
-	ESP_LOGI(TAG, "BleGamepad start");
-	BleGamepad::instance().start(&display);
-	ESP_LOGI(TAG, "BleGamepad start done");
 
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
 	while (true)

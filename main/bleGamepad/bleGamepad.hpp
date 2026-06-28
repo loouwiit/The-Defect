@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include "gamepadState.hpp"
@@ -16,6 +17,15 @@ typedef const char* esp_event_base_t;
 
 // 前置声明 NimBLE 类型
 struct ble_gap_event;
+
+// 6 字节 BLE 设备地址
+using BdaBuffer = std::array<uint8_t, 6>;
+
+// NVS 持久化配对条目
+struct PairedDevice {
+    uint8_t bda[6];
+    char name[32];
+};
 
 class BleGamepad
 {
@@ -36,6 +46,10 @@ public:
     const DeviceContext* getDevice(uint8_t playerId) const;
 
     std::vector<ScanDevice> getScannedDevices() const;
+
+    // ── NVS 持久化配对 ──
+    void syncPairedToNvs();                     // 将当前连接的设备 (BDA+name) 写入 NVS
+    std::vector<PairedDevice> getPairedDevices() const; // 读取 NVS 中保存的配对列表
 
 private:
     BleGamepad() = default;
@@ -60,6 +74,13 @@ private:
     // GAP 连接事件回调（静态，用作 C 回调）
     static int connectGapEvent(struct ble_gap_event* event, void* arg);
 
+    // ── NVS 内部 ──
+    void loadPairedFromNvs();                   // 从 NVS 读取配对 BDA 列表
+
+    // ── 自动重连 ──
+    void autoConnectPaired();                   // 启动 5 秒扫描，重连已配对设备
+    static int autoScanCb(struct ble_gap_event* event, void* arg); // 自动重连扫描回调
+
     // 内部状态
     Display* m_display{};
     DeviceContext m_devices[MaxPlayers]{};
@@ -71,6 +92,10 @@ private:
 
     bool m_scanning{false};
     bool m_running{false};
+
+    // ── NVS 配对 ──
+    std::vector<PairedDevice> m_pairedDevices;  // 从 NVS 加载的配对设备列表 (BDA+name)
+    std::vector<BdaBuffer> m_foundBdas;         // auto-connect 扫描过程中匹配到的 BDA
 
     static BleGamepad* s_instance;
 

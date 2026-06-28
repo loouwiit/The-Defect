@@ -66,6 +66,11 @@ void BleSettingsApp::deinit()
 		lv_timer_del(m_refreshTimer);
 		m_refreshTimer = nullptr;
 	}
+	if (m_restoreTimer)
+	{
+		lv_timer_del(m_restoreTimer);
+		m_restoreTimer = nullptr;
+	}
 
 	App::deinit();
 	ESP_LOGI(TAG, "BLE 设置 App 已释放");
@@ -239,8 +244,29 @@ void BleSettingsApp::buildUi()
 	lv_obj_set_style_border_width(m_connectedContainer, 0, 0);
 	lv_obj_set_style_bg_opa(m_connectedContainer, LV_OPA_TRANSP, 0);
 
-	auto connected_title = GUI::createSubtitle(m_connectedContainer, "已连接手柄");
+	// 标题行：已连接手柄 + 保存按钮
+	auto connected_title_row = lv_obj_create(m_connectedContainer);
+	lv_obj_set_width(connected_title_row, lv_pct(100));
+	lv_obj_set_height(connected_title_row, LV_SIZE_CONTENT);
+	lv_obj_set_style_border_width(connected_title_row, 0, 0);
+	lv_obj_set_style_bg_opa(connected_title_row, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(connected_title_row, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(connected_title_row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(connected_title_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(connected_title_row, 0, 0);
+	lv_obj_remove_flag(connected_title_row, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_remove_flag(connected_title_row, LV_OBJ_FLAG_CLICKABLE);
+
+	auto connected_title = GUI::createSubtitle(connected_title_row, "已连接手柄");
 	lv_obj_set_style_text_font(connected_title, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+
+	m_saveBtn = GUI::createButton(connected_title_row, "保存配对", 120, 28);
+	lv_obj_set_style_radius(m_saveBtn, 6, 0);
+	lv_obj_set_style_pad_all(m_saveBtn, 0, 0);
+	lv_obj_set_style_bg_color(m_saveBtn, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
+	lv_obj_add_event_cb(m_saveBtn, onSaveBtnCb, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_border_width(m_saveBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_color(m_saveBtn, lv_color_white(), LV_STATE_FOCUSED);
 
 	// 4 个玩家槽位 — 一行排列
 	auto slots_row = lv_obj_create(m_connectedContainer);
@@ -278,7 +304,7 @@ void BleSettingsApp::buildUi()
 			self->m_focusGroup = FOCUS_SLOTS;
 			self->m_focusSlotsIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
 			self->applyFocus();
-		}, LV_EVENT_CLICKED, this);
+			}, LV_EVENT_CLICKED, this);
 		m_slotCards[i] = card;
 
 		// 第一行：名称
@@ -384,7 +410,7 @@ void BleSettingsApp::updateScanList()
 			self->m_focusGroup = FOCUS_LIST;
 			self->m_focusListIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(r);
 			self->applyFocus();
-		}, LV_EVENT_CLICKED, this);
+			}, LV_EVENT_CLICKED, this);
 		lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 		lv_obj_set_style_pad_all(row, 8, 0);
 		lv_obj_set_style_pad_left(row, 12, 0);
@@ -506,6 +532,7 @@ void BleSettingsApp::updateConnectedList()
 			m_slotConnected[i] = false;
 		}
 	}
+
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -635,6 +662,7 @@ void BleSettingsApp::applyFocus()
 
 	clearFocus(m_backBtn);
 	clearFocus(m_scanBtn);
+	clearFocus(m_saveBtn);
 	for (auto* row : m_scanRows) clearFocus(row);
 	for (auto* card : m_slotCards) clearFocus(card);
 
@@ -657,6 +685,9 @@ void BleSettingsApp::applyFocus()
 	case FOCUS_SLOTS:
 		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers)
 			focus(m_slotCards[m_focusSlotsIdx]);
+		break;
+	case FOCUS_SAVE:
+		focus(m_saveBtn);
 		break;
 	}
 }
@@ -685,6 +716,10 @@ void BleSettingsApp::activateFocus()
 		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers)
 			lv_obj_send_event(m_disconnectBtns[m_focusSlotsIdx],
 				LV_EVENT_CLICKED, nullptr);
+		break;
+
+	case FOCUS_SAVE:
+		lv_obj_send_event(m_saveBtn, LV_EVENT_CLICKED, nullptr);
 		break;
 	}
 }
@@ -731,7 +766,9 @@ void BleSettingsApp::navListDown()
 	}
 	else
 	{
-		m_focusGroup = FOCUS_SLOTS;  // 保留 m_focusSlotsIdx
+		if (m_focusSlotsIdx != MaxPlayers - 1)
+			m_focusGroup = FOCUS_SLOTS;  // 保留 m_focusSlotsIdx
+		else m_focusGroup = FOCUS_SAVE;
 	}
 	applyFocus();
 }
@@ -770,6 +807,7 @@ void BleSettingsApp::navSlotsRight()
 	{
 		m_focusSlotsIdx++;
 	}
+	// P4 已是末尾, 不跳转
 	applyFocus();
 }
 
@@ -844,8 +882,40 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (lyUp)
 		{
 			auto g = display->lockGuard();
+			if (m_focusSlotsIdx == MaxPlayers - 1)
+			{
+				// P4 → 保存按钮
+				m_focusGroup = FOCUS_SAVE;
+			}
+			else
+			{
+				// P1-P3 → 扫描列表
+				m_focusGroup = FOCUS_LIST;
+				navListEnd();
+			}
+			applyFocus();
+		}
+		break;
+
+	case FOCUS_SAVE:
+		if (lxLeft)
+		{
+			auto g = display->lockGuard();
+			m_focusGroup = FOCUS_SLOTS;
+			m_focusSlotsIdx = MaxPlayers - 1;
+			applyFocus();
+		}
+		if (lyUp)
+		{
+			auto g = display->lockGuard();
 			m_focusGroup = FOCUS_LIST;
 			navListEnd();
+		}
+		if (lyDown)
+		{
+			auto g = display->lockGuard();
+			m_focusGroup = FOCUS_SLOTS;
+			applyFocus();
 		}
 		break;
 	}
@@ -903,6 +973,42 @@ void BleSettingsApp::onDeleteBtnCb(lv_event_t* e)
 	self->m_focusListIdx = (int8_t)scanIndex;
 
 	self->doDelete(scanIndex);
+}
+
+void BleSettingsApp::onSaveBtnCb(lv_event_t* e)
+{
+	auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
+	auto* label = lv_obj_get_child(btn, 0);
+
+	// 取消之前的恢复定时器（防止快速重复点击）
+	if (self->m_restoreTimer)
+	{
+		lv_timer_del(self->m_restoreTimer);
+		self->m_restoreTimer = nullptr;
+	}
+
+	// 保存当前连接状态到 NVS
+	BleGamepad::instance().syncPairedToNvs();
+
+	// 视觉反馈
+	lv_label_set_text(label, "✓ 已保存");
+	lv_obj_set_style_bg_color(btn, LV_COLOR_MAKE(0x20, 0x60, 0x20), 0);
+
+	// 2 秒后恢复
+	self->m_restoreTimer = lv_timer_create([](lv_timer_t* t)
+		{
+			auto* self = static_cast<BleSettingsApp*>(lv_timer_get_user_data(t));
+			if (!self) return;
+
+			auto* lbl = lv_obj_get_child(self->m_saveBtn, 0);
+			lv_label_set_text(lbl, "保存配对");
+			lv_obj_set_style_bg_color(self->m_saveBtn, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
+
+			self->m_restoreTimer = nullptr;
+			lv_timer_del(t);
+		}, 2000, self);
+	lv_timer_set_repeat_count(self->m_restoreTimer, 1);
 }
 
 void BleSettingsApp::onBackBtnCb(lv_event_t* e)

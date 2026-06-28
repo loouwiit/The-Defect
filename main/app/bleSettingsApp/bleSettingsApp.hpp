@@ -65,9 +65,11 @@ private:
 	lv_obj_t* m_slotRssiLabels[MaxPlayers]{};
 	lv_obj_t* m_disconnectBtns[MaxPlayers]{};
 	bool m_slotConnected[MaxPlayers]{};
+	lv_obj_t* m_saveBtn{};           // 保存配对按钮
 
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
+	lv_timer_t* m_restoreTimer{};   // 保存按钮视觉反馈恢复定时器
 
 	// ── 标记位（BLE 任务设置，timer 消费） ──
 	bool m_pendingRefresh{ false };
@@ -77,6 +79,7 @@ private:
 		FOCUS_TITLE = 0,  // 左右: 返回 ↔ 扫描
 		FOCUS_LIST,       // 上下: 设备列表, 左右到列表首尾
 		FOCUS_SLOTS,      // 左右: 4 个槽位, 上下跳到列表/标题
+		FOCUS_SAVE,       // 保存按钮（从 P4 右进，左回 P4，上回扫描）
 	};
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
 	int8_t m_focusTitleIdx{ 0 };   // 0=返回, 1=扫描
@@ -94,6 +97,7 @@ private:
 	static void onDisconnectBtnCb(lv_event_t* e);
 	static void onDeleteBtnCb(lv_event_t* e);
 	static void onBackBtnCb(lv_event_t* e);
+	static void onSaveBtnCb(lv_event_t* e);
 
 	// ── 内部方法 ──
 	void buildUi();
