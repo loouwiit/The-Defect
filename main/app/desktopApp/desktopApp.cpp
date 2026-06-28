@@ -88,19 +88,16 @@ void DesktopApp::init()
 	// 初始化选中状态
 	update_selection();
 
-	// 创建 LVGL 焦点组 — 所有游戏卡片共享
+	// 创建 LVGL 焦点组 — 所有卡片共享
 	m_group = lv_group_create();
 	for (int i = 0; i < GAME_COUNT; i++)
 	{
 		lv_group_add_obj(m_group, game_cards[i]);
 		lv_obj_add_event_cb(game_cards[i], on_card_key_cb, LV_EVENT_KEY, this);
 	}
-	// 绑定所有玩家的 indev 到桌面共享组（系统界面不区分玩家）
+	// 绑定所有玩家到桌面共享组（系统界面不区分玩家）
 	for (uint8_t i = 0; i < MaxPlayers; i++)
-	{
-		auto* indev = GamepadIndev::instance().getIndev(i);
-		if (indev) lv_indev_set_group(indev, m_group);
-	}
+		GamepadIndev::instance().bindGroup(i, m_group);
 	// 设置初始焦点
 	lv_group_focus_obj(game_cards[selected_index]);
 
@@ -136,6 +133,7 @@ void DesktopApp::deinit()
 {
 	if (m_group)
 	{
+		auto guard = display->lockGuard();
 		lv_group_delete(m_group);
 		m_group = nullptr;
 	}
@@ -145,20 +143,30 @@ void DesktopApp::deinit()
 void DesktopApp::onForeground()
 {
 	// 恢复焦点到当前选中项
+	nextAppChangeTime = xTaskGetTickCount() + 500;
 	if (m_group && game_cards[selected_index])
 	{
+		ESP_LOGI(TAG, "lockGuard to focus on game card %d", selected_index);
+		auto guard = display->lockGuard();
+		ESP_LOGI(TAG, "Focus on game card %d", selected_index);
 		lv_group_focus_obj(game_cards[selected_index]);
+		ESP_LOGI(TAG, "Focus done");
 	}
 }
 
 void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-	// LVGL 已通过 KEYPAD indev 处理标准导航（方向 + ENTER）
-	// 此处仅处理未映射到手柄键的特殊需求（若有）
+	// 动作键（ENTER/HOME→start）从 BLE task 路径走，避免在 LVGL 定时器上下文中切屏
+	if (state.isPressed(GamepadButton::BTN_A) || state.isPressed(GamepadButton::BTN_L3))
+	{
+		start();
+	}
 }
 
 void DesktopApp::update_selection()
 {
+	// 注意：此函数可能从 LVGL 事件回调 / LVGL 定时器上下文中调用
+	// 此时已持有 LVGL 锁，不可再调用 lockGuard()
 	for (int i = 0; i < GAME_COUNT; i++)
 	{
 		if (!game_cards[i]) continue;
@@ -257,10 +265,6 @@ void DesktopApp::on_card_key_cb(lv_event_t* e)
 	case LV_KEY_RIGHT:
 		self.next();
 		break;
-	case LV_KEY_ENTER:
-	case LV_KEY_HOME:
-		self.start();
-		break;
 	default:
 		break;
 	}
@@ -269,25 +273,23 @@ void DesktopApp::on_card_key_cb(lv_event_t* e)
 void DesktopApp::next()
 {
 	selected_index = (selected_index + 1) % GAME_COUNT;
-	update_selection();
-	// 同步 LVGL 焦点到新选中卡片
-	if (m_group && game_cards[selected_index])
-		lv_group_focus_obj(game_cards[selected_index]);
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
 }
 
 void DesktopApp::previous()
 {
 	selected_index = (selected_index - 1 + GAME_COUNT) % GAME_COUNT;
-	update_selection();
-	// 同步 LVGL 焦点到新选中卡片
-	if (m_group && game_cards[selected_index])
-		lv_group_focus_obj(game_cards[selected_index]);
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
 }
 
 void DesktopApp::start()
 {
+	if (xTaskGetTickCount() < nextAppChangeTime)
+	{
+		ESP_LOGI(TAG, "start 被忽略，等待 %d 毫秒", (nextAppChangeTime - xTaskGetTickCount()) * portTICK_PERIOD_MS);
+		return;
+	}
+
 	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[selected_index]);
 
 	// 使用 pushToNewStack 为游戏创建独立调用栈

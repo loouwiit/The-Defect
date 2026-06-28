@@ -52,9 +52,8 @@ void TestApp::init()
 		lv_obj_add_event_cb(m_label, on_key_cb, LV_EVENT_KEY, this);
 		lv_obj_add_event_cb(m_hint,  on_key_cb, LV_EVENT_KEY, this);
 
-		// 将玩家 0 的 indev 绑定到此组（其他玩家不干涉）
-		auto* indev = GamepadIndev::instance().getIndev(0);
-		if (indev) lv_indev_set_group(indev, m_group);
+		// 将玩家 0 绑定到此组（其他玩家不干涉）
+		GamepadIndev::instance().bindGroup(0, m_group);
 
 		lv_group_focus_obj(m_label);
 	}

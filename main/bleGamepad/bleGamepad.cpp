@@ -168,6 +168,8 @@ void BleGamepad::processTask(void* arg)
 				// 路由到当前活跃 App
 				if (self.m_display) {
 					auto* app = self.m_display->getActiveApp();
+					// 注入到 GamepadIndev 状态机（由 LVGL 定时器驱动）
+					GamepadIndev::instance().feed(evt.playerId, evt.state);
 					if (app) app->onGamepadInput(evt.playerId, evt.state);
 				}
 			}
