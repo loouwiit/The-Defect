@@ -78,6 +78,50 @@
 
 支持音效播放
 
+## AppStack — 多栈导航系统
+
+**模块路径**: `main/app/`
+
+- `app.hpp` / `app.cpp` — `App` 基类
+- `appStack.hpp` / `appStack.cpp` — `AppStack` 单栈
+- `appStackManager.hpp` / `appStackManager.cpp` — `AppStackManager` 多栈管理器
+
+### 架构
+
+```
+AppStackManager          ← 顶层，持有所有栈
+├── Stack 0 [Desktop]    ← 根栈（桌面，常驻）
+├── Stack 1 [Game, ...]  ← 游戏独立栈（pushToNewStack 创建）
+└── activeStack          ← 当前前台栈
+```
+
+### App 生命周期
+
+| 方法 | 触发 | 用途 |
+|------|------|------|
+| `init()` | app 首次入栈 | 创建 LVGL 对象 |
+| `deinit()` | app 被弹出 | 停止后台线程 |
+| `onForeground()` | app 成为栈顶 | 启动定时器 / 传感器 |
+| `onBackground()` | app 被覆盖 | 暂停耗时任务 |
+
+### 栈操作时序
+
+```
+push(newApp):      oldTop→onBg → newApp→init → applyApp → newApp→onFg
+pop(有上层):       oldTop→onBg → applyApp(prev) → prev→onFg → scheduleDeletion(oldTop)
+pop(栈空-非根):    oldTop→onBg → return orphan → Manager switchToStack(0) → scheduleDeletion(orphan)
+replace(newApp):   oldTop→(不调onBg) → newApp→init → applyApp → newApp→onFg → scheduleDeletion(oldTop)
+pushToNewStack:    oldStack→top→onBg → 创建新栈 → push → 新栈 active
+```
+
+### LVGL 锁注意事项
+
+| 调用上下文 | 能否执行栈操作 | 原因 |
+|-----------|---------------|------|
+| BLE 手柄回调 | ✅ 直接调用 | BLE task 不持 LVGL 锁 |
+| 普通 Task | ✅ 直接调用 | 独立 task，不持 LVGL 锁 |
+| LVGL 事件回调 | ⚠️ 部分情况须 `Task::addTask` 延后 | LVGL task 内部分操作会导致 LVGL 异常 |
+
 # 屏幕串流架构
 
 ## 概述
