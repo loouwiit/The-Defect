@@ -270,6 +270,15 @@ void BleSettingsApp::buildUi()
 		lv_obj_set_style_pad_all(card, 4, 0);
 		lv_obj_set_style_pad_left(card, 8, 0);
 		lv_obj_set_style_pad_right(card, 8, 0);
+		lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_set_user_data(card, (void*)(uintptr_t)i);
+		lv_obj_add_event_cb(card, [](lv_event_t* e) {
+			auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+			auto* c = static_cast<lv_obj_t*>(lv_event_get_target(e));
+			self->m_focusGroup = FOCUS_SLOTS;
+			self->m_focusSlotsIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
+			self->applyFocus();
+		}, LV_EVENT_CLICKED, this);
 		m_slotCards[i] = card;
 
 		// 第一行：名称
@@ -294,6 +303,7 @@ void BleSettingsApp::buildUi()
 		lv_obj_set_flex_align(bottom_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 		lv_obj_set_style_pad_all(bottom_row, 0, 0);
 		lv_obj_remove_flag(bottom_row, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_remove_flag(bottom_row, LV_OBJ_FLAG_CLICKABLE);
 
 		auto rssiLabel = GUI::createLabel(bottom_row, "");
 		lv_obj_set_style_text_font(rssiLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
@@ -366,6 +376,15 @@ void BleSettingsApp::updateScanList()
 		lv_obj_set_style_border_color(row, lv_color_white(), LV_STATE_FOCUSED);
 		lv_obj_set_layout(row, LV_LAYOUT_FLEX);
 		lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+		lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_set_user_data(row, (void*)(uintptr_t)i);
+		lv_obj_add_event_cb(row, [](lv_event_t* e) {
+			auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+			auto* r = static_cast<lv_obj_t*>(lv_event_get_target(e));
+			self->m_focusGroup = FOCUS_LIST;
+			self->m_focusListIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(r);
+			self->applyFocus();
+		}, LV_EVENT_CLICKED, this);
 		lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 		lv_obj_set_style_pad_all(row, 8, 0);
 		lv_obj_set_style_pad_left(row, 12, 0);
@@ -376,6 +395,7 @@ void BleSettingsApp::updateScanList()
 		lv_obj_set_height(left_flex, lv_pct(100));
 		lv_obj_set_flex_grow(left_flex, 1);
 		lv_obj_remove_flag(left_flex, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_remove_flag(left_flex, LV_OBJ_FLAG_CLICKABLE);
 		lv_obj_set_style_border_width(left_flex, 0, 0);
 		lv_obj_set_style_bg_opa(left_flex, LV_OPA_TRANSP, 0);
 		lv_obj_set_layout(left_flex, LV_LAYOUT_FLEX);
@@ -401,6 +421,7 @@ void BleSettingsApp::updateScanList()
 		auto right_flex = lv_obj_create(row);
 		lv_obj_set_height(right_flex, lv_pct(100));
 		lv_obj_remove_flag(right_flex, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_remove_flag(right_flex, LV_OBJ_FLAG_CLICKABLE);
 		lv_obj_set_style_border_width(right_flex, 0, 0);
 		lv_obj_set_style_bg_opa(right_flex, LV_OPA_TRANSP, 0);
 		lv_obj_set_layout(right_flex, LV_LAYOUT_FLEX);
@@ -836,13 +857,15 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 void BleSettingsApp::onScanBtnCb(lv_event_t* e)
 {
-	ESP_LOGI(TAG, "scan button with %p", lv_event_get_user_data(e));
+	auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+	self->m_focusGroup = FOCUS_TITLE;
+	self->m_focusTitleIdx = 1;
 	Task::addTask([](void* param)
 		{
 			auto& self = *static_cast<BleSettingsApp*>(param);
 			self.toggleScan();
 			return Task::infinityTime;
-		}, "toggleScan", lv_event_get_user_data(e));
+		}, "toggleScan", self);
 }
 
 void BleSettingsApp::onConnectBtnCb(lv_event_t* e)
@@ -851,7 +874,9 @@ void BleSettingsApp::onConnectBtnCb(lv_event_t* e)
 	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
 	size_t scanIndex = (size_t)lv_obj_get_user_data(btn);
 
-	// LVGL 事件中不能做栈操作，但 connect 只是 NimBLE 调用，不涉及栈
+	self->m_focusGroup = FOCUS_LIST;
+	self->m_focusListIdx = (int8_t)scanIndex;
+
 	self->doConnect(scanIndex);
 }
 
@@ -860,6 +885,9 @@ void BleSettingsApp::onDisconnectBtnCb(lv_event_t* e)
 	auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
 	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
 	uint8_t playerId = (uint8_t)(uintptr_t)lv_obj_get_user_data(btn);
+
+	self->m_focusGroup = FOCUS_SLOTS;
+	self->m_focusSlotsIdx = (int8_t)playerId;
 
 	self->doDisconnect(playerId);
 }
@@ -870,12 +898,19 @@ void BleSettingsApp::onDeleteBtnCb(lv_event_t* e)
 	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
 	size_t scanIndex = (size_t)lv_obj_get_user_data(btn);
 
+	// 删除后聚焦到同位置（如果有设备移上来）或前一个
+	self->m_focusGroup = FOCUS_LIST;
+	self->m_focusListIdx = (int8_t)scanIndex;
+
 	self->doDelete(scanIndex);
 }
 
 void BleSettingsApp::onBackBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+
+	self->m_focusGroup = FOCUS_TITLE;
+	self->m_focusTitleIdx = 0;
 
 	// LVGL 事件回调中持锁，栈操作须延后
 	Task::addTask([](void* param) -> TickType_t

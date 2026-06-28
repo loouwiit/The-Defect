@@ -41,7 +41,7 @@ private:
 	static constexpr int ScanDuration = 5000;
 	static constexpr int RefreshInterval = 1000;
 	static constexpr int SlotHight = 100;
-	static constexpr int RowHight = 54;
+	static constexpr int RowHight = 60;
 
 	// ── 扫描控制 ──
 	lv_obj_t* m_backBtn{};
