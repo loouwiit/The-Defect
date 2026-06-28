@@ -200,41 +200,6 @@ extern "C" void app_main(void)
 	BleGamepad::instance().start(&display);
 	ESP_LOGI(TAG, "BleGamepad start done");
 
-	// 测试：延迟几秒后自动连接指定的手柄 MAC
-	// NimBLE 使用小端序
-	static constexpr uint8_t TARGET_BDA[2][6] = { {0xC2,0x04,0x8E,0x3B,0xDA,0xEC },{ 0xCE, 0x93, 0x8C, 0xBD, 0x4D, 0x74 } };
-
-	Task::addTask([](void* param)->TickType_t
-		{
-			auto& bg = BleGamepad::instance();
-			auto& id = *(size_t*)param;
-			const auto devices = bg.getScannedDevices();
-
-			if (id == devices.size())
-			{
-				delete& id;
-				return Task::infinityTime;
-			}
-
-			ESP_LOGI(TAG, "Auto-connect check: %zu / %zu devices", id, devices.size());
-
-			ESP_LOGI(TAG, "  [%zu] %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-				id, devices[id].name,
-				devices[id].bda[0], devices[id].bda[1], devices[id].bda[2],
-				devices[id].bda[3], devices[id].bda[4], devices[id].bda[5]);
-			for (size_t j = 0; j < sizeof(TARGET_BDA) / sizeof(TARGET_BDA[0]); j++)
-				if (memcmp(devices[id].bda, TARGET_BDA[j], 6) == 0)
-				{
-					ESP_LOGI(TAG, "Auto-connecting to: %s", devices[id].name);
-					bg.connect(id);
-					id++;
-					return 5000; // 5000ms后再进行第二次判断连接，给予充足时间
-				}
-
-			id++;
-			return 1;
-		}, "bleAutoConnect", new size_t{ 0 }, 3000, Task::Affinity::None); // 延迟300ms
-
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
 	while (true)
 		vTaskDelay(1000);

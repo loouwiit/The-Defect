@@ -44,6 +44,7 @@ public:
 	/** @brief 设置所属管理器（由 AppStackManager/AppStack 自动调用） */
 	void setManager(AppStackManager* manager);
 	AppStackManager* getManager() const { return m_manager; }
+	Display* getDisplay() const { return display; }
 
 protected:
 	Display* display{};

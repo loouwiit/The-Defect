@@ -1,0 +1,83 @@
+#pragma once
+
+#include "app/app.hpp"
+#include "bleGamepad/bleGamepad.hpp"
+#include "lvgl.h"
+#include <vector>
+#include <cstdint>
+
+/**
+ * @brief BLE 手柄设置 App
+ *
+ * 提供扫描、连接、断开、删除 BLE 手柄的图形界面。
+ *
+ * 扫描策略（方案 A）：
+ * - 进入 App 时 stopScan()，清空本地列表
+ * - 用户点"扫描"→ startScan() 扫 5 秒 → 自动 stopScan()，列表冻结
+ * - 列表冻结后摇杆/触控操作无干扰
+ * - 离开 App 时 startScan() 恢复后台持续扫描
+ */
+class BleSettingsApp final : public App
+{
+public:
+	constexpr static char TAG[] = "BleSettingsApp";
+
+	BleSettingsApp(Display* display);
+	~BleSettingsApp() override;
+
+	void init() override;
+	void deinit() override;
+	void onForeground() override;
+	void onBackground() override;
+
+	// BLE 任务通知（仅打标记，不操作 LVGL）
+	void onGamepadConnected(uint8_t playerId) override;
+	void onGamepadDisconnected(uint8_t playerId) override;
+
+private:
+	// ── 扫描控制 ──
+	lv_obj_t* m_scanBtn{};
+	lv_obj_t* m_scanBtnLabel{};
+	lv_obj_t* m_scanIndicator{};
+	bool m_scanActive{false};
+	TickType_t m_scanStartTick{0};
+
+	// ── 扫描结果（本地冻结副本，扫描停止后不再变化） ──
+	std::vector<ScanDevice> m_localScanResults;
+
+	// ── UI 容器 ──
+	lv_obj_t* m_scanListContainer{};
+	std::vector<lv_obj_t*> m_scanRows;
+
+	// ── 已连接区域 ──
+	lv_obj_t* m_connectedContainer{};
+	lv_obj_t* m_slotCards[MaxPlayers]{};
+	lv_obj_t* m_slotLabels[MaxPlayers]{};
+	lv_obj_t* m_slotRssiLabels[MaxPlayers]{};
+	lv_obj_t* m_disconnectBtns[MaxPlayers]{};
+	bool m_slotConnected[MaxPlayers]{};
+
+	// ── 定时器 ──
+	lv_timer_t* m_refreshTimer{};
+
+	// ── 标记位（BLE 任务设置，timer 消费） ──
+	bool m_pendingRefresh{false};
+
+	// ── 回调（静态，C 兼容） ──
+	static void timerCb(lv_timer_t* t);
+	static void onScanBtnCb(lv_event_t* e);
+	static void onConnectBtnCb(lv_event_t* e);
+	static void onDisconnectBtnCb(lv_event_t* e);
+	static void onDeleteBtnCb(lv_event_t* e);
+	static void onBackBtnCb(lv_event_t* e);
+
+	// ── 内部方法 ──
+	void buildUi();
+	void refreshUi();
+	void updateScanList();
+	void updateConnectedList();
+	void toggleScan();
+	void doConnect(size_t scanIndex);
+	void doDisconnect(uint8_t playerId);
+	void doDelete(size_t scanIndex);
+};

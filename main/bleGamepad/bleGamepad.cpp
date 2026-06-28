@@ -43,7 +43,7 @@ BleGamepad& BleGamepad::instance()
 void BleGamepad::onSync()
 {
     ESP_LOGI(TAG, "NimBLE synced");
-    instance().startScan();
+    // instance().startScan();
 }
 
 void BleGamepad::onReset(int reason)

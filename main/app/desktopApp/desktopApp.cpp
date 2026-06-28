@@ -2,12 +2,15 @@
 #include "app/desktopApp/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
+#include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "display/font.hpp"
+
+static void btn_ble_settings_cb(lv_event_t* e);
 
 // ========== 游戏数据 ==========
 
@@ -214,17 +217,19 @@ void DesktopApp::create_status_bar()
 	lv_obj_set_style_text_color(time_label, GUI::Color::TEXT, 0);
 	lv_obj_set_flex_grow(time_label, 1);
 
-	wifi_label = GUI::createLabel(status_row, "\xEF\x87\xAB");
+	wifi_label = GUI::createLabel(status_row, LV_SYMBOL_WIFI);
 	lv_obj_set_style_text_color(wifi_label, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(wifi_label, LV_FONT_DEFAULT, 0);
 	lv_obj_set_style_pad_right(wifi_label, 16, 0);
 
-	bluetooth_label = GUI::createLabel(status_row, "\xEF\x84\x99");
+	bluetooth_label = GUI::createLabel(status_row, LV_SYMBOL_BLUETOOTH);
 	lv_obj_set_style_text_color(bluetooth_label, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(bluetooth_label, LV_FONT_DEFAULT, 0);
 	lv_obj_set_style_pad_right(bluetooth_label, 16, 0);
+	lv_obj_add_flag(bluetooth_label, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(bluetooth_label, btn_ble_settings_cb, LV_EVENT_CLICKED, this);
 
-	battery_label = GUI::createLabel(status_row, "\xEF\x89\x80");
+	battery_label = GUI::createLabel(status_row, LV_SYMBOL_BATTERY_FULL);
 	lv_obj_set_style_text_color(battery_label, GUI::Color::SUCCESS, 0);
 	lv_obj_set_style_text_font(battery_label, LV_FONT_DEFAULT, 0);
 }
@@ -271,6 +276,22 @@ void DesktopApp::previous()
 	selected_index = (selected_index - 1 + GAME_COUNT) % GAME_COUNT;
 	update_selection();
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
+}
+
+static void btn_ble_settings_cb(lv_event_t* e)
+{
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+
+	/* LVGL 事件回调中持锁，栈操作须延后 */
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* app = static_cast<DesktopApp*>(param);
+			if (app->getManager()) {
+				auto* bleApp = new BleSettingsApp(app->getDisplay());
+				app->getManager()->pushToNewStack(bleApp);
+			}
+			return Task::infinityTime;
+		}, "openBleSettings", self, 0, Task::Affinity::None);
 }
 
 void DesktopApp::start()
