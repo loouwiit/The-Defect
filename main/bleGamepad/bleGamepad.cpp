@@ -518,7 +518,6 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 				break;
 			}
 		}
-		self.startScan();
 		break;
 	}
 	case BLE_GAP_EVENT_NOTIFY_RX:
@@ -573,7 +572,7 @@ void BleGamepad::disconnect(uint8_t playerId)
 	if (!ctx.connected || ctx.connHandle == BLE_HS_CONN_HANDLE_NONE) return;
 
 	ESP_LOGI(TAG, "Disconnecting player %d, handle=%d", playerId, ctx.connHandle);
-	ble_gap_terminate(ctx.connHandle, BLE_HS_HCI_ERR(0));
+	ble_gap_terminate(ctx.connHandle, 0x13);
 }
 
 void BleGamepad::disconnectAll()

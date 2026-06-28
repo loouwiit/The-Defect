@@ -73,14 +73,12 @@ void BleSettingsApp::deinit()
 
 void BleSettingsApp::onForeground()
 {
-	// 创建定时器（如果尚未创建）
+	// 创建或恢复定时器
 	if (!m_refreshTimer) {
 		m_refreshTimer = lv_timer_create(timerCb, REFRESH_INTERVAL_MS, this);
-	}
-	else {
+	} else {
 		lv_timer_resume(m_refreshTimer);
 	}
-
 	ESP_LOGI(TAG, "前台，定时器已启动");
 }
 
@@ -91,14 +89,13 @@ void BleSettingsApp::onBackground()
 		lv_timer_pause(m_refreshTimer);
 	}
 
-	// 恢复后台持续扫描
+	// 如果正在扫描则停止，不恢复后台扫描
 	if (m_scanActive) {
 		m_scanActive = false;
 		BleGamepad::instance().stopScan();
 	}
-	BleGamepad::instance().startScan();
 
-	ESP_LOGI(TAG, "后台，定时器已暂停，恢复后台扫描");
+	ESP_LOGI(TAG, "后台，定时器已暂停");
 }
 
 void BleSettingsApp::onGamepadConnected(uint8_t playerId)
