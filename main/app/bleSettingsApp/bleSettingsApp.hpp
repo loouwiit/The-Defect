@@ -34,13 +34,21 @@ public:
 	void onGamepadConnected(uint8_t playerId) override;
 	void onGamepadDisconnected(uint8_t playerId) override;
 
+	// ── 手柄控制 ──
+	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+
 private:
+	static constexpr int ScanDuration = 5000;
+	static constexpr int RefreshInterval = 1000;
+	static constexpr int SlotHight = 100;
+	static constexpr int RowHight = 54;
+
 	// ── 扫描控制 ──
+	lv_obj_t* m_backBtn{};
 	lv_obj_t* m_scanBtn{};
 	lv_obj_t* m_scanBtnLabel{};
-	lv_obj_t* m_scanIndicator{};
-	bool m_scanActive{false};
-	TickType_t m_scanStartTick{0};
+	bool m_scanActive{ false };
+	TickType_t m_scanStartTick{ 0 };
 
 	// ── 扫描结果（本地冻结副本，扫描停止后不再变化） ──
 	std::vector<ScanDevice> m_localScanResults;
@@ -48,6 +56,7 @@ private:
 	// ── UI 容器 ──
 	lv_obj_t* m_scanListContainer{};
 	std::vector<lv_obj_t*> m_scanRows;
+	std::vector<lv_obj_t*> m_connectBtns;
 
 	// ── 已连接区域 ──
 	lv_obj_t* m_connectedContainer{};
@@ -61,7 +70,22 @@ private:
 	lv_timer_t* m_refreshTimer{};
 
 	// ── 标记位（BLE 任务设置，timer 消费） ──
-	bool m_pendingRefresh{false};
+	bool m_pendingRefresh{ false };
+
+	// ── 手柄焦点导航 ──
+	enum FocusGroup : int8_t {
+		FOCUS_TITLE = 0,  // 左右: 返回 ↔ 扫描
+		FOCUS_LIST,       // 上下: 设备列表, 左右到列表首尾
+		FOCUS_SLOTS,      // 左右: 4 个槽位, 上下跳到列表/标题
+	};
+	FocusGroup m_focusGroup{ FOCUS_TITLE };
+	int8_t m_focusTitleIdx{ 0 };   // 0=返回, 1=扫描
+	int8_t m_focusListIdx{ 0 };    // 0..N-1 设备列表
+	int8_t m_focusSlotsIdx{ 0 };   // 0..3 槽位
+	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextActionTime{};
+	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
+	static constexpr TickType_t MOVE_DELAY = 120;
 
 	// ── 回调（静态，C 兼容） ──
 	static void timerCb(lv_timer_t* t);
@@ -80,4 +104,14 @@ private:
 	void doConnect(size_t scanIndex);
 	void doDisconnect(uint8_t playerId);
 	void doDelete(size_t scanIndex);
+	void applyFocus();
+	void activateFocus();
+	void navTitleLeft();
+	void navTitleRight();
+	void navListUp();
+	void navListDown();
+	void navListHome();
+	void navListEnd();
+	void navSlotsLeft();
+	void navSlotsRight();
 };
