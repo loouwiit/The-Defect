@@ -628,8 +628,10 @@ void BleSettingsApp::applyFocus()
 		focus(m_focusTitleIdx == 0 ? m_backBtn : m_scanBtn);
 		break;
 	case FOCUS_LIST:
-		if (m_focusListIdx >= 0 && (size_t)m_focusListIdx < m_scanRows.size())
+		if (m_focusListIdx >= 0 && (size_t)m_focusListIdx < m_scanRows.size()) {
 			focus(m_scanRows[m_focusListIdx]);
+			lv_obj_scroll_to_view(m_scanRows[m_focusListIdx], LV_ANIM_ON);
+		}
 		break;
 	case FOCUS_SLOTS:
 		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers)
