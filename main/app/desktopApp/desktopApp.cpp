@@ -2,6 +2,7 @@
 #include "app/desktopApp/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
+#include "task/task.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
@@ -133,8 +134,8 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (nextAppChangeTime < xTaskGetTickCount())
 		{
 			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
-			start();
 			auto guard = display->lockGuard();
+			start();
 		}
 	}
 
@@ -230,20 +231,32 @@ void DesktopApp::create_status_bar()
 
 void DesktopApp::btn_next_cb(lv_event_t* e)
 {
-	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	self.next();
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self->next();
 }
 
 void DesktopApp::btn_prev_cb(lv_event_t* e)
 {
-	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	self.previous();
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self->previous();
 }
 
 void DesktopApp::btn_start_cb(lv_event_t* e)
 {
-	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
-	self.start();
+	auto* app = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+
+	/* 防抖 */
+	if (app->nextAppChangeTime >= xTaskGetTickCount())
+		return;
+	app->nextAppChangeTime = xTaskGetTickCount() + 500;
+
+	/* LVGL 事件回调中持有 LVGL 锁，栈操作必须延后到 Task 中执行 */
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* self = static_cast<DesktopApp*>(param);
+			self->start();
+			return Task::infinityTime;
+		}, "deferredStart", app, 0, Task::Affinity::None);
 }
 
 void DesktopApp::next()
