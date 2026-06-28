@@ -2,6 +2,7 @@
 #include "app/desktopApp/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
+#include "gamepadIndev/gamepadIndev.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
@@ -87,6 +88,22 @@ void DesktopApp::init()
 	// 初始化选中状态
 	update_selection();
 
+	// 创建 LVGL 焦点组 — 所有游戏卡片共享
+	m_group = lv_group_create();
+	for (int i = 0; i < GAME_COUNT; i++)
+	{
+		lv_group_add_obj(m_group, game_cards[i]);
+		lv_obj_add_event_cb(game_cards[i], on_card_key_cb, LV_EVENT_KEY, this);
+	}
+	// 绑定所有玩家的 indev 到桌面共享组（系统界面不区分玩家）
+	for (uint8_t i = 0; i < MaxPlayers; i++)
+	{
+		auto* indev = GamepadIndev::instance().getIndev(i);
+		if (indev) lv_indev_set_group(indev, m_group);
+	}
+	// 设置初始焦点
+	lv_group_focus_obj(game_cards[selected_index]);
+
 	// 左右切换按钮
 	auto btn_prev = GUI::createButton(screen, "<", 60, 60);
 	lv_obj_align(btn_prev, LV_ALIGN_LEFT_MID, 20, -50);
@@ -117,46 +134,27 @@ void DesktopApp::init()
 
 void DesktopApp::deinit()
 {
+	if (m_group)
+	{
+		lv_group_delete(m_group);
+		m_group = nullptr;
+	}
 	App::deinit();
 }
 
 void DesktopApp::onForeground()
 {
-	nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
-	for (auto& i : nextMoveTime) i = 0;
+	// 恢复焦点到当前选中项
+	if (m_group && game_cards[selected_index])
+	{
+		lv_group_focus_obj(game_cards[selected_index]);
+	}
 }
 
 void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-	if (state.isPressed(GamepadButton::BTN_L3))
-	{
-		if (nextAppChangeTime < xTaskGetTickCount())
-		{
-			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
-			start();
-			auto guard = display->lockGuard();
-		}
-	}
-
-	if (state.lx < joyStickMoveLeft)
-	{
-		if (nextMoveTime[playerId] < xTaskGetTickCount())
-		{
-			nextMoveTime[playerId] = xTaskGetTickCount() + (nextMoveTime[playerId] == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
-			auto guard = display->lockGuard();
-			previous();
-		}
-	}
-	else if (state.lx > joyStickMoveRight)
-	{
-		if (nextMoveTime[playerId] < xTaskGetTickCount())
-		{
-			nextMoveTime[playerId] = xTaskGetTickCount() + (nextMoveTime[playerId] == 0 ? joyStickMoveTimeFirst : joyStickMoveTime);
-			auto guard = display->lockGuard();
-			next();
-		}
-	}
-	else nextMoveTime[playerId] = 0; // 摇杆归位，随时进行下一次移动
+	// LVGL 已通过 KEYPAD indev 处理标准导航（方向 + ENTER）
+	// 此处仅处理未映射到手柄键的特殊需求（若有）
 }
 
 void DesktopApp::update_selection()
@@ -246,10 +244,35 @@ void DesktopApp::btn_start_cb(lv_event_t* e)
 	self.start();
 }
 
+void DesktopApp::on_card_key_cb(lv_event_t* e)
+{
+	auto self = *static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	uint32_t key = lv_event_get_key(e);
+
+	switch (key)
+	{
+	case LV_KEY_LEFT:
+		self.previous();
+		break;
+	case LV_KEY_RIGHT:
+		self.next();
+		break;
+	case LV_KEY_ENTER:
+	case LV_KEY_HOME:
+		self.start();
+		break;
+	default:
+		break;
+	}
+}
+
 void DesktopApp::next()
 {
 	selected_index = (selected_index + 1) % GAME_COUNT;
 	update_selection();
+	// 同步 LVGL 焦点到新选中卡片
+	if (m_group && game_cards[selected_index])
+		lv_group_focus_obj(game_cards[selected_index]);
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
 }
 
@@ -257,6 +280,9 @@ void DesktopApp::previous()
 {
 	selected_index = (selected_index - 1 + GAME_COUNT) % GAME_COUNT;
 	update_selection();
+	// 同步 LVGL 焦点到新选中卡片
+	if (m_group && game_cards[selected_index])
+		lv_group_focus_obj(game_cards[selected_index]);
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[selected_index], selected_index);
 }
 

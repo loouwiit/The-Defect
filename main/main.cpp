@@ -25,6 +25,7 @@
 #include "app/desktopApp/desktopApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
+#include "gamepadIndev/gamepadIndev.hpp"
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
 #include "audio/ES8311.hpp"
@@ -91,6 +92,9 @@ extern "C" void app_main(void)
 
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);
+
+	// 启动手柄 KEYPAD indev（4 玩家独立 indev，由 BleGamepad 注入）
+	GamepadIndev::instance().start(&display);
 
 	// 音频
 	ES8311 audio{};

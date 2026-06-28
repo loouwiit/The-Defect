@@ -39,24 +39,20 @@ private:
 	static constexpr int ICON_SELECTED_W = 200;
 	static constexpr int ICON_SELECTED_H = 200;
 
+	// LVGL group 导航
+	lv_group_t* m_group = nullptr;
+
 	// 私有方法
 	void update_selection();
 	void create_status_bar();
 	static void btn_next_cb(lv_event_t* e);
 	static void btn_prev_cb(lv_event_t* e);
 	static void btn_start_cb(lv_event_t* e);
+	static void on_card_key_cb(lv_event_t* e);
 
 	void next();
 	void previous();
 	void start();
 
-	constexpr static unsigned char joyStickDeadZone = 50;
-	constexpr static unsigned char joyStickMiddle = 127;
-	constexpr static unsigned char joyStickMoveLeft = joyStickMiddle - joyStickDeadZone;
-	constexpr static unsigned char joyStickMoveRight = joyStickMiddle + joyStickDeadZone;
-	constexpr static TickType_t joyStickMoveTimeFirst = 250;
-	constexpr static TickType_t joyStickMoveTime = 100;
-
-	TickType_t nextMoveTime[MaxPlayers]{};
-	TickType_t nextAppChangeTime{};
+	TickType_t nextAppChangeTime{}; // 防止刚回来就又触发启动游戏
 };

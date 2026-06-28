@@ -1,5 +1,6 @@
 #include "testApp.hpp"
 #include "app/appStackManager.hpp"
+#include "gamepadIndev/gamepadIndev.hpp"
 #include "display/font.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -39,15 +40,33 @@ void TestApp::init()
 
 		// 提示文字
 		m_hint = lv_label_create(screen);
-		lv_label_set_text(m_hint, "A: push   B: pop");
+		lv_label_set_text(m_hint, "ENTER: push   ESC: pop");
 		lv_obj_set_style_text_font(m_hint, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 		lv_obj_set_style_text_color(m_hint, lv_color_hex(0xCCCCCC), 0);
 		lv_obj_align(m_hint, LV_ALIGN_BOTTOM_MID, 0, -30);
+
+		// 创建 LVGL 焦点组（独立组，只有此 app 的 indev 绑定到此组）
+		m_group = lv_group_create();
+		lv_group_add_obj(m_group, m_label);
+		lv_group_add_obj(m_group, m_hint);
+		lv_obj_add_event_cb(m_label, on_key_cb, LV_EVENT_KEY, this);
+		lv_obj_add_event_cb(m_hint,  on_key_cb, LV_EVENT_KEY, this);
+
+		// 将玩家 0 的 indev 绑定到此组（其他玩家不干涉）
+		auto* indev = GamepadIndev::instance().getIndev(0);
+		if (indev) lv_indev_set_group(indev, m_group);
+
+		lv_group_focus_obj(m_label);
 	}
 }
 
 void TestApp::deinit()
 {
+	if (m_group)
+	{
+		lv_group_delete(m_group);
+		m_group = nullptr;
+	}
 	ESP_LOGI(TAG, "TestApp deinit (value=%lu)", m_value);
 	vTaskDelay(3000);
 	App::deinit();
@@ -55,34 +74,34 @@ void TestApp::deinit()
 
 void TestApp::onForeground()
 {
-	nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
+	// 无需手动 debounce，LVGL 的 long press repeat 已处理
 }
 
 // ════════════════════════════════════════════════════════════════
-// BLE 手柄输入
+// LVGL 按键回调（代替 onGamepadInput）
 // ════════════════════════════════════════════════════════════════
 
-void TestApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void TestApp::on_key_cb(lv_event_t* e)
 {
-	if (state.isPressed(GamepadButton::BTN_A))
-	{
-		if (nextAppChangeTime < xTaskGetTickCount())
-		{
-			ESP_LOGI(TAG, "A pressed — push new layer");
-			pushApp(new TestApp(display, esp_random()));
-			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
-		}
-		else ESP_LOGW(TAG, "push too fast, ignoring");
-	}
+	auto self = static_cast<TestApp*>(lv_event_get_user_data(e));
+	if (!self) return;
 
-	if (state.isPressed(GamepadButton::BTN_L3))
+	uint32_t key = lv_event_get_key(e);
+
+	switch (key)
 	{
-		if (nextAppChangeTime < xTaskGetTickCount())
-		{
-			ESP_LOGI(TAG, "BTN_L3 pressed — pop");
-			popApp();
-			nextAppChangeTime = xTaskGetTickCount() + 500; // 500 ms delay
-		}
-		else ESP_LOGW(TAG, "pop too fast, ignoring");
+	case LV_KEY_ENTER:
+		ESP_LOGI(TAG, "ENTER — push new layer");
+		self->pushApp(new TestApp(self->display, esp_random()));
+		break;
+
+	case LV_KEY_HOME:
+	case LV_KEY_ESC:
+		ESP_LOGI(TAG, "ESC/HOME — pop");
+		self->popApp();
+		break;
+
+	default:
+		break;
 	}
 }

@@ -26,6 +26,8 @@ public:
 	virtual void deinit() { running = false; deletable = true; };
 
 	// BLE 手柄输入 — 由 BleGamepad 路由到当前活跃 App
+	void setUiMode(bool ui) { m_uiMode = ui; }
+	bool isUiMode() const { return m_uiMode; }
 	virtual void onGamepadInput(uint8_t playerId, const GamepadState& state) {}
 	virtual void onGamepadConnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d connected", playerId); }
 	virtual void onGamepadDisconnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d disconnected", playerId); }
@@ -59,6 +61,7 @@ protected:
 	friend class AppStackManager;
 
 private:
+	bool m_uiMode = true;
 	constexpr static char TAG[] = "App";
 };
 

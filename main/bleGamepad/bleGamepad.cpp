@@ -1,6 +1,7 @@
 #include "bleGamepad.hpp"
 
 #include "app/app.hpp"
+#include "gamepadIndev/gamepadIndev.hpp"
 #include "esp_log.h"
 #include "esp_err.h"
 
