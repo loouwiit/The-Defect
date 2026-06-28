@@ -71,8 +71,8 @@ extern "C" void app_main(void)
 	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
 
 	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
-	// Touch touch{ iic, {GPIO_NUM_46} };
-	// display.bindTouch(touch.getHandle());
+	Touch touch{ iic, {GPIO_NUM_46} };
+	display.bindTouch(touch.getHandle());
 
 	// 启动 LVGL 工作任务
 	if (!display.start()) {
