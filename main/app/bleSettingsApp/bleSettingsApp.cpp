@@ -831,7 +831,6 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			m_nextActionTime = xTaskGetTickCount() + 500;
 			popApp();
 		}
-		return;
 	}
 
 	// ── 激活 ──
@@ -842,7 +841,6 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			m_nextActionTime = xTaskGetTickCount() + 500;
 			activateFocus();
 		}
-		return;
 	}
 
 	// ── 摇杆归位判断 ──
