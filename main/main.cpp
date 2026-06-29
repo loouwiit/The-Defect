@@ -30,12 +30,16 @@
 #include "audio/Audio.hpp"
 
 #include "bleGamepad/bleGamepad.hpp"
+#include "monitor/cpuMonitor.hpp"
 
 static constexpr char TAG[] = "main";
 
 extern "C" void app_main(void)
 {
 	Task::init(2);
+
+	// CPU 利用率监视器（串口输出，每 1 秒采样一次）
+	CpuMonitor::instance().start();
 
 	ESP_LOGI(TAG, "esp_event_loop_create_default");
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
