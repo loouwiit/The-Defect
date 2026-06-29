@@ -12,7 +12,7 @@
  *   - 触摸屏 D-pad 控制（玩家 1 右 / 玩家 2 左）
  *   - 屏幕串流远程触控（远程触摸 → VirtualIndev → LVGL 按钮）
  *   - 远程 WebSocket 方向键（/ws/game）
- *   - 直接缓冲渲染（零 lv_canvas_set_px 调用）
+ *   - LVGL 原生对象渲染（预分配对象池，脏区域追踪）
  *   - 自动适配屏幕串流（ScreenStream 自动捕获 LVGL 画面）
  *   - 动态适配屏幕分辨率
  */
@@ -38,13 +38,18 @@ private:
 	// 游戏循环线程
 	Thread m_thread;
 
-	// LVGL UI 对象
-	lv_obj_t* m_canvas = nullptr;
-	lv_color_t* m_canvasBuf = nullptr;
+	// 对象池常量
+	static constexpr int MAX_SEGMENTS = 64;
+	static constexpr int MAX_FOOD_ITEMS = 8;
+	static constexpr int MAX_PLAYERS = 3;
+
+	// LVGL 游戏对象池
+	lv_obj_t* m_segments[MAX_PLAYERS][MAX_SEGMENTS]{};
+	int m_segmentCount[MAX_PLAYERS]{};
+	lv_obj_t* m_foodItems[MAX_FOOD_ITEMS]{};
+	int m_foodCount = 1;
 
 	// 动态尺寸（从屏幕分辨率计算）
-	int m_canvasW = 720;
-	int m_canvasH = 1100;
 	int m_cellSize = 20;
 	int m_gridW = 36;
 	int m_gridH = 55;
@@ -95,10 +100,10 @@ private:
 	/** @brief 创建 D-pad 按钮 */
 	void createDpad(lv_obj_t* parent);
 
-	/** @brief 创建游戏画布 */
-	void createCanvas(lv_obj_t* parent);
+	/** @brief 创建游戏对象池（蛇身段 + 食物） */
+	void createObjectPool(lv_obj_t* parent);
 
-	/** @brief 渲染一帧到 canvas */
+	/** @brief 渲染一帧 */
 	void renderFrame();
 
 	/** @brief 游戏主循环 */
