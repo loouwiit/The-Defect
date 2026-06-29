@@ -41,8 +41,10 @@ void CpuMonitor::stop()
 	m_running = false;
 	free(m_prevSnapshot);
 	free(m_currSnapshot);
+	free(m_matchedBuf);
 	m_prevSnapshot = nullptr;
 	m_currSnapshot = nullptr;
+	m_matchedBuf = nullptr;
 	m_capacity = 0;
 	m_prevCount = 0;
 }
@@ -56,17 +58,21 @@ bool CpuMonitor::ensureCapacity(UBaseType_t needed)
 	auto newCap = needed + ARRAY_SIZE_OFFSET;
 	auto* newPrev = (TaskStatus_t*)realloc(m_prevSnapshot, sizeof(TaskStatus_t) * newCap);
 	auto* newCurr = (TaskStatus_t*)realloc(m_currSnapshot, sizeof(TaskStatus_t) * newCap);
-	if (!newPrev || !newCurr)
+	auto* newMatch = (bool*)realloc(m_matchedBuf, sizeof(bool) * newCap * 2);
+	if (!newPrev || !newCurr || !newMatch)
 	{
 		free(newPrev);
 		free(newCurr);
+		free(newMatch);
 		m_prevSnapshot = nullptr;
 		m_currSnapshot = nullptr;
+		m_matchedBuf = nullptr;
 		m_capacity = 0;
 		return false;
 	}
 	m_prevSnapshot = newPrev;
 	m_currSnapshot = newCurr;
+	m_matchedBuf = newMatch;
 	m_capacity = newCap;
 	return true;
 }
@@ -103,14 +109,10 @@ TickType_t CpuMonitor::pollTask(void* param)
 	}
 
 	// ── 匹配 prev → curr ──
-	auto* prevMatched = (bool*)calloc(self->m_prevCount, sizeof(bool));
-	auto* currMatched = (bool*)calloc(actualCount, sizeof(bool));
-	if (!prevMatched || !currMatched)
-	{
-		free(prevMatched);
-		free(currMatched);
-		return pdMS_TO_TICKS(1000);
-	}
+	// 用持久匹配缓冲区（容量不够时在 ensureCapacity 中已扩容）
+	bool* prevMatched = self->m_matchedBuf;
+	bool* currMatched = self->m_matchedBuf + self->m_capacity;
+	memset(self->m_matchedBuf, 0, sizeof(bool) * self->m_capacity * 2);
 
 	configRUN_TIME_COUNTER_TYPE idleElapsed[2] = { 0, 0 }; // IDLE0, IDLE1
 
@@ -155,9 +157,6 @@ TickType_t CpuMonitor::pollTask(void* param)
 	for (UBaseType_t j = 0; j < self->m_prevCount; j++)
 		if (!prevMatched[j])
 			ESP_LOGI(TAG, "\t%-22s  (已删除)", self->m_prevSnapshot[j].pcTaskName);
-
-	free(prevMatched);
-	free(currMatched);
 
 	// ── 总繁忙率 & 各核心利用率 ──
 	// run time counter 是固定频率单计数器（esp_timer, µs）。

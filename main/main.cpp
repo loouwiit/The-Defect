@@ -86,6 +86,13 @@ extern "C" void app_main(void)
 	}
 	display.setFpsStatisticsEnabled();
 
+	Task::addTask([](void* param)->TickType_t
+		{
+			auto& display = *static_cast<Display*>(param);
+			ESP_LOGI(TAG, "FPS: %u", display.getFps());
+			return 1000;
+		}, "fpsMonitor", &display, 1000, Task::Affinity::None);
+
 	// 启动屏幕流模块（使用 ESP32-P4 硬件 JPEG 编码器）
 	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution);
 

@@ -39,7 +39,7 @@ private:
 
 	static TickType_t pollTask(void* param);
 
-	/** @brief 确保两个快照缓冲区容量足够，不足则重分配 */
+	/** @brief 确保缓冲区容量足够，不足则重分配 */
 	bool ensureCapacity(UBaseType_t needed);
 
 	bool m_running{ false };
@@ -48,6 +48,11 @@ private:
 	TaskStatus_t* m_prevSnapshot{ nullptr };  // 上一轮快照
 	TaskStatus_t* m_currSnapshot{ nullptr };  // 本轮快照（可复用缓冲区）
 	UBaseType_t m_capacity{ 0 };              // 每个缓冲区的 capacity（元素个数）
+
+	// ── 匹配标记缓冲区（持久分配，2 × m_capacity 元素） ──
+	//   [0..cap-1]        → prevMatched
+	//   [cap..2*cap-1]    → currMatched
+	bool* m_matchedBuf{ nullptr };
 
 	UBaseType_t m_prevCount{ 0 };
 	configRUN_TIME_COUNTER_TYPE m_prevRunTime{ 0 };
