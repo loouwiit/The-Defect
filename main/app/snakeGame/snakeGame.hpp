@@ -43,6 +43,12 @@ private:
 	static constexpr int MAX_FOOD_ITEMS = 8;
 	static constexpr int MAX_PLAYERS = 3;
 
+	// LVGL 网格线对象
+	static constexpr int MAX_GRID_W = 80;
+	static constexpr int MAX_GRID_H = 140;
+	lv_obj_t* m_gridLinesV[MAX_GRID_W]{};  // 竖线
+	lv_obj_t* m_gridLinesH[MAX_GRID_H]{};  // 横线
+
 	// LVGL 游戏对象池
 	lv_obj_t* m_segments[MAX_PLAYERS][MAX_SEGMENTS]{};
 	int m_segmentCount[MAX_PLAYERS]{};

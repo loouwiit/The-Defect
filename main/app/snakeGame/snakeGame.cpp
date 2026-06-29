@@ -22,6 +22,8 @@ namespace Color {
 	constexpr uint32_t SNAKE3     = 0xffffa726;
 	constexpr uint32_t SNAKE3_GLOW = 0x22ffa726;
 
+	constexpr uint32_t GRID_LINE  = 0xff1e1e35;
+
 	constexpr uint32_t FOOD       = 0xffff5252;
 	constexpr uint32_t FOOD_GLOW  = 0x44ff5252;
 
@@ -271,6 +273,30 @@ void SnakeGame::createObjectPool(lv_obj_t* parent)
 	m_gridH = canvasH / m_cellSize;
 	if (m_gridW < 10) m_gridW = 10;
 	if (m_gridH < 10) m_gridH = 10;
+
+	// ── 网格线（纯色 1px 细线，一次性创建） ──
+	for (int gx = 0; gx <= m_gridW; gx++)
+	{
+		m_gridLinesV[gx] = lv_obj_create(parent);
+		lv_obj_set_size(m_gridLinesV[gx], 1, m_gridH * m_cellSize);
+		lv_obj_set_pos(m_gridLinesV[gx], gx * m_cellSize, 0);
+		lv_obj_set_style_bg_color(m_gridLinesV[gx], lv_color_hex(Color::GRID_LINE), 0);
+		lv_obj_set_style_bg_opa(m_gridLinesV[gx], LV_OPA_COVER, 0);
+		lv_obj_set_style_border_width(m_gridLinesV[gx], 0, 0);
+		lv_obj_remove_flag(m_gridLinesV[gx], LV_OBJ_FLAG_CLICKABLE);
+	}
+	for (int gy = 0; gy <= m_gridH; gy++)
+	{
+		m_gridLinesH[gy] = lv_obj_create(parent);
+		lv_obj_set_size(m_gridLinesH[gy], m_gridW * m_cellSize, 1);
+		lv_obj_set_pos(m_gridLinesH[gy], 0, gy * m_cellSize);
+		lv_obj_set_style_bg_color(m_gridLinesH[gy], lv_color_hex(Color::GRID_LINE), 0);
+		lv_obj_set_style_bg_opa(m_gridLinesH[gy], LV_OPA_COVER, 0);
+		lv_obj_set_style_border_width(m_gridLinesH[gy], 0, 0);
+		lv_obj_remove_flag(m_gridLinesH[gy], LV_OBJ_FLAG_CLICKABLE);
+	}
+
+	ESP_LOGI(TAG, "Grid: %d vertical + %d horizontal lines", m_gridW + 1, m_gridH + 1);
 
 	// ── 蛇身段对象池 ──
 	for (int p = 0; p < MAX_PLAYERS; p++)
