@@ -1,5 +1,25 @@
 #include "gui.hpp"
 #include "display/font.hpp"
+#include "esp_log.h"
+
+void GUI::setBackground(lv_color_t color)
+{
+	lv_obj_set_style_bg_color(lv_scr_act(), color, 0);
+	lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);
+}
+
+lv_obj_t* GUI::createPage()
+{
+	lv_obj_t* page = lv_obj_create(lv_scr_act());
+	lv_obj_set_size(page, LV_HOR_RES, LV_VER_RES);
+	lv_obj_set_style_border_width(page, 0, 0);
+	lv_obj_set_style_bg_opa(page, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_pad_all(page, 16, 0);
+	lv_obj_set_style_pad_top(page, 24, 0);
+	lv_obj_set_style_pad_bottom(page, 24, 0);
+	lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
+	return page;
+}
 
 lv_obj_t* GUI::createPage(lv_obj_t* parent)
 {
@@ -11,6 +31,7 @@ lv_obj_t* GUI::createPage(lv_obj_t* parent)
 	lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
 	return page;
 }
+
 
 lv_obj_t* GUI::createCard(lv_obj_t* parent, int32_t w, int32_t h)
 {

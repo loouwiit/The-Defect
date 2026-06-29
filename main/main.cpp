@@ -11,7 +11,6 @@
 #include <esp_event.h>
 #include <esp_err.h>
 
-
 #include "task/task.hpp"
 #include "wifi/nvs.hpp"
 #include "wifi/wifi.hpp"
@@ -56,7 +55,8 @@ extern "C" void app_main(void)
 
 	// 初始化LVGL
 	Display display;
-	if (!display.init()) {
+	if (!display.init())
+	{
 		ESP_LOGE(TAG, "Failed to initialize display");
 		return;
 	}
@@ -75,7 +75,8 @@ extern "C" void app_main(void)
 	display.bindTouch(touch.getHandle());
 
 	// 启动 LVGL 工作任务
-	if (!display.start()) {
+	if (!display.start())
+	{
 		ESP_LOGE(TAG, "Failed to start LVGL adapter");
 		return;
 	}

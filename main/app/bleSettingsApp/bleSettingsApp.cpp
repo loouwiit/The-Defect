@@ -1,5 +1,5 @@
 #include "bleSettingsApp.hpp"
-#include "app/desktopApp/gui.hpp"
+#include "gui/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "display/font.hpp"
 #include "task/task.hpp"

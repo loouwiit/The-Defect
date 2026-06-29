@@ -1,8 +1,9 @@
 #include "desktopApp.hpp"
-#include "app/desktopApp/gui.hpp"
+#include "gui/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
+#include "app/snakeGame/snakeGame.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -14,20 +15,29 @@
 
 const char* DesktopApp::GAME_NAMES[] =
 {
-	"游戏 1",
-	"游戏 2",
-	"游戏 3",
-	"游戏 4",
-	"游戏 5",
+	"贪吃蛇",
+	"水果忍者",
+	"俄罗斯方块",
+	"斗地主",
+	"中国象棋",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
 {
-	"一场激动人心的冒险等待着你！",
-	"测试你的解谜能力。",
-	"快节奏的赛车体验。",
-	"建造和管理你的世界。",
-	"史诗般的战斗和策略。",
+	"经典贪吃蛇游戏，吃食物成长！",
+	"快速切水果，享受爽快连击！",
+	"经典俄罗斯方块，消除行数得分！",
+	"三人斗地主，比拼牌技！",
+	"中国象棋，楚河汉界对弈！",
+};
+
+const char* DesktopApp::GAME_ICONS[] =
+{
+	"F:system/desktop/snake.png",
+	"F:system/desktop/fruitNinja.png",
+	"F:system/desktop/tetris.png",
+	"F:system/desktop/douDiZhu.png",
+	"F:system/desktop/chess.png",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -78,6 +88,7 @@ void DesktopApp::onForeground()
 	// 防抖重置
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	for (auto& i : m_nextMoveTime) i = 0;
+
 	ESP_LOGI(TAG, "前台");
 }
 
@@ -92,13 +103,17 @@ void DesktopApp::onBackground()
 
 void DesktopApp::buildUi()
 {
-	// screen 设为 flex 列布局
-	lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
-	lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
-	lv_obj_set_style_pad_all(screen, 0, 0);
+	// ── 主区域（flex 列布局，撑满屏幕） ──
+	auto main_area = lv_obj_create(screen);
+	lv_obj_set_size(main_area, lv_pct(100), lv_pct(100));
+	lv_obj_set_layout(main_area, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(main_area, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_style_border_width(main_area, 0, 0);
+	lv_obj_set_style_bg_opa(main_area, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_pad_all(main_area, 0, 0);
 
 	// ── 顶部状态行 ──
-	auto status_row = GUI::createFlex(screen, LV_FLEX_FLOW_ROW,
+	auto status_row = GUI::createFlex(main_area, LV_FLEX_FLOW_ROW,
 		lv_pct(100), LV_SIZE_CONTENT);
 	lv_obj_set_style_pad_all(status_row, 8, 0);
 	lv_obj_set_style_pad_left(status_row, 16, 0);
@@ -114,6 +129,16 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_text_color(m_wifiLabel, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(m_wifiLabel, LV_FONT_DEFAULT, 0);
 	lv_obj_set_style_pad_right(m_wifiLabel, 16, 0);
+	lv_obj_add_flag(m_wifiLabel, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_wifiLabel, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		self->m_focusGroup = FOCUS_STATUS;
+		self->m_focusStatusIdx = 0;
+		ESP_LOGI(TAG, "WiFi 设置（待实现）");
+		}, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_outline_width(m_wifiLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_wifiLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_wifiLabel, 2, LV_STATE_FOCUSED);
 
 	m_bluetoothLabel = GUI::createLabel(status_row, LV_SYMBOL_BLUETOOTH);
 	lv_obj_set_style_text_color(m_bluetoothLabel, GUI::Color::TEXT, 0);
@@ -121,25 +146,53 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_pad_right(m_bluetoothLabel, 16, 0);
 	lv_obj_add_flag(m_bluetoothLabel, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_add_event_cb(m_bluetoothLabel, onBluetoothLabelCb, LV_EVENT_CLICKED, this);
-	lv_obj_set_style_border_width(m_bluetoothLabel, 3, LV_STATE_FOCUSED);
-	lv_obj_set_style_border_color(m_bluetoothLabel, lv_color_white(), LV_STATE_FOCUSED);
-	lv_obj_set_style_border_side(m_bluetoothLabel, LV_BORDER_SIDE_FULL, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_width(m_bluetoothLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_bluetoothLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_bluetoothLabel, 2, LV_STATE_FOCUSED);
+
+	// 音量
+	m_volumeLabel = GUI::createLabel(status_row, LV_SYMBOL_VOLUME_MAX);
+	lv_obj_set_style_text_color(m_volumeLabel, GUI::Color::TEXT, 0);
+	lv_obj_set_style_text_font(m_volumeLabel, LV_FONT_DEFAULT, 0);
+	lv_obj_set_style_pad_right(m_volumeLabel, 16, 0);
+	lv_obj_add_flag(m_volumeLabel, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_volumeLabel, onVolumeLabelCb, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_outline_width(m_volumeLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_volumeLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_volumeLabel, 2, LV_STATE_FOCUSED);
+
+	// 亮度
+	m_brightnessLabel = GUI::createLabel(status_row, LV_SYMBOL_EYE_OPEN);
+	lv_obj_set_style_text_color(m_brightnessLabel, GUI::Color::TEXT, 0);
+	lv_obj_set_style_text_font(m_brightnessLabel, LV_FONT_DEFAULT, 0);
+	lv_obj_set_style_pad_right(m_brightnessLabel, 16, 0);
+	lv_obj_add_flag(m_brightnessLabel, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_brightnessLabel, onBrightnessLabelCb, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_outline_width(m_brightnessLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_brightnessLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_brightnessLabel, 2, LV_STATE_FOCUSED);
 
 	m_batteryLabel = GUI::createLabel(status_row, LV_SYMBOL_BATTERY_FULL);
 	lv_obj_set_style_text_color(m_batteryLabel, GUI::Color::SUCCESS, 0);
 	lv_obj_set_style_text_font(m_batteryLabel, LV_FONT_DEFAULT, 0);
+	lv_obj_add_flag(m_batteryLabel, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_batteryLabel, onBatteryLabelCb, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_outline_width(m_batteryLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_batteryLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_batteryLabel, 2, LV_STATE_FOCUSED);
 
 	// ── 页面标题（居中） ──
-	auto title = GUI::createTitle(screen, "游戏中心");
+	auto title = GUI::createTitle(main_area, "游戏中心");
 	lv_obj_set_width(title, lv_pct(100));
 	lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 	lv_obj_set_style_pad_top(title, 20, 0);
 	lv_obj_set_style_pad_bottom(title, 10, 0);
 
 	// ── 卡片区域（flex_grow 填充中间） ──
-	auto cards_section = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
+	auto cards_section = GUI::createFlex(main_area, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
 	lv_obj_set_flex_grow(cards_section, 1);
 	lv_obj_set_style_pad_all(cards_section, 10, 0);
+	lv_obj_set_style_pad_bottom(cards_section, 140, 0);
 	lv_obj_set_style_pad_column(cards_section, 8, 0);
 	lv_obj_set_style_border_width(cards_section, 0, 0);
 	lv_obj_set_style_bg_opa(cards_section, LV_OPA_TRANSP, 0);
@@ -151,13 +204,14 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_radius(m_prevBtn, 30, 0);
 	lv_obj_add_event_cb(m_prevBtn, onPrevBtnCb, LV_EVENT_CLICKED, this);
 
-	// 卡片行
+	// 卡片行（可触摸横向滚动）
 	m_cardsRow = GUI::createFlex(cards_section, LV_FLEX_FLOW_ROW, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 	lv_obj_set_flex_grow(m_cardsRow, 1);
 	lv_obj_set_style_pad_column(m_cardsRow, 16, 0);
 	lv_obj_set_style_border_width(m_cardsRow, 0, 0);
 	lv_obj_set_style_bg_opa(m_cardsRow, LV_OPA_TRANSP, 0);
-	lv_obj_set_flex_align(m_cardsRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_scrollbar_mode(m_cardsRow, LV_SCROLLBAR_MODE_OFF);
+	lv_obj_set_flex_align(m_cardsRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
 	// 创建五个游戏卡片
 	for (int i = 0; i < GAME_COUNT; i++)
@@ -189,15 +243,15 @@ void DesktopApp::buildUi()
 			auto* c = static_cast<lv_obj_t*>(lv_event_get_target(e));
 			self->m_focusGroup = FOCUS_CARDS;
 			self->m_focusCardsIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
-			self->updateCardSizes();
 			self->updateSelectionLabels();
 			self->applyFocus();
 			}, LV_EVENT_CLICKED, this);
 
-		auto label = GUI::createLabel(card, GAME_NAMES[i]);
-		lv_obj_set_style_text_color(label, LV_COLOR_MAKE(0x1A, 0x1A, 0x2E), 0);
-		lv_obj_center(label);
-		lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+		// 游戏图标（从 FLASH 加载，百分比尺寸随卡片自动缩放）
+		auto img = lv_image_create(card);
+		lv_image_set_src(img, GAME_ICONS[i]);
+		lv_obj_set_size(img, lv_pct(100), lv_pct(100));
+		lv_obj_center(img);
 
 		m_gameCards[i] = card;
 	}
@@ -208,59 +262,33 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_radius(m_nextBtn, 30, 0);
 	lv_obj_add_event_cb(m_nextBtn, onNextBtnCb, LV_EVENT_CLICKED, this);
 
-	// ── 底部区域（左简介 / 右信息+按钮） ──
-	auto bottom_area = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, lv_pct(86), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_all(bottom_area, 12, 0);
-	lv_obj_set_style_pad_bottom(bottom_area, 80, 0);
-	lv_obj_set_style_pad_left(bottom_area, 80, 0);
-	lv_obj_set_style_pad_right(bottom_area, 24, 0);
-	lv_obj_set_style_border_width(bottom_area, 0, 0);
-	lv_obj_set_style_bg_opa(bottom_area, LV_OPA_TRANSP, 0);
-	lv_obj_set_flex_align(bottom_area, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-	// 左侧：游戏简介
-	m_descLabel = GUI::createLabel(bottom_area, "");
+	// ── 底部区域 ──
+	// 左侧：游戏简介（弹性宽度，自动换行）
+	m_descLabel = GUI::createLabel(screen, "");
 	lv_obj_set_style_text_color(m_descLabel, GUI::Color::SUBTLE, 0);
 	lv_obj_set_style_text_font(m_descLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 	lv_obj_set_width(m_descLabel, lv_pct(40));
 	lv_label_set_long_mode(m_descLabel, LV_LABEL_LONG_WRAP);
+	lv_obj_align(m_descLabel, LV_ALIGN_BOTTOM_LEFT, 40, -80);
 
-	// 右侧：已选择提示 + 开始按钮
-	auto right_side = GUI::createFlex(bottom_area, LV_FLEX_FLOW_COLUMN, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-	lv_obj_set_style_border_width(right_side, 0, 0);
-	lv_obj_set_style_bg_opa(right_side, LV_OPA_TRANSP, 0);
-	lv_obj_set_flex_align(right_side, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-	m_infoLabel = GUI::createLabel(right_side, "");
-	lv_obj_set_style_text_color(m_infoLabel, GUI::Color::TEXT, 0);
-	lv_obj_set_style_pad_bottom(m_infoLabel, 8, 0);
-
-	m_startBtn = GUI::createButton(right_side, "开始游戏", 160, 50);
+	// 右侧：开始按钮（固定右下角）
+	m_startBtn = GUI::createButton(screen, "开始游戏", 160, 50);
 	lv_obj_set_style_radius(m_startBtn, 12, 0);
 	lv_obj_set_style_border_width(m_startBtn, 3, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_startBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_startBtn, onStartBtnCb, LV_EVENT_CLICKED, this);
+	lv_obj_align(m_startBtn, LV_ALIGN_BOTTOM_RIGHT, -50, -50);
+
+	// 已选择提示（在开始按钮上方，随文字长度动态调整水平位置）
+	m_infoLabel = GUI::createLabel(screen, "");
+	lv_obj_set_style_text_color(m_infoLabel, GUI::Color::TEXT, 0);
+	lv_obj_set_width(m_infoLabel, 300);
+	lv_obj_set_style_text_align(m_infoLabel, LV_TEXT_ALIGN_RIGHT, 0);
+	lv_obj_align_to(m_infoLabel, m_startBtn, LV_ALIGN_OUT_TOP_RIGHT, 0, -8);
 
 	// 初始化卡片状态
-	updateCardSizes();
 	updateSelectionLabels();
 	applyFocus();
-}
-
-// ════════════════════════════════════════════════════════════════
-// 卡片尺寸更新
-// ════════════════════════════════════════════════════════════════
-
-void DesktopApp::updateCardSizes()
-{
-	for (int i = 0; i < GAME_COUNT; i++)
-	{
-		if (!m_gameCards[i]) continue;
-		bool sel = (i == m_focusCardsIdx);
-		lv_obj_set_size(m_gameCards[i],
-			sel ? CARD_SEL_W : CARD_W,
-			sel ? CARD_SEL_H : CARD_H);
-	}
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -291,7 +319,11 @@ void DesktopApp::applyFocus()
 			if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED);
 		};
 
+	clearFocus(m_wifiLabel);
 	clearFocus(m_bluetoothLabel);
+	clearFocus(m_volumeLabel);
+	clearFocus(m_brightnessLabel);
+	clearFocus(m_batteryLabel);
 	for (auto* card : m_gameCards) clearFocus(card);
 	clearFocus(m_startBtn);
 
@@ -307,8 +339,8 @@ void DesktopApp::applyFocus()
 		if (m_focusCardsIdx >= 0 && m_focusCardsIdx < GAME_COUNT)
 		{
 			focus(m_gameCards[m_focusCardsIdx]);
-			// 滚动到视图
-			lv_obj_scroll_to_view(m_gameCards[m_focusCardsIdx], LV_ANIM_ON);
+			// 刷新布局后滚动到视图
+			lv_obj_scroll_to_view(m_gameCards[m_focusCardsIdx], LV_ANIM_OFF);
 		}
 		break;
 
@@ -317,8 +349,12 @@ void DesktopApp::applyFocus()
 		break;
 
 	case FOCUS_STATUS:
-		focus(m_bluetoothLabel);
+	{
+		lv_obj_t* targets[] = { m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_batteryLabel };
+		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < 5)
+			focus(targets[m_focusStatusIdx]);
 		break;
+	}
 	}
 }
 
@@ -335,16 +371,32 @@ void DesktopApp::activateFocus()
 		break;
 
 	case FOCUS_STATUS:
-		// 打开 BLE 设置（LVGL 事件回调中持锁，须延后）
-		Task::addTask([](void* param) -> TickType_t
-			{
-				auto* app = static_cast<DesktopApp*>(param);
-				if (app->getManager()) {
-					auto* bleApp = new BleSettingsApp(app->getDisplay());
-					app->getManager()->pushToNewStack(bleApp);
-				}
-				return Task::infinityTime;
-			}, "openBleSettings", this, 0, Task::Affinity::None);
+		switch (m_focusStatusIdx)
+		{
+		case 0: // WiFi — TODO: 打开 WiFi 设置
+			ESP_LOGI(TAG, "WiFi 设置（待实现）");
+			break;
+		case 1: // 蓝牙 — 打开 BLE 设置
+			Task::addTask([](void* param) -> TickType_t
+				{
+					auto* app = static_cast<DesktopApp*>(param);
+					if (app->getManager()) {
+						auto* bleApp = new BleSettingsApp(app->getDisplay());
+						app->getManager()->pushToNewStack(bleApp);
+					}
+					return Task::infinityTime;
+				}, "openBleSettings", this, 0, Task::Affinity::None);
+			break;
+		case 2: // 音量
+			ESP_LOGI(TAG, "音量调节（待实现）");
+			break;
+		case 3: // 亮度
+			ESP_LOGI(TAG, "亮度调节（待实现）");
+			break;
+		case 4: // 电池/电源
+			ESP_LOGI(TAG, "电源管理（待实现）");
+			break;
+		}
 		break;
 	}
 }
@@ -353,9 +405,10 @@ void DesktopApp::activateFocus()
 
 void DesktopApp::navCardsLeft()
 {
+	if (m_focusCardsIdx <= 0)
+		return;
 	auto guard = display->lockGuard();
-	m_focusCardsIdx = (m_focusCardsIdx - 1 + GAME_COUNT) % GAME_COUNT;
-	updateCardSizes();
+	m_focusCardsIdx--;
 	updateSelectionLabels();
 	applyFocus();
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[m_focusCardsIdx], m_focusCardsIdx);
@@ -363,9 +416,10 @@ void DesktopApp::navCardsLeft()
 
 void DesktopApp::navCardsRight()
 {
+	if (m_focusCardsIdx >= GAME_COUNT - 1)
+		return;
 	auto guard = display->lockGuard();
-	m_focusCardsIdx = (m_focusCardsIdx + 1) % GAME_COUNT;
-	updateCardSizes();
+	m_focusCardsIdx++;
 	updateSelectionLabels();
 	applyFocus();
 	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[m_focusCardsIdx], m_focusCardsIdx);
@@ -410,14 +464,23 @@ void DesktopApp::startGame()
 {
 	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[m_focusCardsIdx]);
 
-	if (m_manager)
+	if (!m_manager)
 	{
-		auto* testApp = new TestApp(display, esp_random());
-		m_manager->pushToNewStack(testApp);
+		ESP_LOGE(TAG, "startGame: no manager set");
+		return;
+	}
+
+	if (m_focusCardsIdx == 0)
+	{
+		// 贪吃蛇 — 通过 AppStack 启动
+		auto* snake = new SnakeGame(display);
+		m_manager->pushToNewStack(snake);
 	}
 	else
 	{
-		ESP_LOGE(TAG, "startGame: no manager set");
+		// 其他游戏 — TestApp 占位
+		auto* testApp = new TestApp(display, esp_random());
+		m_manager->pushToNewStack(testApp);
 	}
 }
 
@@ -472,12 +535,18 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 	case FOCUS_BOTTOM:
 		if (lyUp) navFromBottomUp();
-		if (lyDown) navToBottom(); // 无动作，保留在底部
 		break;
 
 	case FOCUS_STATUS:
+		if (lxLeft && m_focusStatusIdx > 0) {
+			m_focusStatusIdx--;
+			applyFocus();
+		}
+		if (lxRight && m_focusStatusIdx < 4) {
+			m_focusStatusIdx++;
+			applyFocus();
+		}
 		if (lyDown) navFromStatusDown();
-		if (lyUp) navToStatus(); // 无动作，保留在状态栏
 		break;
 	}
 }
@@ -535,4 +604,32 @@ void DesktopApp::onBluetoothLabelCb(lv_event_t* e)
 			}
 			return Task::infinityTime;
 		}, "openBleSettings", self, 0, Task::Affinity::None);
+}
+
+// ════════════════════════════════════════════════════════════════
+// 状态栏图标回调
+// ════════════════════════════════════════════════════════════════
+
+void DesktopApp::onVolumeLabelCb(lv_event_t* e)
+{
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self->m_focusGroup = FOCUS_STATUS;
+	self->m_focusStatusIdx = 2;
+	ESP_LOGI(TAG, "音量调节（待实现）");
+}
+
+void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
+{
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self->m_focusGroup = FOCUS_STATUS;
+	self->m_focusStatusIdx = 3;
+	ESP_LOGI(TAG, "亮度调节（待实现）");
+}
+
+void DesktopApp::onBatteryLabelCb(lv_event_t* e)
+{
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	self->m_focusGroup = FOCUS_STATUS;
+	self->m_focusStatusIdx = 4;
+	ESP_LOGI(TAG, "电源管理（待实现）");
 }

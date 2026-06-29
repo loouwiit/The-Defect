@@ -22,16 +22,17 @@ private:
 	static constexpr int GAME_COUNT = 5;
 	static const char* GAME_NAMES[GAME_COUNT];
 	static const char* GAME_DESCS[GAME_COUNT];
+	static const char* GAME_ICONS[GAME_COUNT];
 
 	// ── 焦点导航组 ──
 	enum FocusGroup : int8_t {
 		FOCUS_CARDS  = 0,  // 游戏卡片行（左右切换卡片）
 		FOCUS_BOTTOM = 1,  // 底部"开始游戏"按钮
-		FOCUS_STATUS = 2,  // 顶栏蓝牙图标
+		FOCUS_STATUS = 2,  // 顶栏状态图标
 	};
 	FocusGroup m_focusGroup{ FOCUS_CARDS };
 	int8_t m_focusCardsIdx{ 0 };      // 0..GAME_COUNT-1
-	int8_t m_focusStatusIdx{ 0 };     // 0=蓝牙（暂仅蓝牙）
+	int8_t m_focusStatusIdx{ 0 };     // 0=WiFi, 1=蓝牙, 2=音量, 3=亮度, 4=电池
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 
@@ -49,17 +50,16 @@ private:
 	lv_obj_t* m_nextBtn{};
 	lv_obj_t* m_wifiLabel{};
 	lv_obj_t* m_bluetoothLabel{};
+	lv_obj_t* m_volumeLabel{};
+	lv_obj_t* m_brightnessLabel{};
 	lv_obj_t* m_batteryLabel{};
 
 	// ── 尺寸常量 ──
-	static constexpr int CARD_W = 180;
-	static constexpr int CARD_H = 180;
-	static constexpr int CARD_SEL_W = 200;
-	static constexpr int CARD_SEL_H = 200;
+	static constexpr int CARD_W = 240;
+	static constexpr int CARD_H = 240;
 
 	// ── 私有方法 ──
 	void buildUi();
-	void updateCardSizes();
 	void updateSelectionLabels();
 	void applyFocus();
 	void activateFocus();
@@ -84,4 +84,7 @@ private:
 	static void onNextBtnCb(lv_event_t* e);
 	static void onStartBtnCb(lv_event_t* e);
 	static void onBluetoothLabelCb(lv_event_t* e);
+	static void onVolumeLabelCb(lv_event_t* e);
+	static void onBrightnessLabelCb(lv_event_t* e);
+	static void onBatteryLabelCb(lv_event_t* e);
 };

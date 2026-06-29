@@ -18,6 +18,10 @@ public:
 		static constexpr lv_color_t SUBTLE = LV_COLOR_MAKE(0x88, 0x88, 0x88);
 	};
 
+
+	static void setBackground(lv_color_t color = Color::BG);
+
+	static lv_obj_t* createPage();
 	static lv_obj_t* createPage(lv_obj_t* parent);
 
 	static lv_obj_t* createCard(lv_obj_t* parent, int32_t w, int32_t h);
