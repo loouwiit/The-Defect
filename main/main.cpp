@@ -39,6 +39,7 @@ extern "C" void app_main(void)
 	Task::init(2);
 
 	// CPU 利用率监视器（串口输出，每 1 秒采样一次）
+	CpuMonitor::instance().setBrief(true);
 	CpuMonitor::instance().start();
 
 	ESP_LOGI(TAG, "esp_event_loop_create_default");

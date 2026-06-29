@@ -1,6 +1,7 @@
 #include "cpuMonitor.hpp"
 #include "task/task.hpp"
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -15,25 +16,35 @@ void CpuMonitor::start()
 		return;
 	m_running = true;
 
-	// ── 首次采样：直接存入 m_prevSnapshot ──
-	UBaseType_t taskCount = uxTaskGetNumberOfTasks() + ARRAY_SIZE_OFFSET;
-	if (!ensureCapacity(taskCount))
+	if (m_brief)
 	{
-		ESP_LOGE(TAG, "首次分配缓冲区失败");
-		m_running = false;
-		return;
+		// 简略模式：轻量初始化，不用 uxTaskGetSystemState
+		m_prevRunTime = esp_timer_get_time();
+		m_prevIdleRunTime[0] = ulTaskGetIdleRunTimeCounterForCore(0);
+		m_prevIdleRunTime[1] = ulTaskGetIdleRunTimeCounterForCore(1);
 	}
-
-	m_prevCount = uxTaskGetSystemState(m_prevSnapshot, m_capacity, &m_prevRunTime);
-	if (m_prevCount == 0)
+	else
 	{
-		ESP_LOGE(TAG, "首次采样失败（数组太小）");
-		m_running = false;
-		return;
+		// 详细模式：全量快照
+		UBaseType_t taskCount = uxTaskGetNumberOfTasks() + ARRAY_SIZE_OFFSET;
+		if (!ensureCapacity(taskCount))
+		{
+			ESP_LOGE(TAG, "首次分配缓冲区失败");
+			m_running = false;
+			return;
+		}
+
+		m_prevCount = uxTaskGetSystemState(m_prevSnapshot, m_capacity, &m_prevRunTime);
+		if (m_prevCount == 0)
+		{
+			ESP_LOGE(TAG, "首次采样失败（数组太小）");
+			m_running = false;
+			return;
+		}
 	}
 
 	Task::addTask(pollTask, "cpuMonitor", this, pdMS_TO_TICKS(1000), Task::Affinity::None);
-	ESP_LOGI(TAG, "CPU 监视器已启动");
+	ESP_LOGI(TAG, "CPU 监视器已启动%s", m_brief ? "（简略模式）" : "");
 }
 
 void CpuMonitor::stop()
@@ -83,7 +94,46 @@ TickType_t CpuMonitor::pollTask(void* param)
 	if (!self->m_running)
 		return Task::infinityTime;
 
-	// ── 确保缓冲区够大 ──
+	// ═══════════════════════════════════════════════════════
+	// 简略模式：轻量路径 — 仅读 IDLE 计数器 + esp_timer
+	// ═══════════════════════════════════════════════════════
+	if (self->m_brief)
+	{
+		configRUN_TIME_COUNTER_TYPE currentRunTime = esp_timer_get_time();
+		configRUN_TIME_COUNTER_TYPE totalElapsed = currentRunTime - self->m_prevRunTime;
+		if (totalElapsed == 0)
+			return pdMS_TO_TICKS(1000);
+
+		configRUN_TIME_COUNTER_TYPE currIdle[2] = {
+			ulTaskGetIdleRunTimeCounterForCore(0),
+			ulTaskGetIdleRunTimeCounterForCore(1),
+		};
+
+		configRUN_TIME_COUNTER_TYPE idleElapsed[2] = {
+			currIdle[0] - self->m_prevIdleRunTime[0],
+			currIdle[1] - self->m_prevIdleRunTime[1],
+		};
+
+		self->m_prevRunTime = currentRunTime;
+		self->m_prevIdleRunTime[0] = currIdle[0];
+		self->m_prevIdleRunTime[1] = currIdle[1];
+
+		uint32_t idlePct[2] = {
+			(uint32_t)(idleElapsed[0] * 100ULL / totalElapsed),
+			(uint32_t)(idleElapsed[1] * 100ULL / totalElapsed),
+		};
+		uint32_t coreBusy[2] = { 100 - idlePct[0], 100 - idlePct[1] };
+		uint32_t totalBusy = (uint32_t)((2ULL * totalElapsed - idleElapsed[0] - idleElapsed[1]) * 100ULL / (2ULL * totalElapsed));
+
+		ESP_LOGI(TAG, "CPU:%3" PRIu32 "%%, C0:%3" PRIu32 "%%, C1:%3" PRIu32 "%%",
+			totalBusy, coreBusy[0], coreBusy[1]);
+
+		return pdMS_TO_TICKS(1000);
+	}
+
+	// ═══════════════════════════════════════════════════════
+	// 详细模式：全量快照 + 匹配 + 逐任务输出
+	// ═══════════════════════════════════════════════════════
 	UBaseType_t taskCount = uxTaskGetNumberOfTasks() + ARRAY_SIZE_OFFSET;
 	if (!self->ensureCapacity(taskCount))
 	{
@@ -91,7 +141,6 @@ TickType_t CpuMonitor::pollTask(void* param)
 		return pdMS_TO_TICKS(1000);
 	}
 
-	// ── 采样到 m_currSnapshot ──
 	configRUN_TIME_COUNTER_TYPE currentRunTime;
 	UBaseType_t actualCount = uxTaskGetSystemState(self->m_currSnapshot, self->m_capacity, &currentRunTime);
 	if (actualCount == 0)
@@ -100,21 +149,15 @@ TickType_t CpuMonitor::pollTask(void* param)
 		return pdMS_TO_TICKS(1000);
 	}
 
-	// ── 计算增量 ──
 	configRUN_TIME_COUNTER_TYPE totalElapsed = currentRunTime - self->m_prevRunTime;
 	if (totalElapsed == 0)
-	{
-		// 时间未推进，跳过本次（curr 不交换，下次重试）
 		return pdMS_TO_TICKS(1000);
-	}
 
-	// ── 匹配 prev → curr ──
-	// 用持久匹配缓冲区（容量不够时在 ensureCapacity 中已扩容）
 	bool* prevMatched = self->m_matchedBuf;
 	bool* currMatched = self->m_matchedBuf + self->m_capacity;
 	memset(self->m_matchedBuf, 0, sizeof(bool) * self->m_capacity * 2);
 
-	configRUN_TIME_COUNTER_TYPE idleElapsed[2] = { 0, 0 }; // IDLE0, IDLE1
+	configRUN_TIME_COUNTER_TYPE idleElapsed[2] = { 0, 0 };
 
 	ESP_LOGI(TAG, "──── CPU 占用率 ────");
 	ESP_LOGI(TAG, "\t%-22s %s", "任务名", "占用率");
@@ -131,7 +174,6 @@ TickType_t CpuMonitor::pollTask(void* param)
 					self->m_currSnapshot[i].ulRunTimeCounter - self->m_prevSnapshot[j].ulRunTimeCounter;
 
 				uint32_t percent = (uint32_t)((taskElapsed * 100ULL) / totalElapsed);
-
 				if (percent > 0)
 					ESP_LOGI(TAG, "\t%-22s %3" PRIu32 "%%", self->m_currSnapshot[i].pcTaskName, percent);
 				else
@@ -148,9 +190,11 @@ TickType_t CpuMonitor::pollTask(void* param)
 				break;
 			}
 		}
+
+		// 让出调度，防止阻塞其他任务
+		vTaskDelay(0);
 	}
 
-	// 输出新增/删除
 	for (UBaseType_t i = 0; i < actualCount; i++)
 		if (!currMatched[i])
 			ESP_LOGI(TAG, "\t%-22s  (新增)", self->m_currSnapshot[i].pcTaskName);
@@ -159,10 +203,6 @@ TickType_t CpuMonitor::pollTask(void* param)
 			ESP_LOGI(TAG, "\t%-22s  (已删除)", self->m_prevSnapshot[j].pcTaskName);
 
 	// ── 总繁忙率 & 各核心利用率 ──
-	// run time counter 是固定频率单计数器（esp_timer, µs）。
-	// totalElapsed ≈ 1 秒墙钟时间。单核满负荷最多占 totalElapsed。
-	// CoreX 繁忙 = (totalElapsed - IDLE_X_elapsed) / totalElapsed × 100
-	// 系统总繁忙 = (2×totalElapsed - IDLE0 - IDLE1) / (2×totalElapsed) × 100
 	uint32_t idlePct[2] = {
 		(uint32_t)(idleElapsed[0] * 100ULL / totalElapsed),
 		(uint32_t)(idleElapsed[1] * 100ULL / totalElapsed),

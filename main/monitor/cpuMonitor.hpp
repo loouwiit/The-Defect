@@ -31,6 +31,9 @@ public:
 	/** @brief 停止采样并释放所有缓存 */
 	void stop();
 
+	/** @brief 设置简略模式（只输出总结行，不输出各任务详情） */
+	void setBrief(bool brief) { m_brief = brief; }
+
 private:
 	CpuMonitor() = default;
 	~CpuMonitor() = default;
@@ -43,6 +46,7 @@ private:
 	bool ensureCapacity(UBaseType_t needed);
 
 	bool m_running{ false };
+	bool m_brief{ false };
 
 	// ── 双缓冲区（持久分配，避免每轮 malloc/free） ──
 	TaskStatus_t* m_prevSnapshot{ nullptr };  // 上一轮快照
@@ -56,4 +60,7 @@ private:
 
 	UBaseType_t m_prevCount{ 0 };
 	configRUN_TIME_COUNTER_TYPE m_prevRunTime{ 0 };
+
+	// ── 简略模式专用：IDLE 累计计数器（避免调用 uxTaskGetSystemState） ──
+	configRUN_TIME_COUNTER_TYPE m_prevIdleRunTime[2]{ 0, 0 };
 };
