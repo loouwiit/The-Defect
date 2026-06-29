@@ -88,6 +88,7 @@ void BleSettingsApp::onForeground()
 		lv_timer_resume(m_refreshTimer);
 	}
 	ESP_LOGI(TAG, "前台，定时器已启动");
+	m_nextActionTime = xTaskGetTickCount() + 500;
 }
 
 void BleSettingsApp::onBackground()
