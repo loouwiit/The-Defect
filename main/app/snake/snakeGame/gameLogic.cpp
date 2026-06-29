@@ -96,7 +96,7 @@ void SnakeGameLogic::reset()
 			snake.direction = Direction::Left;
 			snake.pendingDir = Direction::Left;
 		}
-		else
+			else if (p == 2)
 		{
 			// 玩家 3：中上区域出发，朝下
 			int8_t startX = m_gridW / 2;
@@ -105,6 +105,17 @@ void SnakeGameLogic::reset()
 			snake.body.push_back({ startX, 3 });
 			snake.direction = Direction::Down;
 			snake.pendingDir = Direction::Down;
+		}
+		else
+		{
+			// 玩家 4：中下区域出发，朝上
+			int8_t startX = m_gridW / 2 + 3;
+			int8_t startY = static_cast<int8_t>(m_gridH - 6);
+			snake.body.push_back({ startX, startY });
+			snake.body.push_back({ startX, static_cast<int8_t>(startY + 1) });
+			snake.body.push_back({ startX, static_cast<int8_t>(startY + 2) });
+			snake.direction = Direction::Up;
+			snake.pendingDir = Direction::Up;
 		}
 	}
 
@@ -190,7 +201,8 @@ SnakeGameLogic::Cell SnakeGameLogic::getCell(int x, int y) const
 			{
 				if (p == 0) return CELL_SNAKE1;
 				if (p == 1) return CELL_SNAKE2;
-				return CELL_SNAKE3;
+				if (p == 2) return CELL_SNAKE3;
+				return CELL_SNAKE4;
 			}
 		}
 	}

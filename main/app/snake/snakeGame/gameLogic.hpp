@@ -27,6 +27,7 @@ public:
 		CELL_SNAKE2 = 2,   // 玩家 2 蛇身
 		CELL_FOOD   = 3,
 		CELL_SNAKE3 = 4,   // 玩家 3 蛇身
+		CELL_SNAKE4 = 5,   // 玩家 4 蛇身
 	};
 
 	enum class Direction : uint8_t
@@ -106,7 +107,7 @@ public:
 	bool hasPendingDirection(int player) const;
 
 private:
-	static constexpr int MAX_PLAYERS = 3;
+	static constexpr int MAX_PLAYERS = 4;
 
 	int m_playerCount;
 	int m_gridW, m_gridH;

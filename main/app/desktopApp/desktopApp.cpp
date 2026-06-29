@@ -3,7 +3,7 @@
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
-#include "app/snakeGame/snakeGame.hpp"
+#include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -473,7 +473,7 @@ void DesktopApp::startGame()
 	if (m_focusCardsIdx == 0)
 	{
 		// 贪吃蛇 — 通过 AppStack 启动
-		auto* snake = new SnakeGame(display);
+		auto* snake = new SnakeRoom(display);
 		m_manager->pushToNewStack(snake);
 	}
 	else

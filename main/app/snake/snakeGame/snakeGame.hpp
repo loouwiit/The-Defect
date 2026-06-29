@@ -21,7 +21,7 @@ class SnakeGame : public App
 public:
 	static constexpr char TAG[] = "SnakeGame";
 
-	SnakeGame(Display* display);
+	SnakeGame(Display* display, int playerCount);
 	~SnakeGame() override;
 
 	void init() override;
@@ -33,7 +33,7 @@ public:
 private:
 	// 游戏核心
 	SnakeGameLogic m_logic;
-	int m_playerCount = 1;  // 实际玩家数（从选择界面设置）
+	int m_playerCount;
 
 	// 游戏循环线程
 	Thread m_thread;
@@ -41,7 +41,7 @@ private:
 	// 对象池常量
 	static constexpr int MAX_SEGMENTS = 64;
 	static constexpr int MAX_FOOD_ITEMS = 8;
-	static constexpr int MAX_PLAYERS = 3;
+	static constexpr int MAX_PLAYERS = 4;
 
 	// LVGL 网格线对象
 	static constexpr int MAX_GRID_W = 80;
@@ -67,41 +67,36 @@ private:
 	lv_obj_t* m_restartBtn = nullptr;
 	lv_obj_t* m_backBtn = nullptr;
 
-	// 模式选择界面
-	lv_obj_t* m_menu = nullptr;
-	lv_obj_t* m_btn1P = nullptr;
-	lv_obj_t* m_btn2P = nullptr;
-	lv_obj_t* m_btn3P = nullptr;
+	// D-pad 容器（四角）
+	lv_obj_t* m_pad1 = nullptr;  // 右下
+	lv_obj_t* m_pad2 = nullptr;  // 左下
+	lv_obj_t* m_pad3 = nullptr;  // 右上
+	lv_obj_t* m_pad4 = nullptr;  // 左上
 
-	// D-pad 容器（玩家 1 右侧 / 玩家 2 左侧 / 玩家 3 中间）
-	lv_obj_t* m_pad1 = nullptr;
-	lv_obj_t* m_pad2 = nullptr;
-	lv_obj_t* m_pad3 = nullptr;
-
-	// 玩家 1 D-pad 按钮
+	// 玩家 1 D-pad 按钮（右下角，绿色）
 	lv_obj_t* m_p1Up = nullptr;
 	lv_obj_t* m_p1Down = nullptr;
 	lv_obj_t* m_p1Left = nullptr;
 	lv_obj_t* m_p1Right = nullptr;
 	lv_obj_t* m_p1Pause = nullptr;
 
-	// 玩家 2 D-pad 按钮
+	// 玩家 2 D-pad 按钮（左下角，蓝色）
 	lv_obj_t* m_p2Up = nullptr;
 	lv_obj_t* m_p2Down = nullptr;
 	lv_obj_t* m_p2Left = nullptr;
 	lv_obj_t* m_p2Right = nullptr;
 
-	// 玩家 3 D-pad 按钮
+	// 玩家 3 D-pad 按钮（右上角，橙色）
 	lv_obj_t* m_p3Up = nullptr;
 	lv_obj_t* m_p3Down = nullptr;
 	lv_obj_t* m_p3Left = nullptr;
 	lv_obj_t* m_p3Right = nullptr;
 
-	/** @brief 创建模式选择菜单 */
-	void createMenu(lv_obj_t* parent);
-
-	/** @brief 开始游戏（选择人数后调用） */
-	void startGame(int playerCount);
+	// 玩家 4 D-pad 按钮（左上角，紫色）
+	lv_obj_t* m_p4Up = nullptr;
+	lv_obj_t* m_p4Down = nullptr;
+	lv_obj_t* m_p4Left = nullptr;
+	lv_obj_t* m_p4Right = nullptr;
 
 	/** @brief 创建 D-pad 按钮 */
 	void createDpad(lv_obj_t* parent);
@@ -109,8 +104,8 @@ private:
 	/** @brief 创建游戏对象池（蛇身段 + 食物） */
 	void createObjectPool(lv_obj_t* parent);
 
-	/** @brief 渲染一帧 */
-	void renderFrame();
+	/** @brief 更新场景（更新 LVGL 对象位置/显隐/文本，LVGL 负责真正渲染） */
+	void updateScene();
 
 	/** @brief 游戏主循环 */
 	static void gameLoop(void* param);
@@ -132,14 +127,13 @@ private:
 	static void btnP3LeftCb(lv_event_t* e);
 	static void btnP3RightCb(lv_event_t* e);
 
-	static void btn1PCb(lv_event_t* e);
-	static void btn2PCb(lv_event_t* e);
-	static void btn3PCb(lv_event_t* e);
+	static void btnP4UpCb(lv_event_t* e);
+	static void btnP4DownCb(lv_event_t* e);
+	static void btnP4LeftCb(lv_event_t* e);
+	static void btnP4RightCb(lv_event_t* e);
+
 	static void btnRestartCb(lv_event_t* e);
 	static void btnBackCb(lv_event_t* e);
-
-	/** @brief 返回模式选择菜单 */
-	void goBackToMenu();
 
 	/** @brief 设置方向并启动游戏（供回调使用） */
 	static void setDirAndStart(SnakeGame* self, int player, SnakeGameLogic::Direction dir);

@@ -10,41 +10,44 @@
 // ============================================================
 // 颜色常量
 // ============================================================
-namespace Color {
-	constexpr uint32_t BG_TOP     = 0xff0a0a1e;
+namespace Color
+{
+	constexpr uint32_t BG_TOP = 0xff0a0a1e;
 
-	constexpr uint32_t SNAKE1     = 0xff00e676;
+	constexpr uint32_t SNAKE1 = 0xff00e676;
 	constexpr uint32_t SNAKE1_GLOW = 0x2200e676;
 
-	constexpr uint32_t SNAKE2     = 0xff448aff;
+	constexpr uint32_t SNAKE2 = 0xff448aff;
 	constexpr uint32_t SNAKE2_GLOW = 0x22448aff;
 
-	constexpr uint32_t SNAKE3     = 0xffffa726;
+	constexpr uint32_t SNAKE3 = 0xffffa726;
 	constexpr uint32_t SNAKE3_GLOW = 0x22ffa726;
 
-	constexpr uint32_t GRID_LINE  = 0xff1e1e35;
+	constexpr uint32_t SNAKE4 = 0xffce93d8;  // P4 蛇身（紫色）
+	constexpr uint32_t SNAKE4_GLOW = 0x22ce93d8; // P4 发光
 
-	constexpr uint32_t FOOD       = 0xffff5252;
-	constexpr uint32_t FOOD_GLOW  = 0x44ff5252;
+	constexpr uint32_t GRID_LINE = 0xff1e1e35;
 
-	constexpr uint32_t DPAD_BG    = 0x221a1a2e;
-	constexpr uint32_t DPAD_BTN   = 0x55333355;
+	constexpr uint32_t FOOD = 0xffff5252;
+	constexpr uint32_t FOOD_GLOW = 0x44ff5252;
+
+	constexpr uint32_t DPAD_BG = 0x221a1a2e;
+	constexpr uint32_t DPAD_BTN = 0x55333355;
 	constexpr uint32_t DPAD_ARROW = 0xccffffff;
 
-	constexpr uint32_t TEXT       = 0xffffffff;
-	constexpr uint32_t SUBTLE     = 0xff888899;
-	constexpr uint32_t MENU_BG    = 0xff0a0a1e;
-	constexpr uint32_t BTN_1P     = 0xff00c853;
-	constexpr uint32_t BTN_2P     = 0xff448aff;
+	constexpr uint32_t TEXT = 0xffffffff;
+	constexpr uint32_t SUBTLE = 0xff888899;
+	constexpr uint32_t BTN_1P = 0xff00c853;
 }
 
 // ============================================================
 // SnakeGame
 // ============================================================
 
-SnakeGame::SnakeGame(Display* display)
+SnakeGame::SnakeGame(Display* display, int playerCount)
 	: App(display)
-	, m_logic{ 1 }  // 默认 1P，startGame 会重置
+	, m_logic{ playerCount }
+	, m_playerCount{ playerCount }
 {
 }
 
@@ -66,15 +69,17 @@ void SnakeGame::init()
 	lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 	lv_obj_set_style_pad_all(screen, 0, 0);
 
-	// 创建游戏对象池（在菜单后面，初始全隐藏）
+	// 创建游戏对象池 + D-pad
 	createObjectPool(screen);
-
-	// 创建模式选择菜单（进入游戏前显示）
-	createMenu(screen);
-
-	// 创建 D-pad（初始隐藏）
 	createDpad(screen);
-	lv_obj_add_flag(lv_obj_get_parent(m_p1Up), LV_OBJ_FLAG_HIDDEN);
+
+	// 根据玩家数显示对应 D-pad
+	lv_obj_add_flag(m_pad2, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_add_flag(m_pad3, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_add_flag(m_pad4, LV_OBJ_FLAG_HIDDEN);
+	if (m_playerCount >= 2) lv_obj_clear_flag(m_pad2, LV_OBJ_FLAG_HIDDEN);
+	if (m_playerCount >= 3) lv_obj_clear_flag(m_pad3, LV_OBJ_FLAG_HIDDEN);
+	if (m_playerCount >= 4) lv_obj_clear_flag(m_pad4, LV_OBJ_FLAG_HIDDEN);
 
 	// 分数标签（初始隐藏）
 	m_scoreLabel = lv_label_create(screen);
@@ -146,6 +151,16 @@ void SnakeGame::init()
 	lv_obj_add_event_cb(m_backBtn, btnBackCb, LV_EVENT_CLICKED, this);
 	lv_obj_add_flag(m_backBtn, LV_OBJ_FLAG_HIDDEN);
 
+	// 使用网格尺寸初始化游戏逻辑
+	m_logic = SnakeGameLogic{ m_playerCount, m_gridW, m_gridH };
+	m_logic.reset();
+	m_logic.setState(SnakeGameLogic::State::Playing);
+	m_foodCount = 1;
+
+	lv_label_set_text(m_statusLabel, "D-pad 控制方向");
+
+	ESP_LOGI(TAG, "Starting %dP game, grid: %dx%d", m_playerCount, m_gridW, m_gridH);
+
 	// TODO: 远程导航 — 后续参考 tetris 分支的 WS 架构重新实现
 	// wsServerRegisterGameCallback(gameKeyCb, this);
 
@@ -165,98 +180,6 @@ void SnakeGame::deinit()
 	// LVGL 对象由屏幕销毁时自动回收，无需显式释放
 
 	deletable = true;
-}
-
-// ============================================================
-// 模式选择菜单
-// ============================================================
-
-void SnakeGame::createMenu(lv_obj_t* parent)
-{
-	m_menu = lv_obj_create(parent);
-	lv_obj_set_size(m_menu, lv_pct(100), lv_pct(100));
-	lv_obj_set_style_bg_color(m_menu, lv_color_hex(Color::MENU_BG), 0);
-	lv_obj_set_style_bg_opa(m_menu, LV_OPA_COVER, 0);
-	lv_obj_set_style_border_width(m_menu, 0, 0);
-	lv_obj_set_style_pad_all(m_menu, 0, 0);
-
-	// 标题
-	auto title = lv_label_create(m_menu);
-	lv_label_set_text(title, "贪吃蛇");
-	lv_obj_set_style_text_color(title, lv_color_hex(Color::TEXT), 0);
-	lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
-	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
-
-	// 副标�?
-	auto sub = lv_label_create(m_menu);
-	lv_label_set_text(sub, "选择游戏模式");
-	lv_obj_set_style_text_color(sub, lv_color_hex(Color::SUBTLE), 0);
-	lv_obj_set_style_text_font(sub, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
-	lv_obj_align(sub, LV_ALIGN_TOP_MID, 0, 120);
-
-	auto mkMenuBtn = [&](lv_obj_t*& btn, const char* text, uint32_t bgColor, lv_event_cb_t cb, int yOff)
-	{
-		btn = lv_button_create(m_menu);
-		lv_obj_set_size(btn, 280, 76);
-		lv_obj_set_style_radius(btn, 20, 0);
-		lv_obj_set_style_bg_color(btn, lv_color_hex(bgColor), 0);
-		lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-		lv_obj_set_style_shadow_width(btn, 16, 0);
-		lv_obj_set_style_shadow_color(btn, lv_color_hex(bgColor), 0);
-		lv_obj_set_style_shadow_opa(btn, LV_OPA_40, 0);
-		lv_obj_set_style_border_width(btn, 0, 0);
-		lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
-		lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, yOff);
-
-		auto lbl = lv_label_create(btn);
-		lv_label_set_text(lbl, text);
-		lv_obj_set_style_text_color(lbl, lv_color_hex(0x000000), 0);
-		lv_obj_set_style_text_font(lbl, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
-		lv_obj_center(lbl);
-		lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
-	};
-
-	mkMenuBtn(m_btn1P, "1 人游戏", Color::BTN_1P, btn1PCb, 200);
-	mkMenuBtn(m_btn2P, "2 人游戏", Color::BTN_2P, btn2PCb, 300);
-	mkMenuBtn(m_btn3P, "3 人游戏", Color::SNAKE3, btn3PCb, 400);
-
-	// 底部提示
-	auto hint = lv_label_create(m_menu);
-	lv_label_set_text(hint, "选择方向键或点击 D-pad 控制");
-	lv_obj_set_style_text_color(hint, lv_color_hex(0xff555566), 0);
-	lv_obj_set_style_text_font(hint, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-	lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 650);
-}
-
-void SnakeGame::startGame(int playerCount)
-{
-	m_playerCount = playerCount;
-	m_foodCount = 1;
-
-	// 使用动态网格尺寸重置游戏逻辑
-	m_logic = SnakeGameLogic{ playerCount, m_gridW, m_gridH };
-	m_logic.reset();
-	m_logic.setState(SnakeGameLogic::State::Playing);
-
-	// 隐藏菜单，显示游戏 UI（对象池由 renderFrame 管理显隐）
-	lv_obj_add_flag(m_menu, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_clear_flag(m_scoreLabel, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_clear_flag(m_statusLabel, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_clear_flag(m_pad1, LV_OBJ_FLAG_HIDDEN);
-
-	if (playerCount >= 2)
-		lv_obj_clear_flag(m_pad2, LV_OBJ_FLAG_HIDDEN);
-	else
-		lv_obj_add_flag(m_pad2, LV_OBJ_FLAG_HIDDEN);
-
-	if (playerCount >= 3)
-		lv_obj_clear_flag(m_pad3, LV_OBJ_FLAG_HIDDEN);
-	else
-		lv_obj_add_flag(m_pad3, LV_OBJ_FLAG_HIDDEN);
-
-	lv_label_set_text(m_statusLabel, "D-pad 控制方向");
-
-	ESP_LOGI(TAG, "%dP game start, grid: %dx%d", playerCount, m_gridW, m_gridH);
 }
 
 // ============================================================
@@ -302,9 +225,11 @@ void SnakeGame::createObjectPool(lv_obj_t* parent)
 	for (int p = 0; p < MAX_PLAYERS; p++)
 	{
 		uint32_t color = (p == 0) ? Color::SNAKE1 :
-				(p == 1) ? Color::SNAKE2 : Color::SNAKE3;
+			(p == 1) ? Color::SNAKE2 :
+			(p == 2) ? Color::SNAKE3 : Color::SNAKE4;
 		uint32_t glowColor = (p == 0) ? Color::SNAKE1_GLOW :
-				(p == 1) ? Color::SNAKE2_GLOW : Color::SNAKE3_GLOW;
+			(p == 1) ? Color::SNAKE2_GLOW :
+			(p == 2) ? Color::SNAKE3_GLOW : Color::SNAKE4_GLOW;
 
 		for (int i = 0; i < MAX_SEGMENTS; i++)
 		{
@@ -367,28 +292,28 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	// 辅助：创建圆形玻璃按�?
 	auto mkBtn = [&](lv_obj_t* pad, lv_obj_t*& btn, int x, int y, const char* txt,
 		lv_event_cb_t cb, uint32_t bgColor)
-	{
-		btn = lv_button_create(pad);
-		lv_obj_set_size(btn, S, S);
-		lv_obj_set_style_radius(btn, R, 0);
-		lv_obj_set_style_bg_color(btn, lv_color_hex(bgColor), 0);
-		lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-		lv_obj_set_style_border_width(btn, 1, 0);
-		lv_obj_set_style_border_color(btn, lv_color_hex(0x44ffffff), 0);
-		lv_obj_set_style_border_opa(btn, LV_OPA_50, 0);
-		lv_obj_set_style_shadow_width(btn, 8, 0);
-		lv_obj_set_style_shadow_color(btn, lv_color_hex(bgColor), 0);
-		lv_obj_set_style_shadow_opa(btn, LV_OPA_30, 0);
-		lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
-		lv_obj_set_pos(btn, x + PAD, y + PAD);
+		{
+			btn = lv_button_create(pad);
+			lv_obj_set_size(btn, S, S);
+			lv_obj_set_style_radius(btn, R, 0);
+			lv_obj_set_style_bg_color(btn, lv_color_hex(bgColor), 0);
+			lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+			lv_obj_set_style_border_width(btn, 1, 0);
+			lv_obj_set_style_border_color(btn, lv_color_hex(0x44ffffff), 0);
+			lv_obj_set_style_border_opa(btn, LV_OPA_50, 0);
+			lv_obj_set_style_shadow_width(btn, 8, 0);
+			lv_obj_set_style_shadow_color(btn, lv_color_hex(bgColor), 0);
+			lv_obj_set_style_shadow_opa(btn, LV_OPA_30, 0);
+			lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
+			lv_obj_set_pos(btn, x + PAD, y + PAD);
 
-		auto lbl = lv_label_create(btn);
-		lv_label_set_text(lbl, txt);
-		lv_obj_set_style_text_color(lbl, lv_color_hex(Color::DPAD_ARROW), 0);
-		lv_obj_set_style_text_font(lbl, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
-		lv_obj_center(lbl);
-		lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
-	};
+			auto lbl = lv_label_create(btn);
+			lv_label_set_text(lbl, txt);
+			lv_obj_set_style_text_color(lbl, lv_color_hex(Color::DPAD_ARROW), 0);
+			lv_obj_set_style_text_font(lbl, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
+			lv_obj_center(lbl);
+			lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
+		};
 
 	// ====== 玩家 1 D-pad（右下角，半透明叠加�?======
 	m_pad1 = lv_obj_create(parent);
@@ -400,10 +325,10 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	lv_obj_set_style_pad_all(m_pad1, 0, 0);
 	lv_obj_align(m_pad1, LV_ALIGN_BOTTOM_RIGHT, -16, -16);
 
-	mkBtn(m_pad1, m_p1Up,    S + G, 0,      "▲", btnP1UpCb,    Color::DPAD_BTN);
-	mkBtn(m_pad1, m_p1Left,  0,      S + G, "◀", btnP1LeftCb,  Color::DPAD_BTN);
-	mkBtn(m_pad1, m_p1Right, S*2+G, S + G, "▶", btnP1RightCb, Color::DPAD_BTN);
-	mkBtn(m_pad1, m_p1Down,  S + G, S*2+G, "▼", btnP1DownCb,  Color::DPAD_BTN);
+	mkBtn(m_pad1, m_p1Up, S + G, 0, "▲", btnP1UpCb, Color::DPAD_BTN);
+	mkBtn(m_pad1, m_p1Left, 0, S + G, "◀", btnP1LeftCb, Color::DPAD_BTN);
+	mkBtn(m_pad1, m_p1Right, S * 2 + G, S + G, "▶", btnP1RightCb, Color::DPAD_BTN);
+	mkBtn(m_pad1, m_p1Down, S + G, S * 2 + G, "▼", btnP1DownCb, Color::DPAD_BTN);
 
 	// 暂停按钮（中心，更小�?
 	m_p1Pause = lv_button_create(m_pad1);
@@ -431,12 +356,12 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	lv_obj_align(m_pad2, LV_ALIGN_BOTTOM_LEFT, 16, -16);
 	lv_obj_add_flag(m_pad2, LV_OBJ_FLAG_HIDDEN);
 
-	mkBtn(m_pad2, m_p2Up,    S + G, 0,      "▲", btnP2UpCb,    Color::DPAD_BTN);
-	mkBtn(m_pad2, m_p2Left,  0,      S + G, "◀", btnP2LeftCb,  Color::DPAD_BTN);
-	mkBtn(m_pad2, m_p2Right, S*2+G, S + G, "▶", btnP2RightCb, Color::DPAD_BTN);
-	mkBtn(m_pad2, m_p2Down,  S + G, S*2+G, "▼", btnP2DownCb,  Color::DPAD_BTN);
+	mkBtn(m_pad2, m_p2Up, S + G, 0, "▲", btnP2UpCb, Color::DPAD_BTN);
+	mkBtn(m_pad2, m_p2Left, 0, S + G, "◀", btnP2LeftCb, Color::DPAD_BTN);
+	mkBtn(m_pad2, m_p2Right, S * 2 + G, S + G, "▶", btnP2RightCb, Color::DPAD_BTN);
+	mkBtn(m_pad2, m_p2Down, S + G, S * 2 + G, "▼", btnP2DownCb, Color::DPAD_BTN);
 
-	// ====== 玩家 3 D-pad（底部中间，橙色） ======
+	// ====== 玩家 3 D-pad（右上角，橙色） ======
 	m_pad3 = lv_obj_create(parent);
 	lv_obj_set_size(m_pad3, W, H);
 	lv_obj_set_style_bg_color(m_pad3, lv_color_hex(Color::DPAD_BG), 0);
@@ -444,20 +369,36 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	lv_obj_set_style_border_width(m_pad3, 0, 0);
 	lv_obj_set_style_radius(m_pad3, 20, 0);
 	lv_obj_set_style_pad_all(m_pad3, 0, 0);
-	lv_obj_align(m_pad3, LV_ALIGN_BOTTOM_MID, 0, -16);
+	lv_obj_align(m_pad3, LV_ALIGN_TOP_RIGHT, -16, 16);
 	lv_obj_add_flag(m_pad3, LV_OBJ_FLAG_HIDDEN);
 
-	mkBtn(m_pad3, m_p3Up,    S + G, 0,      "▲", btnP3UpCb,    Color::DPAD_BTN);
-	mkBtn(m_pad3, m_p3Left,  0,      S + G, "◀", btnP3LeftCb,  Color::DPAD_BTN);
-	mkBtn(m_pad3, m_p3Right, S*2+G, S + G, "▶", btnP3RightCb, Color::DPAD_BTN);
-	mkBtn(m_pad3, m_p3Down,  S + G, S*2+G, "▼", btnP3DownCb,  Color::DPAD_BTN);
+	mkBtn(m_pad3, m_p3Up, S + G, 0, "▲", btnP3UpCb, Color::DPAD_BTN);
+	mkBtn(m_pad3, m_p3Left, 0, S + G, "◀", btnP3LeftCb, Color::DPAD_BTN);
+	mkBtn(m_pad3, m_p3Right, S * 2 + G, S + G, "▶", btnP3RightCb, Color::DPAD_BTN);
+	mkBtn(m_pad3, m_p3Down, S + G, S * 2 + G, "▼", btnP3DownCb, Color::DPAD_BTN);
+
+	// ====== 玩家 4 D-pad（左上角，紫色） ======
+	m_pad4 = lv_obj_create(parent);
+	lv_obj_set_size(m_pad4, W, H);
+	lv_obj_set_style_bg_color(m_pad4, lv_color_hex(Color::DPAD_BG), 0);
+	lv_obj_set_style_bg_opa(m_pad4, LV_OPA_COVER, 0);
+	lv_obj_set_style_border_width(m_pad4, 0, 0);
+	lv_obj_set_style_radius(m_pad4, 20, 0);
+	lv_obj_set_style_pad_all(m_pad4, 0, 0);
+	lv_obj_align(m_pad4, LV_ALIGN_TOP_LEFT, 16, 16);
+	lv_obj_add_flag(m_pad4, LV_OBJ_FLAG_HIDDEN);
+
+	mkBtn(m_pad4, m_p4Up, S + G, 0, "▲", btnP4UpCb, Color::DPAD_BTN);
+	mkBtn(m_pad4, m_p4Left, 0, S + G, "◀", btnP4LeftCb, Color::DPAD_BTN);
+	mkBtn(m_pad4, m_p4Right, S * 2 + G, S + G, "▶", btnP4RightCb, Color::DPAD_BTN);
+	mkBtn(m_pad4, m_p4Down, S + G, S * 2 + G, "▼", btnP4DownCb, Color::DPAD_BTN);
 }
 
 // ============================================================
-// 渲染（LVGL 原生对象，脏区域追踪）
+// 更新场景（LVGL 原生对象，脏区域追踪）
 // ============================================================
 
-void SnakeGame::renderFrame()
+void SnakeGame::updateScene()
 {
 	const int CS = m_cellSize;
 
@@ -507,7 +448,19 @@ void SnakeGame::renderFrame()
 	// ============================================================
 	// 3. 更新文本标签
 	// ============================================================
-	if (m_logic.getPlayerCount() >= 2)
+	if (m_playerCount >= 4)
+	{
+		lv_label_set_text_fmt(m_scoreLabel, "P1: %d  P2: %d  P3: %d  P4: %d",
+			m_logic.getSnake(0).score, m_logic.getSnake(1).score,
+			m_logic.getSnake(2).score, m_logic.getSnake(3).score);
+	}
+	else if (m_playerCount >= 3)
+	{
+		lv_label_set_text_fmt(m_scoreLabel, "P1: %d  |  P2: %d  |  P3: %d",
+			m_logic.getSnake(0).score, m_logic.getSnake(1).score,
+			m_logic.getSnake(2).score);
+	}
+	else if (m_playerCount >= 2)
 	{
 		lv_label_set_text_fmt(m_scoreLabel, "P1: %d  |  P2: %d",
 			m_logic.getSnake(0).score, m_logic.getSnake(1).score);
@@ -519,9 +472,6 @@ void SnakeGame::renderFrame()
 
 	switch (m_logic.getState())
 	{
-	case SnakeGameLogic::State::Waiting:
-		lv_label_set_text(m_statusLabel, "点击方向键开始");
-		break;
 	case SnakeGameLogic::State::Paused:
 		lv_label_set_text(m_statusLabel, "暂停中");
 		break;
@@ -572,96 +522,110 @@ void SnakeGame::renderFrame()
 // D-pad 按钮回调
 // ============================================================
 
-void SnakeGame::btn1PCb(lv_event_t* e)
-{
-	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
-	self->startGame(1);
-}
-
-void SnakeGame::btn2PCb(lv_event_t* e)
-{
-	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
-	self->startGame(2);
-}
-
-void SnakeGame::btn3PCb(lv_event_t* e)
-{
-	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
-	self->startGame(3);
-}
-
 void SnakeGame::btnRestartCb(lv_event_t* e)
 {
 	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
-	self->startGame(self->m_playerCount);
+	// 栈操作不能在 LVGL 事件中执行，延后处理
+	Task::addTask([](void* p) -> TickType_t {
+		auto* game = static_cast<SnakeGame*>(p);
+		game->replaceWith(new SnakeGame(game->display, game->m_playerCount));
+		return Task::infinityTime;
+		}, "restartGame", self, 0, Task::Affinity::None);
 }
 
 void SnakeGame::btnBackCb(lv_event_t* e)
 {
 	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
-	self->goBackToMenu();
-}
-
-void SnakeGame::goBackToMenu()
-{
-	// 隐藏游戏 UI，显示菜单
-	lv_obj_add_flag(m_scoreLabel, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_statusLabel, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_pad1, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_pad2, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_pad3, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_gameOverLabel, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_gameOverScoreLabel, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_restartBtn, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_backBtn, LV_OBJ_FLAG_HIDDEN);
-
-	lv_obj_clear_flag(m_menu, LV_OBJ_FLAG_HIDDEN);
-
-	// 重置游戏状态（清空蛇身，下次 renderFrame 自动隐藏所有段）
-	m_logic.reset();
-	m_logic.setState(SnakeGameLogic::State::Waiting);
+	// 栈操作不能在 LVGL 事件中执行，延后处理
+	Task::addTask([](void* p) -> TickType_t {
+		static_cast<SnakeGame*>(p)->popApp();
+		return Task::infinityTime;
+		}, "backToRoom", self, 0, Task::Affinity::None);
 }
 
 void SnakeGame::setDirAndStart(SnakeGame* self, int player, SnakeGameLogic::Direction dir)
 {
-	// GameOver 时按方向键也重启
+	// GameOver 时按方向键也重启（栈操作，延后处理）
 	if (self->m_logic.getState() == SnakeGameLogic::State::GameOver)
 	{
-		self->startGame(self->m_playerCount);
+		Task::addTask([](void* p) -> TickType_t {
+			auto* game = static_cast<SnakeGame*>(p);
+			game->replaceWith(new SnakeGame(game->display, game->m_playerCount));
+			return Task::infinityTime;
+			}, "restartGame", self, 0, Task::Affinity::None);
 		return;
 	}
 
 	self->m_logic.setDirection(player, dir);
-	if (self->m_logic.getState() == SnakeGameLogic::State::Waiting)
-		self->m_logic.setState(SnakeGameLogic::State::Playing);
 }
 
 void SnakeGame::btnP1UpCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Up); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Up);
+}
 void SnakeGame::btnP1DownCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Down); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Down);
+}
 void SnakeGame::btnP1LeftCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Left); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Left);
+}
 void SnakeGame::btnP1RightCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Right); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 0, SnakeGameLogic::Direction::Right);
+}
 
 void SnakeGame::btnP2UpCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Up); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Up);
+}
 void SnakeGame::btnP2DownCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Down); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Down);
+}
 void SnakeGame::btnP2LeftCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Left); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Left);
+}
 void SnakeGame::btnP2RightCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Right); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 1, SnakeGameLogic::Direction::Right);
+}
 
 void SnakeGame::btnP3UpCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Up); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Up);
+}
 void SnakeGame::btnP3DownCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Down); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Down);
+}
 void SnakeGame::btnP3LeftCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Left); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Left);
+}
 void SnakeGame::btnP3RightCb(lv_event_t* e)
-	{ setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Right); }
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 2, SnakeGameLogic::Direction::Right);
+}
+
+void SnakeGame::btnP4UpCb(lv_event_t* e)
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 3, SnakeGameLogic::Direction::Up);
+}
+void SnakeGame::btnP4DownCb(lv_event_t* e)
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 3, SnakeGameLogic::Direction::Down);
+}
+void SnakeGame::btnP4LeftCb(lv_event_t* e)
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 3, SnakeGameLogic::Direction::Left);
+}
+void SnakeGame::btnP4RightCb(lv_event_t* e)
+{
+	setDirAndStart(static_cast<SnakeGame*>(lv_event_get_user_data(e)), 3, SnakeGameLogic::Direction::Right);
+}
 
 void SnakeGame::btnPauseCb(lv_event_t* e)
 {
@@ -673,7 +637,12 @@ void SnakeGame::btnPauseCb(lv_event_t* e)
 		self->m_logic.setState(SnakeGameLogic::State::Playing);
 	else if (state == SnakeGameLogic::State::GameOver)
 	{
-		self->startGame(self->m_playerCount);
+		// 栈操作，延后处理
+		Task::addTask([](void* p) -> TickType_t {
+			auto* game = static_cast<SnakeGame*>(p);
+			game->replaceWith(new SnakeGame(game->display, game->m_playerCount));
+			return Task::infinityTime;
+			}, "restartGame", self, 0, Task::Affinity::None);
 	}
 }
 
@@ -709,8 +678,6 @@ void SnakeGame::gameKeyCb(int player, uint8_t keyCode, bool pressed, void* ctx)
 	{
 		int p = (player >= 0 && player < self.m_playerCount) ? player : 0;
 		self.m_logic.setDirection(p, dir);
-		if (self.m_logic.getState() == SnakeGameLogic::State::Waiting)
-			self.m_logic.setState(SnakeGameLogic::State::Playing);
 	}
 }
 
@@ -737,13 +704,16 @@ void SnakeGame::gameLoop(void* param)
 			if (tickInterval < MIN_INTERVAL) tickInterval = MIN_INTERVAL;
 		}
 
-		// 渲染
+		// 更新场景（LVGL 对象位置/显隐/文本）
 		if (auto guard = self.display->lockGuard())
-			self.renderFrame();
+			self.updateScene();
 
 		vTaskDelay(pdMS_TO_TICKS(tickInterval));
 	}
 
 	ESP_LOGI(TAG, "Game loop exit");
 	self.deletable = true;
+
+	while (true)
+		vTaskDelay(5000); // 等待delete的时候删除
 }
