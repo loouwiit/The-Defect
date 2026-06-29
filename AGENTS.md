@@ -152,7 +152,9 @@ static void on_click_cb(lv_event_t* e) {
 
 ## LVGL 锁规则
 
-`Display::lockGuard()` 获取 LVGL 内部互斥锁。以下场景需注意：
+`Display::lockGuard()` 获取 LVGL 内部互斥锁。该锁是**可重入（递归）互斥锁**（`xSemaphoreCreateRecursiveMutex`），同一 task 可多次调用 `lockGuard()` 嵌套加锁而不会死锁。
+
+以下场景需注意：
 
 | 调用上下文 | 能否执行栈操作 / LVGL 操作 | 处理方式 |
 |-----------|--------------------------|---------|
