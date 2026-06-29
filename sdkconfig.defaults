@@ -18,3 +18,8 @@ CONFIG_BT_NIMBLE_GATT_MAX_PROCS=8
 # Enable NimBLE HID Service (needed by esp_hid component for HID Host)
 #
 CONFIG_BT_NIMBLE_HID_SERVICE=y
+
+#
+# Increase main task stack for FreeType CFF interpreter
+#
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768

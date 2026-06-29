@@ -485,7 +485,7 @@ bool BleGamepad::initNimble()
 
 	// 创建输入处理任务
 	BaseType_t res = xTaskCreatePinnedToCore(
-		processTask, "bleGamepad", 4096, this, 5, &m_processTask,
+		processTask, "bleGamepad", 32768, this, 5, &m_processTask,
 		tskNO_AFFINITY);
 	if (res != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create process task");
