@@ -1,0 +1,13 @@
+--- a/src/display/bridge/v9/lvgl_ppa_accel_v9.c	2026-06-30 00:00:00.000000000 +0800
++++ b/src/display/bridge/v9/lvgl_ppa_accel_v9.c	2026-06-30 00:00:00.000000000 +0800
+@@ -49,8 +49,8 @@
+     }
+
+     if (s_blend_handle == NULL && s_fill_handle == NULL) {
+-        ppa_client_config_t blend_cfg = { .oper_type = PPA_OPERATION_BLEND };
+-        ppa_client_config_t fill_cfg = { .oper_type = PPA_OPERATION_FILL };
++        ppa_client_config_t blend_cfg = { .oper_type = PPA_OPERATION_BLEND, .max_pending_trans_num = 8 };
++        ppa_client_config_t fill_cfg = { .oper_type = PPA_OPERATION_FILL, .max_pending_trans_num = 8 };
+         ESP_ERROR_CHECK(ppa_register_client(&blend_cfg, &s_blend_handle));
+         ESP_ERROR_CHECK(ppa_register_client(&fill_cfg, &s_fill_handle));
+     }
