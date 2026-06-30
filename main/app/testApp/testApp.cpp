@@ -43,6 +43,18 @@ void TestApp::init()
 		lv_obj_set_style_text_font(m_hint, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 		lv_obj_set_style_text_color(m_hint, lv_color_hex(0xCCCCCC), 0);
 		lv_obj_align(m_hint, LV_ALIGN_BOTTOM_MID, 0, -30);
+
+		lv_anim_t a;
+		lv_anim_init(&a);
+		lv_anim_set_var(&a, m_hint);
+		lv_anim_set_values(&a, 0, 100);
+		lv_anim_set_time(&a, 20);
+		lv_anim_set_playback_time(&a, 20);
+		lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+		lv_anim_set_exec_cb(&a, [](void* obj, int32_t v) {
+			lv_obj_set_style_bg_color(static_cast<lv_obj_t*>(obj), v > 10 ? lv_color_hex(0xFFFFFFFF) : lv_color_hex(0xCCCCCC), 0);
+			});
+		lv_anim_start(&a);
 	}
 }
 
