@@ -33,11 +33,11 @@ const char* DesktopApp::GAME_DESCS[] =
 
 const char* DesktopApp::GAME_ICONS[] =
 {
-	"F:system/desktop/snake.png",
-	"F:system/desktop/fruitNinja.png",
-	"F:system/desktop/tetris.png",
-	"F:system/desktop/douDiZhu.png",
-	"F:system/desktop/chess.png",
+	"F:system/desktop/snake.jpg",
+	"F:system/desktop/fruitNinja.jpg",
+	"F:system/desktop/tetris.jpg",
+	"F:system/desktop/douDiZhu.jpg",
+	"F:system/desktop/chess.jpg",
 };
 
 DesktopApp::DesktopApp(Display* display)
