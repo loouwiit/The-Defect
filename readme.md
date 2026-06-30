@@ -166,7 +166,7 @@ LVGL 的 `lv_snapshot_take_to_draw_buf()` 会**完整重绘整个 UI 对象树**
 
 ## Bridge 补丁
 
-`esp_lvgl_adapter` 的 4 个文件被修改，以 patch 形式在 `patches/` 中管理：
+ScreenStream 依赖 `0001` 补丁修改的 4 个 `esp_lvgl_adapter` 文件：
 
 | 文件 | 改动 |
 |------|------|
@@ -175,14 +175,7 @@ LVGL 的 `lv_snapshot_take_to_draw_buf()` 会**完整重绘整个 UI 对象树**
 | `src/display/display_manager.h` | 新增 `display_manager_set_frame_ready_callback()` 声明 |
 | `src/display/display_manager.c` | 实现注册函数 |
 
-**使用**:
-```bash
-bash patches/apply.sh           # 打补丁
-bash patches/apply.sh --revert  # 还原
-bash patches/apply.sh --check   # 检查状态
-```
-
-⚠ `idf.py reconfigure` 后 `managed_components` 会重置，需要重新 `bash patches/apply.sh`。
+补丁整体管理见下方 [补丁管理] 章节。
 
 ## 性能影响
 
@@ -314,3 +307,37 @@ curl -X PUT -T system/NotoSC.ttf http://esp32p4.local/file/system/NotoSC.ttf
 ```
 
 ⚠ 上传资源后需要重启设备以重新加载字体。
+
+---
+
+## 性能优化
+
+### LVGL 渲染性能
+
+| 优化项 | 效果 | 说明 |
+|--------|------|------|
+| 禁用 `CONFIG_ESP_LVGL_ADAPTER_PARTIAL_AUX_IMG_CACHE` | 8→15fps | 该选项每帧调用 `lv_image_cache_drop(NULL)` 清空整个图片缓存，导致所有图片每帧重新解码 |
+| 启用图片缓存 `CONFIG_LV_CACHE_DEF_SIZE=1048576` | 配合上方 | 图片只解码一次，后续帧从缓存直接 blit |
+
+### PPA 加速注意事项
+
+- `CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT` **必须为 1**（默认情况下 PPA 要求），>1 会导致不可预知的渲染错误（黑线、白线、混叠）
+- PPA fill/blend 的 `max_pending_trans_num` 在多线程运行时需 ≥2，默认值1会导致 `exceed maximum pending transactions` 崩溃
+
+## 补丁管理
+
+`patches/apply.sh` 会自动应用所有补丁到 `managed_components/espressif__esp_lvgl_adapter/`。
+
+```bash
+bash patches/apply.sh           # 打补丁
+bash patches/apply.sh --revert  # 还原
+bash patches/apply.sh --check   # 检查状态
+```
+
+⚠ `idf.py reconfigure` 后 `managed_components` 会重置，需要重新 `bash patches/apply.sh`。
+
+| 补丁 | 说明 |
+|------|------|
+| `0001-esp_lvgl_adapter-frame-ready-callback.patch` | ScreenStream 帧回调（修改 4 个文件） |
+| `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` | PPA fill/blend `max_pending_trans_num=8` |
+- `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` — PPA fill/blend `max_pending_trans_num=8`
