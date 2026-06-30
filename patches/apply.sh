@@ -11,21 +11,29 @@ set -euo pipefail
 
 PATCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$PATCH_DIR/.." && pwd)"
-PATCH_FILE="$PATCH_DIR/0001-esp_lvgl_adapter-frame-ready-callback.patch"
 COMPONENT_DIR="managed_components/espressif__esp_lvgl_adapter"
 
 PATCH_OPTS="-d $PROJECT_DIR/$COMPONENT_DIR -p1 --no-backup-if-mismatch --forward -t"
 
 apply_patch() {
-    patch $PATCH_OPTS < "$PATCH_FILE"
+    for p in "$PATCH_DIR"/*.patch; do
+        echo "Applying: $(basename "$p")"
+        patch $PATCH_OPTS < "$p"
+    done
 }
 
 revert_patch() {
-    patch $PATCH_OPTS -R < "$PATCH_FILE"
+    for p in "$PATCH_DIR"/*.patch; do
+        echo "Reverting: $(basename "$p")"
+        patch $PATCH_OPTS -R < "$p"
+    done
 }
 
 check_patch() {
-    patch $PATCH_OPTS --dry-run < "$PATCH_FILE" 2>&1
+    for p in "$PATCH_DIR"/*.patch; do
+        echo "Checking: $(basename "$p")"
+        patch $PATCH_OPTS --dry-run < "$p" 2>&1 || true
+    done
 }
 
 case "${1:-}" in
