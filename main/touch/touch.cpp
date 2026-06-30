@@ -1,4 +1,5 @@
 #include "touch.hpp"
+#include "utility"
 
 Touch::Touch(IIC& iic, GPIO reset, uint16_t address, unsigned speed)
 {
@@ -24,10 +25,26 @@ Touch::Touch(IIC& iic, GPIO reset, uint16_t address, unsigned speed)
 	esp_lcd_touch_new_i2c_gt911(ioHandle, &tp_cfg, &handle);
 }
 
+Touch::Touch(Touch&& copy)
+{
+	operator=(std::move(copy));
+}
+
+Touch& Touch::operator=(Touch&& copy)
+{
+	std::swap(handle, copy.handle);
+	std::swap(ioHandle, copy.ioHandle);
+	std::swap(pointData, copy.pointData);
+	std::swap(count, copy.count);
+	return *this;
+}
+
 Touch::~Touch()
 {
-	esp_lcd_touch_del(handle);
-	esp_lcd_panel_io_del(ioHandle);
+	if (handle != nullptr)
+		esp_lcd_touch_del(handle);
+	if (ioHandle != nullptr)
+		esp_lcd_panel_io_del(ioHandle);
 }
 
 esp_lcd_touch_handle_t Touch::getHandle()

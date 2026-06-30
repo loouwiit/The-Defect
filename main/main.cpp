@@ -76,8 +76,22 @@ extern "C" void app_main(void)
 	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
 
 	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
-	Touch touch{ iic, {GPIO_NUM_46}, Touch::AddressAlternative };
-	display.bindTouch(touch.getHandle());
+	Touch touch{};
+	if (iic.detect(Touch::Address))
+	{
+		ESP_LOGI(TAG, "Touch controller found at address 0x%02X", Touch::Address);
+		touch = { iic, {GPIO_NUM_46}, Touch::Address };
+	}
+	else if (iic.detect(Touch::AddressAlternative))
+	{
+		ESP_LOGI(TAG, "Touch controller found at alternative address 0x%02X", Touch::AddressAlternative);
+		touch = { iic, {GPIO_NUM_46}, Touch::AddressAlternative };
+	}
+	else
+		ESP_LOGE(TAG, "Touch controller not found");
+
+	if (touch.getHandle() != nullptr)
+		display.bindTouch(touch.getHandle());
 
 	// 启动 LVGL 工作任务
 	if (!display.start())
