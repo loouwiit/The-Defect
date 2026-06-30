@@ -65,6 +65,9 @@ void SnakeRoom::createMenu(lv_obj_t* parent)
 	lv_obj_set_style_border_color(m_backBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_backBtn, onBackBtnCb, LV_EVENT_CLICKED, this);
 
+	// 初始聚焦
+	m_focusIdx = 1;
+
 	// 标题
 	auto title = lv_label_create(parent);
 	lv_label_set_text(title, "贪吃蛇");
@@ -91,7 +94,10 @@ void SnakeRoom::createMenu(lv_obj_t* parent)
 		lv_obj_set_style_shadow_color(btn, lv_color_hex(color), 0);
 		lv_obj_set_style_shadow_opa(btn, LV_OPA_40, 0);
 		lv_obj_set_style_border_width(btn, 0, 0);
-		lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_width(btn, 4, LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_color(btn, lv_color_hex(0xFFFFFFFF), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_opa(btn, LV_OPA_60, LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_pad(btn, 3, LV_STATE_FOCUSED);
 		lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, yOff);
 
 		auto lbl = lv_label_create(btn);
@@ -171,4 +177,104 @@ void SnakeRoom::btn4PCb(lv_event_t* e)
 		room->pushApp(new SnakeGame(room->display, 4));
 		return Task::infinityTime;
 	}, "start4P", self, 0, Task::Affinity::None);
+}
+
+// ============================================================
+// 焦点导航
+// ============================================================
+
+void SnakeRoom::applyFocus()
+{
+	auto clear = [](lv_obj_t* obj) { if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
+	auto focus = [](lv_obj_t* obj) { if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
+
+	clear(m_backBtn);
+	clear(m_btn1P);
+	clear(m_btn2P);
+	clear(m_btn3P);
+	clear(m_btn4P);
+
+	switch (m_focusIdx)
+	{
+	case 0: focus(m_backBtn); break;
+	case 1: focus(m_btn1P);   break;
+	case 2: focus(m_btn2P);   break;
+	case 3: focus(m_btn3P);   break;
+	case 4: focus(m_btn4P);   break;
+	}
+}
+
+void SnakeRoom::activateFocus()
+{
+	switch (m_focusIdx)
+	{
+	case 0: lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr); break;
+	case 1: lv_obj_send_event(m_btn1P,   LV_EVENT_CLICKED, nullptr); break;
+	case 2: lv_obj_send_event(m_btn2P,   LV_EVENT_CLICKED, nullptr); break;
+	case 3: lv_obj_send_event(m_btn3P,   LV_EVENT_CLICKED, nullptr); break;
+	case 4: lv_obj_send_event(m_btn4P,   LV_EVENT_CLICKED, nullptr); break;
+	}
+}
+
+// ============================================================
+// BLE 手柄输入
+// ============================================================
+
+void SnakeRoom::onGamepadInput(uint8_t playerId, const GamepadState& state)
+{
+	constexpr uint8_t deadZone = 50;
+	constexpr uint8_t center = 128;
+
+	bool lxLeft  = (state.lx < center - deadZone);
+	bool lxRight = (state.lx > center + deadZone);
+	bool lyUp    = (state.ly < center - deadZone);
+	bool lyDown  = (state.ly > center + deadZone);
+
+	// ── 边沿检测：仅刚按下的按钮有效 ──
+	uint16_t newPress = state.buttons & ~m_prevButtons;
+	m_prevButtons = state.buttons;
+
+	// ── B：返回 ──
+	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	{
+		Task::addTask([](void* param) -> TickType_t {
+			auto* room = static_cast<SnakeRoom*>(param);
+			if (room->getManager()) room->popApp();
+			return Task::infinityTime;
+		}, "snakeRoomBack", this, 0, Task::Affinity::None);
+		return;
+	}
+
+	// ── A / L3：激活聚焦 ──
+	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
+	{
+		activateFocus();
+		return;
+	}
+
+	// ── 摇杆归位判断 ──
+	if (!lxLeft && !lxRight && !lyUp && !lyDown)
+	{
+		m_nextMoveTime = 0;
+		return;
+	}
+	if (m_nextMoveTime >= xTaskGetTickCount()) return;
+
+	TickType_t delay = (m_nextMoveTime == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime = xTaskGetTickCount() + delay;
+
+	// ── 上下导航 ──
+	if (lyUp && m_focusIdx > 0)   m_focusIdx--;
+	if (lyDown && m_focusIdx < 4) m_focusIdx++;
+
+	auto guard = display->lockGuard();
+	applyFocus();
+}
+
+void SnakeRoom::onForeground()
+{
+	// 全置按下：下一帧 newPress = state.buttons & ~0xFFFF = 0，自动跳过
+	m_prevButtons = 0xFFFF;
+	applyFocus();
 }
