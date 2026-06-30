@@ -256,6 +256,28 @@ void SnakeGame::createObjectPool(lv_obj_t* parent)
 		}
 	}
 
+	// ── 蛇头呼吸动画（transform_scale，居中缩放） ──
+	for (int p = 0; p < MAX_PLAYERS; p++)
+	{
+		auto* head = m_segments[p][0];
+		// LVGL 9: LV_SCALE_NONE = 256 = 100%
+		constexpr int SCALE_100 = 256;
+		lv_obj_set_style_transform_pivot_x(head, m_cellSize / 2, 0);
+		lv_obj_set_style_transform_pivot_y(head, m_cellSize / 2, 0);
+
+		lv_anim_t a;
+		lv_anim_init(&a);
+		lv_anim_set_var(&a, head);
+		lv_anim_set_values(&a, SCALE_100 * 0.8, SCALE_100 * 1.1);
+		lv_anim_set_time(&a, 300);
+		lv_anim_set_playback_time(&a, 300);
+		lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+		lv_anim_set_exec_cb(&a, [](void* obj, int32_t v) {
+			lv_obj_set_style_transform_scale(static_cast<lv_obj_t*>(obj), v, 0);
+			});
+		lv_anim_start(&a);
+	}
+
 	// ── 蛇头眼睛（直接放在 screen 上，用绝对坐标） ──
 	for (int p = 0; p < MAX_PLAYERS; p++)
 	{
@@ -269,7 +291,7 @@ void SnakeGame::createObjectPool(lv_obj_t* parent)
 			lv_obj_set_style_border_color(eye, lv_color_hex(0xFF333333), 0);
 			lv_obj_remove_flag(eye, LV_OBJ_FLAG_CLICKABLE);
 			lv_obj_add_flag(eye, LV_OBJ_FLAG_HIDDEN);
-		};
+			};
 		mkEye(m_headEyeL[p]);
 		mkEye(m_headEyeR[p]);
 	}
