@@ -15,8 +15,16 @@
  */
 class TetrisRenderer {
 public:
-    TetrisRenderer(Display* display, lv_obj_t* parent);
+    /**
+     * @param display     Display 实例
+     * @param parent      LVGL 父对象（flex row 容器）
+     * @param playerWidth 该玩家区域宽度（分屏用，如 640）
+     */
+    TetrisRenderer(Display* display, lv_obj_t* parent, lv_coord_t playerWidth);
     ~TetrisRenderer();
+
+    /// 绑定玩家状态（按钮回调直接操作该状态）
+    void bindPlayer(PlayerState* state) { m_playerState = state; }
 
     // ============================================================
     //  棋盘渲染
@@ -27,17 +35,6 @@ public:
 
     // 增量更新 — 仅处理 dirty flags 标记的变化
     void syncDirty(const PlayerState& player, DirtyFlags flags);
-
-    // 绘制活动方块 + Ghost（直接画在棋盘格上）
-    void drawPiece(const Piece& piece, BoardCell color);
-    void drawGhost(const Piece& ghost, BoardCell color);
-
-    // 擦除活动方块 + Ghost
-    void clearPiece(const Piece& piece);
-    void clearGhost(const Piece& ghost);
-
-    // 消行动画 (已弃用)
-    void flashLines(const int clearedY[4], int count);
 
     // ============================================================
     //  侧栏渲染
@@ -53,16 +50,15 @@ public:
     //  布局
     // ============================================================
 
-    // 设置渲染区域（分屏用）
-    void setArea(lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h);
-
     // 获取建议的格子像素大小
     int cellSize() const { return m_cellSize; }
 
 private:
-    Display*   m_display{};
-    lv_obj_t*  m_container{};
-    int        m_cellSize = 32;
+    Display*     m_display{};
+    PlayerState* m_playerState = nullptr;  // 绑定的玩家状态
+    lv_obj_t*    m_container{};
+    int          m_cellSize = 32;
+    lv_coord_t   m_playerWidth = 640;
 
     // 棋盘格: cells[lvglRow][col], lvglRow=0=顶=board y=19
     static constexpr int ROWS = BOARD_VISIBLE_H;  // 20
@@ -88,6 +84,19 @@ private:
     bool m_lastPieceValid = false;
     bool m_lastGhostValid = false;
 
+    // ── 触屏按钮 ──
+    lv_obj_t* m_btnLeft{};
+    lv_obj_t* m_btnRight{};
+    lv_obj_t* m_btnCW{};
+    lv_obj_t* m_btnCCW{};
+    lv_obj_t* m_btnSoft{};
+    lv_obj_t* m_btnHard{};
+    lv_obj_t* m_btnHold{};
+
+    void createTouchButtons(lv_obj_t* parent);
+    static void onBtnPressed(lv_event_t* e);
+    static void onBtnReleased(lv_event_t* e);
+
     // y 坐标转换: board y → LVGL 行号 (LVGL y 向下为正)
     static int boardYToLvglRow(int boardY) { return ROWS - 1 - boardY; }
 
@@ -95,9 +104,9 @@ private:
     static lv_color_t pieceToColor(BoardCell val);
     static lv_color_t pieceTypeToColor(PieceType type);
     void applyCellColor(int lvglRow, int col, lv_color_t color);
-    void createBoardGrid();
-    void createNextPreview();
-    void createInfoBar();
+    void createBoardGrid(lv_obj_t* parent);
+    void createNextPreview(lv_obj_t* parent);
+    void createInfoLabels(lv_obj_t* parent);
     void clearPreviewGrid(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE]);
     void drawPreviewPiece(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE],
                           PieceType type, lv_color_t color);

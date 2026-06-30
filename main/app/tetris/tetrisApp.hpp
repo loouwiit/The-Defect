@@ -26,7 +26,7 @@ public:
     void deinit() override;
 
 private:
-    static constexpr int PLAYER_COUNT = 2;
+    static constexpr int PLAYER_COUNT = 3;
 
     // ============================================================
     //  共享出块队列 + 游戏状态（每个玩家独立）
@@ -45,22 +45,8 @@ private:
     Thread* m_gameThread = nullptr;
 
     // ============================================================
-    //  UI 对象 (触屏按钮，每个玩家一套)
-    // ============================================================
-    lv_obj_t* m_btnLeft[PLAYER_COUNT]   = {};
-    lv_obj_t* m_btnRight[PLAYER_COUNT]  = {};
-    lv_obj_t* m_btnCW[PLAYER_COUNT]     = {};
-    lv_obj_t* m_btnCCW[PLAYER_COUNT]    = {};
-    lv_obj_t* m_btnSoft[PLAYER_COUNT]   = {};
-    lv_obj_t* m_btnHard[PLAYER_COUNT]   = {};
-    lv_obj_t* m_btnHold[PLAYER_COUNT]   = {};
-
-    // ============================================================
     //  内部方法
     // ============================================================
 
     static void gameLoopTask(void* param);
-    void createTouchButtons();
-    static void onBtnPressed(lv_event_t* e);
-    static void onBtnReleased(lv_event_t* e);
 };

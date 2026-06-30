@@ -10,13 +10,6 @@
 // ============================================================
 static constexpr int SCREEN_W     = 1280;
 static constexpr int SCREEN_H     = 720;
-static constexpr int HALF_W       = SCREEN_W / 2;  // 640
-static constexpr int BTN_SIZE     = 52;
-static constexpr int BTN_GAP      = 6;
-
-// 每个玩家棋盘区基准偏移
-static constexpr int BOARD_X      = 8;
-static constexpr int BOARD_Y      = 8;
 
 // ============================================================
 //  构造 / 析构
@@ -53,23 +46,19 @@ void TetrisApp::init()
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_set_style_text_font(screen, FontLoader::getDefault(), 0);
 
-    // 分隔线
-    auto divider = lv_obj_create(screen);
-    lv_obj_remove_style_all(divider);
-    lv_obj_set_style_bg_color(divider, GUI::Color::SUBTLE, 0);
-    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
-    lv_obj_set_size(divider, 2, SCREEN_H);
-    lv_obj_set_pos(divider, HALF_W - 1, 0);
+    // Flex 行容器：玩家自动等宽排列
+    auto flexRow = lv_obj_create(screen);
+    lv_obj_remove_style_all(flexRow);
+    lv_obj_set_size(flexRow, SCREEN_W, SCREEN_H);
+    lv_obj_set_flex_flow(flexRow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_scrollbar_mode(flexRow, LV_SCROLLBAR_MODE_OFF);
 
-    // 创建 2 个渲染器，分左右半屏
+    // 每玩家宽度由人数决定，flex_grow 自动分配剩余空间
+    lv_coord_t playerW = SCREEN_W / PLAYER_COUNT;
     for (int i = 0; i < PLAYER_COUNT; i++) {
-        m_renderers[i] = new TetrisRenderer(display, screen);
-        lv_coord_t x = (i == 0) ? 0 : HALF_W;
-        m_renderers[i]->setArea(x, 0, HALF_W, SCREEN_H);
+        m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
+        m_renderers[i]->bindPlayer(&m_players[i]);
     }
-
-    // 创建 2 套触屏按钮
-    createTouchButtons();
 
     // 初始化共享出块队列
     m_sharedQueue.reset();
@@ -214,82 +203,6 @@ void TetrisApp::gameLoopTask(void* param)
 //  触屏按钮 — 每个玩家半屏内一套
 // ============================================================
 
-static int btnPlayerOf(void* btn)
-{
-    return static_cast<int>(reinterpret_cast<intptr_t>(lv_obj_get_user_data(static_cast<lv_obj_t*>(btn))));
-}
-
-void TetrisApp::createTouchButtons()
-{
-    auto makeBtn = [&](const char* text, lv_coord_t x, lv_coord_t y,
-                       int playerIndex) -> lv_obj_t* {
-        auto btn = lv_btn_create(screen);
-        lv_obj_set_size(btn, BTN_SIZE, BTN_SIZE);
-        lv_obj_set_pos(btn, x, y);
-        lv_obj_set_style_radius(btn, 10, 0);
-        lv_obj_set_style_bg_color(btn, GUI::Color::CARD, 0);
-        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-        lv_obj_set_user_data(btn, reinterpret_cast<void*>(static_cast<intptr_t>(playerIndex)));
-
-        auto label = lv_label_create(btn);
-        lv_label_set_text(label, text);
-        lv_obj_center(label);
-        lv_obj_set_style_text_color(label, GUI::Color::TEXT, 0);
-
-        lv_obj_add_event_cb(btn, onBtnPressed, LV_EVENT_PRESSED, this);
-        lv_obj_add_event_cb(btn, onBtnReleased, LV_EVENT_RELEASED, this);
-
-        return btn;
-    };
-
-    for (int player = 0; player < PLAYER_COUNT; player++) {
-        // 每个玩家的棋盘在各自半屏内居中
-        int areaX  = (player == 0) ? 0 : HALF_W;
-        int btnRowY = BOARD_Y + BOARD_VISIBLE_H * 32 + 12;
-
-        int totalBtnW = 8 * BTN_SIZE + 7 * BTN_GAP;
-        int btnStartX = areaX + (HALF_W - totalBtnW) / 2;
-
-        int bx = btnStartX;
-        m_btnLeft[player]  = makeBtn("<",   bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnRight[player] = makeBtn(">",   bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnSoft[player]  = makeBtn("v",   bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnHard[player]  = makeBtn("V",   bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnCW[player]    = makeBtn("CW",  bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnCCW[player]   = makeBtn("CCW", bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-        m_btnHold[player]  = makeBtn("H",   bx,                               btnRowY, player); bx += BTN_SIZE + BTN_GAP;
-
-    }
-}
-
-void TetrisApp::onBtnPressed(lv_event_t* e)
-{
-    auto app = static_cast<TetrisApp*>(lv_event_get_user_data(e));
-    auto btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
-    int player = btnPlayerOf(btn);
-
-    auto& p = app->m_players[player];
-
-    if (btn == app->m_btnLeft[player])   { p.keyLeft  = true; }
-    if (btn == app->m_btnRight[player])  { p.keyRight = true; }
-    if (btn == app->m_btnSoft[player])   { p.keySoft  = true; }
-    if (btn == app->m_btnCW[player])     { p.keyCW    = true; }
-    if (btn == app->m_btnCCW[player])    { p.keyCCW   = true; }
-    if (btn == app->m_btnHard[player])   { p.keyHard  = true; }
-    if (btn == app->m_btnHold[player])   { p.keyHold  = true; }
-}
-
-void TetrisApp::onBtnReleased(lv_event_t* e)
-{
-    auto app = static_cast<TetrisApp*>(lv_event_get_user_data(e));
-    auto btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
-    int player = btnPlayerOf(btn);
-
-    auto& p = app->m_players[player];
-
-    if (btn == app->m_btnLeft[player])   { p.keyLeft  = false; p.dasTimer = 0; }
-    if (btn == app->m_btnRight[player])  { p.keyRight = false; p.arrTimer = 0; }
-    if (btn == app->m_btnSoft[player])   { p.keySoft  = false; }
-}
+// 按钮创建和回调已移至 TetrisRenderer
 
 
