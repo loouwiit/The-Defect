@@ -216,28 +216,28 @@ void DesktopApp::buildUi()
 	// 创建五个游戏卡片
 	for (int i = 0; i < GAME_COUNT; i++)
 	{
-		auto card = GUI::createCard(m_cardsRow, CARD_W, CARD_H);
-		lv_obj_set_style_radius(card, 16, 0);
+		auto card = lv_obj_create(m_cardsRow);
+		lv_obj_set_size(card, CARD_W, CARD_H);
 		lv_obj_set_style_bg_color(card, LV_COLOR_MAKE(0xFF, 0xFF, 0xFF), 0);
 		lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+		lv_obj_set_style_radius(card, 16, 0);
+		lv_obj_set_style_border_width(card, 0, 0);
 		lv_obj_set_style_pad_all(card, 0, 0);
 		lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
 		lv_obj_set_user_data(card, (void*)(uintptr_t)i);
-		// ── 默认状态样式 ──
-		lv_obj_set_style_border_width(card, 0, 0);
-		lv_obj_set_style_shadow_width(card, 8, 0);
-		lv_obj_set_style_shadow_color(card, lv_color_hex(0x000000), 0);
-		lv_obj_set_style_shadow_opa(card, LV_OPA_50, 0);
 
-		// ── 聚焦状态样式（LVGL 自动切换） ──
+		// 聚焦样式 — 仅用彩色边框，无阴影
 		lv_obj_set_style_border_width(card, 3, LV_STATE_FOCUSED);
 		lv_obj_set_style_border_color(card, lv_color_white(), LV_STATE_FOCUSED);
 		lv_obj_set_style_border_side(card, LV_BORDER_SIDE_FULL, LV_STATE_FOCUSED);
-		lv_obj_set_style_shadow_width(card, 16, LV_STATE_FOCUSED);
-		lv_obj_set_style_shadow_color(card, GUI::Color::PRIMARY, LV_STATE_FOCUSED);
-		lv_obj_set_style_shadow_opa(card, LV_OPA_60, LV_STATE_FOCUSED);
 
-		// 点击聚焦到该卡片
+		// 图片
+		auto img = lv_image_create(card);
+		lv_image_set_src(img, GAME_ICONS[i]);
+		lv_obj_set_size(img, lv_pct(100), lv_pct(100));
+		lv_obj_center(img);
+
+		// 点击聚焦
 		lv_obj_add_event_cb(card, [](lv_event_t* e) {
 			auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 			auto* c = static_cast<lv_obj_t*>(lv_event_get_target(e));
@@ -246,12 +246,6 @@ void DesktopApp::buildUi()
 			self->updateSelectionLabels();
 			self->applyFocus();
 			}, LV_EVENT_CLICKED, this);
-
-		// 游戏图标（从 FLASH 加载，百分比尺寸随卡片自动缩放）
-		auto img = lv_image_create(card);
-		lv_image_set_src(img, GAME_ICONS[i]);
-		lv_obj_set_size(img, lv_pct(100), lv_pct(100));
-		lv_obj_center(img);
 
 		m_gameCards[i] = card;
 	}
