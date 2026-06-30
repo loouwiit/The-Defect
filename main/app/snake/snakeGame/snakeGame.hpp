@@ -55,6 +55,10 @@ private:
 	lv_obj_t* m_foodItems[MAX_FOOD_ITEMS]{};
 	int m_foodCount = 1;
 
+	// 蛇头眼睛（作为蛇头子对象，坐标相对蛇头）
+	lv_obj_t* m_headEyeL[MAX_PLAYERS]{};
+	lv_obj_t* m_headEyeR[MAX_PLAYERS]{};
+
 	// 动态尺寸（从屏幕分辨率计算）
 	int m_cellSize = 20;
 	int m_gridW = 36;

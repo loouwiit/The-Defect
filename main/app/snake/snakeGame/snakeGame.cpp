@@ -256,6 +256,24 @@ void SnakeGame::createObjectPool(lv_obj_t* parent)
 		}
 	}
 
+	// ── 蛇头眼睛（直接放在 screen 上，用绝对坐标） ──
+	for (int p = 0; p < MAX_PLAYERS; p++)
+	{
+		auto mkEye = [&](lv_obj_t*& eye) {
+			eye = lv_obj_create(parent);
+			lv_obj_set_size(eye, 6, 6);
+			lv_obj_set_style_radius(eye, 3, 0);
+			lv_obj_set_style_bg_color(eye, lv_color_hex(0xFFFFFFFF), 0);
+			lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
+			lv_obj_set_style_border_width(eye, 1, 0);
+			lv_obj_set_style_border_color(eye, lv_color_hex(0xFF333333), 0);
+			lv_obj_remove_flag(eye, LV_OBJ_FLAG_CLICKABLE);
+			lv_obj_add_flag(eye, LV_OBJ_FLAG_HIDDEN);
+		};
+		mkEye(m_headEyeL[p]);
+		mkEye(m_headEyeR[p]);
+	}
+
 	// ── 食物对象池（圆形 + 发光 shadow） ──
 	for (int i = 0; i < MAX_FOOD_ITEMS; i++)
 	{
@@ -425,6 +443,33 @@ void SnakeGame::updateScene()
 			}
 		}
 		m_segmentCount[p] = bodySize;
+
+		// 蛇头眼睛（绝对坐标 + 显隐）
+		if (bodySize > 0 && snake.alive)
+		{
+			int hx = snake.body[0].x * CS;
+			int hy = snake.body[0].y * CS;
+			int exL = 10, eyL = 3, exR = 10, eyR = 11;  // 默认朝右
+			switch (snake.direction)
+			{
+			case SnakeGameLogic::Direction::Left:
+				exL = 4;  eyL = 3;  exR = 4;  eyR = 11; break;
+			case SnakeGameLogic::Direction::Up:
+				exL = 3;  eyL = 4;  exR = 11; eyR = 4;  break;
+			case SnakeGameLogic::Direction::Down:
+				exL = 3;  eyL = 10; exR = 11; eyR = 10; break;
+			default: break;
+			}
+			lv_obj_set_pos(m_headEyeL[p], hx + exL, hy + eyL);
+			lv_obj_set_pos(m_headEyeR[p], hx + exR, hy + eyR);
+			lv_obj_clear_flag(m_headEyeL[p], LV_OBJ_FLAG_HIDDEN);
+			lv_obj_clear_flag(m_headEyeR[p], LV_OBJ_FLAG_HIDDEN);
+		}
+		else
+		{
+			lv_obj_add_flag(m_headEyeL[p], LV_OBJ_FLAG_HIDDEN);
+			lv_obj_add_flag(m_headEyeR[p], LV_OBJ_FLAG_HIDDEN);
+		}
 	}
 
 	// ============================================================
