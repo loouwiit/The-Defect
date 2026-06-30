@@ -21,9 +21,14 @@ idf_component_register(SRCS "main.cpp"
                             "bleGamepad/bleGamepad.cpp"
                             "monitor/cpuMonitor.cpp"
                             "app/snake/snakeRoom/snakeRoom.cpp" "app/snake/snakeGame/snakeGame.cpp" "app/snake/snakeGame/gameLogic.cpp"
+                            "app/tetris/gameLogic/tetris_client.cpp"
+                            "app/tetris/gameLogic/player_state.cpp"
+                            "app/tetris/renderer/tetris_renderer.cpp"
+                            "app/tetris/tetrisApp.cpp"
+                            "app/tetris/net/tetris_net.cpp"
                        INCLUDE_DIRS "."
                        "../managed_components/espressif__esp_lvgl_adapter/src/display"
                        "../managed_components/espressif__esp_lvgl_adapter/src/adapter"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display/ports"
                        REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip mdns
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt)
+                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt json)

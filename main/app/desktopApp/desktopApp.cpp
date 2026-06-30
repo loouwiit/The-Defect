@@ -4,6 +4,7 @@
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
+#include "app/tetris/tetrisApp.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -464,17 +465,27 @@ void DesktopApp::startGame()
 		return;
 	}
 
-	if (m_focusCardsIdx == 0)
+	switch (m_focusCardsIdx)
 	{
+	case 0:
 		// 贪吃蛇 — 通过 AppStack 启动
-		auto* snake = new SnakeRoom(display);
-		m_manager->pushToNewStack(snake);
-	}
-	else
-	{
+		m_manager->pushToNewStack(new SnakeRoom(display));
+		break;
+
+	case 1:
+		// 水果忍者（待实现）
+		m_manager->pushToNewStack(new TestApp(display, esp_random()));
+		break;
+
+	case 2:
+		// 俄罗斯方块 — 通过 AppStack 启动
+		m_manager->pushToNewStack(new TetrisApp(display));
+		break;
+
+	default:
 		// 其他游戏 — TestApp 占位
-		auto* testApp = new TestApp(display, esp_random());
-		m_manager->pushToNewStack(testApp);
+		m_manager->pushToNewStack(new TestApp(display, esp_random()));
+		break;
 	}
 }
 

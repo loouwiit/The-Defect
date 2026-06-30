@@ -17,6 +17,7 @@ dependencies:
   espressif/esp_wifi_remote: ^1.5.0
   espressif/esp_hosted: ^2.12.0
   espressif/mdns: ^1.11.1
+  espressif/esp_websocket_client: ^1.7.0
   espressif/esp_lcd_ili9881c: ^1.1.0
   espressif/esp_lcd_touch_gt911: ^1.2.0
   espressif/esp_lvgl_adapter: ^0.4.3
