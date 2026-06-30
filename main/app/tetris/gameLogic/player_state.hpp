@@ -4,6 +4,16 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+/// Dirty flags 指示哪些视觉状态发生了变化
+typedef uint8_t DirtyFlags;
+constexpr DirtyFlags DIRTY_NONE    = 0;
+constexpr DirtyFlags DIRTY_PIECE   = 1 << 0;  ///< 方块移动/旋转
+constexpr DirtyFlags DIRTY_GHOST   = 1 << 1;  ///< ghost 位置变化
+constexpr DirtyFlags DIRTY_BOARD   = 1 << 2;  ///< 棋盘内容变化
+constexpr DirtyFlags DIRTY_PREVIEW = 1 << 3;  ///< 预览队列变化
+constexpr DirtyFlags DIRTY_HOLD    = 1 << 4;  ///< Hold 槽变化
+constexpr DirtyFlags DIRTY_SCORE   = 1 << 5;  ///< 分数/combo 变化
+
 /**
  * @brief 单玩家完整游戏状态
  *
@@ -146,6 +156,16 @@ public:
     void setGarbageFlash(int v) { m_garbageFlash = v; }
     void clearGarbageFlash() { m_garbageFlash = 0; }
 
+    /// 消费 dirty flags（读取后自动清除）
+    DirtyFlags consumeDirty() {
+        DirtyFlags f = m_dirtyFlags;
+        m_dirtyFlags = DIRTY_NONE;
+        return f;
+    }
+
+    /// 强制设置 dirty flags（外部调用，如 gameOver 时触发全量重绘）
+    void markDirty(DirtyFlags mask) { m_dirtyFlags |= mask; }
+
 private:
     PieceQueue* m_queue              = nullptr;
     int         m_pieceIndex         = 0;
@@ -154,6 +174,10 @@ private:
     int         m_garbageFlash       = 0;
     PieceType   m_holdSlot           = PieceType::NONE;
     bool        m_lastActionRotated  = false;
+    DirtyFlags  m_dirtyFlags         = DIRTY_NONE;
+
+    /// 设置 dirty flags（内部调用）
+    void setDirty(DirtyFlags mask) { m_dirtyFlags |= mask; }
 
     /// 用指定类型生成当前方块（spawnPiece / doHold 共用）
     void spawnType(PieceType type);

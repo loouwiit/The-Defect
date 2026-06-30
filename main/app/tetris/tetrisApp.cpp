@@ -148,7 +148,6 @@ void TetrisApp::gameLoopTask(void* param)
     auto app = static_cast<TetrisApp*>(param);
 
     TickType_t lastTick = xTaskGetTickCount();
-    TickType_t renderTick = lastTick;
 
     int remoteFd = -1;
     TickType_t snapTick = 0;  // 快照计时器
@@ -174,9 +173,18 @@ void TetrisApp::gameLoopTask(void* param)
         // 刷新远程客户端 fd
         remoteFd = tetrisNetHostGetFirstClientFd();
 
-        // 发送快照给远程客户端（30fps，匹配渲染节奏）
+        // 事件驱动渲染 — 仅处理有 dirty flag 的玩家
+        for (int i = 0; i < PLAYER_COUNT; i++) {
+            DirtyFlags flags = app->m_players[i].consumeDirty();
+            if (flags) {
+                if (auto guard = app->display->lockGuard())
+                    app->m_renderers[i]->syncDirty(app->m_players[i], flags);
+            }
+        }
+
+        // 发送快照给远程客户端（10fps）
         TickType_t now = xTaskGetTickCount();
-        if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(33)) {
+        if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(100)) {
             int target = tetrisNetHostGetClientTarget();
             if (target < 0 || target >= PLAYER_COUNT) target = 0;
             auto& p = app->m_players[target];
@@ -190,14 +198,6 @@ void TetrisApp::gameLoopTask(void* param)
             snapTick = now;
         }
 
-        // 渲染 30fps
-        if (now - renderTick >= pdMS_TO_TICKS(33)) {
-            if (auto guard = app->display->lockGuard()) {
-                app->render();
-            }
-            renderTick = now;
-        }
-
         // 游戏逻辑 60fps
         TickType_t elapsed = now - lastTick;
         if (elapsed < pdMS_TO_TICKS(16)) {
@@ -208,52 +208,6 @@ void TetrisApp::gameLoopTask(void* param)
 
     ESP_LOGI(TAG, "game thread exit");
     vTaskDelete(nullptr);
-}
-
-// ============================================================
-//  渲染 — 分别渲染 2 个玩家
-// ============================================================
-
-void TetrisApp::render()
-{
-    for (int i = 0; i < PLAYER_COUNT; i++) {
-        auto* r = m_renderers[i];
-        auto& p = m_players[i];
-        if (!r) continue;
-
-        if (p.gameOver) {
-            // 只绘制一次 Game Over 文字（用标签检测是否已创建）
-            // 简单起见：继续擦除/重绘但棋盘不变
-            r->clearPiece(m_lastPiece[i]);
-            r->clearGhost(m_lastGhost[i]);
-            continue;
-        }
-
-        // 1. 擦除上一帧
-        r->clearPiece(m_lastPiece[i]);
-        r->clearGhost(m_lastGhost[i]);
-
-        // 2. 同步棋盘
-        r->syncBoard(p.board);
-
-        // 3. 绘制 ghost + 活动块
-        auto color = pieceToColor(p.currentPiece.type());
-        r->drawGhost(p.ghostPiece, color);
-        r->drawPiece(p.currentPiece, color);
-
-        // 4. 更新 NEXT 预览
-        PieceType preview[4];
-        for (int s = 0; s < 4; s++)
-            preview[s] = p.peekPreview(s);
-        r->drawNext(preview);
-
-        // 5. 更新信息栏
-        r->drawInfo(p.scoring.combo(), p.garbageFlash());
-
-        // 6. 保存位置
-        m_lastPiece[i] = p.currentPiece;
-        m_lastGhost[i] = p.ghostPiece;
-    }
 }
 
 // ============================================================

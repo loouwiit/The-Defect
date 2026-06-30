@@ -33,8 +33,6 @@ private:
     // ============================================================
     PieceQueue      m_sharedQueue;
     PlayerState     m_players[PLAYER_COUNT];
-    Piece           m_lastPiece[PLAYER_COUNT];   // 上一帧位置（供擦除）
-    Piece           m_lastGhost[PLAYER_COUNT];
 
     // ============================================================
     //  渲染（每个玩家独立）
@@ -62,7 +60,6 @@ private:
     // ============================================================
 
     static void gameLoopTask(void* param);
-    void render();
     void createTouchButtons();
     static void onBtnPressed(lv_event_t* e);
     static void onBtnReleased(lv_event_t* e);

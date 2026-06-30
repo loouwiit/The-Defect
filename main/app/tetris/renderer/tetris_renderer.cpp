@@ -204,14 +204,8 @@ void TetrisRenderer::applyCellColor(int lvglRow, int col, lv_color_t color)
 {
     if (lvglRow < 0 || lvglRow >= ROWS || col < 0 || col >= BOARD_WIDTH)
         return;
-    auto cell = m_cells[lvglRow][col];
-    lv_obj_set_style_bg_color(cell, color, 0);
-    // 重置为不透明（覆盖 Ghost 可能设置的半透明）
-    lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-    // 重置边框为网格线（覆盖 Ghost 可能设置的彩色边框）
-    lv_obj_set_style_border_width(cell, 1, 0);
-    lv_obj_set_style_border_color(cell, COLOR_GRID_LINE, 0);
-    lv_obj_set_style_border_opa(cell, LV_OPA_COVER, 0);
+    // border/bg_opa 在 createBoardGrid 中已初始化，运行时只改 bg_color
+    lv_obj_set_style_bg_color(m_cells[lvglRow][col], color, 0);
 }
 
 // ============================================================
@@ -230,12 +224,6 @@ void TetrisRenderer::drawPiece(const Piece& piece, BoardCell color)
         int lvglRow = boardYToLvglRow(y);
         applyCellColor(lvglRow, cols[i], lvColor);
     }
-
-    // 记录位置供擦除用
-    m_prevPieceX = piece.x();
-    m_prevPieceY = piece.y();
-    m_prevPieceRot = piece.rotation();
-    m_prevPieceType = piece.type();
 }
 
 void TetrisRenderer::clearPiece(const Piece& piece)
@@ -269,8 +257,6 @@ void TetrisRenderer::drawGhost(const Piece& ghost, BoardCell color)
         lv_obj_set_style_border_color(m_cells[lvglRow][cols[i]], lvColor, 0);
         lv_obj_set_style_border_opa(m_cells[lvglRow][cols[i]], LV_OPA_50, 0);
     }
-
-    m_prevGhostY = ghost.y();
 }
 
 void TetrisRenderer::clearGhost(const Piece& ghost)
@@ -282,8 +268,13 @@ void TetrisRenderer::clearGhost(const Piece& ghost)
         int y = yCoords[i];
         if (y < 0 || y >= BOARD_VISIBLE_H) continue;
         int lvglRow = boardYToLvglRow(y);
-        // 恢复不透明度和边框，同时从 cache 恢复棋盘底色
-        applyCellColor(lvglRow, cols[i], pieceToColor(m_visualCache[lvglRow][cols[i]]));
+        // 只恢复 bg_color（border/bg_opa 在后续的 drawPiece 中会设置）
+        auto cell = m_cells[lvglRow][cols[i]];
+        lv_obj_set_style_bg_color(cell,
+            pieceToColor(m_visualCache[lvglRow][cols[i]]), 0);
+        lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(cell, 1, 0);
+        lv_obj_set_style_border_color(cell, COLOR_GRID_LINE, 0);
     }
 }
 
@@ -376,4 +367,96 @@ void TetrisRenderer::setArea(lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_
 {
     lv_obj_set_pos(m_container, x, y);
     lv_obj_set_size(m_container, w, h);
+}
+
+// ============================================================
+//  增量同步 — 事件驱动入口
+// ============================================================
+
+void TetrisRenderer::syncDirty(const PlayerState& player, DirtyFlags flags)
+{
+    if (flags & DIRTY_BOARD) {
+        syncBoard(player.board);
+    }
+
+    if (flags & (DIRTY_PIECE | DIRTY_GHOST)) {
+        lv_color_t color = pieceTypeToColor(player.currentPiece.type());
+
+        // ── 清除旧 ghost ──
+        if ((flags & DIRTY_GHOST) && m_lastGhostValid) {
+            for (int i = 0; i < 4; i++) {
+                int c = m_lastGhostCols[i], r = m_lastGhostRows[i];
+                if (r >= 0 && r < ROWS) {
+                    lv_obj_set_style_bg_color(m_cells[r][c],
+                        pieceToColor(m_visualCache[r][c]), 0);
+                    lv_obj_set_style_bg_opa(m_cells[r][c], LV_OPA_COVER, 0);
+                    lv_obj_set_style_border_width(m_cells[r][c], 1, 0);
+                    lv_obj_set_style_border_color(m_cells[r][c], COLOR_GRID_LINE, 0);
+                }
+            }
+            m_lastGhostValid = false;
+        }
+
+        // ── 清除旧方块 ──
+        if ((flags & DIRTY_PIECE) && m_lastPieceValid) {
+            for (int i = 0; i < 4; i++) {
+                int c = m_lastPieceCols[i], r = m_lastPieceRows[i];
+                if (r >= 0 && r < ROWS) {
+                    lv_obj_set_style_bg_color(m_cells[r][c],
+                        pieceToColor(m_visualCache[r][c]), 0);
+                }
+            }
+            m_lastPieceValid = false;
+        }
+
+        // ── 画新 ghost ──
+        if (flags & DIRTY_GHOST) {
+            int cols[4], rows[4];
+            player.ghostPiece.getBlocks(cols, rows);
+            for (int i = 0; i < 4; i++) {
+                int r = boardYToLvglRow(rows[i]);
+                m_lastGhostCols[i] = cols[i];
+                m_lastGhostRows[i] = r;
+                if (r >= 0 && r < ROWS) {
+                    lv_obj_set_style_bg_color(m_cells[r][cols[i]], color, 0);
+                    lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_30, 0);
+                    lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
+                    lv_obj_set_style_border_color(m_cells[r][cols[i]], color, 0);
+                    lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_50, 0);
+                }
+            }
+            m_lastGhostValid = true;
+        }
+
+        // ── 画新方块 ──
+        if (flags & DIRTY_PIECE) {
+            int cols[4], rows[4];
+            player.currentPiece.getBlocks(cols, rows);
+            for (int i = 0; i < 4; i++) {
+                int r = boardYToLvglRow(rows[i]);
+                m_lastPieceCols[i] = cols[i];
+                m_lastPieceRows[i] = r;
+                if (r >= 0 && r < ROWS) {
+                    applyCellColor(r, cols[i], color);
+                    // 覆盖 ghost 设置的半透明和彩色边框
+                    lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
+                    lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
+                    lv_obj_set_style_border_color(m_cells[r][cols[i]], COLOR_GRID_LINE, 0);
+                    lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
+                }
+            }
+            m_lastPieceValid = true;
+        }
+    }
+
+    if (flags & DIRTY_PREVIEW) {
+        PieceType preview[4];
+        for (int s = 0; s < 4; s++)
+            preview[s] = player.peekPreview(s);
+        drawNext(preview);
+    }
+
+    if (flags & DIRTY_SCORE) {
+        drawInfo(player.scoring.combo(), player.garbageFlash());
+    }
 }

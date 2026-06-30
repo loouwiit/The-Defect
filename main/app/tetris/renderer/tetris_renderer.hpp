@@ -3,6 +3,7 @@
 #include "lvgl.h"
 #include "display/display.hpp"
 #include "app/tetris/gameLogic/tetris_client.hpp"
+#include "app/tetris/gameLogic/player_state.hpp"
 
 /**
  * @brief Tetris LVGL 渲染器
@@ -23,6 +24,9 @@ public:
 
     // 刷新整个棋盘（遍历所有可见格，差异更新颜色）
     void syncBoard(const Board& board);
+
+    // 增量更新 — 仅处理 dirty flags 标记的变化
+    void syncDirty(const PlayerState& player, DirtyFlags flags);
 
     // 绘制活动方块 + Ghost（直接画在棋盘格上）
     void drawPiece(const Piece& piece, BoardCell color);
@@ -78,12 +82,11 @@ private:
     static constexpr int PREVIEW_COUNT = 4;
     lv_obj_t* m_nextCells[PREVIEW_COUNT][PREVIEW_SIZE][PREVIEW_SIZE]{};
 
-    // 前帧活动方块位置（用于局部擦除）
-    int m_prevPieceX = -100;
-    int m_prevPieceY = -100;
-    Rotation m_prevPieceRot = Rotation::R0;
-    PieceType m_prevPieceType = PieceType::NONE;
-    int m_prevGhostY = -100;
+    // 上次渲染的方块/ghost 位置（供增量清除用）
+    int m_lastPieceCols[4]{}, m_lastPieceRows[4]{};
+    int m_lastGhostCols[4]{}, m_lastGhostRows[4]{};
+    bool m_lastPieceValid = false;
+    bool m_lastGhostValid = false;
 
     // y 坐标转换: board y → LVGL 行号 (LVGL y 向下为正)
     static int boardYToLvglRow(int boardY) { return ROWS - 1 - boardY; }

@@ -34,6 +34,7 @@ void PlayerState::reset()
 
     keyLeft = keyRight = keyCW = keyCCW = keySoft = keyHard = keyHold = false;
     netLeftReq = netRightReq = 0;
+    m_dirtyFlags = DIRTY_NONE;
 }
 
 // ============================================================
@@ -58,6 +59,7 @@ void PlayerState::spawnType(PieceType type)
     gravityTimer = xTaskGetTickCount();
     lockTimer = 0;
     ghostPiece = calculateGhost(currentPiece, board);
+    setDirty(DIRTY_PIECE | DIRTY_GHOST | DIRTY_PREVIEW);
 }
 
 bool PlayerState::spawnPiece()
@@ -77,6 +79,8 @@ bool PlayerState::movePiece(int dx, int dy)
         // 下移重置 Lock Delay
         if (dy == -1)
             lockTimer = 0;
+        ghostPiece = calculateGhost(currentPiece, board);
+        setDirty(DIRTY_PIECE | DIRTY_GHOST);
         return true;
     }
     return false;
@@ -97,6 +101,8 @@ bool PlayerState::rotateCW()
             currentPiece = kicked;
             m_lastActionRotated = true;  // 旋转进入，T-Spin 候选
             lockTimer = 0;
+            ghostPiece = calculateGhost(currentPiece, board);
+            setDirty(DIRTY_PIECE | DIRTY_GHOST);
             return true;
         }
     }
@@ -118,6 +124,8 @@ bool PlayerState::rotateCCW()
             currentPiece = kicked;
             m_lastActionRotated = true;  // 旋转进入，T-Spin 候选
             lockTimer = 0;
+            ghostPiece = calculateGhost(currentPiece, board);
+            setDirty(DIRTY_PIECE | DIRTY_GHOST);
             return true;
         }
     }
@@ -189,6 +197,7 @@ void PlayerState::lockPiece()
 
     // 生成下一个方块
     spawnPiece();
+    setDirty(DIRTY_BOARD | DIRTY_SCORE);
 }
 
 void PlayerState::doHold()
@@ -209,12 +218,15 @@ void PlayerState::doHold()
     }
 
     holdUsed = true;
+    setDirty(DIRTY_HOLD);
 }
 
 void PlayerState::addGarbage(int lines)
 {
     m_pendingGarbage += lines;
     m_garbageFlash = lines;
+    ghostPiece = calculateGhost(currentPiece, board);
+    setDirty(DIRTY_BOARD | DIRTY_GHOST);
     ESP_LOGI(TAG, "garbage queued: %d (total pending: %d)", lines, m_pendingGarbage);
 }
 
@@ -351,7 +363,4 @@ void PlayerState::updateGame()
     } else {
         lockTimer = 0;
     }
-
-    // 更新 Ghost
-    ghostPiece = calculateGhost(currentPiece, board);
 }
