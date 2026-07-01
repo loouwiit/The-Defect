@@ -599,12 +599,14 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				v = v < 5 ? 0 : v - 5;
 				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
 				Audio::setMasterVolume(v);
+				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lxRight) {
 				int v = lv_slider_get_value(m_volumeSlider);
 				v = v > 95 ? 100 : v + 5;
 				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
 				Audio::setMasterVolume(v);
+				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lyDown) {
 				hideVolumeSlider();
@@ -621,12 +623,14 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				v = v < 5 ? 0 : v - 5;
 				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
 				display->setBrightness(v);
+				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lxRight) {
 				int v = lv_slider_get_value(m_brightnessSlider);
 				v = v > 95 ? 100 : v + 5;
 				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
 				display->setBrightness(v);
+				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lyDown) {
 				hideBrightnessSlider();
