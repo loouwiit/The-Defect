@@ -592,14 +592,12 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				v = v < 5 ? 0 : v - 5;
 				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
 				Audio::setMasterVolume(v);
-				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lxRight) {
 				int v = lv_slider_get_value(m_volumeSlider);
 				v = v > 95 ? 100 : v + 5;
 				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
 				Audio::setMasterVolume(v);
-				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lyDown) {
 				hideVolumeSlider();
@@ -616,14 +614,12 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				v = v < 5 ? 0 : v - 5;
 				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
 				display->setBrightness(v);
-				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lxRight) {
 				int v = lv_slider_get_value(m_brightnessSlider);
 				v = v > 95 ? 100 : v + 5;
 				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
 				display->setBrightness(v);
-				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lyDown) {
 				hideBrightnessSlider();
@@ -737,6 +733,7 @@ void DesktopApp::showBrightnessSlider()
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		int val = lv_slider_get_value(self->m_brightnessSlider);
 		self->display->setBrightness(val);
+		self->m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 		}, LV_EVENT_VALUE_CHANGED, this);
 	lv_obj_add_event_cb(m_brightnessSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
@@ -839,6 +836,7 @@ void DesktopApp::showVolumeSlider()
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		int val = lv_slider_get_value(self->m_volumeSlider);
 		Audio::setMasterVolume(val);
+		self->m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 		}, LV_EVENT_VALUE_CHANGED, this);
 	lv_obj_add_event_cb(m_volumeSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
