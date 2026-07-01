@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include <esp_event.h>
 #include <esp_err.h>
+#include <esp_random.h>
 
 #include "task/task.hpp"
 #include "wifi/nvs.hpp"
@@ -38,6 +39,8 @@ static constexpr char TAG[] = "main";
 extern "C" void app_main(void)
 {
 	Task::init(2);
+
+	Task::addTask([](void*)->TickType_t { srand(esp_random()); return 60 * 1000; }, "srand");
 
 	// CPU 利用率监视器（串口输出，每 1 秒采样一次）
 	CpuMonitor::instance().setBrief(true);
