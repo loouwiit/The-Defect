@@ -263,7 +263,7 @@ CONFIG_LV_DPI_DEF=130
 CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_DRAW_THREAD_STACK_SIZE=32768
 CONFIG_LV_DRAW_THREAD_PRIO=4
-CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
 CONFIG_LV_DRAW_SW_ASM_RISCV_V=y
 CONFIG_LV_USE_DRAW_SW_ASM=3
 CONFIG_LV_USE_FREETYPE=y
@@ -273,6 +273,13 @@ CONFIG_LV_USE_SNAPSHOT=y
 CONFIG_LV_USE_OBSERVER=y
 CONFIG_LV_FONT_MONTSERRAT_32=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_32=y
+
+# ============================================================
+# PPA (Pixel Processing Accelerator) — ESP32-P4 2D 加速
+# ============================================================
+CONFIG_LV_USE_PPA=y
+CONFIG_LV_USE_PPA_IMG=y
+CONFIG_LV_CACHE_DEF_SIZE=1048576
 
 # ============================================================
 # LVGL Widgets — 全开
