@@ -732,7 +732,7 @@ void DesktopApp::showBrightnessSlider()
 	lv_obj_set_flex_grow(m_brightnessSlider, 1);
 	lv_obj_set_style_pad_left(m_brightnessSlider, 8, 0);
 	lv_obj_set_style_pad_right(m_brightnessSlider, 16, 0);
-	lv_obj_move_to_index(m_brightnessSlider, 5);  // 插入到亮度和电池之间 (idx 0-4: time,wifi,bt,vol,brightness)
+	lv_obj_move_to_index(m_brightnessSlider, lv_obj_get_index(m_brightnessLabel) + 1);  // 动态定位到亮度标签之后
 	lv_obj_add_event_cb(m_brightnessSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		int val = lv_slider_get_value(self->m_brightnessSlider);
@@ -834,7 +834,7 @@ void DesktopApp::showVolumeSlider()
 	lv_obj_set_flex_grow(m_volumeSlider, 1);
 	lv_obj_set_style_pad_left(m_volumeSlider, 8, 0);
 	lv_obj_set_style_pad_right(m_volumeSlider, 16, 0);
-	lv_obj_move_to_index(m_volumeSlider, 4);  // 插入到蓝牙和音量之间 (idx 0-4: time,wifi,bt,vol,brightness,battery)
+	lv_obj_move_to_index(m_volumeSlider, lv_obj_get_index(m_volumeLabel) + 1);  // 动态定位到音量标签之后
 	lv_obj_add_event_cb(m_volumeSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		int val = lv_slider_get_value(self->m_volumeSlider);
