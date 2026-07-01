@@ -6,6 +6,7 @@
 
 // ESP HOSTED
 #include "esp_hosted.h"
+#include "wifi/slave.hpp"
 
 // NimBLE
 #include "nimble/nimble_port.h"
@@ -294,7 +295,7 @@ void BleGamepad::autoConnectPaired()
     // 清空上次扫描结果
     m_foundBdas.clear();
 
-    // 启动 5 秒扫描
+    // 启动扫描
     uint8_t own_addr_type;
     int rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0)
@@ -309,11 +310,11 @@ void BleGamepad::autoConnectPaired()
     params.window = 0;
     params.filter_duplicates = 1;
 
-    rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(5000), &params, autoScanCb, nullptr);
+    rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(500), &params, autoScanCb, nullptr);
     if (rc != 0)
         ESP_LOGE(TAG, "auto-connect: scan start failed: %d", rc);
     else
-        ESP_LOGI(TAG, "auto-connect: 扫描 5 秒...");
+        ESP_LOGI(TAG, "auto-connect: 扫描中...");
 }
 
 // NimBLE GAP 事件（扫描发现）
@@ -443,11 +444,9 @@ void BleGamepad::processTask(void* arg)
 
 bool BleGamepad::initEspHostedBt()
 {
-	ESP_LOGI(TAG, "Connecting to co-processor...");
-	if (esp_hosted_connect_to_slave() != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to connect to slave");
-		return false;
-	}
+	ESP_LOGI(TAG, "等待 C6 协处理器就绪...");
+	Slave::instance().waitReady();
+	ESP_LOGI(TAG, "C6 协处理器已就绪");
 
 	ESP_LOGI(TAG, "Initializing BT controller...");
 	if (esp_hosted_bt_controller_init() != ESP_OK) {

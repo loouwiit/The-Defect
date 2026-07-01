@@ -14,6 +14,7 @@
 #include "task/task.hpp"
 #include "wifi/nvs.hpp"
 #include "wifi/wifi.hpp"
+#include "wifi/slave.hpp"
 #include "server/serverKernal.hpp"
 
 #include "storage/fat.hpp"
@@ -52,6 +53,9 @@ extern "C" void app_main(void)
 
 	// nvs
 	nvsInit();
+
+	// 早期启动 C6 协处理器
+	Slave::instance().start();
 
 	// 计算帧缓冲区数量
 	constexpr auto tearAvoidMode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_MIPI_DSI;
