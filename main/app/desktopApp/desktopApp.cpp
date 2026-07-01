@@ -901,6 +901,7 @@ void DesktopApp::hideVolumeSlider()
 		});
 	lv_anim_start(&a);
 
+	Audio::saveVolumeToNvs();
 	m_volumeSlider = nullptr;
 	ESP_LOGI(TAG, "音量滑块收起");
 }

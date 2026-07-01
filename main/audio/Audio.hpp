@@ -110,6 +110,8 @@ public:
     /** 主音量控制（委托到 ES8311 硬件编解码器） */
     static void setMasterVolume(int percent);
     static int getMasterVolume();
+    static void saveVolumeToNvs();
+    static void loadVolumeFromNvs();
 
     /** 创建一个音频播放句柄（不开流，不启动解码任务） */
     static AudioHandle play(const char* path);

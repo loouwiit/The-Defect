@@ -143,6 +143,8 @@ extern "C" void app_main(void)
 	// 初始化音频管理器
 	if (!Audio::instance().init(audio))
 		ESP_LOGE(TAG, "音频管理器初始化失败");
+	else
+		Audio::loadVolumeFromNvs();
 
 	if constexpr (false) {
 		// BGM1 — 循环，绑定生命周期

@@ -10,6 +10,8 @@
 #include "esp_gmf_ch_cvt.h"
 #include "esp_gmf_bit_cvt.h"
 #include "esp_gmf_rate_cvt.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 static constexpr char TAG[] = "Audio";
 
@@ -347,6 +349,38 @@ int Audio::getMasterVolume()
 {
     auto* c = instance().codec;
     return c ? c->getVolume() : 0;
+}
+
+void Audio::saveVolumeToNvs()
+{
+    nvs_handle handle;
+    if (nvs_open("audio", NVS_READWRITE, &handle) != ESP_OK)
+        return;
+
+    int vol = getMasterVolume();
+    nvs_set_u8(handle, "volume", (uint8_t)vol);
+    nvs_commit(handle);
+    nvs_close(handle);
+    ESP_LOGI(TAG, "音量已保存: %d%%", vol);
+}
+
+void Audio::loadVolumeFromNvs()
+{
+    nvs_handle handle;
+    if (nvs_open("audio", NVS_READONLY, &handle) != ESP_OK)
+        return;
+
+    uint8_t val = 100;
+    esp_err_t err = nvs_get_u8(handle, "volume", &val);
+    nvs_close(handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "NVS 无音量记录，使用默认值 100%%");
+        return;
+    }
+
+    setMasterVolume(val);
+    ESP_LOGI(TAG, "从 NVS 恢复音量: %d%%", val);
 }
 
 bool Audio::init(ES8311& codec)
