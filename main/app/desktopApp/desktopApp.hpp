@@ -56,9 +56,11 @@ private:
 	lv_obj_t* m_brightnessSlider{};
 	bool m_brightnessSliderActive{};
 	TickType_t m_brightnessSliderTimeout{};
+	lv_timer_t* m_brightnessSliderTimer{};
 	lv_obj_t* m_volumeSlider{};
 	bool m_volumeSliderActive{};
 	TickType_t m_volumeSliderTimeout{};
+	lv_timer_t* m_volumeSliderTimer{};
 	lv_obj_t* m_batteryLabel{};
 
 	// ── 尺寸常量 ──

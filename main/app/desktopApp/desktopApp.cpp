@@ -632,12 +632,6 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			break;
 		}
 
-		// 自动超时收起（仍在音量或亮度焦点但无操作）
-		if (m_volumeSliderActive && m_focusStatusIdx == 2 && xTaskGetTickCount() > m_volumeSliderTimeout)
-			hideVolumeSlider();
-		if (m_brightnessSliderActive && m_focusStatusIdx == 3 && xTaskGetTickCount() > m_brightnessSliderTimeout)
-			hideBrightnessSlider();
-
 		// 焦点从音量/亮度移到其他图标 → 收起滑块
 		if (m_volumeSliderActive && m_focusStatusIdx != 2)
 			hideVolumeSlider();
@@ -752,6 +746,19 @@ void DesktopApp::showBrightnessSlider()
 	m_brightnessSliderActive = true;
 	m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 
+	// 创建超时定时器（200ms 周期检查）
+	m_brightnessSliderTimer = lv_timer_create([](lv_timer_t* t) {
+		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
+		if (!self->m_brightnessSliderActive) {
+			lv_timer_del(t);
+			return;
+		}
+		if (xTaskGetTickCount() > self->m_brightnessSliderTimeout) {
+			self->hideBrightnessSlider();
+		}
+		}, 200, this);
+	lv_timer_set_repeat_count(m_brightnessSliderTimer, -1);  // 无限重复
+
 	// 动画展开
 	lv_anim_t a;
 	lv_anim_init(&a);
@@ -771,6 +778,12 @@ void DesktopApp::hideBrightnessSlider()
 {
 	if (!m_brightnessSliderActive || !m_brightnessSlider) return;
 	m_brightnessSliderActive = false;
+
+	// 删除超时定时器
+	if (m_brightnessSliderTimer) {
+		lv_timer_del(m_brightnessSliderTimer);
+		m_brightnessSliderTimer = nullptr;
+	}
 
 	// 反向动画收起
 	lv_anim_t a;
@@ -835,6 +848,19 @@ void DesktopApp::showVolumeSlider()
 	m_volumeSliderActive = true;
 	m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 
+	// 创建超时定时器（200ms 周期检查）
+	m_volumeSliderTimer = lv_timer_create([](lv_timer_t* t) {
+		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
+		if (!self->m_volumeSliderActive) {
+			lv_timer_del(t);
+			return;
+		}
+		if (xTaskGetTickCount() > self->m_volumeSliderTimeout) {
+			self->hideVolumeSlider();
+		}
+		}, 200, this);
+	lv_timer_set_repeat_count(m_volumeSliderTimer, -1);  // 无限重复
+
 	// 动画展开
 	lv_anim_t a;
 	lv_anim_init(&a);
@@ -854,6 +880,12 @@ void DesktopApp::hideVolumeSlider()
 {
 	if (!m_volumeSliderActive || !m_volumeSlider) return;
 	m_volumeSliderActive = false;
+
+	// 删除超时定时器
+	if (m_volumeSliderTimer) {
+		lv_timer_del(m_volumeSliderTimer);
+		m_volumeSliderTimer = nullptr;
+	}
 
 	// 反向动画收起
 	lv_anim_t a;
