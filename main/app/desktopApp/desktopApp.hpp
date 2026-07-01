@@ -26,7 +26,7 @@ private:
 
 	// ── 焦点导航组 ──
 	enum FocusGroup : int8_t {
-		FOCUS_CARDS  = 0,  // 游戏卡片行（左右切换卡片）
+		FOCUS_CARDS = 0,  // 游戏卡片行（左右切换卡片）
 		FOCUS_BOTTOM = 1,  // 底部"开始游戏"按钮
 		FOCUS_STATUS = 2,  // 顶栏状态图标
 	};
@@ -38,8 +38,8 @@ private:
 	uint16_t m_prevButtons{};
 
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
-	static constexpr TickType_t MOVE_DELAY       = 120;
-	static constexpr TickType_t ACTION_DELAY      = 500;
+	static constexpr TickType_t MOVE_DELAY = 120;
+	static constexpr TickType_t ACTION_DELAY = 500;
 
 	// ── UI 对象成员 ──
 	lv_obj_t* m_cardsRow{};              // 卡片 flex 容器
@@ -64,10 +64,15 @@ private:
 	TickType_t m_volumeSliderTimeout{};
 	lv_timer_t* m_volumeSliderTimer{};
 	lv_obj_t* m_batteryLabel{};
+	lv_obj_t* m_statusSpacer{};          // flex_grow 参考系 spacer
 
 	// ── 尺寸常量 ──
 	static constexpr int CARD_W = 240;
 	static constexpr int CARD_H = 240;
+	static constexpr uint8_t SliderGrow = 70;
+	static constexpr uint8_t SpaceGrow = 30; // 空白区域
+	static constexpr uint32_t SliderOpenTime = 200;
+	static constexpr uint32_t SliderCloseTime = 100;
 
 	// ── 私有方法 ──
 	void buildUi();

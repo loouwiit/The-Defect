@@ -127,7 +127,14 @@ void DesktopApp::buildUi()
 
 	auto time_label = GUI::createLabel(status_row, "21:44");
 	lv_obj_set_style_text_color(time_label, GUI::Color::TEXT, 0);
-	lv_obj_set_flex_grow(time_label, 1);
+
+	// ── 弹性分隔符（flex_grow 参考系，分隔时钟与状态图标） ──
+	m_statusSpacer = lv_obj_create(status_row);
+	lv_obj_set_size(m_statusSpacer, 0, 0);
+	lv_obj_set_flex_grow(m_statusSpacer, SpaceGrow);
+	lv_obj_set_style_border_width(m_statusSpacer, 0, 0);
+	lv_obj_set_style_bg_opa(m_statusSpacer, LV_OPA_TRANSP, 0);
+	lv_obj_clear_flag(m_statusSpacer, LV_OBJ_FLAG_CLICKABLE);
 
 	m_wifiLabel = GUI::createLabel(status_row, LV_SYMBOL_WIFI);
 	lv_obj_set_style_text_color(m_wifiLabel, GUI::Color::TEXT, 0);
@@ -725,8 +732,7 @@ void DesktopApp::showBrightnessSlider()
 	lv_obj_set_style_bg_color(m_brightnessSlider, lv_color_white(), LV_PART_INDICATOR);
 	lv_obj_set_style_bg_color(m_brightnessSlider, lv_color_white(), LV_PART_KNOB);
 	lv_obj_set_height(m_brightnessSlider, 28);
-	lv_obj_set_width(m_brightnessSlider, 1);  // 初始宽度 1，动画展开
-	lv_obj_set_flex_grow(m_brightnessSlider, 1);
+	lv_obj_set_flex_grow(m_brightnessSlider, 1);  // 初始 1，立即参与 grow 分配
 	lv_obj_set_style_pad_left(m_brightnessSlider, 8, 0);
 	lv_obj_set_style_pad_right(m_brightnessSlider, 16, 0);
 	lv_obj_move_to_index(m_brightnessSlider, lv_obj_get_index(m_brightnessLabel) + 1);  // 动态定位到亮度标签之后
@@ -757,15 +763,15 @@ void DesktopApp::showBrightnessSlider()
 		}, 200, this);
 	lv_timer_set_repeat_count(m_brightnessSliderTimer, -1);  // 无限重复
 
-	// 动画展开
+	// 动画展开（flex_grow: 1 → 60）
 	lv_anim_t a;
 	lv_anim_init(&a);
 	lv_anim_set_var(&a, m_brightnessSlider);
 	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
-		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		lv_obj_set_flex_grow(static_cast<lv_obj_t*>(var), (uint8_t)v);
 		});
-	lv_anim_set_values(&a, 1, 180);
-	lv_anim_set_time(&a, 200);
+	lv_anim_set_values(&a, 1, SliderGrow);
+	lv_anim_set_time(&a, SliderOpenTime);
 	lv_anim_set_path_cb(&a, lv_anim_path_linear);
 	lv_anim_start(&a);
 
@@ -783,15 +789,15 @@ void DesktopApp::hideBrightnessSlider()
 		m_brightnessSliderTimer = nullptr;
 	}
 
-	// 反向动画收起
+	// 反向动画收起（flex_grow: 60 → 1）
 	lv_anim_t a;
 	lv_anim_init(&a);
 	lv_anim_set_var(&a, m_brightnessSlider);
 	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
-		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		lv_obj_set_flex_grow(static_cast<lv_obj_t*>(var), (uint8_t)v);
 		});
-	lv_anim_set_values(&a, 180, 1);
-	lv_anim_set_time(&a, 150);
+	lv_anim_set_values(&a, SliderGrow, 1);
+	lv_anim_set_time(&a, SliderCloseTime);
 	lv_anim_set_path_cb(&a, lv_anim_path_linear);
 	lv_anim_set_deleted_cb(&a, [](lv_anim_t* anim) {
 		if (anim->var)
@@ -831,8 +837,7 @@ void DesktopApp::showVolumeSlider()
 	lv_obj_set_style_bg_color(m_volumeSlider, lv_color_white(), LV_PART_INDICATOR);
 	lv_obj_set_style_bg_color(m_volumeSlider, lv_color_white(), LV_PART_KNOB);
 	lv_obj_set_height(m_volumeSlider, 28);
-	lv_obj_set_width(m_volumeSlider, 1);  // 初始宽度 1，动画展开
-	lv_obj_set_flex_grow(m_volumeSlider, 1);
+	lv_obj_set_flex_grow(m_volumeSlider, 1);  // 初始 1，立即参与 grow 分配
 	lv_obj_set_style_pad_left(m_volumeSlider, 8, 0);
 	lv_obj_set_style_pad_right(m_volumeSlider, 16, 0);
 	lv_obj_move_to_index(m_volumeSlider, lv_obj_get_index(m_volumeLabel) + 1);  // 动态定位到音量标签之后
@@ -863,15 +868,15 @@ void DesktopApp::showVolumeSlider()
 		}, 200, this);
 	lv_timer_set_repeat_count(m_volumeSliderTimer, -1);  // 无限重复
 
-	// 动画展开
+	// 动画展开（flex_grow: 1 → 60）
 	lv_anim_t a;
 	lv_anim_init(&a);
 	lv_anim_set_var(&a, m_volumeSlider);
 	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
-		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		lv_obj_set_flex_grow(static_cast<lv_obj_t*>(var), (uint8_t)v);
 		});
-	lv_anim_set_values(&a, 1, 180);
-	lv_anim_set_time(&a, 200);
+	lv_anim_set_values(&a, 1, SliderGrow);
+	lv_anim_set_time(&a, SliderOpenTime);
 	lv_anim_set_path_cb(&a, lv_anim_path_linear);
 	lv_anim_start(&a);
 
@@ -889,15 +894,15 @@ void DesktopApp::hideVolumeSlider()
 		m_volumeSliderTimer = nullptr;
 	}
 
-	// 反向动画收起
+	// 反向动画收起（flex_grow: 60 → 1）
 	lv_anim_t a;
 	lv_anim_init(&a);
 	lv_anim_set_var(&a, m_volumeSlider);
 	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
-		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		lv_obj_set_flex_grow(static_cast<lv_obj_t*>(var), (uint8_t)v);
 		});
-	lv_anim_set_values(&a, 180, 1);
-	lv_anim_set_time(&a, 150);
+	lv_anim_set_values(&a, SliderGrow, 1);
+	lv_anim_set_time(&a, SliderCloseTime);
 	lv_anim_set_path_cb(&a, lv_anim_path_linear);
 	lv_anim_set_deleted_cb(&a, [](lv_anim_t* anim) {
 		if (anim->var)
