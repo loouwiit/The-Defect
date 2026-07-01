@@ -921,7 +921,10 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
 	self->m_focusStatusIdx = 2;
-	self->showVolumeSlider();
+	if (self->m_volumeSliderActive)
+		self->hideVolumeSlider();
+	else
+		self->showVolumeSlider();
 }
 
 void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
@@ -929,7 +932,10 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
 	self->m_focusStatusIdx = 3;
-	self->showBrightnessSlider();
+	if (self->m_brightnessSliderActive)
+		self->hideBrightnessSlider();
+	else
+		self->showBrightnessSlider();
 }
 
 void DesktopApp::onBatteryLabelCb(lv_event_t* e)
