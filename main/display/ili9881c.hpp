@@ -32,9 +32,11 @@ public:
 	}
 
 	// ── 背光亮度控制 ──
-	bool brightnessInit();
-	void brightnessSet(int percent);  // 0..100
-	int brightnessGet();              // 返回当前 0..100
+	bool initBrightness();
+	void setBrightness(int percent);
+	int getBrightness();
+	void saveBrightnessToNvs();
+	void loadBrightnessFromNvs();
 
 private:
 	esp_ldo_channel_handle_t ldo_phy{};

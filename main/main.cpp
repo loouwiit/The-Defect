@@ -50,6 +50,9 @@ extern "C" void app_main(void)
 	mountMem();
 	mountSd();
 
+	// nvs
+	nvsInit();
+
 	// 计算帧缓冲区数量
 	constexpr auto tearAvoidMode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_MIPI_DSI;
 	constexpr auto rotation = ESP_LV_ADAPTER_ROTATE_90;
@@ -178,9 +181,6 @@ extern "C" void app_main(void)
 	stackManager.createStack();
 	DesktopApp* desktop = new DesktopApp{ &display };
 	stackManager.push(desktop);
-
-	// nvs
-	nvsInit();
 
 	// 启动 BLE 手柄管理器
 	ESP_LOGI(TAG, "BleGamepad start");

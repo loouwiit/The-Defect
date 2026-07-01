@@ -104,10 +104,15 @@ void Display::applyApp(App* app) const
 
 void Display::setBrightness(int percent)
 {
-	ILI9881c::getInstance().brightnessSet(percent);
+	ILI9881c::getInstance().setBrightness(percent);
 }
 
 int Display::getBrightness() const
 {
-	return ILI9881c::getInstance().brightnessGet();
+	return ILI9881c::getInstance().getBrightness();
+}
+
+void Display::saveBrightness()
+{
+	ILI9881c::getInstance().saveBrightnessToNvs();
 }

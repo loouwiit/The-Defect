@@ -6,6 +6,8 @@
 #include "initCommand.inl"
 #include "esp_lv_adapter.h"
 #include "driver/ledc.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include <cstdint>
 
 static const char* TAG = "ILI9881c";
@@ -43,7 +45,7 @@ static uint16_t dutyFromPercent(int percent)
 	return kGammaLUT[idx] + (int(kGammaLUT[idx + 1] - kGammaLUT[idx]) * rem) / 10;
 }
 
-bool ILI9881c::brightnessInit()
+bool ILI9881c::initBrightness()
 {
 	ledc_timer_config_t tm = {
 		.speed_mode = LEDC_LOW_SPEED_MODE,
@@ -68,7 +70,7 @@ bool ILI9881c::brightnessInit()
 	return true;
 }
 
-void ILI9881c::brightnessSet(int percent)
+void ILI9881c::setBrightness(int percent)
 {
 	if (percent < 0) percent = 0;
 	if (percent > 100) percent = 100;
@@ -90,9 +92,42 @@ void ILI9881c::brightnessSet(int percent)
 	ESP_LOGI(TAG, "Backlight duty set to %d%%, duty = %u", percent, duty);
 }
 
-int ILI9881c::brightnessGet()
+void ILI9881c::saveBrightnessToNvs()
+{
+	nvs_handle handle;
+	if (nvs_open("display", NVS_READWRITE, &handle) != ESP_OK)
+		return;
+
+	nvs_set_u8(handle, "brightness", (uint8_t)m_brightness);
+	nvs_commit(handle);
+	nvs_close(handle);
+
+	ESP_LOGI(TAG, "亮度已保存: %d%%", m_brightness);
+}
+
+int ILI9881c::getBrightness()
 {
 	return m_brightness;
+}
+
+void ILI9881c::loadBrightnessFromNvs()
+{
+	uint8_t val = 100;
+	nvs_handle handle;
+	if (nvs_open("display", NVS_READONLY, &handle) != ESP_OK)
+		return;
+
+	esp_err_t err = nvs_get_u8(handle, "brightness", &val);
+	nvs_close(handle);
+
+	if (err != ESP_OK) {
+		ESP_LOGI(TAG, "NVS 无亮度记录，使用默认值 100%%");
+		return;
+	}
+
+	if (val > 100) val = 100;
+	ESP_LOGI(TAG, "从 NVS 恢复亮度: %d%%", val);
+	this->setBrightness(val);
 }
 
 ILI9881c::ILI9881c() = default;
@@ -214,7 +249,8 @@ bool ILI9881c::init(int h_res, int v_res, uint8_t num_fbs)
 
 	// Turn on display + backlight
 	esp_lcd_panel_disp_on_off(panel, true);
-	getInstance().brightnessInit();
+	initBrightness();
+	loadBrightnessFromNvs();
 	ESP_LOGI(TAG, "ILI9881C panel initialized");
 
 	return true;

@@ -736,6 +736,7 @@ void DesktopApp::hideBrightnessSlider()
 		});
 	lv_anim_start(&a);
 
+	display->saveBrightness();
 	m_brightnessSlider = nullptr;
 	ESP_LOGI(TAG, "亮度滑块收起");
 }

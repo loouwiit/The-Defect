@@ -36,6 +36,7 @@ public:
 	// ── 背光亮度控制（委托到 ILI9881c） ──
 	void setBrightness(int percent);
 	int getBrightness() const;
+	void saveBrightness();
 
 	bool lock(int32_t timeout_ms = -1) const
 	{
