@@ -376,37 +376,13 @@ void DesktopApp::activateFocus()
 		break;
 
 	case FOCUS_STATUS:
-		switch (m_focusStatusIdx)
-		{
-		case 0: // WiFi — TODO: 打开 WiFi 设置
-			ESP_LOGI(TAG, "WiFi 设置（待实现）");
-			break;
-		case 1: // 蓝牙 — 打开 BLE 设置
-			Task::addTask([](void* param) -> TickType_t
-				{
-					auto* app = static_cast<DesktopApp*>(param);
-					if (app->getManager()) {
-						auto* bleApp = new BleSettingsApp(app->getDisplay());
-						app->getManager()->pushToNewStack(bleApp);
-					}
-					return Task::infinityTime;
-				}, "openBleSettings", this, 0, Task::Affinity::None);
-			break;
-		case 2: // 音量
-			lv_async_call([](void* param) {
-				static_cast<DesktopApp*>(param)->showVolumeSlider();
-				}, this);
-			break;
-		case 3: // 亮度
-			lv_async_call([](void* param) {
-				static_cast<DesktopApp*>(param)->showBrightnessSlider();
-				}, this);
-			break;
-		case 4: // 电池/电源
-			ESP_LOGI(TAG, "电源管理（待实现）");
-			break;
-		}
+	{
+		lv_obj_t* target[]{ m_wifiLabel, m_bluetoothLabel,m_volumeLabel,m_brightnessLabel,m_batteryLabel };
+		auto guard = display->lockGuard();
+		lv_obj_send_event(target[m_focusStatusIdx],
+			LV_EVENT_CLICKED, nullptr);
 		break;
+	}
 	}
 }
 
@@ -522,43 +498,14 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	m_prevButtons = state.buttons;
 
 	// ── BTN_B: 滑块激活时重置并收起 ──
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
-	{
-		if (m_volumeSliderActive)
-		{
-			Audio::setMasterVolume(70);
-			if (m_volumeSlider)
-				lv_slider_set_value(m_volumeSlider, 70, LV_ANIM_OFF);
-			hideVolumeSlider();
-		}
-
-		if (m_brightnessSliderActive)
-		{
-			display->setBrightness(100);
-			if (m_brightnessSlider)
-				lv_slider_set_value(m_brightnessSlider, 100, LV_ANIM_OFF);
-			hideBrightnessSlider();
-		}
-	}
+	// if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	// {
+	// }
 
 	// ── 激活 (BTN_A / BTN_L3) ──
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
-		// 滑块激活时，收起
-		if (m_volumeSliderActive)
-		{
-			lv_async_call([](void* param) {
-				static_cast<DesktopApp*>(param)->hideVolumeSlider();
-				}, this);
-		}
-		if (m_brightnessSliderActive)
-		{
-			lv_async_call([](void* param) {
-				static_cast<DesktopApp*>(param)->hideBrightnessSlider();
-				}, this);
-		}
-
 		if (m_nextActionTime < xTaskGetTickCount())
 		{
 			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
@@ -595,6 +542,7 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (m_volumeSliderActive && m_focusStatusIdx == 2)
 		{
 			if (lxLeft) {
+				auto guard = display->lockGuard();
 				int v = lv_slider_get_value(m_volumeSlider);
 				v = v < 5 ? 0 : v - 5;
 				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
@@ -602,23 +550,20 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lxRight) {
+				auto guard = display->lockGuard();
 				int v = lv_slider_get_value(m_volumeSlider);
 				v = v > 95 ? 100 : v + 5;
 				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
 				Audio::setMasterVolume(v);
 				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
 			}
-			if (lyDown) {
-				hideVolumeSlider();
-				navFromStatusDown();
-			}
-			break;
 		}
 
 		// 亮度滑块激活时的特殊处理
 		if (m_brightnessSliderActive && m_focusStatusIdx == 3)
 		{
 			if (lxLeft) {
+				auto guard = display->lockGuard();
 				int v = lv_slider_get_value(m_brightnessSlider);
 				v = v < 5 ? 0 : v - 5;
 				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
@@ -626,40 +571,41 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 			}
 			if (lxRight) {
+				auto guard = display->lockGuard();
 				int v = lv_slider_get_value(m_brightnessSlider);
 				v = v > 95 ? 100 : v + 5;
 				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
 				display->setBrightness(v);
 				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
 			}
-			if (lyDown) {
-				hideBrightnessSlider();
-				navFromStatusDown();
+		}
+
+		// 非滑块激活时的状态栏导航
+		if (!(m_volumeSliderActive && m_focusStatusIdx == 2) &&
+			!(m_brightnessSliderActive && m_focusStatusIdx == 3))
+		{
+			if (lxLeft && m_focusStatusIdx > 0)
+			{
+				m_focusStatusIdx--;
+				applyFocus();
 			}
-			break;
+			if (lxRight && m_focusStatusIdx < 4)
+			{
+				m_focusStatusIdx++;
+				applyFocus();
+			}
 		}
 
-		// 焦点从音量/亮度移到其他图标 → 收起滑块
-		if (m_volumeSliderActive && m_focusStatusIdx != 2)
-			hideVolumeSlider();
-		if (m_brightnessSliderActive && m_focusStatusIdx != 3)
-			hideBrightnessSlider();
-
-		if (lxLeft && m_focusStatusIdx > 0) {
-			m_focusStatusIdx--;
-			applyFocus();
-		}
-		if (lxRight && m_focusStatusIdx < 4) {
-			m_focusStatusIdx++;
-			applyFocus();
-		}
-		if (lyDown) {
+		// 下判定，离开状态栏导航
+		if (lyDown)
+		{
 			// 如果音量或亮度滑块激活，先收起再导航
-			if (m_volumeSliderActive) hideVolumeSlider();
-			if (m_brightnessSliderActive) hideBrightnessSlider();
+			if (m_volumeSliderActive)
+				lv_async_call([](void* param) { static_cast<DesktopApp*>(param)->hideVolumeSlider(); }, this);
+			if (m_brightnessSliderActive)
+				lv_async_call([](void* param) { static_cast<DesktopApp*>(param)->hideBrightnessSlider(); }, this);
 			navFromStatusDown();
 		}
-		break;
 	}
 }
 
@@ -787,6 +733,8 @@ void DesktopApp::hideBrightnessSlider()
 	if (!m_brightnessSliderActive || !m_brightnessSlider) return;
 	m_brightnessSliderActive = false;
 
+	auto guard = display->lockGuard();
+
 	// 删除超时定时器
 	if (m_brightnessSliderTimer) {
 		lv_timer_del(m_brightnessSliderTimer);
@@ -892,6 +840,8 @@ void DesktopApp::hideVolumeSlider()
 	if (!m_volumeSliderActive || !m_volumeSlider) return;
 	m_volumeSliderActive = false;
 
+	auto guard = display->lockGuard();
+
 	// 删除超时定时器
 	if (m_volumeSliderTimer) {
 		lv_timer_del(m_volumeSliderTimer);
@@ -941,6 +891,7 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 		self->hideVolumeSlider();
 	else
 		self->showVolumeSlider();
+	self->applyFocus();
 }
 
 void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
@@ -952,6 +903,7 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 		self->hideBrightnessSlider();
 	else
 		self->showBrightnessSlider();
+	self->applyFocus();
 }
 
 void DesktopApp::onBatteryLabelCb(lv_event_t* e)

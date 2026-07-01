@@ -44,27 +44,34 @@ private:
 	// ── UI 对象成员 ──
 	lv_obj_t* m_cardsRow{};              // 卡片 flex 容器
 	lv_obj_t* m_gameCards[GAME_COUNT]{}; // 5 张卡片
+
+	lv_obj_t* m_prevBtn{};
+	lv_obj_t* m_nextBtn{};
+
 	lv_obj_t* m_descLabel{};
 	lv_obj_t* m_infoLabel{};
 	lv_obj_t* m_startBtn{};
-	lv_obj_t* m_prevBtn{};
-	lv_obj_t* m_nextBtn{};
+
+	lv_obj_t* m_statusSpacer{};
+	
 	lv_obj_t* m_wifiLabel{};
 	lv_obj_t* m_bluetoothLabel{};
 	lv_obj_t* m_volumeLabel{};
 	lv_obj_t* m_brightnessLabel{};
+
 	lv_obj_t* m_brightnessSlider{};
 	bool m_brightnessSliderActive{};
-	int m_brightnessOnOpen{};          // 展开时的亮度值，用于判断是否变化
+	int m_brightnessOnOpen{};
 	TickType_t m_brightnessSliderTimeout{};
 	lv_timer_t* m_brightnessSliderTimer{};
+
 	lv_obj_t* m_volumeSlider{};
 	bool m_volumeSliderActive{};
-	int m_volumeOnOpen{};              // 展开时的音量值，用于判断是否变化
+	int m_volumeOnOpen{};
 	TickType_t m_volumeSliderTimeout{};
 	lv_timer_t* m_volumeSliderTimer{};
+
 	lv_obj_t* m_batteryLabel{};
-	lv_obj_t* m_statusSpacer{};          // flex_grow 参考系 spacer
 
 	// ── 尺寸常量 ──
 	static constexpr int CARD_W = 240;
