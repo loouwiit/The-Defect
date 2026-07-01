@@ -5,6 +5,7 @@
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisApp.hpp"
+#include "audio/Audio.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -385,12 +386,14 @@ void DesktopApp::activateFocus()
 				}, "openBleSettings", this, 0, Task::Affinity::None);
 			break;
 		case 2: // 音量
-			ESP_LOGI(TAG, "音量调节（待实现）");
+			lv_async_call([](void* param) {
+				static_cast<DesktopApp*>(param)->showVolumeSlider();
+				}, this);
 			break;
 		case 3: // 亮度
 			lv_async_call([](void* param) {
 				static_cast<DesktopApp*>(param)->showBrightnessSlider();
-			}, this);
+				}, this);
 			break;
 		case 4: // 电池/电源
 			ESP_LOGI(TAG, "电源管理（待实现）");
@@ -511,28 +514,44 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	uint16_t newPress = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;
 
-	// ── BTN_B: 亮度滑块激活时重置 100% 并收起 ──
-	if (m_brightnessSliderActive && (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)))
+	// ── BTN_B: 滑块激活时重置并收起 ──
+	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 	{
-		display->setBrightness(100);
-		if (m_brightnessSlider)
-			lv_slider_set_value(m_brightnessSlider, 100, LV_ANIM_OFF);
-		hideBrightnessSlider();
-		return;
+		if (m_volumeSliderActive)
+		{
+			Audio::setMasterVolume(70);
+			if (m_volumeSlider)
+				lv_slider_set_value(m_volumeSlider, 70, LV_ANIM_OFF);
+			hideVolumeSlider();
+		}
+
+		if (m_brightnessSliderActive)
+		{
+			display->setBrightness(100);
+			if (m_brightnessSlider)
+				lv_slider_set_value(m_brightnessSlider, 100, LV_ANIM_OFF);
+			hideBrightnessSlider();
+		}
 	}
 
 	// ── 激活 (BTN_A / BTN_L3) ──
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
-		// 亮度滑块激活时，收起
+		// 滑块激活时，收起
+		if (m_volumeSliderActive)
+		{
+			lv_async_call([](void* param) {
+				static_cast<DesktopApp*>(param)->hideVolumeSlider();
+				}, this);
+		}
 		if (m_brightnessSliderActive)
 		{
 			lv_async_call([](void* param) {
 				static_cast<DesktopApp*>(param)->hideBrightnessSlider();
-			}, this);
-			return;
+				}, this);
 		}
+
 		if (m_nextActionTime < xTaskGetTickCount())
 		{
 			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
@@ -565,6 +584,30 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		break;
 
 	case FOCUS_STATUS:
+		// 音量滑块激活时的特殊处理
+		if (m_volumeSliderActive && m_focusStatusIdx == 2)
+		{
+			if (lxLeft) {
+				int v = lv_slider_get_value(m_volumeSlider);
+				v = v < 5 ? 0 : v - 5;
+				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
+				Audio::setMasterVolume(v);
+				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
+			}
+			if (lxRight) {
+				int v = lv_slider_get_value(m_volumeSlider);
+				v = v > 95 ? 100 : v + 5;
+				lv_slider_set_value(m_volumeSlider, v, LV_ANIM_OFF);
+				Audio::setMasterVolume(v);
+				m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
+			}
+			if (lyDown) {
+				hideVolumeSlider();
+				navFromStatusDown();
+			}
+			break;
+		}
+
 		// 亮度滑块激活时的特殊处理
 		if (m_brightnessSliderActive && m_focusStatusIdx == 3)
 		{
@@ -589,11 +632,15 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			break;
 		}
 
-		// 自动超时收起（仍在亮度焦点但无操作）
+		// 自动超时收起（仍在音量或亮度焦点但无操作）
+		if (m_volumeSliderActive && m_focusStatusIdx == 2 && xTaskGetTickCount() > m_volumeSliderTimeout)
+			hideVolumeSlider();
 		if (m_brightnessSliderActive && m_focusStatusIdx == 3 && xTaskGetTickCount() > m_brightnessSliderTimeout)
 			hideBrightnessSlider();
 
-		// 焦点从亮度移到其他图标 → 收起滑块
+		// 焦点从音量/亮度移到其他图标 → 收起滑块
+		if (m_volumeSliderActive && m_focusStatusIdx != 2)
+			hideVolumeSlider();
 		if (m_brightnessSliderActive && m_focusStatusIdx != 3)
 			hideBrightnessSlider();
 
@@ -605,7 +652,12 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			m_focusStatusIdx++;
 			applyFocus();
 		}
-		if (lyDown) navFromStatusDown();
+		if (lyDown) {
+			// 如果音量或亮度滑块激活，先收起再导航
+			if (m_volumeSliderActive) hideVolumeSlider();
+			if (m_brightnessSliderActive) hideBrightnessSlider();
+			navFromStatusDown();
+		}
 		break;
 	}
 }
@@ -749,6 +801,88 @@ void DesktopApp::onBrightnessSliderCb(lv_event_t* e)
 }
 
 // ════════════════════════════════════════════════════════════════
+// 音量滑块
+// ════════════════════════════════════════════════════════════════
+
+void DesktopApp::showVolumeSlider()
+{
+	if (m_volumeSliderActive) return;
+
+	int cur = Audio::getMasterVolume();
+
+	m_volumeSlider = lv_slider_create(lv_obj_get_parent(m_volumeLabel));
+	lv_slider_set_range(m_volumeSlider, 0, 100);
+	lv_slider_set_value(m_volumeSlider, cur, LV_ANIM_OFF);
+	lv_obj_set_style_bg_color(m_volumeSlider, lv_color_hex(0x555555), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(m_volumeSlider, lv_color_white(), LV_PART_INDICATOR);
+	lv_obj_set_style_bg_color(m_volumeSlider, lv_color_white(), LV_PART_KNOB);
+	lv_obj_set_height(m_volumeSlider, 28);
+	lv_obj_set_width(m_volumeSlider, 1);  // 初始宽度 1，动画展开
+	lv_obj_set_flex_grow(m_volumeSlider, 1);
+	lv_obj_set_style_pad_left(m_volumeSlider, 8, 0);
+	lv_obj_set_style_pad_right(m_volumeSlider, 16, 0);
+	lv_obj_move_to_index(m_volumeSlider, 4);  // 插入到蓝牙和音量之间 (idx 0-4: time,wifi,bt,vol,brightness,battery)
+	lv_obj_add_event_cb(m_volumeSlider, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		int val = lv_slider_get_value(self->m_volumeSlider);
+		Audio::setMasterVolume(val);
+		}, LV_EVENT_VALUE_CHANGED, this);
+	lv_obj_add_event_cb(m_volumeSlider, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		self->m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
+		}, LV_EVENT_RELEASED, this);
+
+	m_volumeSliderActive = true;
+	m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
+
+	// 动画展开
+	lv_anim_t a;
+	lv_anim_init(&a);
+	lv_anim_set_var(&a, m_volumeSlider);
+	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
+		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		});
+	lv_anim_set_values(&a, 1, 180);
+	lv_anim_set_time(&a, 200);
+	lv_anim_set_path_cb(&a, lv_anim_path_linear);
+	lv_anim_start(&a);
+
+	ESP_LOGI(TAG, "音量滑块展开: %d%%", cur);
+}
+
+void DesktopApp::hideVolumeSlider()
+{
+	if (!m_volumeSliderActive || !m_volumeSlider) return;
+	m_volumeSliderActive = false;
+
+	// 反向动画收起
+	lv_anim_t a;
+	lv_anim_init(&a);
+	lv_anim_set_var(&a, m_volumeSlider);
+	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
+		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		});
+	lv_anim_set_values(&a, 180, 1);
+	lv_anim_set_time(&a, 150);
+	lv_anim_set_path_cb(&a, lv_anim_path_linear);
+	lv_anim_set_deleted_cb(&a, [](lv_anim_t* anim) {
+		if (anim->var)
+			lv_obj_delete_async(static_cast<lv_obj_t*>(anim->var));
+		});
+	lv_anim_start(&a);
+
+	m_volumeSlider = nullptr;
+	ESP_LOGI(TAG, "音量滑块收起");
+}
+
+void DesktopApp::onVolumeSliderCb(lv_event_t* e)
+{
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	int val = lv_slider_get_value(self->m_volumeSlider);
+	Audio::setMasterVolume(val);
+}
+
+// ════════════════════════════════════════════════════════════════
 // 状态栏图标回调
 // ════════════════════════════════════════════════════════════════
 
@@ -757,7 +891,7 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
 	self->m_focusStatusIdx = 2;
-	ESP_LOGI(TAG, "音量调节（待实现）");
+	self->showVolumeSlider();
 }
 
 void DesktopApp::onBrightnessLabelCb(lv_event_t* e)

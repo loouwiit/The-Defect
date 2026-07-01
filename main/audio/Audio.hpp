@@ -107,6 +107,10 @@ public:
     bool init(ES8311& codec);
     void deinit();
 
+    /** 主音量控制（委托到 ES8311 硬件编解码器） */
+    static void setMasterVolume(int percent);
+    static int getMasterVolume();
+
     /** 创建一个音频播放句柄（不开流，不启动解码任务） */
     static AudioHandle play(const char* path);
 

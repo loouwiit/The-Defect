@@ -56,6 +56,9 @@ private:
 	lv_obj_t* m_brightnessSlider{};
 	bool m_brightnessSliderActive{};
 	TickType_t m_brightnessSliderTimeout{};
+	lv_obj_t* m_volumeSlider{};
+	bool m_volumeSliderActive{};
+	TickType_t m_volumeSliderTimeout{};
 	lv_obj_t* m_batteryLabel{};
 
 	// ── 尺寸常量 ──
@@ -84,6 +87,11 @@ private:
 	void showBrightnessSlider();
 	void hideBrightnessSlider();
 	static void onBrightnessSliderCb(lv_event_t* e);
+
+	// 音量滑块
+	void showVolumeSlider();
+	void hideVolumeSlider();
+	static void onVolumeSliderCb(lv_event_t* e);
 
 	// 操作
 	void startGame();

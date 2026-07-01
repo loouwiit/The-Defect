@@ -337,6 +337,18 @@ Audio& Audio::instance()
     return inst;
 }
 
+void Audio::setMasterVolume(int percent)
+{
+    auto* c = instance().codec;
+    if (c) c->setVolume(percent);
+}
+
+int Audio::getMasterVolume()
+{
+    auto* c = instance().codec;
+    return c ? c->getVolume() : 0;
+}
+
 bool Audio::init(ES8311& codec)
 {
     if (initialized) return true;
