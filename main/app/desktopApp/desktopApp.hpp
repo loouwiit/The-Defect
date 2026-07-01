@@ -55,10 +55,12 @@ private:
 	lv_obj_t* m_brightnessLabel{};
 	lv_obj_t* m_brightnessSlider{};
 	bool m_brightnessSliderActive{};
+	int m_brightnessOnOpen{};          // 展开时的亮度值，用于判断是否变化
 	TickType_t m_brightnessSliderTimeout{};
 	lv_timer_t* m_brightnessSliderTimer{};
 	lv_obj_t* m_volumeSlider{};
 	bool m_volumeSliderActive{};
+	int m_volumeOnOpen{};              // 展开时的音量值，用于判断是否变化
 	TickType_t m_volumeSliderTimeout{};
 	lv_timer_t* m_volumeSliderTimer{};
 	lv_obj_t* m_batteryLabel{};

@@ -716,6 +716,7 @@ void DesktopApp::showBrightnessSlider()
 	if (m_brightnessSliderActive) return;
 
 	int cur = display->getBrightness();
+	m_brightnessOnOpen = cur;
 
 	m_brightnessSlider = lv_slider_create(lv_obj_get_parent(m_brightnessLabel));
 	lv_slider_set_range(m_brightnessSlider, 0, 100);
@@ -798,7 +799,9 @@ void DesktopApp::hideBrightnessSlider()
 		});
 	lv_anim_start(&a);
 
-	display->saveBrightness();
+	// 值变化时才保存
+	if (lv_slider_get_value(m_brightnessSlider) != m_brightnessOnOpen)
+		display->saveBrightness();
 	m_brightnessSlider = nullptr;
 	ESP_LOGI(TAG, "亮度滑块收起");
 }
@@ -819,6 +822,7 @@ void DesktopApp::showVolumeSlider()
 	if (m_volumeSliderActive) return;
 
 	int cur = Audio::getMasterVolume();
+	m_volumeOnOpen = cur;
 
 	m_volumeSlider = lv_slider_create(lv_obj_get_parent(m_volumeLabel));
 	lv_slider_set_range(m_volumeSlider, 0, 100);
@@ -901,7 +905,9 @@ void DesktopApp::hideVolumeSlider()
 		});
 	lv_anim_start(&a);
 
-	Audio::saveVolumeToNvs();
+	// 值变化时才保存
+	if (lv_slider_get_value(m_volumeSlider) != m_volumeOnOpen)
+		Audio::saveVolumeToNvs();
 	m_volumeSlider = nullptr;
 	ESP_LOGI(TAG, "音量滑块收起");
 }
