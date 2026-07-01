@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "display/font.hpp"
+#include "display/ili9881c.hpp"
 
 // ========== 游戏数据 ==========
 
@@ -89,6 +90,7 @@ void DesktopApp::onForeground()
 	// 防抖重置
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	for (auto& i : m_nextMoveTime) i = 0;
+	m_prevButtons = 0xFFFF;
 
 	ESP_LOGI(TAG, "前台");
 }
@@ -386,7 +388,9 @@ void DesktopApp::activateFocus()
 			ESP_LOGI(TAG, "音量调节（待实现）");
 			break;
 		case 3: // 亮度
-			ESP_LOGI(TAG, "亮度调节（待实现）");
+			lv_async_call([](void* param) {
+				static_cast<DesktopApp*>(param)->showBrightnessSlider();
+			}, this);
 			break;
 		case 4: // 电池/电源
 			ESP_LOGI(TAG, "电源管理（待实现）");
@@ -503,14 +507,32 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	bool lyUp = (state.ly < center - deadZone);
 	bool lyDown = (state.ly > center + deadZone);
 
-	// ── BTN_B: 根栈禁止 pop，忽略 ──
-	// if (state.isPressed(GamepadButton::BTN_B))
-	// {
-	// }
+	// ── 边沿检测：仅刚按下的按钮有效 ──
+	uint16_t newPress = state.buttons & ~m_prevButtons;
+	m_prevButtons = state.buttons;
+
+	// ── BTN_B: 亮度滑块激活时重置 100% 并收起 ──
+	if (m_brightnessSliderActive && (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)))
+	{
+		display->setBrightness(100);
+		if (m_brightnessSlider)
+			lv_slider_set_value(m_brightnessSlider, 100, LV_ANIM_OFF);
+		hideBrightnessSlider();
+		return;
+	}
 
 	// ── 激活 (BTN_A / BTN_L3) ──
-	if (state.isPressed(GamepadButton::BTN_A) || state.isPressed(GamepadButton::BTN_L3))
+	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
+		// 亮度滑块激活时，收起
+		if (m_brightnessSliderActive)
+		{
+			lv_async_call([](void* param) {
+				static_cast<DesktopApp*>(param)->hideBrightnessSlider();
+			}, this);
+			return;
+		}
 		if (m_nextActionTime < xTaskGetTickCount())
 		{
 			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
@@ -543,6 +565,38 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		break;
 
 	case FOCUS_STATUS:
+		// 亮度滑块激活时的特殊处理
+		if (m_brightnessSliderActive && m_focusStatusIdx == 3)
+		{
+			if (lxLeft) {
+				int v = lv_slider_get_value(m_brightnessSlider);
+				v = v < 5 ? 0 : v - 5;
+				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
+				display->setBrightness(v);
+				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
+			}
+			if (lxRight) {
+				int v = lv_slider_get_value(m_brightnessSlider);
+				v = v > 95 ? 100 : v + 5;
+				lv_slider_set_value(m_brightnessSlider, v, LV_ANIM_OFF);
+				display->setBrightness(v);
+				m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
+			}
+			if (lyDown) {
+				hideBrightnessSlider();
+				navFromStatusDown();
+			}
+			break;
+		}
+
+		// 自动超时收起（仍在亮度焦点但无操作）
+		if (m_brightnessSliderActive && m_focusStatusIdx == 3 && xTaskGetTickCount() > m_brightnessSliderTimeout)
+			hideBrightnessSlider();
+
+		// 焦点从亮度移到其他图标 → 收起滑块
+		if (m_brightnessSliderActive && m_focusStatusIdx != 3)
+			hideBrightnessSlider();
+
 		if (lxLeft && m_focusStatusIdx > 0) {
 			m_focusStatusIdx--;
 			applyFocus();
@@ -612,6 +666,88 @@ void DesktopApp::onBluetoothLabelCb(lv_event_t* e)
 }
 
 // ════════════════════════════════════════════════════════════════
+// 亮度滑块
+// ════════════════════════════════════════════════════════════════
+
+void DesktopApp::showBrightnessSlider()
+{
+	if (m_brightnessSliderActive) return;
+
+	int cur = display->getBrightness();
+
+	m_brightnessSlider = lv_slider_create(lv_obj_get_parent(m_brightnessLabel));
+	lv_slider_set_range(m_brightnessSlider, 0, 100);
+	lv_slider_set_value(m_brightnessSlider, cur, LV_ANIM_OFF);
+	lv_obj_set_style_bg_color(m_brightnessSlider, lv_color_hex(0x555555), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(m_brightnessSlider, lv_color_white(), LV_PART_INDICATOR);
+	lv_obj_set_style_bg_color(m_brightnessSlider, lv_color_white(), LV_PART_KNOB);
+	lv_obj_set_height(m_brightnessSlider, 28);
+	lv_obj_set_width(m_brightnessSlider, 1);  // 初始宽度 1，动画展开
+	lv_obj_set_flex_grow(m_brightnessSlider, 1);
+	lv_obj_set_style_pad_left(m_brightnessSlider, 8, 0);
+	lv_obj_set_style_pad_right(m_brightnessSlider, 16, 0);
+	lv_obj_move_to_index(m_brightnessSlider, 5);  // 插入到亮度和电池之间 (idx 0-4: time,wifi,bt,vol,brightness)
+	lv_obj_add_event_cb(m_brightnessSlider, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		int val = lv_slider_get_value(self->m_brightnessSlider);
+		self->display->setBrightness(val);
+		}, LV_EVENT_VALUE_CHANGED, this);
+	lv_obj_add_event_cb(m_brightnessSlider, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		self->m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
+		}, LV_EVENT_RELEASED, this);
+
+	m_brightnessSliderActive = true;
+	m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
+
+	// 动画展开
+	lv_anim_t a;
+	lv_anim_init(&a);
+	lv_anim_set_var(&a, m_brightnessSlider);
+	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
+		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		});
+	lv_anim_set_values(&a, 1, 180);
+	lv_anim_set_time(&a, 200);
+	lv_anim_set_path_cb(&a, lv_anim_path_linear);
+	lv_anim_start(&a);
+
+	ESP_LOGI(TAG, "亮度滑块展开: %d%%", cur);
+}
+
+void DesktopApp::hideBrightnessSlider()
+{
+	if (!m_brightnessSliderActive || !m_brightnessSlider) return;
+	m_brightnessSliderActive = false;
+
+	// 反向动画收起
+	lv_anim_t a;
+	lv_anim_init(&a);
+	lv_anim_set_var(&a, m_brightnessSlider);
+	lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
+		lv_obj_set_width(static_cast<lv_obj_t*>(var), v);
+		});
+	lv_anim_set_values(&a, 180, 1);
+	lv_anim_set_time(&a, 150);
+	lv_anim_set_path_cb(&a, lv_anim_path_linear);
+	lv_anim_set_deleted_cb(&a, [](lv_anim_t* anim) {
+		if (anim->var)
+			lv_obj_delete_async(static_cast<lv_obj_t*>(anim->var));
+		});
+	lv_anim_start(&a);
+
+	m_brightnessSlider = nullptr;
+	ESP_LOGI(TAG, "亮度滑块收起");
+}
+
+void DesktopApp::onBrightnessSliderCb(lv_event_t* e)
+{
+	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	int val = lv_slider_get_value(self->m_brightnessSlider);
+	self->display->setBrightness(val);
+}
+
+// ════════════════════════════════════════════════════════════════
 // 状态栏图标回调
 // ════════════════════════════════════════════════════════════════
 
@@ -628,7 +764,7 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
 	self->m_focusStatusIdx = 3;
-	ESP_LOGI(TAG, "亮度调节（待实现）");
+	self->showBrightnessSlider();
 }
 
 void DesktopApp::onBatteryLabelCb(lv_event_t* e)

@@ -33,6 +33,10 @@ public:
 	void setStackManager(AppStackManager* manager) { m_stackManager = manager; }
 	AppStackManager* getStackManager() const { return m_stackManager; }
 
+	// ── 背光亮度控制（委托到 ILI9881c） ──
+	void setBrightness(int percent);
+	int getBrightness() const;
+
 	bool lock(int32_t timeout_ms = -1) const
 	{
 		return esp_lv_adapter_lock(timeout_ms) == ESP_OK;

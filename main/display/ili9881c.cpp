@@ -5,8 +5,95 @@
 #include <esp_err.h>
 #include "initCommand.inl"
 #include "esp_lv_adapter.h"
+#include "driver/ledc.h"
+#include <cstdint>
 
 static const char* TAG = "ILI9881c";
+
+// ── 背光驱动电压窗口 ──
+// PWM 10-bit → 3.3V: duty=1023 → 3.3V
+// 背光驱动有效调压范围 0.7V~1.4V → duty 217~434
+// 放高数值以获取更一致的效果
+static constexpr uint16_t BACKLIGHT_DUTY_MIN = 230;
+static constexpr uint16_t BACKLIGHT_DUTY_MAX = 450;
+
+// ── 伽马校正查找表 ──
+// gamma 2.2: duty = round(1023 * (percent/100)^2.2)
+// 11 节点 + 整数线性插值，补偿人眼感知非线性
+static constexpr uint16_t kGammaLUT[11] = {
+	0,    // 0%
+	6,    // 10%
+	28,   // 20%
+	68,   // 30%
+	130,  // 40%
+	220,  // 50%
+	338,  // 60%
+	486,  // 70%
+	663,  // 80%
+	870,  // 90%
+	1023, // 100%
+};
+
+static uint16_t dutyFromPercent(int percent)
+{
+	if (percent <= 0) return 0;
+	if (percent >= 100) return 1023;
+	int idx = percent / 10;
+	int rem = percent % 10;
+	return kGammaLUT[idx] + (int(kGammaLUT[idx + 1] - kGammaLUT[idx]) * rem) / 10;
+}
+
+bool ILI9881c::brightnessInit()
+{
+	ledc_timer_config_t tm = {
+		.speed_mode = LEDC_LOW_SPEED_MODE,
+		.duty_resolution = LEDC_TIMER_10_BIT,
+		.timer_num = LEDC_TIMER_1,
+		.freq_hz = 5000,
+		.clk_cfg = LEDC_AUTO_CLK,
+	};
+	ledc_channel_config_t ch = {
+		.gpio_num = BACKLIGHT_GPIO,
+		.speed_mode = LEDC_LOW_SPEED_MODE,
+		.channel = LEDC_CHANNEL_0,
+		.intr_type = LEDC_INTR_DISABLE,
+		.timer_sel = LEDC_TIMER_1,
+		.duty = BACKLIGHT_DUTY_MAX,
+		.hpoint = 0,
+	};
+	ESP_ERROR_CHECK(ledc_timer_config(&tm));
+	ESP_ERROR_CHECK(ledc_channel_config(&ch));
+	m_brightness = 100;
+	ESP_LOGI(TAG, "背光 PWM 初始化完成 (GPIO %d, 10-bit, 5kHz)", BACKLIGHT_GPIO);
+	return true;
+}
+
+void ILI9881c::brightnessSet(int percent)
+{
+	if (percent < 0) percent = 0;
+	if (percent > 100) percent = 100;
+
+	uint32_t duty;
+	if (percent <= 0) {
+		duty = 0;  // 0% → 关背光
+	} else {
+		// 第 1 层: 伽马校正 (0..1023)
+		uint32_t gammaDuty = dutyFromPercent(percent);
+		// 第 2 层: 窗口映射到背光驱动有效电压 (217..434)
+		duty = BACKLIGHT_DUTY_MIN + (gammaDuty * (BACKLIGHT_DUTY_MAX - BACKLIGHT_DUTY_MIN)) / 1023;
+	}
+
+	ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty));
+	ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0));
+	m_brightness = percent;
+
+	ESP_LOGI(TAG, "Backlight duty set to %d%%, duty = %u", percent, duty);
+}
+
+int ILI9881c::brightnessGet()
+{
+	return m_brightness;
+}
 
 ILI9881c::ILI9881c() = default;
 
@@ -127,8 +214,8 @@ bool ILI9881c::init(int h_res, int v_res, uint8_t num_fbs)
 
 	// Turn on display + backlight
 	esp_lcd_panel_disp_on_off(panel, true);
+	getInstance().brightnessInit();
 	ESP_LOGI(TAG, "ILI9881C panel initialized");
-	GPIO{ BACKLIGHT_GPIO, GPIO::Mode::GPIO_MODE_OUTPUT } = 1;
 
 	return true;
 }

@@ -1,4 +1,5 @@
 #include "display.hpp"
+#include "ili9881c.hpp"
 #include "app/app.hpp"
 #include "lvgl.h"
 #include "esp_log.h"
@@ -97,4 +98,16 @@ void Display::applyApp(App* app) const
 	{
 		ESP_LOGE(TAG, "applyApp: failed to lock display");
 	}
+}
+
+// ── 背光亮度控制 ──
+
+void Display::setBrightness(int percent)
+{
+	ILI9881c::getInstance().brightnessSet(percent);
+}
+
+int Display::getBrightness() const
+{
+	return ILI9881c::getInstance().brightnessGet();
 }

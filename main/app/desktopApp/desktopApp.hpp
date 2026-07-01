@@ -35,6 +35,7 @@ private:
 	int8_t m_focusStatusIdx{ 0 };     // 0=WiFi, 1=蓝牙, 2=音量, 3=亮度, 4=电池
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
+	uint16_t m_prevButtons{};
 
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
 	static constexpr TickType_t MOVE_DELAY       = 120;
@@ -52,6 +53,9 @@ private:
 	lv_obj_t* m_bluetoothLabel{};
 	lv_obj_t* m_volumeLabel{};
 	lv_obj_t* m_brightnessLabel{};
+	lv_obj_t* m_brightnessSlider{};
+	bool m_brightnessSliderActive{};
+	TickType_t m_brightnessSliderTimeout{};
 	lv_obj_t* m_batteryLabel{};
 
 	// ── 尺寸常量 ──
@@ -75,6 +79,11 @@ private:
 	// 状态栏导航
 	void navToStatus();
 	void navFromStatusDown();
+
+	// 亮度滑块
+	void showBrightnessSlider();
+	void hideBrightnessSlider();
+	static void onBrightnessSliderCb(lv_event_t* e);
 
 	// 操作
 	void startGame();

@@ -31,8 +31,14 @@ public:
 		return panel_io;
 	}
 
+	// ── 背光亮度控制 ──
+	bool brightnessInit();
+	void brightnessSet(int percent);  // 0..100
+	int brightnessGet();              // 返回当前 0..100
+
 private:
 	esp_ldo_channel_handle_t ldo_phy{};
+	int m_brightness{ 100 };
 	esp_lcd_dsi_bus_handle_t dsi_bus = nullptr;
 	esp_lcd_panel_io_handle_t panel_io = nullptr;
 	esp_lcd_panel_handle_t panel = nullptr;
