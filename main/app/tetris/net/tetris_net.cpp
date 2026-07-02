@@ -15,20 +15,18 @@ static constexpr char TAG[] = "TetrisNet";
 
 namespace {
 
-/// Host 模式下管理的客户端连接
 struct ClientInfo {
     int  fd       = -1;
     int  playerId = -1;
-    int  target   = 0;   // 客户端操作的目标玩家索引
+    int  target   = 0;
     bool active   = false;
 };
 
 constexpr int MAX_CLIENTS   = 2;
 constexpr int MAX_URI_LEN   = 128;
-constexpr int MSG_QUEUE_LEN = 16;   // WS 任务→游戏循环的队列深度
-constexpr int MSG_MAX_LEN   = 256;  // 单条消息最大长度
+constexpr int MSG_QUEUE_LEN = 16;
+constexpr int MSG_MAX_LEN   = 4096;  // snapshot 可能较大
 
-/// 全局状态
 static struct {
     bool initialized = false;
     bool isHost      = false;
@@ -37,21 +35,154 @@ static struct {
     ClientInfo clients[MAX_CLIENTS];
     int        nextPlayerId = 1;
 
-    // Client（通过 esp_websocket_client 实现）
+    // Client
     esp_websocket_client_handle_t wsClient = nullptr;
-    QueueHandle_t                 msgQueue = nullptr;  // 接收消息队列
+    QueueHandle_t                 msgQueue = nullptr;
     int  myPlayerId = -1;
 
-    // 回调
     TetrisHostCallbacks   hostCb;
     TetrisClientCallbacks clientCb;
-
 } s;
 
 } // anonymous namespace
 
 // ============================================================
-//  Client WS 事件 — 在 esp_websocket_client 任务上下文中运行
+//  GameState 序列化 / 反序列化
+// ============================================================
+
+static cJSON* gameStateToJson(const GameState& state, int playerIndex)
+{
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", TetrisMsgTag::SNAPSHOT);
+    cJSON_AddNumberToObject(root, "p", playerIndex);
+
+    // board: 20 可见行 × 10 列
+    cJSON* boardArr = cJSON_CreateArray();
+    for (int y = 0; y < BOARD_VISIBLE_H; y++) {
+        int row = Board::yToRow(y);
+        for (int x = 0; x < BOARD_WIDTH; x++) {
+            cJSON_AddItemToArray(boardArr,
+                cJSON_CreateNumber(state.board.data()[row * BOARD_WIDTH + x]));
+        }
+    }
+    cJSON_AddItemToObject(root, "b", boardArr);
+
+    // current piece
+    if (state.currentPieceType != PieceType::NONE) {
+        char pt[2] = { pieceTypeToChar(state.currentPieceType), '\0' };
+        cJSON_AddStringToObject(root, "pt", pt);
+        cJSON_AddNumberToObject(root, "px", state.currentPieceX);
+        cJSON_AddNumberToObject(root, "py", state.currentPieceY);
+        cJSON_AddNumberToObject(root, "pr", static_cast<int>(state.currentPieceRotation));
+    }
+
+    // ghost
+    cJSON_AddNumberToObject(root, "gx", state.ghostPieceX);
+    cJSON_AddNumberToObject(root, "gy", state.ghostPieceY);
+
+    // next preview
+    cJSON* nextArr = cJSON_CreateArray();
+    for (int i = 0; i < 4; i++) {
+        char t[2] = { pieceTypeToChar(state.nextPieces[i]), '\0' };
+        cJSON_AddItemToArray(nextArr, cJSON_CreateString(t));
+    }
+    cJSON_AddItemToObject(root, "n", nextArr);
+
+    // hold
+    if (state.holdPiece != PieceType::NONE) {
+        char t[2] = { pieceTypeToChar(state.holdPiece), '\0' };
+        cJSON_AddStringToObject(root, "h", t);
+    }
+
+    // score
+    cJSON_AddNumberToObject(root, "sc", state.score);
+    cJSON_AddNumberToObject(root, "lv", state.level);
+    cJSON_AddNumberToObject(root, "ln", state.totalLines);
+    cJSON_AddNumberToObject(root, "cb", state.combo);
+
+    // battle
+    cJSON_AddNumberToObject(root, "g", state.pendingGarbage);
+    cJSON_AddNumberToObject(root, "gf", state.garbageFlash);
+
+    // status
+    cJSON_AddBoolToObject(root, "go", state.gameOver);
+    cJSON_AddBoolToObject(root, "ac", state.active);
+
+    return root;
+}
+
+static bool gameStateFromJson(const cJSON* root, GameState& out)
+{
+    // board
+    cJSON* boardArr = cJSON_GetObjectItem(root, "b");
+    if (boardArr && cJSON_IsArray(boardArr)) {
+        int idx = 0;
+        for (int y = 0; y < BOARD_VISIBLE_H && idx < cJSON_GetArraySize(boardArr); y++) {
+            for (int x = 0; x < BOARD_WIDTH && idx < cJSON_GetArraySize(boardArr); x++, idx++) {
+                cJSON* cell = cJSON_GetArrayItem(boardArr, idx);
+                if (cell) {
+                    // Board::data() is const, can't write through it
+                    // We need a mutable approach. Since Board has no direct setter for raw index,
+                    // use Board::set() or access m_cells. For now, use a workaround:
+                    // Actually Board::set(col, y, val) exists. Let's use that.
+                    out.board.set(x, y, static_cast<uint8_t>(cell->valueint));
+                }
+            }
+        }
+    }
+
+    // current piece
+    cJSON* pt = cJSON_GetObjectItem(root, "pt");
+    if (pt && cJSON_IsString(pt)) {
+        out.currentPieceType = pieceTypeFromChar(pt->valuestring[0]);
+    }
+    cJSON* px = cJSON_GetObjectItem(root, "px");
+    cJSON* py = cJSON_GetObjectItem(root, "py");
+    cJSON* pr = cJSON_GetObjectItem(root, "pr");
+    if (px) out.currentPieceX = px->valueint;
+    if (py) out.currentPieceY = py->valueint;
+    if (pr) out.currentPieceRotation = static_cast<Rotation>(pr->valueint);
+
+    // ghost
+    cJSON* gx = cJSON_GetObjectItem(root, "gx");
+    if (gx) out.ghostPieceX = gx->valueint;
+    cJSON* gy = cJSON_GetObjectItem(root, "gy");
+    if (gy) out.ghostPieceY = gy->valueint;
+
+    // next preview
+    cJSON* nextArr = cJSON_GetObjectItem(root, "n");
+    if (nextArr && cJSON_IsArray(nextArr)) {
+        for (int i = 0; i < 4 && i < cJSON_GetArraySize(nextArr); i++) {
+            cJSON* item = cJSON_GetArrayItem(nextArr, i);
+            if (item && cJSON_IsString(item))
+                out.nextPieces[i] = pieceTypeFromChar(item->valuestring[0]);
+        }
+    }
+
+    // hold
+    cJSON* h = cJSON_GetObjectItem(root, "h");
+    if (h && cJSON_IsString(h))
+        out.holdPiece = pieceTypeFromChar(h->valuestring[0]);
+
+    // score
+    cJSON* sc = cJSON_GetObjectItem(root, "sc"); if (sc) out.score = sc->valueint;
+    cJSON* lv = cJSON_GetObjectItem(root, "lv"); if (lv) out.level = lv->valueint;
+    cJSON* ln = cJSON_GetObjectItem(root, "ln"); if (ln) out.totalLines = ln->valueint;
+    cJSON* cb = cJSON_GetObjectItem(root, "cb"); if (cb) out.combo = cb->valueint;
+
+    // battle
+    cJSON* g  = cJSON_GetObjectItem(root, "g");  if (g)  out.pendingGarbage = g->valueint;
+    cJSON* gf = cJSON_GetObjectItem(root, "gf"); if (gf) out.garbageFlash = gf->valueint;
+
+    // status
+    cJSON* go = cJSON_GetObjectItem(root, "go"); if (go) out.gameOver = cJSON_IsTrue(go);
+    cJSON* ac = cJSON_GetObjectItem(root, "ac"); if (ac) out.active = cJSON_IsTrue(ac);
+
+    return true;
+}
+
+// ============================================================
+//  Client WS 事件
 // ============================================================
 
 static void clientEventHandler(void* handlerArgs, esp_event_base_t base,
@@ -92,7 +223,6 @@ static void clientEventHandler(void* handlerArgs, esp_event_base_t base,
     }
 }
 
-/// 游戏循环中处理 Client 接收队列（线程安全）
 static void processClientQueue()
 {
     if (!s.msgQueue) return;
@@ -114,29 +244,11 @@ static void processClientQueue()
                 if (s.clientCb.onJoined) s.clientCb.onJoined(s.myPlayerId);
             }
         }
-        else if (strcmp(tag, TetrisMsgTag::PIECE) == 0) {
-            cJSON* y = cJSON_GetObjectItem(root, "piece");
-            if (y && cJSON_IsString(y)) {
-                PieceType type = pieceTypeFromChar(y->valuestring[0]);
-                if (s.clientCb.onNewPiece) s.clientCb.onNewPiece(type);
-            }
-        }
-        else if (strcmp(tag, TetrisMsgTag::GARBAGE) == 0) {
-            cJSON* n = cJSON_GetObjectItem(root, "lines");
-            if (n && cJSON_IsNumber(n)) {
-                if (s.clientCb.onGarbage) s.clientCb.onGarbage(n->valueint);
-            }
-        }
-        else if (strcmp(tag, TetrisMsgTag::WINNER) == 0) {
-            cJSON* p = cJSON_GetObjectItem(root, "player_id");
-            if (p && cJSON_IsNumber(p)) {
-                if (s.clientCb.onWinner) s.clientCb.onWinner(p->valueint);
-            }
-        }
-        else if (strcmp(tag, TetrisMsgTag::GAME_OVER) == 0) {
-            cJSON* p = cJSON_GetObjectItem(root, "player_id");
-            int pid = (p && cJSON_IsNumber(p)) ? p->valueint : -1;
-            if (s.clientCb.onGameOver) s.clientCb.onGameOver(pid);
+        else if (strcmp(tag, TetrisMsgTag::SNAPSHOT) == 0) {
+            GameState state;
+            gameStateFromJson(root, state);
+            if (s.clientCb.onSnapshot)
+                s.clientCb.onSnapshot(state);
         }
 
         cJSON_Delete(root);
@@ -161,7 +273,7 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
     esp_err_t ret = httpd_ws_recv_frame(req, &wsPkt, 0);
     if (ret != ESP_OK) return ret;
     if (wsPkt.len == 0) return ESP_OK;
-    if (wsPkt.len > 4096) {
+    if (wsPkt.len > MSG_MAX_LEN) {
         uint8_t* d = (uint8_t*)heap_caps_malloc(wsPkt.len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (d) { wsPkt.payload = d; httpd_ws_recv_frame(req, &wsPkt, wsPkt.len); heap_caps_free(d); }
         return ESP_OK;
@@ -180,13 +292,13 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
     heap_caps_free(buf);
     if (!root) return ESP_OK;
 
-    cJSON* t = cJSON_GetObjectItem(root, "type");
-    if (!t || !cJSON_IsString(t)) { cJSON_Delete(root); return ESP_OK; }
-    const char* tag = t->valuestring;
+    cJSON* typeItem = cJSON_GetObjectItem(root, "type");
+    if (!typeItem || !cJSON_IsString(typeItem)) { cJSON_Delete(root); return ESP_OK; }
+    const char* tag = typeItem->valuestring;
 
     if (s.isHost) {
         if (strcmp(tag, TetrisMsgTag::JOIN) == 0) {
-            // 如果相同 fd 的旧客户端还在，先清理（断线重连）
+            // 清理同 fd 旧客户端（断线重连）
             for (auto& c : s.clients) {
                 if (c.active && c.fd == fd) { c.active = false; break; }
             }
@@ -195,12 +307,14 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
             int target = 0;
             cJSON* tgt = cJSON_GetObjectItem(root, "target");
             if (tgt && cJSON_IsNumber(tgt)) target = tgt->valueint;
-            if (target < 0) target = 0;
-            if (target >= MAX_CLIENTS) target = MAX_CLIENTS - 1;
 
             for (auto& c : s.clients) {
-                if (!c.active) { c.fd = fd; c.playerId = pid; c.target = target; c.active = true; break; }
+                if (!c.active) {
+                    c.fd = fd; c.playerId = pid; c.target = target; c.active = true;
+                    break;
+                }
             }
+
             cJSON* ack = cJSON_CreateObject();
             cJSON_AddStringToObject(ack, "type", TetrisMsgTag::JOIN_ACK);
             cJSON_AddNumberToObject(ack, "player_id", pid);
@@ -210,13 +324,6 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
             cJSON_Delete(ack);
             ESP_LOGI(TAG, "player %d joined (fd=%d), target=%d", pid, fd, target);
             if (s.hostCb.onJoin) s.hostCb.onJoin(pid, fd);
-        }
-        else if (strcmp(tag, TetrisMsgTag::ATTACK) == 0) {
-            cJSON* to   = cJSON_GetObjectItem(root, "target");
-            cJSON* lines = cJSON_GetObjectItem(root, "lines");
-            if (to && lines && cJSON_IsNumber(to) && cJSON_IsNumber(lines)) {
-                if (s.hostCb.onAttack) s.hostCb.onAttack(to->valueint, lines->valueint);
-            }
         }
         else if (strcmp(tag, TetrisMsgTag::INPUT) == 0) {
             cJSON* key  = cJSON_GetObjectItem(root, "key");
@@ -228,45 +335,10 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
                     s.hostCb.onInput(target, key->valuestring, cJSON_IsTrue(down));
             }
         }
-        else if (strcmp(tag, TetrisMsgTag::GAME_OVER) == 0) {
-            int pid = -1;
-            for (auto& c : s.clients) { if (c.fd == fd) { pid = c.playerId; break; } }
-            if (pid >= 0 && s.hostCb.onGameOver) s.hostCb.onGameOver(pid);
-        }
-        else if (strcmp(tag, TetrisMsgTag::PING) == 0) {
-            cJSON* pong = cJSON_CreateObject();
-            cJSON_AddStringToObject(pong, "type", TetrisMsgTag::PONG);
-            char* pongStr = cJSON_PrintUnformatted(pong);
-            if (pongStr) { wsServerSendText(fd, pongStr, strlen(pongStr)); cJSON_free(pongStr); }
-            cJSON_Delete(pong);
-        }
     }
 
     cJSON_Delete(root);
     return ESP_OK;
-}
-
-// ============================================================
-//  工具函数
-// ============================================================
-
-static char* buildSimpleJson(const char* tag)
-{
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", tag);
-    char* str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    return str;
-}
-
-static char* buildNumJson(const char* tag, const char* key, int val)
-{
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", tag);
-    cJSON_AddNumberToObject(root, key, val);
-    char* str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    return str;
 }
 
 // ============================================================
@@ -288,7 +360,6 @@ bool tetrisNetInit(bool isHost,
         return false;
     }
 
-    // Client 模式创建消息队列
     if (!isHost) {
         s.msgQueue = xQueueCreate(MSG_QUEUE_LEN, sizeof(char*));
         if (!s.msgQueue) {
@@ -309,7 +380,6 @@ void tetrisNetDeinit()
 
     tetrisNetClientDisconnect();
 
-    // 清空消息队列
     if (s.msgQueue) {
         char* buf = nullptr;
         while (xQueueReceive(s.msgQueue, &buf, 0) == pdTRUE) heap_caps_free(buf);
@@ -353,107 +423,35 @@ int tetrisNetHostGetClientTarget()
     return 0;
 }
 
-void tetrisNetHostSendPiece(int fd, PieceType type)
+void tetrisNetHostSendSnapshot(int fd, int playerIndex, const GameState& state)
 {
     if (!s.initialized || !s.isHost) return;
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", TetrisMsgTag::PIECE);
-    char ts[2] = { pieceTypeToChar(type), '\0' };
-    cJSON_AddStringToObject(root, "piece", ts);
-    char* str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    if (str) { wsServerSendText(fd, str, strlen(str)); cJSON_free(str); }
-}
 
-void tetrisNetHostBroadcastPiece(PieceType type)
-{
-    if (!s.initialized || !s.isHost) return;
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", TetrisMsgTag::PIECE);
-    char ts[2] = { pieceTypeToChar(type), '\0' };
-    cJSON_AddStringToObject(root, "piece", ts);
+    cJSON* root = gameStateToJson(state, playerIndex);
+    if (!root) return;
+
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (str) {
-        for (auto& c : s.clients) { if (c.active) wsServerSendText(c.fd, str, strlen(str)); }
+        wsServerSendText(fd, str, strlen(str));
         cJSON_free(str);
     }
 }
 
-void tetrisNetHostSendGarbage(int fd, int lines)
-{
-    if (!s.initialized || !s.isHost) return;
-    char* json = buildNumJson(TetrisMsgTag::GARBAGE, "lines", lines);
-    if (json) { wsServerSendText(fd, json, strlen(json)); cJSON_free(json); }
-}
-
-void tetrisNetHostSendBoardSnapshot(int fd, int playerIndex,
-    const Board& board, const Piece& curPiece, int ghostY,
-    int score, int level, int lines,
-    const PieceType* nextPieces, int nextCount,
-    PieceType holdPiece, int pendingGarbage)
+void tetrisNetHostBroadcastSnapshot(int playerIndex, const GameState& state)
 {
     if (!s.initialized || !s.isHost) return;
 
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", TetrisMsgTag::BOARD_FULL);
-    cJSON_AddNumberToObject(root, "player", playerIndex);
-
-    // 棋盘: 20 可见行 × 10 列, 从底部(y=0)到顶部(y=19)
-    cJSON* cells = cJSON_CreateArray();
-    for (int y = 0; y < BOARD_VISIBLE_H; y++) {
-        int row = BOARD_HEIGHT - 1 - y;  // y=0 → row=21 (底), y=19 → row=2 (顶)
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            cJSON_AddItemToArray(cells, cJSON_CreateNumber(board.data()[row * BOARD_WIDTH + x]));
-        }
-    }
-    cJSON_AddItemToObject(root, "board", cells);
-
-    // 当前方块
-    cJSON* piece = cJSON_CreateObject();
-    char ptype[2] = { pieceTypeToChar(curPiece.type()), '\0' };
-    cJSON_AddStringToObject(piece, "type", ptype);
-    if (curPiece.type() != PieceType::NONE) {
-        cJSON_AddNumberToObject(piece, "x", curPiece.x());
-        cJSON_AddNumberToObject(piece, "y", curPiece.y());
-        cJSON_AddNumberToObject(piece, "r", static_cast<int>(curPiece.rotation()));
-    }
-    cJSON_AddItemToObject(root, "piece", piece);
-    cJSON_AddNumberToObject(root, "ghost_y", ghostY);
-
-    // 分数
-    cJSON_AddNumberToObject(root, "score", score);
-    cJSON_AddNumberToObject(root, "level", level);
-    cJSON_AddNumberToObject(root, "lines", lines);
-
-    // NEXT 预览
-    cJSON* nextArr = cJSON_CreateArray();
-    for (int i = 0; i < nextCount; i++) {
-        char t[2] = { pieceTypeToChar(nextPieces[i]), '\0' };
-        cJSON_AddItemToArray(nextArr, cJSON_CreateString(t));
-    }
-    cJSON_AddItemToObject(root, "next", nextArr);
-
-    // Hold
-    if (holdPiece != PieceType::NONE) {
-        char t[2] = { pieceTypeToChar(holdPiece), '\0' };
-        cJSON_AddStringToObject(root, "hold", t);
-    }
-
-    cJSON_AddNumberToObject(root, "garbage", pendingGarbage);
+    cJSON* root = gameStateToJson(state, playerIndex);
+    if (!root) return;
 
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    if (str) { wsServerSendText(fd, str, strlen(str)); cJSON_free(str); }
-}
-
-void tetrisNetHostBroadcastWinner(int playerId)
-{
-    if (!s.initialized || !s.isHost) return;
-    char* json = buildNumJson(TetrisMsgTag::WINNER, "player_id", playerId);
-    if (json) {
-        for (auto& c : s.clients) { if (c.active) wsServerSendText(c.fd, json, strlen(json)); }
-        cJSON_free(json);
+    if (str) {
+        for (auto& c : s.clients) {
+            if (c.active) wsServerSendText(c.fd, str, strlen(str));
+        }
+        cJSON_free(str);
     }
 }
 
@@ -473,7 +471,7 @@ bool tetrisNetClientConnect(const char* host, uint16_t port)
 
     esp_websocket_client_config_t cfg = {};
     cfg.uri                    = uri;
-    cfg.buffer_size            = 1024;
+    cfg.buffer_size            = 2048;
     cfg.task_stack             = 4096;
     cfg.reconnect_timeout_ms   = 5000;
     cfg.network_timeout_ms     = 10000;
@@ -517,51 +515,14 @@ bool tetrisNetClientIsConnected()
     return s.wsClient && esp_websocket_client_is_connected(s.wsClient);
 }
 
-void tetrisNetClientSendLock()
+void tetrisNetClientSendInput(const char* key, bool down)
 {
     if (!tetrisNetClientIsConnected()) return;
-    char* json = buildSimpleJson(TetrisMsgTag::LOCK);
-    if (json) {
-        esp_websocket_client_send_text(s.wsClient, json, strlen(json), pdMS_TO_TICKS(1000));
-        cJSON_free(json);
-    }
-}
 
-void tetrisNetClientSendAttack(int toId, int lines)
-{
-    if (!tetrisNetClientIsConnected()) return;
     cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", TetrisMsgTag::ATTACK);
-    cJSON_AddNumberToObject(root, "target", toId);
-    cJSON_AddNumberToObject(root, "lines", lines);
-    char* str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    if (str) {
-        esp_websocket_client_send_text(s.wsClient, str, strlen(str), pdMS_TO_TICKS(1000));
-        cJSON_free(str);
-    }
-}
-
-void tetrisNetClientSendGameOver()
-{
-    if (!tetrisNetClientIsConnected()) return;
-    char* json = buildSimpleJson(TetrisMsgTag::GAME_OVER);
-    if (json) {
-        esp_websocket_client_send_text(s.wsClient, json, strlen(json), pdMS_TO_TICKS(1000));
-        cJSON_free(json);
-    }
-}
-
-void tetrisNetClientSendMove(PieceType type, int x, int y, int r)
-{
-    if (!tetrisNetClientIsConnected()) return;
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "type", TetrisMsgTag::MOVE);
-    char ts[2] = { pieceTypeToChar(type), '\0' };
-    cJSON_AddStringToObject(root, "piece", ts);
-    cJSON_AddNumberToObject(root, "x", x);
-    cJSON_AddNumberToObject(root, "y", y);
-    cJSON_AddNumberToObject(root, "r", r);
+    cJSON_AddStringToObject(root, "type", TetrisMsgTag::INPUT);
+    cJSON_AddStringToObject(root, "key", key);
+    cJSON_AddBoolToObject(root, "down", down);
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (str) {

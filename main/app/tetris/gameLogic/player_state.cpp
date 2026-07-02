@@ -10,8 +10,6 @@ static constexpr char TAG[] = "PlayerState";
 void PlayerState::init()
 {
     reset();
-
-    // 生成第一个方块
     spawnPiece();
 }
 
@@ -21,10 +19,10 @@ void PlayerState::reset()
     scoring.reset();
     holdUsed = false;
     gameOver = false;
-    m_pieceIndex = 0;
     m_holdSlot = PieceType::NONE;
     m_pendingGarbage = 0;
     m_garbageFlash = 0;
+    m_pieceIndex = 0;
     gravityInterval = calcGravityInterval();
 
     gravityTimer = 0;
@@ -59,13 +57,43 @@ void PlayerState::spawnType(PieceType type)
     gravityTimer = xTaskGetTickCount();
     lockTimer = 0;
     ghostPiece = calculateGhost(currentPiece, board);
-    setDirty(DIRTY_PIECE | DIRTY_GHOST | DIRTY_PREVIEW);
+    setDirty(DIRTY_PIECE | DIRTY_GHOST);
 }
 
-bool PlayerState::spawnPiece()
+void PlayerState::exportState(GameState& out) const
 {
-    spawnType(nextPiece());
-    return !gameOver;
+    // ── Board ──
+    out.board = board;
+
+    // ── Current piece ──
+    out.currentPieceType     = currentPiece.type();
+    out.currentPieceX        = currentPiece.x();
+    out.currentPieceY        = currentPiece.y();
+    out.currentPieceRotation = currentPiece.rotation();
+
+    // ── Ghost ──
+    out.ghostPieceX = ghostPiece.x();
+    out.ghostPieceY = ghostPiece.y();
+
+    // ── Hold ──
+    out.holdPiece = m_holdSlot;
+    out.holdUsed  = holdUsed;
+
+    // ── Score ──
+    out.score      = scoring.score();
+    out.level      = scoring.level();
+    out.totalLines = scoring.totalLines();
+    out.combo      = scoring.combo();
+
+    // ── Battle ──
+    out.pendingGarbage = m_pendingGarbage;
+    out.garbageFlash   = m_garbageFlash;
+
+    // ── Status ──
+    out.gameOver = gameOver;
+    out.active   = !gameOver;
+
+    // Note: nextPieces[] 由 Host 从共享 PieceQueue 填充，不在 PlayerState 中
 }
 
 bool PlayerState::movePiece(int dx, int dy)
@@ -195,7 +223,7 @@ void PlayerState::lockPiece()
     // 更新重力速度
     gravityInterval = calcGravityInterval();
 
-    // 生成下一个方块
+    // 生成下一个方块（从共享队列按游标取）
     spawnPiece();
     setDirty(DIRTY_BOARD | DIRTY_SCORE);
 }
@@ -207,14 +235,14 @@ void PlayerState::doHold()
     PieceType currentType = currentPiece.type();
 
     if (m_holdSlot == PieceType::NONE) {
-        // 首次 Hold：存进 holdSlot，直接从队列取下一块（不走 nextPiece）
+        // 首次 Hold：存当前块，从队列取下一块
         m_holdSlot = currentType;
-        spawnType(m_queue->peek(m_pieceIndex++));
+        spawnPiece();
     } else {
-        // 交换当前块 ↔ holdSlot
-        PieceType slotType = m_holdSlot;
+        // 交换当前块 ↔ holdSlot，直接生成被 hold 的块（不走队列）
+        PieceType heldType = m_holdSlot;
         m_holdSlot = currentType;
-        spawnType(slotType);
+        spawnType(heldType);
     }
 
     holdUsed = true;
