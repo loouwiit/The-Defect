@@ -1,21 +1,21 @@
 #include "touch.hpp"
 #include "utility"
 
-Touch::Touch(IIC& iic, GPIO reset, uint16_t address, unsigned speed)
+Touch::Touch(IIC& iic, GPIO reset, GPIO intterupt, uint8_t address, unsigned speed)
 {
 	esp_lcd_panel_io_i2c_config_t io_config = { address, nullptr, nullptr, 1, 0, 16, 0, {0, 1}, speed };
 
 	ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(iic.getBusHandle(), &io_config, &ioHandle));
 
 	esp_lcd_touch_io_gt911_config_t tp_gt911_config = {
-		.dev_addr = ESP_LCD_TOUCH_IO_I2C_GT911_ADDRESS,
+		.dev_addr = address,
 	};
 
 	esp_lcd_touch_config_t tp_cfg{};
 	tp_cfg.x_max = ResolutionX;
 	tp_cfg.y_max = ResolutionY;
 	tp_cfg.rst_gpio_num = reset;
-	tp_cfg.int_gpio_num = GPIO::NC;
+	tp_cfg.int_gpio_num = intterupt;
 
 	tp_cfg.flags.swap_xy = true;
 	tp_cfg.flags.mirror_x = true;
