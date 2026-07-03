@@ -145,6 +145,7 @@ private:
 	static void setDirAndStart(SnakeGame* self, int player, SnakeGameLogic::Direction dir);
 
 	// ── 焦点导航组 ──
+	int8_t m_focusIdx = 0;
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
@@ -152,5 +153,9 @@ private:
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
 	static constexpr TickType_t MOVE_DELAY = 120;
 	static constexpr TickType_t ACTION_DELAY = 500;
+
+	void applyFocus();
+	void activateFocus();
+	void onForeground() override;
 
 };

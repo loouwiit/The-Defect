@@ -73,7 +73,7 @@ void SnakeRoom::createMenu(lv_obj_t* parent)
 	lv_label_set_text(title, "贪吃蛇");
 	lv_obj_set_style_text_color(title, lv_color_hex(TEXT), 0);
 	lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
-	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 90);
+	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 60);
 
 	// 副标题
 	auto sub = lv_label_create(parent);
