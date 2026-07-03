@@ -17,7 +17,7 @@ public:
 	static constexpr uint8_t MaxPointCount = 5;
 
 	Touch() = default;
-	Touch(IIC& iic, GPIO reset = GPIO::NC, uint16_t address = Address, unsigned speed = 100000);
+	Touch(IIC& iic, GPIO reset = GPIO::NC, GPIO intterupt = GPIO::NC, uint8_t address = Address, unsigned speed = 100000);
 	Touch(Touch&& copy);
 	Touch& operator=(Touch&& copy);
 
