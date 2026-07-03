@@ -27,6 +27,8 @@ public:
 	void init() override;
 	void deinit() override;
 
+	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+
 	/** @brief WebSocket 游戏按键回调（静态，转发给实例） */
 	static void gameKeyCb(int player, uint8_t keyCode, bool pressed, void* ctx);
 
@@ -141,4 +143,14 @@ private:
 
 	/** @brief 设置方向并启动游戏（供回调使用） */
 	static void setDirAndStart(SnakeGame* self, int player, SnakeGameLogic::Direction dir);
+
+	// ── 焦点导航组 ──
+	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextActionTime{};
+	uint16_t m_prevButtons{};
+
+	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
+	static constexpr TickType_t MOVE_DELAY = 120;
+	static constexpr TickType_t ACTION_DELAY = 500;
+
 };

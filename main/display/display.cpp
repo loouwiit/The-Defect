@@ -38,7 +38,7 @@ bool Display::bindDisplay(esp_lcd_panel_handle_t lcdPanel, esp_lcd_panel_io_hand
 	esp_lv_adapter_display_config_t disp_cfg = ESP_LV_ADAPTER_DISPLAY_MIPI_DEFAULT_CONFIG(
 		lcdPanel, lcdIo, horizontalResolution, verticalResolution, rotation);
 	disp_cfg.tear_avoid_mode = tearAvoidMode;
-	disp_cfg.profile.enable_ppa_accel = true;
+	disp_cfg.profile.enable_ppa_accel = false;
 	disp_cfg.profile.require_double_buffer = true;
 
 	lv_disp = esp_lv_adapter_register_display(&disp_cfg);

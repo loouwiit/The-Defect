@@ -784,3 +784,52 @@ void SnakeGame::gameLoop(void* param)
 	while (true)
 		vTaskDelay(5000); // 等待delete的时候删除
 }
+
+void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
+{
+	constexpr uint8_t deadZone = 50;
+	constexpr uint8_t center = 128;
+
+	bool lxLeft = (state.lx < center - deadZone);
+	bool lxRight = (state.lx > center + deadZone);
+	bool lyUp = (state.ly < center - deadZone);
+	bool lyDown = (state.ly > center + deadZone);
+
+	// ── 边沿检测：仅刚按下的按钮有效 ──
+	uint16_t newPress = state.buttons & ~m_prevButtons;
+	m_prevButtons = state.buttons;
+
+	// ── BTN_B: 滑块激活时重置并收起 ──
+	// if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	// {
+	// }
+
+	// ── 激活 (BTN_A / BTN_L3) ──
+	// if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+	// 	(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
+	// {
+	// 	if (m_nextActionTime < xTaskGetTickCount())
+	// 	{
+	// 		m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
+	// 		activateFocus();
+	// 	}
+	// }
+
+	// ── 摇杆归位判断 ──
+	if (!lxLeft && !lxRight && !lyUp && !lyDown)
+	{
+		m_nextMoveTime[playerId] = 0;
+		return;
+	}
+	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+
+	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+
+	if(lxLeft) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Left);
+	else if(lxRight) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Right);
+	else if(lyUp) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Up);
+	else if(lyDown) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Down);
+	
+		
+}
