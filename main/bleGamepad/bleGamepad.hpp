@@ -39,6 +39,7 @@ public:
     void stopScan();
 
     void connect(uint8_t scanIndex);
+    void queueConnect(const uint8_t bda[6]);   // 将 BDA 加入连接队列，自动逐个处理
     void disconnect(uint8_t playerId);
     void disconnectAll();
     void movePlayer(uint8_t from, uint8_t to);

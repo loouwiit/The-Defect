@@ -279,10 +279,11 @@ void BleGamepad::autoConnectPaired()
 
 void BleGamepad::autoConnectNext()
 {
-    // 遍历 m_foundBdas，找第一台未连接的设备发起连接
-    for (const auto& bda : m_foundBdas)
+    while (!m_foundBdas.empty())
     {
-        // 跳过已连接的设备
+        const auto& bda = m_foundBdas.front();
+
+        // 跳过已连接的设备（可能在上一次连接成功时已处理）
         bool alreadyConnected = false;
         for (int i = 0; i < MaxPlayers; i++)
         {
@@ -293,7 +294,11 @@ void BleGamepad::autoConnectNext()
                 break;
             }
         }
-        if (alreadyConnected) continue;
+        if (alreadyConnected)
+        {
+            m_foundBdas.erase(m_foundBdas.begin());
+            continue;
+        }
 
         // 构造 ScanDevice，从配对列表取真实 name
         ScanDevice dev;
@@ -314,21 +319,53 @@ void BleGamepad::autoConnectNext()
         dev.rssi = 0;
         dev.appearance = 0;
 
-        ESP_LOGI(TAG, "Auto-connect 到 %s [%02x:%02x:%02x:%02x:%02x:%02x]",
+        ESP_LOGI(TAG, "连接队列 → %s [%02x:%02x:%02x:%02x:%02x:%02x]",
                  dev.name,
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
         if (connectDirect(dev)) {
             return;  // 连接发起成功，等 GAP 回调
         }
-        // connectDirect 同步失败（如 BLE_HS_EBUSY）→ 继续下一台
-        ESP_LOGW(TAG, "Auto-connect 发起失败，尝试下一台");
+        // 同步失败 → 弹出队首，继续下一台
+        ESP_LOGW(TAG, "发起连接失败，从队列移除并尝试下一台");
+        m_foundBdas.erase(m_foundBdas.begin());
     }
 
-    // 所有设备都尝试完毕
-    ESP_LOGI(TAG, "Auto-connect 完成，已连接 %d/%zu 台设备",
-             connectedCount(), m_pairedDevices.size());
-    m_foundBdas.clear();
+    // 队列清空
+    ESP_LOGI(TAG, "连接队列已清空");
+}
+
+void BleGamepad::queueConnect(const uint8_t bda[6])
+{
+    // 去重：检查 BDA 是否已在队列中
+    for (const auto& qbda : m_foundBdas)
+    {
+        if (memcmp(qbda.data(), bda, 6) == 0)
+        {
+            ESP_LOGW(TAG, "BDA 已在连接队列中");
+            return;
+        }
+    }
+    // 检查是否已连接
+    for (int i = 0; i < MaxPlayers; i++)
+    {
+        if (m_devices[i].connected && memcmp(m_devices[i].bda, bda, 6) == 0)
+        {
+            ESP_LOGW(TAG, "设备已连接，无需入队");
+            return;
+        }
+    }
+
+    BdaBuffer buf;
+    memcpy(buf.data(), bda, 6);
+    m_foundBdas.push_back(buf);
+
+    ESP_LOGI(TAG, "已加入连接队列 (%zu 台待连接)", m_foundBdas.size());
+
+    // 如果队列之前为空，启动队列处理
+    if (m_foundBdas.size() == 1) {
+        autoConnectNext();
+    }
 }
 
 // NimBLE GAP 事件（扫描发现）
@@ -624,22 +661,13 @@ void BleGamepad::connect(uint8_t scanIndex)
 		m_mutex.unlock();
 	}
 
-	ESP_LOGI(TAG, "Connecting to %s [%02x:%02x:%02x:%02x:%02x:%02x] addr_type=%d...",
+	ESP_LOGI(TAG, "Queuing connection to %s [%02x:%02x:%02x:%02x:%02x:%02x]",
 		dev.name,
-		dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5],
-		dev.addrType);
-
-	// 检查是否已连
-	for (int i = 0; i < MaxPlayers; i++) {
-		if (m_devices[i].connected && memcmp(m_devices[i].bda, dev.bda, 6) == 0) {
-			ESP_LOGW(TAG, "Already connected to this device");
-			return;
-		}
-	}
+		dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5]);
 
 	// 连接前停止扫描
 	stopScan();
-	connectDirect(dev);
+	queueConnect(dev.bda);
 }
 
 bool BleGamepad::connectDirect(const ScanDevice& dev)
@@ -828,8 +856,10 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 	{
 		if (event->connect.status != 0) {
 			ESP_LOGE(TAG, "Connect failed: %d", event->connect.status);
+			// 从队列移除当前失败的设备
 			if (!self.m_foundBdas.empty())
-				self.autoConnectNext();
+				self.m_foundBdas.erase(self.m_foundBdas.begin());
+			self.autoConnectNext();
 			return 0;
 		}
 		uint16_t connHandle = event->connect.conn_handle;
@@ -871,15 +901,18 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 			}
 		}
 
+		// 从队列移除已连接的设备
+		if (!self.m_foundBdas.empty())
+			self.m_foundBdas.erase(self.m_foundBdas.begin());
+
 		// 发现所有服务并打印
 		int rc = ble_gattc_disc_all_svcs(connHandle, svcDiscCb, nullptr);
 		if (rc != 0) {
 			ESP_LOGE(TAG, "Failed to start service discovery: %d", rc);
 		}
 
-		// 自动重连期间继续连下一台
-		if (!self.m_foundBdas.empty())
-			self.autoConnectNext();
+		// 继续连接队列下一台
+		self.autoConnectNext();
 		break;
 	}
 	case BLE_GAP_EVENT_DISCONNECT:
