@@ -235,9 +235,9 @@ void PlayerState::doHold()
     PieceType currentType = currentPiece.type();
 
     if (m_holdSlot == PieceType::NONE) {
-        // 首次 Hold：存当前块，从队列取下一块
+        // 首次 Hold：存当前块，直接从队列取下一块（不走 nextPiece，避免循环）
         m_holdSlot = currentType;
-        spawnPiece();
+        spawnType(m_queue->peek(m_pieceIndex++));
     } else {
         // 交换当前块 ↔ holdSlot，直接生成被 hold 的块（不走队列）
         PieceType heldType = m_holdSlot;
