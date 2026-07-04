@@ -5,6 +5,7 @@
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "app/wifiSettingsApp/wifiSettingsApp.hpp"
 #include "app/timeSettingsApp/timeSettingsApp.hpp"
+#include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisApp.hpp"
 #include "audio/Audio.hpp"
@@ -514,7 +515,6 @@ void DesktopApp::startGame()
 		break;
 
 	case 1:
-		// 水果忍者（待实现）
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
 		break;
 
@@ -962,5 +962,14 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
 		self->m_focusStatusIdx = 5;
-	ESP_LOGI(TAG, "电源管理（待实现）");
+
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* app = static_cast<DesktopApp*>(param);
+			if (app->getManager()) {
+				auto* powerApp = new PowerManagementApp(app->getDisplay());
+				app->getManager()->pushToNewStack(powerApp);
+			}
+			return Task::infinityTime;
+		}, "openPowerMgr", self, 0, Task::Affinity::NotAssigned);
 }
