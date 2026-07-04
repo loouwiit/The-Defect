@@ -165,7 +165,7 @@ void TimeSettingsApp::buildUi()
 	lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_style_pad_all(screen, 0, 0);
 
-	// ── 顶栏 ──
+	// ── 顶栏（右侧加与返回按钮等宽占位，使标题视觉居中） ──
 	auto top_bar = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
 	lv_obj_set_style_pad_all(top_bar, 8, 0);
 	lv_obj_set_style_pad_left(top_bar, 16, 0);
@@ -183,20 +183,27 @@ void TimeSettingsApp::buildUi()
 	lv_obj_set_flex_grow(title, 1);
 	lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
-	// ── 内容区 ──
-	auto content = GUI::createFlex(screen, LV_FLEX_FLOW_COLUMN, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_flex_grow(content, 1);
-	lv_obj_set_style_pad_all(content, 16, 0);
-	lv_obj_set_style_pad_left(content, 32, 0);
-	lv_obj_set_style_pad_right(content, 32, 0);
+	// 右侧占位，宽度与返回按钮一致，使标题居中
+	auto right_placeholder = lv_obj_create(top_bar);
+	lv_obj_set_size(right_placeholder, 100, LV_SIZE_CONTENT);
+	lv_obj_set_style_border_width(right_placeholder, 0, 0);
+	lv_obj_set_style_bg_opa(right_placeholder, LV_OPA_TRANSP, 0);
+	lv_obj_clear_flag(right_placeholder, LV_OBJ_FLAG_CLICKABLE);
+
+	// ── 内容区（flex_grow 填满剩余高度，禁止滚动） ──
+	auto content = GUI::createFlex(screen, LV_FLEX_FLOW_COLUMN, lv_pct(100), lv_pct(100));
+	lv_obj_set_style_pad_all(content, 4, 0);
+	lv_obj_set_style_pad_left(content, 28, 0);
+	lv_obj_set_style_pad_right(content, 28, 0);
 	lv_obj_set_style_border_width(content, 0, 0);
 	lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+	lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
 
 	// ═══════════════════════════
 	// 时间显示
 	// ═══════════════════════════
 	auto time_area = GUI::createFlex(content, LV_FLEX_FLOW_COLUMN, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_all(time_area, 24, 0);
+	lv_obj_set_style_pad_all(time_area, 8, 0);
 	lv_obj_set_style_border_width(time_area, 0, 0);
 	lv_obj_set_style_bg_opa(time_area, LV_OPA_TRANSP, 0);
 	lv_obj_set_flex_align(time_area, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -213,7 +220,7 @@ void TimeSettingsApp::buildUi()
 	// 手动调整
 	// ═══════════════════════════
 	auto adjust_section = GUI::createFlex(content, LV_FLEX_FLOW_COLUMN, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(adjust_section, 16, 0);
+	lv_obj_set_style_pad_top(adjust_section, 4, 0);
 	lv_obj_set_style_border_width(adjust_section, 0, 0);
 	lv_obj_set_style_bg_opa(adjust_section, LV_OPA_TRANSP, 0);
 
@@ -222,7 +229,7 @@ void TimeSettingsApp::buildUi()
 
 	// 小时
 	auto hour_row = GUI::createFlex(adjust_section, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(hour_row, 8, 0);
+	lv_obj_set_style_pad_top(hour_row, 2, 0);
 	lv_obj_set_style_border_width(hour_row, 0, 0);
 	lv_obj_set_style_bg_opa(hour_row, LV_OPA_TRANSP, 0);
 	lv_obj_set_flex_align(hour_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -230,31 +237,31 @@ void TimeSettingsApp::buildUi()
 	auto hl = GUI::createLabel(hour_row, "时");
 	lv_obj_set_style_text_font(hl, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 	lv_obj_set_style_text_color(hl, GUI::Color::SUBTLE, 0);
-	lv_obj_set_width(hl, 30);
+	lv_obj_set_width(hl, 28);
 
-	m_hourDownBtn = GUI::createButton(hour_row, "−", 56, 44);
-	lv_obj_set_style_radius(m_hourDownBtn, 8, 0);
+	m_hourDownBtn = GUI::createButton(hour_row, "−", 48, 38);
+	lv_obj_set_style_radius(m_hourDownBtn, 6, 0);
 	lv_obj_set_style_bg_color(m_hourDownBtn, LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
-	lv_obj_set_style_border_width(m_hourDownBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_hourDownBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_hourDownBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_hourDownBtn, onHourDownCb, LV_EVENT_CLICKED, this);
 
 	m_hourValueLabel = GUI::createLabel(hour_row, "00");
 	lv_obj_set_style_text_font(m_hourValueLabel, FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
 	lv_obj_set_style_text_color(m_hourValueLabel, GUI::Color::TEXT, 0);
-	lv_obj_set_width(m_hourValueLabel, 60);
+	lv_obj_set_width(m_hourValueLabel, 56);
 	lv_obj_set_style_text_align(m_hourValueLabel, LV_TEXT_ALIGN_CENTER, 0);
 
-	m_hourUpBtn = GUI::createButton(hour_row, "+", 56, 44);
-	lv_obj_set_style_radius(m_hourUpBtn, 8, 0);
+	m_hourUpBtn = GUI::createButton(hour_row, "+", 48, 38);
+	lv_obj_set_style_radius(m_hourUpBtn, 6, 0);
 	lv_obj_set_style_bg_color(m_hourUpBtn, LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
-	lv_obj_set_style_border_width(m_hourUpBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_hourUpBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_hourUpBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_hourUpBtn, onHourUpCb, LV_EVENT_CLICKED, this);
 
 	// 分钟
 	auto min_row = GUI::createFlex(adjust_section, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(min_row, 8, 0);
+	lv_obj_set_style_pad_top(min_row, 2, 0);
 	lv_obj_set_style_border_width(min_row, 0, 0);
 	lv_obj_set_style_bg_opa(min_row, LV_OPA_TRANSP, 0);
 	lv_obj_set_flex_align(min_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -262,31 +269,31 @@ void TimeSettingsApp::buildUi()
 	auto ml = GUI::createLabel(min_row, "分");
 	lv_obj_set_style_text_font(ml, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 	lv_obj_set_style_text_color(ml, GUI::Color::SUBTLE, 0);
-	lv_obj_set_width(ml, 30);
+	lv_obj_set_width(ml, 28);
 
-	m_minDownBtn = GUI::createButton(min_row, "−", 56, 44);
-	lv_obj_set_style_radius(m_minDownBtn, 8, 0);
+	m_minDownBtn = GUI::createButton(min_row, "−", 48, 38);
+	lv_obj_set_style_radius(m_minDownBtn, 6, 0);
 	lv_obj_set_style_bg_color(m_minDownBtn, LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
-	lv_obj_set_style_border_width(m_minDownBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_minDownBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_minDownBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_minDownBtn, onMinDownCb, LV_EVENT_CLICKED, this);
 
 	m_minValueLabel = GUI::createLabel(min_row, "00");
 	lv_obj_set_style_text_font(m_minValueLabel, FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
 	lv_obj_set_style_text_color(m_minValueLabel, GUI::Color::TEXT, 0);
-	lv_obj_set_width(m_minValueLabel, 60);
+	lv_obj_set_width(m_minValueLabel, 56);
 	lv_obj_set_style_text_align(m_minValueLabel, LV_TEXT_ALIGN_CENTER, 0);
 
-	m_minUpBtn = GUI::createButton(min_row, "+", 56, 44);
-	lv_obj_set_style_radius(m_minUpBtn, 8, 0);
+	m_minUpBtn = GUI::createButton(min_row, "+", 48, 38);
+	lv_obj_set_style_radius(m_minUpBtn, 6, 0);
 	lv_obj_set_style_bg_color(m_minUpBtn, LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
-	lv_obj_set_style_border_width(m_minUpBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_minUpBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_minUpBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_minUpBtn, onMinUpCb, LV_EVENT_CLICKED, this);
 
 	// 秒 + 归零
 	auto sec_row = GUI::createFlex(adjust_section, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(sec_row, 8, 0);
+	lv_obj_set_style_pad_top(sec_row, 2, 0);
 	lv_obj_set_style_border_width(sec_row, 0, 0);
 	lv_obj_set_style_bg_opa(sec_row, LV_OPA_TRANSP, 0);
 	lv_obj_set_flex_align(sec_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -294,18 +301,18 @@ void TimeSettingsApp::buildUi()
 	auto sl = GUI::createLabel(sec_row, "秒");
 	lv_obj_set_style_text_font(sl, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 	lv_obj_set_style_text_color(sl, GUI::Color::SUBTLE, 0);
-	lv_obj_set_width(sl, 30);
+	lv_obj_set_width(sl, 28);
 
 	m_secValueLabel = GUI::createLabel(sec_row, "00");
 	lv_obj_set_style_text_font(m_secValueLabel, FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
 	lv_obj_set_style_text_color(m_secValueLabel, GUI::Color::TEXT, 0);
-	lv_obj_set_width(m_secValueLabel, 60);
+	lv_obj_set_width(m_secValueLabel, 56);
 	lv_obj_set_style_text_align(m_secValueLabel, LV_TEXT_ALIGN_CENTER, 0);
 
-	m_secResetBtn = GUI::createButton(sec_row, "归零", 80, 44);
-	lv_obj_set_style_radius(m_secResetBtn, 8, 0);
+	m_secResetBtn = GUI::createButton(sec_row, "归零", 70, 38);
+	lv_obj_set_style_radius(m_secResetBtn, 6, 0);
 	lv_obj_set_style_bg_color(m_secResetBtn, LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
-	lv_obj_set_style_border_width(m_secResetBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_secResetBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_secResetBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_secResetBtn, onSecResetCb, LV_EVENT_CLICKED, this);
 
@@ -313,8 +320,8 @@ void TimeSettingsApp::buildUi()
 	// 网络同步
 	// ═══════════════════════════
 	auto sync_section = GUI::createFlex(content, LV_FLEX_FLOW_COLUMN, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(sync_section, 24, 0);
-	lv_obj_set_style_pad_bottom(sync_section, 24, 0);
+	lv_obj_set_style_pad_top(sync_section, 6, 0);
+	lv_obj_set_style_pad_bottom(sync_section, 4, 0);
 	lv_obj_set_style_border_width(sync_section, 0, 0);
 	lv_obj_set_style_bg_opa(sync_section, LV_OPA_TRANSP, 0);
 
@@ -323,7 +330,7 @@ void TimeSettingsApp::buildUi()
 
 	// 自动同步
 	auto auto_row = GUI::createFlex(sync_section, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(auto_row, 8, 0);
+	lv_obj_set_style_pad_top(auto_row, 4, 0);
 	lv_obj_set_style_border_width(auto_row, 0, 0);
 	lv_obj_set_style_bg_opa(auto_row, LV_OPA_TRANSP, 0);
 	lv_obj_set_flex_align(auto_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -332,34 +339,34 @@ void TimeSettingsApp::buildUi()
 	lv_obj_set_style_text_font(m_autoSyncLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 	lv_obj_set_style_text_color(m_autoSyncLabel, GUI::Color::TEXT, 0);
 
-	m_autoSyncToggle = GUI::createButton(auto_row, "OFF", 80, 36);
+	m_autoSyncToggle = GUI::createButton(auto_row, "OFF", 72, 32);
 	m_autoSyncToggleLabel = lv_obj_get_child(m_autoSyncToggle, 0);
-	lv_obj_set_style_radius(m_autoSyncToggle, 18, 0);
+	lv_obj_set_style_radius(m_autoSyncToggle, 16, 0);
 	lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x50, 0x30, 0x30), 0);
-	lv_obj_set_style_border_width(m_autoSyncToggle, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_autoSyncToggle, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_autoSyncToggle, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_autoSyncToggle, onAutoSyncCb, LV_EVENT_CLICKED, this);
 
 	// 立即同步
 	auto sync_now_row = GUI::createFlex(sync_section, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_pad_top(sync_now_row, 8, 0);
+	lv_obj_set_style_pad_top(sync_now_row, 4, 0);
 	lv_obj_set_style_border_width(sync_now_row, 0, 0);
 	lv_obj_set_style_bg_opa(sync_now_row, LV_OPA_TRANSP, 0);
 	lv_obj_set_flex_align(sync_now_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-	m_syncNowBtn = GUI::createButton(sync_now_row, "立即同步", 160, 44);
-	lv_obj_set_style_radius(m_syncNowBtn, 8, 0);
+	m_syncNowBtn = GUI::createButton(sync_now_row, "立即同步", 140, 38);
+	lv_obj_set_style_radius(m_syncNowBtn, 6, 0);
 	lv_obj_set_style_bg_color(m_syncNowBtn, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
-	lv_obj_set_style_border_width(m_syncNowBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_syncNowBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_syncNowBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_syncNowBtn, onSyncNowCb, LV_EVENT_CLICKED, this);
 
 	m_wifiStatusLabel = GUI::createLabel(sync_section, "");
-	lv_obj_set_style_pad_top(m_wifiStatusLabel, 8, 0);
+	lv_obj_set_style_pad_top(m_wifiStatusLabel, 4, 0);
 	lv_obj_set_style_text_font(m_wifiStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 
 	m_syncStatusLabel = GUI::createLabel(sync_section, "");
-	lv_obj_set_style_pad_top(m_syncStatusLabel, 4, 0);
+	lv_obj_set_style_pad_top(m_syncStatusLabel, 2, 0);
 	lv_obj_set_style_text_font(m_syncStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 }
 
