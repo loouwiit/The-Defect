@@ -41,6 +41,7 @@ public:
     void connect(uint8_t scanIndex);
     void disconnect(uint8_t playerId);
     void disconnectAll();
+    void movePlayer(uint8_t from, uint8_t to);
 
     uint8_t connectedCount() const;
     const DeviceContext* getDevice(uint8_t playerId) const;

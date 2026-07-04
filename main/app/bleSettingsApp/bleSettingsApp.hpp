@@ -64,8 +64,13 @@ private:
 	lv_obj_t* m_slotLabels[MaxPlayers]{};
 	lv_obj_t* m_slotInfoLabels[MaxPlayers]{};
 	lv_obj_t* m_disconnectBtns[MaxPlayers]{};
+	lv_obj_t* m_moveBtns[MaxPlayers]{};   // 移动按钮
 	bool m_slotConnected[MaxPlayers]{};
 	lv_obj_t* m_saveBtn{};           // 保存配对按钮
+
+	// ── 移动模式 ──
+	bool m_moveMode{ false };
+	int8_t m_moveSourceIdx{ -1 };
 
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
@@ -79,12 +84,14 @@ private:
 		FOCUS_TITLE = 0,  // 左右: 返回 ↔ 扫描
 		FOCUS_LIST,       // 上下: 设备列表, 左右到列表首尾
 		FOCUS_SLOTS,      // 左右: 4 个槽位, 上下跳到列表/标题
+		FOCUS_CARD_BTNS,  // 卡片内部按钮: ⇄ ↔ 断开（上退回 FOCUS_SLOTS）
 		FOCUS_SAVE,       // 保存按钮（从 P4 右进，左回 P4，上回扫描）
 	};
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
 	int8_t m_focusTitleIdx{ 0 };   // 0=返回, 1=扫描
 	int8_t m_focusListIdx{ 0 };    // 0..N-1 设备列表
 	int8_t m_focusSlotsIdx{ 0 };   // 0..3 槽位
+	int8_t m_focusBtnIdx{ 0 };     // 0=移动按钮, 1=断开按钮（FOCUS_CARD_BTNS 内）
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
@@ -98,6 +105,7 @@ private:
 	static void onDeleteBtnCb(lv_event_t* e);
 	static void onBackBtnCb(lv_event_t* e);
 	static void onSaveBtnCb(lv_event_t* e);
+	static void onMoveBtnCb(lv_event_t* e);
 
 	// ── 内部方法 ──
 	void buildUi();
@@ -108,6 +116,8 @@ private:
 	void doConnect(size_t scanIndex);
 	void doDisconnect(uint8_t playerId);
 	void doDelete(size_t scanIndex);
+	void doMove(uint8_t from, uint8_t to);
+	void cancelMoveMode();
 	void applyFocus();
 	void activateFocus();
 	void navTitleLeft();

@@ -951,6 +951,41 @@ void BleGamepad::disconnectAll()
 	}
 }
 
+void BleGamepad::movePlayer(uint8_t from, uint8_t to)
+{
+	if (from >= MaxPlayers || to >= MaxPlayers) {
+		ESP_LOGE(TAG, "movePlayer: invalid index %u → %u", from, to);
+		return;
+	}
+	if (!m_devices[from].connected) {
+		ESP_LOGW(TAG, "movePlayer: source %u not connected", from);
+		return;
+	}
+	if (from == to) {
+		ESP_LOGW(TAG, "movePlayer: source == target (%u), no-op", from);
+		return;
+	}
+
+	const char* nameSrc = m_devices[from].name;
+	const char* nameDst = m_devices[to].connected ? m_devices[to].name : "(空)";
+	ESP_LOGI(TAG, "移动设备: P%u(%s) → P%u(%s)", from, nameSrc, to, nameDst);
+
+	if (m_devices[to].connected) {
+		// 目标有设备 → 交换
+		std::swap(m_devices[from], m_devices[to]);
+		m_devices[from].playerId = from;
+		m_devices[to].playerId = to;
+		ESP_LOGI(TAG, "  交换完成: P%u(%s) ↔ P%u(%s)",
+			from, m_devices[from].name, to, m_devices[to].name);
+	} else {
+		// 目标为空 → 直接移动
+		m_devices[to] = m_devices[from];
+		m_devices[to].playerId = to;
+		m_devices[from] = {};
+		ESP_LOGI(TAG, "  移动完成: %s → P%u", m_devices[to].name, to);
+	}
+}
+
 // ── 查询 ──
 
 uint8_t BleGamepad::connectedCount() const
