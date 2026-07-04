@@ -126,6 +126,11 @@ extern "C" void app_main(void)
 	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large), FontLoader::FontSize::Large);
 	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small), FontLoader::FontSize::Small);
 
+	// 字体回退链：NotoSC 缺少的符号（电池图标等）由 LVGL 内置 symbol 字体提供
+	const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Small))->fallback = lv_font_get_default();
+	const_cast<lv_font_t*>(FontLoader::getDefault())->fallback = lv_font_get_default();
+	const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Large))->fallback = lv_font_get_default();
+
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
 	VirtualIndev::instance().start(&display);
 

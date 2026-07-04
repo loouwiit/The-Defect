@@ -71,6 +71,11 @@ void BleSettingsApp::deinit()
 		lv_timer_del(m_restoreTimer);
 		m_restoreTimer = nullptr;
 	}
+	if (m_activityTimer)
+	{
+		lv_timer_del(m_activityTimer);
+		m_activityTimer = nullptr;
+	}
 
 	App::deinit();
 	ESP_LOGI(TAG, "BLE 设置 App 已释放");
@@ -87,6 +92,17 @@ void BleSettingsApp::onForeground()
 	{
 		lv_timer_resume(m_refreshTimer);
 	}
+
+	// 活动指示快速定时器
+	if (!m_activityTimer)
+	{
+		m_activityTimer = lv_timer_create(activityTimerCb, ACTIVITY_REFRESH_MS, this);
+	}
+	else
+	{
+		lv_timer_resume(m_activityTimer);
+	}
+
 	ESP_LOGI(TAG, "前台，定时器已启动");
 	m_nextActionTime = xTaskGetTickCount() + 500;
 }
@@ -97,6 +113,10 @@ void BleSettingsApp::onBackground()
 	if (m_refreshTimer)
 	{
 		lv_timer_pause(m_refreshTimer);
+	}
+	if (m_activityTimer)
+	{
+		lv_timer_pause(m_activityTimer);
 	}
 
 	// 如果正在扫描则停止，不恢复后台扫描
@@ -129,6 +149,36 @@ void BleSettingsApp::timerCb(lv_timer_t* t)
 {
 	auto* self = static_cast<BleSettingsApp*>(lv_timer_get_user_data(t));
 	self->refreshUi();
+}
+
+// ════════════════════════════════════════════════════════════════
+// 活动指示定时器
+// ════════════════════════════════════════════════════════════════
+
+void BleSettingsApp::activityTimerCb(lv_timer_t* t)
+{
+	auto* self = static_cast<BleSettingsApp*>(lv_timer_get_user_data(t));
+	self->refreshActivityIndicators();
+}
+
+void BleSettingsApp::refreshActivityIndicators()
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	static const lv_color_t activeBg = LV_COLOR_MAKE(0x45, 0x45, 0x60);
+
+	TickType_t now = xTaskGetTickCount();
+	for (int i = 0; i < MaxPlayers; i++)
+	{
+		bool active = (now - m_lastActivityTime[i] < ACTIVITY_TIMEOUT);
+		if (active != m_lastActivityStatus[i])
+		{
+			m_lastActivityStatus[i] = active;
+			lv_obj_set_style_bg_color(m_slotCards[i],
+				active ? activeBg : GUI::Color::CARD, 0);
+		}
+	}
 }
 
 void BleSettingsApp::refreshUi()
@@ -302,8 +352,21 @@ void BleSettingsApp::buildUi()
 		lv_obj_add_event_cb(card, [](lv_event_t* e) {
 			auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
 			auto* c = static_cast<lv_obj_t*>(lv_event_get_target(e));
+			int8_t idx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
+
+			if (self->m_moveMode) {
+				if (idx == self->m_moveSourceIdx) {
+					// 点同一槽位 → 取消
+					self->cancelMoveMode();
+					return;
+				}
+				// 执行移动
+				self->doMove((uint8_t)self->m_moveSourceIdx, (uint8_t)idx);
+				return;
+			}
+
 			self->m_focusGroup = FOCUS_SLOTS;
-			self->m_focusSlotsIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
+			self->m_focusSlotsIdx = idx;
 			self->applyFocus();
 			}, LV_EVENT_CLICKED, this);
 		m_slotCards[i] = card;
@@ -319,7 +382,7 @@ void BleSettingsApp::buildUi()
 		lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 		m_slotLabels[i] = label;
 
-		// 第二行：RSSI + 断开按钮
+		// 第二行：RSSI + 操作按钮
 		auto bottom_row = lv_obj_create(card);
 		lv_obj_set_width(bottom_row, lv_pct(100));
 		lv_obj_set_height(bottom_row, LV_SIZE_CONTENT);
@@ -332,15 +395,47 @@ void BleSettingsApp::buildUi()
 		lv_obj_remove_flag(bottom_row, LV_OBJ_FLAG_SCROLLABLE);
 		lv_obj_remove_flag(bottom_row, LV_OBJ_FLAG_CLICKABLE);
 
-		auto rssiLabel = GUI::createLabel(bottom_row, "");
-		lv_obj_set_style_text_font(rssiLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-		lv_obj_set_style_text_color(rssiLabel, GUI::Color::SUBTLE, 0);
-		m_slotRssiLabels[i] = rssiLabel;
+		auto infoLabel = GUI::createLabel(bottom_row, "");
+		lv_obj_set_style_text_font(infoLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+		lv_obj_set_style_text_color(infoLabel, GUI::Color::SUBTLE, 0);
+		m_slotInfoLabels[i] = infoLabel;
 
-		auto disconnectBtn = GUI::createButton(bottom_row, "断开", 56, 24);
+		// 右侧按钮组
+		auto btnGroup = lv_obj_create(bottom_row);
+		lv_obj_set_height(btnGroup, LV_SIZE_CONTENT);
+		lv_obj_set_style_border_width(btnGroup, 0, 0);
+		lv_obj_set_style_bg_opa(btnGroup, LV_OPA_TRANSP, 0);
+		lv_obj_set_layout(btnGroup, LV_LAYOUT_FLEX);
+		lv_obj_set_flex_flow(btnGroup, LV_FLEX_FLOW_ROW);
+		lv_obj_set_flex_align(btnGroup, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+		lv_obj_set_style_pad_all(btnGroup, 0, 0);
+		lv_obj_set_style_pad_column(btnGroup, 4, 0);
+		lv_obj_remove_flag(btnGroup, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_remove_flag(btnGroup, LV_OBJ_FLAG_CLICKABLE);
+
+		auto moveBtn = GUI::createButton(btnGroup, "\u21C4", 36, 24);
+		lv_obj_set_style_bg_color(moveBtn, LV_COLOR_MAKE(0xD0, 0x80, 0x00), 0);
+		lv_obj_set_style_radius(moveBtn, 6, 0);
+		lv_obj_set_style_pad_all(moveBtn, 0, 0);
+		lv_obj_set_style_border_width(moveBtn, 3, LV_STATE_FOCUSED);
+		lv_obj_set_style_border_color(moveBtn, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_width(moveBtn, 2, LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_color(moveBtn, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_opa(moveBtn, LV_OPA_50, LV_STATE_FOCUSED);
+		lv_obj_add_event_cb(moveBtn, onMoveBtnCb, LV_EVENT_CLICKED, this);
+		lv_obj_set_user_data(moveBtn, (void*)(uintptr_t)i);
+		lv_obj_add_flag(moveBtn, LV_OBJ_FLAG_HIDDEN);
+		m_moveBtns[i] = moveBtn;
+
+		auto disconnectBtn = GUI::createButton(btnGroup, "断开", 56, 24);
 		lv_obj_set_style_bg_color(disconnectBtn, GUI::Color::DANGER, 0);
 		lv_obj_set_style_radius(disconnectBtn, 6, 0);
 		lv_obj_set_style_pad_all(disconnectBtn, 0, 0);
+		lv_obj_set_style_border_width(disconnectBtn, 3, LV_STATE_FOCUSED);
+		lv_obj_set_style_border_color(disconnectBtn, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_width(disconnectBtn, 2, LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_color(disconnectBtn, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_opa(disconnectBtn, LV_OPA_50, LV_STATE_FOCUSED);
 		lv_obj_add_event_cb(disconnectBtn, onDisconnectBtnCb, LV_EVENT_CLICKED, this);
 		lv_obj_set_user_data(disconnectBtn, (void*)(uintptr_t)i);
 		lv_obj_add_flag(disconnectBtn, LV_OBJ_FLAG_HIDDEN);
@@ -493,34 +588,40 @@ void BleSettingsApp::updateScanList()
 
 void BleSettingsApp::updateConnectedList()
 {
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
 	for (int i = 0; i < MaxPlayers; i++)
 	{
 		auto* ctx = BleGamepad::instance().getDevice(i);
+		bool isConnected = (ctx && ctx->connected);
 
-		if (ctx && ctx->connected)
+		if (isConnected)
 		{
 			char slotText[64];
 			snprintf(slotText, sizeof(slotText), "P%d: %s", i + 1, ctx->name);
 			lv_label_set_text(m_slotLabels[i], slotText);
 
-			// 从本地扫描结果查找 RSSI
-			int8_t rssi = 0;
-			for (auto& dev : m_localScanResults)
-			{
-				if (memcmp(dev.bda, ctx->bda, 6) == 0)
-				{
-					rssi = dev.rssi;
-					break;
-				}
-			}
-			char rssiStr[16];
-			if (rssi != 0)
-				snprintf(rssiStr, sizeof(rssiStr), "%d dBm", rssi);
-			else
-				snprintf(rssiStr, sizeof(rssiStr), "已连接");
-			lv_label_set_text(m_slotRssiLabels[i], rssiStr);
+			uint8_t batteryLevel = ctx->batteryLevel;
+			char infoBuffer[32]{};
 
-			lv_obj_clear_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
+			char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
+
+			uint8_t iconIndex = batteryLevel == 255 ? 0 : std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0]));
+
+			snprintf(infoBuffer, sizeof(infoBuffer), "%s %d%%", icons[iconIndex], batteryLevel);
+
+			lv_label_set_text(m_slotInfoLabels[i], infoBuffer);
+
+			// 移动模式中隐藏操作按钮，防止干扰
+			if (m_moveMode) {
+				lv_obj_add_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
+				lv_obj_add_flag(m_moveBtns[i], LV_OBJ_FLAG_HIDDEN);
+			}
+			else {
+				lv_obj_clear_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
+				lv_obj_clear_flag(m_moveBtns[i], LV_OBJ_FLAG_HIDDEN);
+			}
 			m_slotConnected[i] = true;
 		}
 		else
@@ -528,9 +629,32 @@ void BleSettingsApp::updateConnectedList()
 			char slotText[16];
 			snprintf(slotText, sizeof(slotText), "P%d: (空)", i + 1);
 			lv_label_set_text(m_slotLabels[i], slotText);
-			lv_label_set_text(m_slotRssiLabels[i], "");
+			lv_label_set_text(m_slotInfoLabels[i], "");
 			lv_obj_add_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
+			lv_obj_add_flag(m_moveBtns[i], LV_OBJ_FLAG_HIDDEN);
 			m_slotConnected[i] = false;
+		}
+
+		// ── 移动模式边框高亮 ──
+		if (m_moveMode && m_slotCards[i]) {
+			if (i == m_moveSourceIdx) {
+				// 源槽位：橙色边框
+				lv_obj_set_style_border_color(m_slotCards[i],
+					LV_COLOR_MAKE(0xFF, 0xA0, 0x00), 0);
+				lv_obj_set_style_border_width(m_slotCards[i], 3, 0);
+				lv_obj_set_style_border_opa(m_slotCards[i], LV_OPA_COVER, 0);
+			}
+			else {
+				// 其他槽位（含空）：蓝色虚线边框（暗示可点击）
+				lv_obj_set_style_border_color(m_slotCards[i],
+					LV_COLOR_MAKE(0x00, 0x88, 0xFF), 0);
+				lv_obj_set_style_border_width(m_slotCards[i], 2, 0);
+				lv_obj_set_style_border_opa(m_slotCards[i], LV_OPA_60, 0);
+			}
+		}
+		else if (m_slotCards[i]) {
+			// 非移动模式：恢复默认无边框（由 LV_STATE_FOCUSED 控制）
+			lv_obj_set_style_border_width(m_slotCards[i], 0, 0);
 		}
 	}
 
@@ -656,6 +780,9 @@ void BleSettingsApp::doDelete(size_t scanIndex)
 
 void BleSettingsApp::applyFocus()
 {
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
 	// 清除所有对象的 LV_STATE_FOCUSED
 	auto clearFocus = [](lv_obj_t* obj)
 		{		if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED);
@@ -666,6 +793,8 @@ void BleSettingsApp::applyFocus()
 	clearFocus(m_saveBtn);
 	for (auto* row : m_scanRows) clearFocus(row);
 	for (auto* card : m_slotCards) clearFocus(card);
+	for (auto* moveBtn : m_moveBtns) clearFocus(moveBtn);
+	for (auto* disconnectBtn : m_disconnectBtns) clearFocus(disconnectBtn);
 
 	// 设置当前聚焦对象的 LV_STATE_FOCUSED
 	auto focus = [](lv_obj_t* obj)
@@ -686,6 +815,17 @@ void BleSettingsApp::applyFocus()
 	case FOCUS_SLOTS:
 		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers)
 			focus(m_slotCards[m_focusSlotsIdx]);
+		break;
+	case FOCUS_CARD_BTNS:
+		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers) {
+			lv_obj_t* target = (m_focusBtnIdx == 0)
+				? m_moveBtns[m_focusSlotsIdx]
+				: m_disconnectBtns[m_focusSlotsIdx];
+			if (target) {
+				focus(target);
+				lv_obj_scroll_to_view(target, LV_ANIM_ON);
+			}
+		}
 		break;
 	case FOCUS_SAVE:
 		focus(m_saveBtn);
@@ -714,9 +854,28 @@ void BleSettingsApp::activateFocus()
 	}
 
 	case FOCUS_SLOTS:
-		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers)
-			lv_obj_send_event(m_disconnectBtns[m_focusSlotsIdx],
-				LV_EVENT_CLICKED, nullptr);
+		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers) {
+			if (m_moveMode) {
+				// 移动模式中 A 键 → 执行移动
+				doMove((uint8_t)m_moveSourceIdx, (uint8_t)m_focusSlotsIdx);
+			}
+			else if (m_slotConnected[m_focusSlotsIdx]) {
+				// 有连接时 A 键进入卡片按钮层
+				m_focusGroup = FOCUS_CARD_BTNS;
+				m_focusBtnIdx = 0;
+				applyFocus();
+			}
+		}
+		break;
+
+	case FOCUS_CARD_BTNS:
+		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers) {
+			lv_obj_t* target = (m_focusBtnIdx == 0)
+				? m_moveBtns[m_focusSlotsIdx]
+				: m_disconnectBtns[m_focusSlotsIdx];
+			if (target)
+				lv_obj_send_event(target, LV_EVENT_CLICKED, nullptr);
+		}
 		break;
 
 	case FOCUS_SAVE:
@@ -824,12 +983,28 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	bool lyUp = (state.ly < center - deadZone);
 	bool lyDown = (state.ly > center + deadZone);
 
-	// ── 返回 ──
+	// ── 判断是否为有效用户操作 ──
+	const bool hasActivity = state.buttons != 0 || lxLeft || lxRight || lyUp || lyDown;
+
+	if (hasActivity)
+		m_lastActivityTime[playerId] = xTaskGetTickCount();
+
+	// ── 返回 / 取消移动 / 退出卡片按钮层 ──
 	if (state.isPressed(GamepadButton::BTN_B))
 	{
 		if (m_nextActionTime < xTaskGetTickCount())
 		{
 			m_nextActionTime = xTaskGetTickCount() + 500;
+			if (m_moveMode) {
+				cancelMoveMode();
+				return;
+			}
+			if (m_focusGroup == FOCUS_CARD_BTNS) {
+				// 卡片按钮层 → 退回到卡片选择
+				m_focusGroup = FOCUS_SLOTS;
+				applyFocus();
+				return;
+			}
 			popApp();
 		}
 	}
@@ -854,6 +1029,16 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
 	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+
+	// ── 移动模式：限制只在 4 个槽位间导航 ──
+	if (m_moveMode) {
+		if (m_focusGroup != FOCUS_SLOTS) {
+			m_focusGroup = FOCUS_SLOTS;
+		}
+		if (lxLeft)  navSlotsLeft();
+		if (lxRight) navSlotsRight();
+		return;
+	}
 
 	switch (m_focusGroup)
 	{
@@ -914,7 +1099,34 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			}
 			applyFocus();
 		}
+		if (lyDown)
+		{
+			// 有连接时进入卡片按钮层
+			if (m_slotConnected[m_focusSlotsIdx] && !m_moveMode) {
+				m_focusGroup = FOCUS_CARD_BTNS;
+				m_focusBtnIdx = 0;  // 默认聚焦移动按钮
+				applyFocus();
+			}
+		}
 		break;
+
+	case FOCUS_CARD_BTNS:
+	{
+		// 卡片内部按钮切换: ⇄ ↔ 断开
+		if (lxLeft) {
+			m_focusBtnIdx = 0;
+			applyFocus();
+		}
+		if (lxRight) {
+			m_focusBtnIdx = 1;
+			applyFocus();
+		}
+		if (lyUp) {
+			m_focusGroup = FOCUS_SLOTS;
+			applyFocus();
+		}
+		break;
+	}
 
 	case FOCUS_SAVE:
 		if (lxLeft)
@@ -1058,4 +1270,76 @@ void BleSettingsApp::onBackBtnCb(lv_event_t* e)
 			}
 			return Task::infinityTime;
 		}, "bleSettingsBack", self, 0, Task::Affinity::None);
+}
+
+// ════════════════════════════════════════════════════════════════
+// 移动模式
+// ════════════════════════════════════════════════════════════════
+
+void BleSettingsApp::onMoveBtnCb(lv_event_t* e)
+{
+	auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
+	uint8_t slotIdx = (uint8_t)(uintptr_t)lv_obj_get_user_data(btn);
+
+	// 进入移动选择模式
+	self->m_moveMode = true;
+	self->m_moveSourceIdx = (int8_t)slotIdx;
+
+	ESP_LOGI(TAG, "移动模式: 源槽位 P%d", slotIdx + 1);
+
+	// 刷新 UI 高亮
+	self->updateConnectedList();
+	self->applyFocus();
+}
+
+void BleSettingsApp::cancelMoveMode()
+{
+	if (!m_moveMode) return;
+
+	ESP_LOGI(TAG, "取消移动模式");
+	m_moveMode = false;
+	m_moveSourceIdx = -1;
+
+	{
+		auto guard = display->lockGuard();
+		if (guard) {
+			updateConnectedList();
+			applyFocus();
+		}
+	}
+}
+
+void BleSettingsApp::doMove(uint8_t from, uint8_t to)
+{
+	if (from >= MaxPlayers || to >= MaxPlayers) {
+		ESP_LOGE(TAG, "doMove: 无效索引 %u → %u", from, to);
+		cancelMoveMode();
+		return;
+	}
+	if (!m_slotConnected[from]) {
+		ESP_LOGW(TAG, "doMove: 源槽位 P%u 未连接", from);
+		cancelMoveMode();
+		return;
+	}
+
+	ESP_LOGI(TAG, "执行移动: P%u → P%u", from, to);
+	BleGamepad::instance().movePlayer(from, to);
+
+	// 清除移动模式
+	m_moveMode = false;
+	m_moveSourceIdx = -1;
+
+	// 刷新 UI，聚焦到目标槽位
+	{
+		auto guard = display->lockGuard();
+		if (guard) {
+			m_focusGroup = FOCUS_SLOTS;
+			m_focusSlotsIdx = (int8_t)to;
+			updateConnectedList();
+			applyFocus();
+		}
+	}
+
+	ESP_LOGI(TAG, "移动完成，焦点移至 P%u", to);
 }

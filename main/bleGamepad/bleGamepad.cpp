@@ -685,6 +685,76 @@ static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error
 	return 0;
 }
 
+// ── 电池回调 ──
+
+// 获取可修改的 DeviceContext 指针（供 GATT 回调使用）
+static DeviceContext* mutableDeviceCtx(uint8_t playerId)
+{
+	return const_cast<DeviceContext*>(BleGamepad::instance().getDevice(playerId));
+}
+
+// Battery Level 读完成回调
+static int batReadCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	if (error->status == 0 && attr && pid < MaxPlayers) {
+		uint8_t level = attr->om ? 0 : 255;
+		if (attr->om) {
+			ble_hs_mbuf_to_flat(attr->om, &level, sizeof(level), nullptr);
+		}
+		auto* ctx = mutableDeviceCtx((uint8_t)pid);
+		if (ctx) ctx->batteryLevel = level;
+		ESP_LOGI(TAG, "    Battery initial level: %u%%", level);
+	}
+	else if (error->status != 0) {
+		ESP_LOGW(TAG, "    Battery read error: %d", error->status);
+	}
+	return 0;
+}
+
+// Battery Service 特征发现回调
+static int batChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	const struct ble_gatt_chr* chr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	if (error->status == 0 && chr) {
+		uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
+		ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
+			chr->val_handle, uuid, chr->properties);
+
+		// Battery Level (0x2A19) — 读初始值 + 订阅通知
+		if (uuid == 0x2A19 && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
+			ESP_LOGI(TAG, "    -> Battery Level! handle=%u, subscribing...", chr->val_handle);
+
+			// 保存句柄到 DeviceContext
+			auto* ctx = mutableDeviceCtx((uint8_t)pid);
+			if (ctx) {
+				ctx->batteryHandle = chr->val_handle;
+				ctx->batteryCccHandle = chr->val_handle + 1;
+			}
+
+			// 读初始值
+			if (chr->properties & BLE_GATT_CHR_PROP_READ) {
+				ble_gattc_read(conn_handle, chr->val_handle, batReadCb, (void*)pid);
+			}
+
+			// 订阅通知
+			ESP_LOGI(TAG, "    -> Writing CCCD at handle %u...", chr->val_handle + 1);
+			uint8_t val[] = { 0x01, 0x00 };
+			ble_gattc_write_flat(conn_handle, chr->val_handle + 1, val, sizeof(val),
+				subWriteCb, nullptr);
+		}
+	}
+	else if (error->status == BLE_HS_EDONE) {
+		ESP_LOGI(TAG, "  Battery characteristic discovery complete");
+	}
+	else if (error->status != 0) {
+		ESP_LOGE(TAG, "  Battery char discovery error: %d", error->status);
+	}
+	return 0;
+}
+
 // 服务发现回调
 struct DiscoveredService {
 	uint16_t start, end, uuid;
@@ -704,15 +774,30 @@ static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 		}
 	}
 	else if (error->status == BLE_HS_EDONE) {
-		ESP_LOGI(TAG, "  Service discovery complete");
+		ESP_LOGI(TAG, "  Service discovery complete (%d services)", s_svcCount);
 
-		// 找到 HID 服务 (0x1812)，发现其特征
+		// 通过 conn_handle 找 playerId（给电池回调用）
+		uintptr_t pid = MaxPlayers;
+		auto& self = BleGamepad::instance();
+		for (int p = 0; p < MaxPlayers; p++) {
+			auto* d = self.getDevice(p);
+			if (d && d->connected && d->connHandle == conn_handle) {
+				pid = p;
+				break;
+			}
+		}
+
+		// 遍历所有服务，并行发现其特征
 		for (int i = 0; i < s_svcCount; i++) {
 			if (s_svcList[i].uuid == 0x1812) {
 				ESP_LOGI(TAG, "  -> Discovering HID service characteristics...");
 				ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
 					hidChrDiscCb, nullptr);
-				break;
+			}
+			else if (s_svcList[i].uuid == 0x180F) {
+				ESP_LOGI(TAG, "  -> Discovering Battery service characteristics...");
+				ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
+					batChrDiscCb, (void*)pid);
 			}
 		}
 	}
@@ -795,13 +880,34 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 	}
 	case BLE_GAP_EVENT_NOTIFY_RX:
 	{
-		// 手柄发来的 4 字节 HID 输入报告
+		uint16_t attrHandle = event->notify_rx.attr_handle;
+
+		// 找到对应的设备
+		int pid = -1;
+		for (int i = 0; i < MaxPlayers; i++) {
+			if (self.m_devices[i].connected && self.m_devices[i].connHandle == event->notify_rx.conn_handle) {
+				pid = i;
+				break;
+			}
+		}
+		if (pid < 0) break;
+
+		// ── 电池通知分流 ──
+		if (self.m_devices[pid].batteryHandle == attrHandle) {
+			uint8_t level;
+			ble_hs_mbuf_to_flat(event->notify_rx.om, &level, sizeof(level), nullptr);
+			self.m_devices[pid].batteryLevel = level;
+			ESP_LOGI(TAG, "P%d battery: %d%%", pid, level);
+			break;
+		}
+
+		// ── HID 输入报告 ──
 		const struct os_mbuf* om = event->notify_rx.om;
 		uint16_t total = OS_MBUF_PKTLEN(om);
 		if (total < 4)
 		{
-			ESP_LOGW(TAG, "Received too short HID input report (%d bytes)", total);
-			break; // 至少 4 字节
+			ESP_LOGW(TAG, "Received too short notification (%d bytes) handle=%u", total, attrHandle);
+			break;
 		}
 		uint8_t report[64];
 		uint16_t len = total > sizeof(report) ? sizeof(report) : total;
@@ -814,16 +920,6 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		// int8 → uint8 (偏移128, 使中心=128)
 		state.lx = (uint8_t)((int8_t)report[2] + 128);
 		state.ly = (uint8_t)((int8_t)report[3] + 128);
-
-		// 找到对应的 playerId
-		int pid = -1;
-		for (int i = 0; i < MaxPlayers; i++) {
-			if (self.m_devices[i].connected && self.m_devices[i].connHandle == event->notify_rx.conn_handle) {
-				pid = i;
-				break;
-			}
-		}
-		if (pid < 0) break;
 
 		// 入队
 		GamepadInputEvent evt{ (uint8_t)pid, state };
@@ -855,6 +951,41 @@ void BleGamepad::disconnectAll()
 	}
 }
 
+void BleGamepad::movePlayer(uint8_t from, uint8_t to)
+{
+	if (from >= MaxPlayers || to >= MaxPlayers) {
+		ESP_LOGE(TAG, "movePlayer: invalid index %u → %u", from, to);
+		return;
+	}
+	if (!m_devices[from].connected) {
+		ESP_LOGW(TAG, "movePlayer: source %u not connected", from);
+		return;
+	}
+	if (from == to) {
+		ESP_LOGW(TAG, "movePlayer: source == target (%u), no-op", from);
+		return;
+	}
+
+	const char* nameSrc = m_devices[from].name;
+	const char* nameDst = m_devices[to].connected ? m_devices[to].name : "(空)";
+	ESP_LOGI(TAG, "移动设备: P%u(%s) → P%u(%s)", from, nameSrc, to, nameDst);
+
+	if (m_devices[to].connected) {
+		// 目标有设备 → 交换
+		std::swap(m_devices[from], m_devices[to]);
+		m_devices[from].playerId = from;
+		m_devices[to].playerId = to;
+		ESP_LOGI(TAG, "  交换完成: P%u(%s) ↔ P%u(%s)",
+			from, m_devices[from].name, to, m_devices[to].name);
+	} else {
+		// 目标为空 → 直接移动
+		m_devices[to] = m_devices[from];
+		m_devices[to].playerId = to;
+		m_devices[from] = {};
+		ESP_LOGI(TAG, "  移动完成: %s → P%u", m_devices[to].name, to);
+	}
+}
+
 // ── 查询 ──
 
 uint8_t BleGamepad::connectedCount() const
@@ -864,6 +995,12 @@ uint8_t BleGamepad::connectedCount() const
 		if (m_devices[i].connected) count++;
 	}
 	return count;
+}
+
+uint8_t BleGamepad::getBatteryLevel(uint8_t playerId) const
+{
+	if (playerId >= MaxPlayers) return 255;
+	return m_devices[playerId].batteryLevel;
 }
 
 const DeviceContext* BleGamepad::getDevice(uint8_t playerId) const
