@@ -113,6 +113,7 @@ private:
 
 	// 操作
 	void startGame();
+	void updateBatteryIcon();
 
 	// ── 静态回调 ──
 	static void onPrevBtnCb(lv_event_t* e);
@@ -122,4 +123,8 @@ private:
 	static void onVolumeLabelCb(lv_event_t* e);
 	static void onBrightnessLabelCb(lv_event_t* e);
 	static void onBatteryLabelCb(lv_event_t* e);
+
+	// ── 电池 ──
+	void* m_batteryHandle{};
+	lv_timer_t* m_batteryTimer{};
 };

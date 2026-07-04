@@ -107,6 +107,7 @@ private:
 	bool initBatteryAdc();
 	int readHostBatteryPercent();
 	int readHostVoltageMv();
+    void* m_adcHandle{};
 
 	// ── 低功耗模式状态 ──
 	bool mLowPowerActive{ false };

@@ -10,17 +10,18 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "adc_battery_estimation.h"
 
 // ════════════════════════════════════════════════════════════════
 // ADC 电池配置（根据实际硬件调整）
 // ════════════════════════════════════════════════════════════════
 
-static constexpr int ADC_UNIT = 1;           // ADC_UNIT_1
-static constexpr int ADC_CHANNEL = 1;         // ADC_CHANNEL_1 (默认 ADC1_CH1)
+static constexpr int ADC_UNIT = 2;           // ADC_UNIT_2
+static constexpr int ADC_CHANNEL = 2;         // ADC_CHANNEL_2 (默认 ADC2_CH2)
 static constexpr int ADC_ATTEN = 3;           // ADC_ATTEN_DB_12
 static constexpr int ADC_BITWIDTH = 0;        // ADC_BITWIDTH_DEFAULT
-static constexpr int RESISTOR_UPPER = 460;    // 上拉电阻 Ω
-static constexpr int RESISTOR_LOWER = 460;    // 下拉电阻 Ω
+static constexpr int RESISTOR_UPPER = 10.2f;    // 上拉电阻 Ω
+static constexpr int RESISTOR_LOWER = 5.2f;    // 下拉电阻 Ω
 
 // ════════════════════════════════════════════════════════════════
 // 构造 / 析构
@@ -87,6 +88,10 @@ void PowerManagementApp::deinit()
 		lv_timer_del(m_restoreTimer);
 		m_restoreTimer = nullptr;
 	}
+    if (m_adcHandle) {
+        adc_battery_estimation_destroy((adc_battery_estimation_handle_t)m_adcHandle);
+        m_adcHandle = nullptr;
+    }
 
 	App::deinit();
 	ESP_LOGI(TAG, "电源管理 App 已释放");
@@ -175,25 +180,21 @@ lv_color_t PowerManagementApp::batteryColor(int percent)
 
 bool PowerManagementApp::initBatteryAdc()
 {
-	// 使用 adc_battery_estimation 组件初始化 ADC
-	// 此处仅为占位 — 实际使用时需包含:
-	//   #include "adc_battery_estimation.h"
-	//
-	// adc_battery_estimation_t cfg = {
-	//     .internal = {
-	//         .adc_unit     = (adc_unit_t)AdcUnit,
-	//         .adc_bitwidth = (adc_bitwidth_t)AdcBitwidth,
-	//         .adc_atten    = (adc_atten_t)AdcAtten,
-	//     },
-	//     .adc_channel     = (adc_channel_t)AdcChannel,
-	//     .lower_resistor  = ResistorLower,
-	//     .upper_resistor  = ResistorUpper,
-	// };
-	// m_adcHandle = adc_battery_estimation_create(&cfg);
-	// if (!m_adcHandle) {
-	//     ESP_LOGE(TAG, "ADC 电池初始化失败");
-	//     return false;
-	// }
+	adc_battery_estimation_t cfg = {};
+    cfg.internal.adc_unit      = ADC_UNIT_2;
+    cfg.internal.adc_bitwidth  = ADC_BITWIDTH_DEFAULT;
+    cfg.internal.adc_atten     = ADC_ATTEN_DB_12;
+    cfg.adc_channel            = ADC_CHANNEL_2;
+    cfg.upper_resistor         = 10.2f;
+    cfg.lower_resistor         = 5.1f;
+    // battery_points / battery_points_count = nullptr/0 → 使用默认映射
+    // charging_detect_cb = nullptr → 不检测充电状态
+
+    m_adcHandle = adc_battery_estimation_create(&cfg);
+    if (!m_adcHandle) {
+        ESP_LOGE(TAG, "ADC 电池初始化失败");
+        return false;
+    }
 
 	ESP_LOGI(TAG, "ADC 电池初始化完成（通道 %d, 分压 %d/%d）",
 			 ADC_CHANNEL, RESISTOR_UPPER, RESISTOR_LOWER);
@@ -201,45 +202,25 @@ bool PowerManagementApp::initBatteryAdc()
 }
 
 int PowerManagementApp::readHostBatteryPercent()
-{
-	// ── 占位实现：模拟电量（实际使用时替换为 ADC 读取） ──
-	// 使用 adc_battery_estimation 组件读取电量百分比:
-	//
-	//   #include "adc_battery_estimation.h"
-	//
-	//   adc_battery_estimation_t cfg = {
-	//       .internal = {
-	//           .adc_unit     = (adc_unit_t)ADC_UNIT,
-	//           .adc_bitwidth = (adc_bitwidth_t)ADC_BITWIDTH,
-	//           .adc_atten    = (adc_atten_t)ADC_ATTEN,
-	//       },
-	//       .adc_channel     = (adc_channel_t)ADC_CHANNEL,
-	//       .lower_resistor  = RESISTOR_LOWER,
-	//       .upper_resistor  = RESISTOR_UPPER,
-	//   };
-	//   handle = adc_battery_estimation_create(&cfg);
-	//   float capacity = 0;
-	//   adc_battery_estimation_get_capacity(handle, &capacity);
-	//   return (int)(capacity + 0.5f);
-	//
-	// 返回 0~100 之间的模拟值，用于 UI 验证
-	static TickType_t lastRead = 0;
-	TickType_t now = xTaskGetTickCount();
-	if (now - lastRead < pdMS_TO_TICKS(RefreshIntervalMs))
-	{
-		return m_hostBatteryPercent;
-	}
-	lastRead = now;
+{	
+	   if (!m_adcHandle) {
+        return 50;  // 未初始化时返回默认值
+    }
 
-	// 模拟电量：锯齿波 20~100，方便测试颜色变化
-	int simulated = 20 + (int)((now / 1000) % 81);
-	return simulated;
+    float capacity = 0;
+    esp_err_t ret = adc_battery_estimation_get_capacity(
+        (adc_battery_estimation_handle_t)m_adcHandle, &capacity);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "读取电量失败: %s", esp_err_to_name(ret));
+        return m_hostBatteryPercent;  // 保持上次值
+    }
+    return (int)(capacity + 0.5f);
+
 }
 
 int PowerManagementApp::readHostVoltageMv()
 {
 	// 可从 adc_battery_estimation 或直接 ADC 读取电压
-	// 占位返回 3700~4200mV（典型锂聚合物电池范围）
 	int pct = m_hostBatteryPercent;
 	return 3700 + (pct * 5);  // 0%→3700mV, 100%→4200mV
 }
@@ -271,6 +252,14 @@ void PowerManagementApp::buildUi()
 	m_titleLabel = GUI::createTitle(top_bar, "电源管理");
 	lv_obj_set_flex_grow(m_titleLabel, 1);
 	lv_obj_set_style_text_align(m_titleLabel, LV_TEXT_ALIGN_CENTER, 0);
+
+	// 右侧等宽占位，使标题真正居中
+	auto right_spacer = lv_obj_create(top_bar);
+	lv_obj_set_width(right_spacer, 100);
+	lv_obj_set_height(right_spacer, 44);
+	lv_obj_set_style_border_width(right_spacer, 0, 0);
+	lv_obj_set_style_bg_opa(right_spacer, LV_OPA_TRANSP, 0);
+	lv_obj_clear_flag(right_spacer, LV_OBJ_FLAG_CLICKABLE);
 
 	// ── 主机电量区域（flex_grow 填充中间空间） ──
 	auto host_section = GUI::createFlex(screen, LV_FLEX_FLOW_COLUMN, lv_pct(100), LV_SIZE_CONTENT);
