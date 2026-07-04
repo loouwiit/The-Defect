@@ -71,6 +71,11 @@ void BleSettingsApp::deinit()
 		lv_timer_del(m_restoreTimer);
 		m_restoreTimer = nullptr;
 	}
+	if (m_activityTimer)
+	{
+		lv_timer_del(m_activityTimer);
+		m_activityTimer = nullptr;
+	}
 
 	App::deinit();
 	ESP_LOGI(TAG, "BLE 设置 App 已释放");
@@ -87,6 +92,17 @@ void BleSettingsApp::onForeground()
 	{
 		lv_timer_resume(m_refreshTimer);
 	}
+
+	// 活动指示快速定时器
+	if (!m_activityTimer)
+	{
+		m_activityTimer = lv_timer_create(activityTimerCb, ACTIVITY_REFRESH_MS, this);
+	}
+	else
+	{
+		lv_timer_resume(m_activityTimer);
+	}
+
 	ESP_LOGI(TAG, "前台，定时器已启动");
 	m_nextActionTime = xTaskGetTickCount() + 500;
 }
@@ -97,6 +113,10 @@ void BleSettingsApp::onBackground()
 	if (m_refreshTimer)
 	{
 		lv_timer_pause(m_refreshTimer);
+	}
+	if (m_activityTimer)
+	{
+		lv_timer_pause(m_activityTimer);
 	}
 
 	// 如果正在扫描则停止，不恢复后台扫描
@@ -129,6 +149,36 @@ void BleSettingsApp::timerCb(lv_timer_t* t)
 {
 	auto* self = static_cast<BleSettingsApp*>(lv_timer_get_user_data(t));
 	self->refreshUi();
+}
+
+// ════════════════════════════════════════════════════════════════
+// 活动指示定时器
+// ════════════════════════════════════════════════════════════════
+
+void BleSettingsApp::activityTimerCb(lv_timer_t* t)
+{
+	auto* self = static_cast<BleSettingsApp*>(lv_timer_get_user_data(t));
+	self->refreshActivityIndicators();
+}
+
+void BleSettingsApp::refreshActivityIndicators()
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	static const lv_color_t activeBg = LV_COLOR_MAKE(0x45, 0x45, 0x60);
+
+	TickType_t now = xTaskGetTickCount();
+	for (int i = 0; i < MaxPlayers; i++)
+	{
+		bool active = (now - m_lastActivityTime[i] < ACTIVITY_TIMEOUT);
+		if (active != m_lastActivityStatus[i])
+		{
+			m_lastActivityStatus[i] = active;
+			lv_obj_set_style_bg_color(m_slotCards[i],
+				active ? activeBg : GUI::Color::CARD, 0);
+		}
+	}
 }
 
 void BleSettingsApp::refreshUi()
@@ -932,6 +982,12 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	bool lxRight = (state.lx > center + deadZone);
 	bool lyUp = (state.ly < center - deadZone);
 	bool lyDown = (state.ly > center + deadZone);
+
+	// ── 判断是否为有效用户操作 ──
+	const bool hasActivity = state.buttons != 0 || lxLeft || lxRight || lyUp || lyDown;
+
+	if (hasActivity)
+		m_lastActivityTime[playerId] = xTaskGetTickCount();
 
 	// ── 返回 / 取消移动 / 退出卡片按钮层 ──
 	if (state.isPressed(GamepadButton::BTN_B))

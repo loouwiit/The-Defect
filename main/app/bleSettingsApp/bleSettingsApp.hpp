@@ -72,9 +72,16 @@ private:
 	bool m_moveMode{ false };
 	int8_t m_moveSourceIdx{ -1 };
 
+	// ── 活动指示 ──
+	TickType_t m_lastActivityTime[MaxPlayers]{};
+	bool m_lastActivityStatus[MaxPlayers]{};
+	static constexpr TickType_t ACTIVITY_TIMEOUT = pdMS_TO_TICKS(100);
+	static constexpr TickType_t ACTIVITY_REFRESH_MS = 20;
+
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
 	lv_timer_t* m_restoreTimer{};   // 保存按钮视觉反馈恢复定时器
+	lv_timer_t* m_activityTimer{};  // 活动指示快速刷新定时器
 
 	// ── 标记位（BLE 任务设置，timer 消费） ──
 	bool m_pendingRefresh{ false };
@@ -99,6 +106,7 @@ private:
 
 	// ── 回调（静态，C 兼容） ──
 	static void timerCb(lv_timer_t* t);
+	static void activityTimerCb(lv_timer_t* t);
 	static void onScanBtnCb(lv_event_t* e);
 	static void onConnectBtnCb(lv_event_t* e);
 	static void onDisconnectBtnCb(lv_event_t* e);
@@ -110,6 +118,7 @@ private:
 	// ── 内部方法 ──
 	void buildUi();
 	void refreshUi();
+	void refreshActivityIndicators();
 	void updateScanList();
 	void updateConnectedList();
 	void toggleScan();
