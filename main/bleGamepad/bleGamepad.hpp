@@ -82,6 +82,7 @@ private:
     // ── 自动重连 ──
     void autoConnectPaired();                   // 启动 5 秒扫描，重连已配对设备
     static int autoScanCb(struct ble_gap_event* event, void* arg); // 自动重连扫描回调
+    void autoConnectNext();                     // 从 m_foundBdas 顺序连接下一台未连接的设备
 
     // 内部状态
     Display* m_display{};

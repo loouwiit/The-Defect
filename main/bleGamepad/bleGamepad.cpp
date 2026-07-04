@@ -228,48 +228,8 @@ int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
     {
         ESP_LOGI(TAG, "Auto-connect 扫描完成，找到 %zu 个配对设备", self.m_foundBdas.size());
 
-        // 对找到的配对设备发起连接
-        for (const auto& bda : self.m_foundBdas)
-        {
-            // 检查是否已连接
-            bool alreadyConnected = false;
-            for (int i = 0; i < MaxPlayers; i++)
-            {
-                if (self.m_devices[i].connected &&
-                    memcmp(self.m_devices[i].bda, bda.data(), 6) == 0)
-                {
-                    alreadyConnected = true;
-                    break;
-                }
-            }
-            if (alreadyConnected) continue;
-
-            // 构造 ScanDevice，从配对列表中取真实 name
-            ScanDevice dev;
-            memcpy(dev.bda, bda.data(), 6);
-            dev.addrType = BLE_ADDR_PUBLIC;
-            dev.name[0] = '\0';
-            for (auto& pd : self.m_pairedDevices)
-            {
-                if (memcmp(pd.bda, bda.data(), 6) == 0)
-                {
-                    strncpy(dev.name, pd.name, sizeof(dev.name) - 1);
-                    break;
-                }
-            }
-            if (dev.name[0] == '\0')
-                snprintf(dev.name, sizeof(dev.name), "HID_%02X%02X%02X",
-                         bda[3], bda[4], bda[5]);
-            dev.rssi = 0;
-            dev.appearance = 0;
-
-            ESP_LOGI(TAG, "Auto-connect 到 %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-                     dev.name,
-                     bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-            self.connectDirect(dev);
-        }
-
-        self.m_foundBdas.clear();
+        // 逐台连接（异步，由 connectGapEvent 回调驱动下一台）
+        self.autoConnectNext();
         break;
     }
 
@@ -310,11 +270,65 @@ void BleGamepad::autoConnectPaired()
     params.window = 0;
     params.filter_duplicates = 1;
 
-    rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(500), &params, autoScanCb, nullptr);
+    rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(5000), &params, autoScanCb, nullptr);
     if (rc != 0)
         ESP_LOGE(TAG, "auto-connect: scan start failed: %d", rc);
     else
         ESP_LOGI(TAG, "auto-connect: 扫描中...");
+}
+
+void BleGamepad::autoConnectNext()
+{
+    // 遍历 m_foundBdas，找第一台未连接的设备发起连接
+    for (const auto& bda : m_foundBdas)
+    {
+        // 跳过已连接的设备
+        bool alreadyConnected = false;
+        for (int i = 0; i < MaxPlayers; i++)
+        {
+            if (m_devices[i].connected &&
+                memcmp(m_devices[i].bda, bda.data(), 6) == 0)
+            {
+                alreadyConnected = true;
+                break;
+            }
+        }
+        if (alreadyConnected) continue;
+
+        // 构造 ScanDevice，从配对列表取真实 name
+        ScanDevice dev;
+        memcpy(dev.bda, bda.data(), 6);
+        dev.addrType = BLE_ADDR_PUBLIC;
+        dev.name[0] = '\0';
+        for (auto& pd : m_pairedDevices)
+        {
+            if (memcmp(pd.bda, bda.data(), 6) == 0)
+            {
+                strncpy(dev.name, pd.name, sizeof(dev.name) - 1);
+                break;
+            }
+        }
+        if (dev.name[0] == '\0')
+            snprintf(dev.name, sizeof(dev.name), "HID_%02X%02X%02X",
+                     bda[3], bda[4], bda[5]);
+        dev.rssi = 0;
+        dev.appearance = 0;
+
+        ESP_LOGI(TAG, "Auto-connect 到 %s [%02x:%02x:%02x:%02x:%02x:%02x]",
+                 dev.name,
+                 bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+
+        if (connectDirect(dev)) {
+            return;  // 连接发起成功，等 GAP 回调
+        }
+        // connectDirect 同步失败（如 BLE_HS_EBUSY）→ 继续下一台
+        ESP_LOGW(TAG, "Auto-connect 发起失败，尝试下一台");
+    }
+
+    // 所有设备都尝试完毕
+    ESP_LOGI(TAG, "Auto-connect 完成，已连接 %d/%zu 台设备",
+             connectedCount(), m_pairedDevices.size());
+    m_foundBdas.clear();
 }
 
 // NimBLE GAP 事件（扫描发现）
@@ -642,7 +656,6 @@ bool BleGamepad::connectDirect(const ScanDevice& dev)
 		connectGapEvent, nullptr);
 	if (rc != 0) {
 		ESP_LOGE(TAG, "ble_gap_connect failed: %d", rc);
-		startScan();
 		return false;
 	}
 	return true;
@@ -815,7 +828,8 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 	{
 		if (event->connect.status != 0) {
 			ESP_LOGE(TAG, "Connect failed: %d", event->connect.status);
-			self.startScan();
+			if (!self.m_foundBdas.empty())
+				self.autoConnectNext();
 			return 0;
 		}
 		uint16_t connHandle = event->connect.conn_handle;
@@ -862,6 +876,10 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		if (rc != 0) {
 			ESP_LOGE(TAG, "Failed to start service discovery: %d", rc);
 		}
+
+		// 自动重连期间继续连下一台
+		if (!self.m_foundBdas.empty())
+			self.autoConnectNext();
 		break;
 	}
 	case BLE_GAP_EVENT_DISCONNECT:
