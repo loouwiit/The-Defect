@@ -3,6 +3,7 @@
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
+#include "app/wifiSettingsApp/wifiSettingsApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisApp.hpp"
 #include "audio/Audio.hpp"
@@ -145,7 +146,16 @@ void DesktopApp::buildUi()
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		self->m_focusGroup = FOCUS_STATUS;
 		self->m_focusStatusIdx = 0;
-		ESP_LOGI(TAG, "WiFi 设置（待实现）");
+		/* LVGL 事件回调中持锁，栈操作须延后 */
+		Task::addTask([](void* param) -> TickType_t
+			{
+				auto* app = static_cast<DesktopApp*>(param);
+				if (app->getManager()) {
+					auto* wifiApp = new WifiSettingsApp(app->getDisplay());
+					app->getManager()->pushToNewStack(wifiApp);
+				}
+				return Task::infinityTime;
+			}, "openWifiSettings", self, 0, Task::Affinity::NotAssigned);
 		}, LV_EVENT_CLICKED, this);
 	lv_obj_set_style_outline_width(m_wifiLabel, 3, LV_STATE_FOCUSED);
 	lv_obj_set_style_outline_color(m_wifiLabel, lv_color_white(), LV_STATE_FOCUSED);
