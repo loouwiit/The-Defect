@@ -28,6 +28,9 @@ public:
     void init() override;
     void deinit() override;
 
+    // ── BLE 手柄输入 ──
+    void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+
 private:
     static constexpr int PLAYER_COUNT = 3;
 
@@ -55,6 +58,11 @@ private:
     //  游戏线程
     // ============================================================
     Thread* m_gameThread = nullptr;
+
+    // ============================================================
+    //  手柄输入状态
+    // ============================================================
+    uint16_t m_prevButtons[PLAYER_COUNT] = {};
 
     // ============================================================
     //  内部方法

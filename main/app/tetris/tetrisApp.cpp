@@ -125,6 +125,57 @@ void TetrisApp::deinit()
 }
 
 // ============================================================
+//  BLE 手柄输入
+// ============================================================
+
+void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+{
+    if (playerId >= PLAYER_COUNT) return;
+    auto& p = m_players[playerId];
+
+    constexpr uint8_t deadZone = 50;
+    constexpr uint8_t center = 128;
+
+    // ── 摇杆 → 方向及软降 ──
+    bool lxLeft  = (state.lx < center - deadZone);
+    bool lxRight = (state.lx > center + deadZone);
+    bool lyUp    = (state.ly < center - deadZone);
+    bool lyDown  = (state.ly > center + deadZone);
+
+    // D-pad 补充／覆盖摇杆（dpad 0~7=方向, 15=松开）
+    if (state.dpad < 8) {
+        lxLeft  = (state.dpad == 6 || state.dpad == 5 || state.dpad == 7);
+        lxRight = (state.dpad == 2 || state.dpad == 1 || state.dpad == 3);
+        lyUp    = (state.dpad == 0 || state.dpad == 1 || state.dpad == 7);
+        lyDown  = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
+    }
+
+    p.keyLeft  = lxLeft;
+    p.keyRight = lxRight;
+    p.keySoft  = lyDown;
+
+    // ── 按钮边沿检测（仅刚按下时触发） ──
+    uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
+    m_prevButtons[playerId] = state.buttons;
+
+    // A → 逆时针旋转
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A))
+        p.keyCCW = true;
+
+    // B → 顺时针旋转
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+        p.keyCW = true;
+
+    // X → Hold
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_X))
+        p.keyHold = true;
+
+    // Y → 硬降
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_Y))
+        p.keyHard = true;
+}
+
+// ============================================================
 //  游戏循环（Host-authoritative）
 // ============================================================
 
