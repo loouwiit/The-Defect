@@ -190,6 +190,31 @@ void TimeSettingsApp::buildUi()
 	lv_obj_set_style_bg_opa(right_placeholder, LV_OPA_TRANSP, 0);
 	lv_obj_clear_flag(right_placeholder, LV_OBJ_FLAG_CLICKABLE);
 
+	// ── 状态行（右对齐，独立于顶栏和内容区） ──
+	auto status_row = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
+	lv_obj_set_style_border_width(status_row, 0, 0);
+	lv_obj_set_style_bg_opa(status_row, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_pad_all(status_row, 0, 0);
+	lv_obj_set_style_pad_right(status_row, 16, 0);
+	lv_obj_set_flex_align(status_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+	auto status_box = GUI::createFlex(status_row, LV_FLEX_FLOW_COLUMN, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+	lv_obj_set_style_border_width(status_box, 0, 0);
+	lv_obj_set_style_bg_opa(status_box, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_pad_all(status_box, 0, 0);
+	lv_obj_clear_flag(status_box, LV_OBJ_FLAG_CLICKABLE);
+
+	m_wifiStatusLabel = GUI::createLabel(status_box, "");
+	lv_obj_set_style_text_font(m_wifiStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_obj_set_style_text_align(m_wifiStatusLabel, LV_TEXT_ALIGN_RIGHT, 0);
+	lv_obj_set_width(m_wifiStatusLabel, LV_SIZE_CONTENT);
+
+	m_syncStatusLabel = GUI::createLabel(status_box, "");
+	lv_obj_set_style_pad_top(m_syncStatusLabel, 2, 0);
+	lv_obj_set_style_text_font(m_syncStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_obj_set_style_text_align(m_syncStatusLabel, LV_TEXT_ALIGN_RIGHT, 0);
+	lv_obj_set_width(m_syncStatusLabel, LV_SIZE_CONTENT);
+
 	// ── 内容区（flex_grow 填满剩余高度，禁止滚动） ──
 	auto content = GUI::createFlex(screen, LV_FLEX_FLOW_COLUMN, lv_pct(100), lv_pct(100));
 	lv_obj_set_style_pad_all(content, 4, 0);
@@ -360,14 +385,6 @@ void TimeSettingsApp::buildUi()
 	lv_obj_set_style_border_width(m_syncNowBtn, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_syncNowBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_syncNowBtn, onSyncNowCb, LV_EVENT_CLICKED, this);
-
-	m_wifiStatusLabel = GUI::createLabel(sync_section, "");
-	lv_obj_set_style_pad_top(m_wifiStatusLabel, 4, 0);
-	lv_obj_set_style_text_font(m_wifiStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-
-	m_syncStatusLabel = GUI::createLabel(sync_section, "");
-	lv_obj_set_style_pad_top(m_syncStatusLabel, 2, 0);
-	lv_obj_set_style_text_font(m_syncStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 }
 
 // ════════════════════════════════════════════════════════════════
