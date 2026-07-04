@@ -332,10 +332,10 @@ void BleSettingsApp::buildUi()
 		lv_obj_remove_flag(bottom_row, LV_OBJ_FLAG_SCROLLABLE);
 		lv_obj_remove_flag(bottom_row, LV_OBJ_FLAG_CLICKABLE);
 
-		auto rssiLabel = GUI::createLabel(bottom_row, "");
-		lv_obj_set_style_text_font(rssiLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-		lv_obj_set_style_text_color(rssiLabel, GUI::Color::SUBTLE, 0);
-		m_slotRssiLabels[i] = rssiLabel;
+		auto infoLabel = GUI::createLabel(bottom_row, "");
+		lv_obj_set_style_text_font(infoLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+		lv_obj_set_style_text_color(infoLabel, GUI::Color::SUBTLE, 0);
+		m_slotInfoLabels[i] = infoLabel;
 
 		auto disconnectBtn = GUI::createButton(bottom_row, "断开", 56, 24);
 		lv_obj_set_style_bg_color(disconnectBtn, GUI::Color::DANGER, 0);
@@ -503,22 +503,16 @@ void BleSettingsApp::updateConnectedList()
 			snprintf(slotText, sizeof(slotText), "P%d: %s", i + 1, ctx->name);
 			lv_label_set_text(m_slotLabels[i], slotText);
 
-			// 从本地扫描结果查找 RSSI
-			int8_t rssi = 0;
-			for (auto& dev : m_localScanResults)
-			{
-				if (memcmp(dev.bda, ctx->bda, 6) == 0)
-				{
-					rssi = dev.rssi;
-					break;
-				}
-			}
-			char rssiStr[16];
-			if (rssi != 0)
-				snprintf(rssiStr, sizeof(rssiStr), "%d dBm", rssi);
-			else
-				snprintf(rssiStr, sizeof(rssiStr), "已连接");
-			lv_label_set_text(m_slotRssiLabels[i], rssiStr);
+			uint8_t batteryLevel = ctx->batteryLevel;
+			char infoBuffer[32]{};
+
+			char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
+
+			uint8_t iconIndex = batteryLevel == 255 ? 0 : std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0]));
+
+			snprintf(infoBuffer, sizeof(infoBuffer), "%s %d%%", icons[iconIndex], batteryLevel);
+
+			lv_label_set_text(m_slotInfoLabels[i], infoBuffer);
 
 			lv_obj_clear_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
 			m_slotConnected[i] = true;
@@ -528,7 +522,7 @@ void BleSettingsApp::updateConnectedList()
 			char slotText[16];
 			snprintf(slotText, sizeof(slotText), "P%d: (空)", i + 1);
 			lv_label_set_text(m_slotLabels[i], slotText);
-			lv_label_set_text(m_slotRssiLabels[i], "");
+			lv_label_set_text(m_slotInfoLabels[i], "");
 			lv_obj_add_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
 			m_slotConnected[i] = false;
 		}

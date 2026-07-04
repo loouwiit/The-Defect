@@ -59,4 +59,7 @@ struct DeviceContext {
     bool connected{false};
     char name[32]{};
     uint8_t bda[6]{};
+    uint8_t batteryLevel{ 255 };   // 0~100, 255=未知
+    uint16_t batteryHandle{};    // Battery Level 特征值句柄
+    uint16_t batteryCccHandle{}; // Battery CCCD 句柄
 };

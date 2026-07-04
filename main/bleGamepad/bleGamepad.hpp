@@ -44,6 +44,7 @@ public:
 
     uint8_t connectedCount() const;
     const DeviceContext* getDevice(uint8_t playerId) const;
+    uint8_t getBatteryLevel(uint8_t playerId) const;   // 0~100, 255=未知
 
     std::vector<ScanDevice> getScannedDevices() const;
 

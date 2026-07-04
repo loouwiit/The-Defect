@@ -62,7 +62,7 @@ private:
 	lv_obj_t* m_connectedContainer{};
 	lv_obj_t* m_slotCards[MaxPlayers]{};
 	lv_obj_t* m_slotLabels[MaxPlayers]{};
-	lv_obj_t* m_slotRssiLabels[MaxPlayers]{};
+	lv_obj_t* m_slotInfoLabels[MaxPlayers]{};
 	lv_obj_t* m_disconnectBtns[MaxPlayers]{};
 	bool m_slotConnected[MaxPlayers]{};
 	lv_obj_t* m_saveBtn{};           // 保存配对按钮
