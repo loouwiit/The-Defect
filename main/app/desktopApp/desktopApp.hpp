@@ -32,7 +32,7 @@ private:
 	};
 	FocusGroup m_focusGroup{ FOCUS_CARDS };
 	int8_t m_focusCardsIdx{ 0 };      // 0..GAME_COUNT-1
-	int8_t m_focusStatusIdx{ 0 };     // 0=WiFi, 1=蓝牙, 2=音量, 3=亮度, 4=电池
+	int8_t m_focusStatusIdx{ 0 };     // 0=时间, 1=WiFi, 2=蓝牙, 3=音量, 4=亮度, 5=电池
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
@@ -52,8 +52,10 @@ private:
 	lv_obj_t* m_infoLabel{};
 	lv_obj_t* m_startBtn{};
 
+	lv_obj_t* m_timeLabel{};
 	lv_obj_t* m_statusSpacer{};
-	
+	lv_timer_t* m_timeTimer{};
+
 	lv_obj_t* m_wifiLabel{};
 	lv_obj_t* m_bluetoothLabel{};
 	lv_obj_t* m_volumeLabel{};
