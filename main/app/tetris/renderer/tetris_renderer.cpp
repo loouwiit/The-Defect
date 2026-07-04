@@ -334,8 +334,8 @@ void TetrisRenderer::createTouchButtons(lv_obj_t* parent)
     m_btnRight = makeBtn(">");
     m_btnSoft  = makeBtn("v");
     m_btnHard  = makeBtn("V");
-    m_btnCW    = makeBtn("CW");
     m_btnCCW   = makeBtn("CCW");
+    m_btnCW    = makeBtn("CW");
     m_btnHold  = makeBtn("H");
 }
 
