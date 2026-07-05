@@ -49,7 +49,8 @@ void TetrisRoomApp::init()
 	buildUi();
 
 	// 初始聚焦
-	m_focusIdx = 1;  // 默认 2P
+	m_focusGroup = FOCUS_PLAYERS;
+	m_focusPlayersIdx = 1;  // 默认 2P
 	applyFocus();
 }
 
@@ -60,7 +61,7 @@ void TetrisRoomApp::onForeground()
 	refreshSlotStatus();
 
 	// 防抖重置
-	m_nextMoveTime = 0;
+	for (auto& t : m_nextMoveTime) t = 0;
 	m_prevButtons = 0xFFFF;
 }
 
@@ -315,6 +316,7 @@ void TetrisRoomApp::updateActivity()
 
 void TetrisRoomApp::applyFocus()
 {
+	auto guard = display->lockGuard();
 	auto clear = [](lv_obj_t* obj) { if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
 	auto focus = [](lv_obj_t* obj) { if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
 
@@ -325,25 +327,44 @@ void TetrisRoomApp::applyFocus()
 	clear(m_btnSettings);
 	clear(m_btnStart);
 
-	switch (m_focusIdx) {
-		case 0: focus(m_backBtn);    break;
-		case 1: focus(m_btn1P);      break;
-		case 2: focus(m_btn2P);      break;
-		case 3: focus(m_btn3P);      break;
-		case 4: focus(m_btnSettings); break;
-		case 5: focus(m_btnStart);   break;
+	switch (m_focusGroup) {
+	case FOCUS_BACK:
+		focus(m_backBtn);
+		break;
+	case FOCUS_PLAYERS: {
+		lv_obj_t* btns[] = { m_btn1P, m_btn2P, m_btn3P };
+		if (m_focusPlayersIdx >= 0 && m_focusPlayersIdx < 3)
+			focus(btns[m_focusPlayersIdx]);
+		break;
+	}
+	case FOCUS_BOTTOM: {
+		lv_obj_t* btns[] = { m_btnSettings, m_btnStart };
+		if (m_focusBottomIdx >= 0 && m_focusBottomIdx < 2)
+			focus(btns[m_focusBottomIdx]);
+		break;
+	}
 	}
 }
 
 void TetrisRoomApp::activateFocus()
 {
-	switch (m_focusIdx) {
-		case 0: lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr); break;
-		case 1: lv_obj_send_event(m_btn1P,   LV_EVENT_CLICKED, nullptr); break;
-		case 2: lv_obj_send_event(m_btn2P,   LV_EVENT_CLICKED, nullptr); break;
-		case 3: lv_obj_send_event(m_btn3P,   LV_EVENT_CLICKED, nullptr); break;
-		case 4: lv_obj_send_event(m_btnSettings, LV_EVENT_CLICKED, nullptr); break;
-		case 5: lv_obj_send_event(m_btnStart, LV_EVENT_CLICKED, nullptr); break;
+	auto guard = display->lockGuard();
+	switch (m_focusGroup) {
+	case FOCUS_BACK:
+		lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr);
+		break;
+	case FOCUS_PLAYERS: {
+		lv_obj_t* btns[] = { m_btn1P, m_btn2P, m_btn3P };
+		if (m_focusPlayersIdx >= 0 && m_focusPlayersIdx < 3)
+			lv_obj_send_event(btns[m_focusPlayersIdx], LV_EVENT_CLICKED, nullptr);
+		break;
+	}
+	case FOCUS_BOTTOM: {
+		lv_obj_t* btns[] = { m_btnSettings, m_btnStart };
+		if (m_focusBottomIdx >= 0 && m_focusBottomIdx < 2)
+			lv_obj_send_event(btns[m_focusBottomIdx], LV_EVENT_CLICKED, nullptr);
+		break;
+	}
 	}
 }
 
@@ -406,21 +427,33 @@ void TetrisRoomApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 	// 摇杆归位
 	if (!lxLeft && !lxRight && !lyUp && !lyDown) {
-		m_nextMoveTime = 0;
+		for (auto& t : m_nextMoveTime) t = 0;
 		return;
 	}
-	if (m_nextMoveTime >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
 
-	// 左右导航（人数选择区）
-	if (lxLeft && m_focusIdx >= 1 && m_focusIdx <= 3 && m_focusIdx > 1) m_focusIdx--;
-	if (lxRight && m_focusIdx >= 1 && m_focusIdx <= 3 && m_focusIdx < 3) m_focusIdx++;
+	// ── 二维焦点组导航 ──
+	switch (m_focusGroup) {
+	case FOCUS_BACK:
+		if (lyDown) m_focusGroup = FOCUS_PLAYERS;
+		break;
 
-	// 上下导航（全部焦点范围）
-	if (lyUp && m_focusIdx > 0)   m_focusIdx--;
-	if (lyDown && m_focusIdx < 5) m_focusIdx++;
+	case FOCUS_PLAYERS:
+		if (lxLeft && m_focusPlayersIdx > 0)     m_focusPlayersIdx--;
+		if (lxRight && m_focusPlayersIdx < 2)     m_focusPlayersIdx++;
+		if (lyUp)    m_focusGroup = FOCUS_BACK;
+		if (lyDown)  m_focusGroup = FOCUS_BOTTOM;
+		break;
+
+	case FOCUS_BOTTOM:
+		if (lxLeft && m_focusBottomIdx > 0)   m_focusBottomIdx--;
+		if (lxRight && m_focusBottomIdx < 1)   m_focusBottomIdx++;
+		if (lyUp)    m_focusGroup = FOCUS_PLAYERS;
+		break;
+	}
 
 	applyFocus();
 }
@@ -460,7 +493,8 @@ void TetrisRoomApp::onPlayerBtnCb(lv_event_t* e)
 	}
 
 	// 更新聚焦到对应人数按钮
-	self->m_focusIdx = self->m_selectedPlayers;
+	self->m_focusGroup = FOCUS_PLAYERS;
+	self->m_focusPlayersIdx = self->m_selectedPlayers - 1;
 	self->applyFocus();
 }
 

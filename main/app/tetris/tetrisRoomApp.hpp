@@ -50,10 +50,16 @@ private:
 
     int8_t m_selectedPlayers = 2;  // 默认 2 人
 
-    // 焦点导航
-    static constexpr int FOCUS_COUNT = 6;  // back, 1P, 2P, 3P, settings, start
-    int8_t m_focusIdx = 1;  // 默认聚焦 2P
-    TickType_t m_nextMoveTime = 0;
+    // ── 焦点组导航（参考 DesktopApp 模式） ──
+    enum FocusGroup : uint8_t {
+        FOCUS_BACK,
+        FOCUS_PLAYERS,
+        FOCUS_BOTTOM,
+    };
+    FocusGroup m_focusGroup = FOCUS_PLAYERS;
+    int8_t m_focusPlayersIdx = 1;  // 0=1P, 1=2P, 2=3P
+    int8_t m_focusBottomIdx  = 1;  // 0=settings, 1=start
+    TickType_t m_nextMoveTime[MaxPlayers] = {};
     uint16_t m_prevButtons = 0;
 
     static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);
