@@ -78,6 +78,25 @@ TetrisRenderer::TetrisRenderer(Display* display, lv_obj_t* parent, lv_coord_t pl
 
     createBoardGrid(gameArea);
 
+    // ── GAME OVER 覆盖层（初始隐藏） ──
+    m_gameOverOverlay = lv_obj_create(m_boardContainer);
+    lv_obj_set_size(m_gameOverOverlay, lv_pct(100), lv_pct(100));
+    lv_obj_set_pos(m_gameOverOverlay, 0, 0);
+    lv_obj_set_style_bg_color(m_gameOverOverlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(m_gameOverOverlay, LV_OPA_60, 0);
+    lv_obj_set_style_border_width(m_gameOverOverlay, 0, 0);
+    lv_obj_set_style_radius(m_gameOverOverlay, 0, 0);
+    lv_obj_add_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    m_gameOverLabel = lv_label_create(m_gameOverOverlay);
+    lv_label_set_text(m_gameOverLabel, "GAME\nOVER");
+    lv_obj_set_style_text_color(m_gameOverLabel, lv_color_white(), 0);
+    lv_obj_set_style_text_font(m_gameOverLabel, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
+    lv_obj_set_style_text_align(m_gameOverLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(m_gameOverLabel);
+
     // ── 侧栏：flex 列，Next 预览 + 信息标签 ──
     auto sidePanel = lv_obj_create(gameArea);
     lv_obj_remove_style_all(sidePanel);
@@ -109,6 +128,7 @@ TetrisRenderer::~TetrisRenderer()
 void TetrisRenderer::createBoardGrid(lv_obj_t* parent)
 {
     auto board = lv_obj_create(parent);
+    m_boardContainer = board;
     lv_obj_remove_style_all(board);
     lv_obj_set_style_bg_color(board, COLOR_EMPTY, 0);
     lv_obj_set_style_bg_opa(board, LV_OPA_COVER, 0);
@@ -523,6 +543,12 @@ void TetrisRenderer::syncState()
             || cur.garbageFlash != m_prevState.garbageFlash) {
             drawInfo(cur.combo, cur.garbageFlash);
         }
+    }
+
+    // ── GAME OVER ──
+    if (cur.gameOver && !m_prevState.gameOver) {
+        lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(m_gameOverLabel, LV_OBJ_FLAG_HIDDEN);
     }
 
     // ── 保存快照供下次 diff ──

@@ -60,6 +60,9 @@ private:
     const GameState* m_gameState = nullptr;   // 渲染数据源
     PlayerState*   m_playerState = nullptr;    // 仅按钮回调用
     lv_obj_t*      m_container{};
+    lv_obj_t*      m_boardContainer{};        // 棋盘容器（用于 overlay 定位）
+    lv_obj_t*      m_gameOverOverlay{};       // GAME OVER 遮罩
+    lv_obj_t*      m_gameOverLabel{};
     int            m_cellSize = 32;
     lv_coord_t     m_playerWidth = 640;
 
