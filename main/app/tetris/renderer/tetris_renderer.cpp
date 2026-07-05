@@ -284,6 +284,12 @@ void TetrisRenderer::createInfoLabels(lv_obj_t* parent)
         lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
     };
     makeInfo(m_attackLabel,  GUI::Color::SUBTLE);
+    // 攻击标签可点击，用于切换目标
+    lv_obj_add_flag(m_attackLabel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(m_attackLabel, [](lv_event_t* e) {
+        auto* self = static_cast<TetrisRenderer*>(lv_event_get_user_data(e));
+        if (self->m_onCycleTarget) self->m_onCycleTarget();
+    }, LV_EVENT_CLICKED, this);
     makeInfo(m_comboLabel,   LV_COLOR_MAKE(0xFF, 0xCC, 0x00));
     makeInfo(m_garbageLabel, LV_COLOR_MAKE(0xFF, 0x44, 0x44));
 }

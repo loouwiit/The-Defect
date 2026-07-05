@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include "lvgl.h"
 #include "display/display.hpp"
 #include "app/tetris/gameLogic/tetris_client.hpp"
@@ -41,6 +42,9 @@ public:
 
     /// 绑定 PlayerState（仅触屏按钮回调需要写输入）
     void bindPlayer(PlayerState* state) { m_playerState = state; }
+
+    /// 设置攻击目标切换回调（触屏点击攻击标签时调用）
+    void setOnCycleTarget(std::function<void()> cb) { m_onCycleTarget = cb; }
 
     // ============================================================
     //  渲染主入口
@@ -92,6 +96,9 @@ private:
     int m_lastGhostCols[4]{}, m_lastGhostRows[4]{};
     bool m_lastPieceValid = false;
     bool m_lastGhostValid = false;
+
+    // 攻击目标切换回调
+    std::function<void()> m_onCycleTarget;
 
     // ── 触屏按钮 ──
     lv_obj_t* m_btnLeft{};

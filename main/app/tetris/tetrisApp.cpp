@@ -58,6 +58,18 @@ void TetrisApp::init()
 		m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
 		m_renderers[i]->bindGameState(&m_gameStates[i]);
 		m_renderers[i]->bindPlayer(&m_players[i]);
+		m_renderers[i]->setOnCycleTarget([this, i]() {
+			// 触屏点击攻击标签 → 切换目标
+			int next = m_players[i].attackTarget();
+			if (next < 0) next = i;
+			int attempts = 0;
+			do {
+				next = (next + 1) % m_playerCount;
+				attempts++;
+			} while (attempts < m_playerCount &&
+				(next == i || m_players[next].gameOver));
+			m_players[i].setAttackTarget(next == i ? -1 : next);
+		});
 	}
 
 	// 初始化共享出块队列 + 游戏状态
