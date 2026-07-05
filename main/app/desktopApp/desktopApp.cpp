@@ -100,7 +100,7 @@ void DesktopApp::init()
 	m_batteryTimer = lv_timer_create([](lv_timer_t* t) {
 		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
 		self->updateBatteryIcon();
-	}, 5000, this);
+		}, 5000, this);
 	updateBatteryIcon();
 
 	ESP_LOGI(TAG, "桌面初始化完成");
@@ -947,7 +947,7 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 3;
+	self->m_focusStatusIdx = 3;
 	if (self->m_volumeSliderActive)
 		self->hideVolumeSlider();
 	else
@@ -959,7 +959,7 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 4;
+	self->m_focusStatusIdx = 4;
 	if (self->m_brightnessSliderActive)
 		self->hideBrightnessSlider();
 	else
@@ -971,7 +971,7 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 5;
+	self->m_focusStatusIdx = 5;
 
 	Task::addTask([](void* param) -> TickType_t
 		{
@@ -986,9 +986,24 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 
 void DesktopApp::updateBatteryIcon()
 {
-	int pct = BatteryManager::instance().getPercent();
-	if (pct < 0) return;
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGW(TAG, "Failed to lock display @ Desktop::updateBatteryIcon");
+		return;
+	}
 
-	lv_label_set_text(m_batteryLabel, BatteryManager::getIcon(pct));
-	lv_obj_set_style_text_color(m_batteryLabel, BatteryManager::getColor(pct), 0);
+	if (BatteryManager::instance().isCharging())
+	{
+		BatteryManager::startChargingAnim(m_batteryLabel);
+	}
+	else
+	{
+		BatteryManager::stopChargingAnim(m_batteryLabel);
+
+		int pct = BatteryManager::instance().getPercent();
+		if (pct < 0) return;
+		lv_label_set_text(m_batteryLabel, BatteryManager::getIcon(pct));
+		lv_obj_set_style_text_color(m_batteryLabel, BatteryManager::getColor(pct), 0);
+	}
 }

@@ -54,6 +54,18 @@ public:
 	 */
 	bool isCharging();
 
+	// ── 充电呼吸动画 ──
+
+	/**
+	 * @brief 在 batteryIconLabel 上启动电池格数循环动画
+	 *        EMPTY→1→2→3→FULL→3→2→1→EMPTY→...
+	 *        内部自动管理定时器生命周期，重复调用安全。
+	 */
+	static void startChargingAnim(lv_obj_t* batteryIconLabel);
+
+	/** 停止 batteryIconLabel 上的充电动画 */
+	static void stopChargingAnim(lv_obj_t* batteryIconLabel);
+
 	// ── 静态辅助方法（纯函数，无状态依赖） ──
 
 	/** 根据百分比返回 LV_SYMBOL_BATTERY_* 图标 */

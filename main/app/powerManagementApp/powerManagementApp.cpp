@@ -339,33 +339,43 @@ void PowerManagementApp::buildUi()
 void PowerManagementApp::refreshBatteryUi()
 {
 	auto guard = display->lockGuard();
-	if (!guard) return;
-
-	// 从 BatteryManager 读取主机电量
-	m_hostBatteryPercent = BatteryManager::instance().getPercent();
-	m_hostVoltageMv = BatteryManager::instance().getVoltageMv();
-
-	if (m_hostBatteryPercent < 0)
+	if (!guard)
 	{
-		m_hostBatteryPercent = 0;
-		m_hostVoltageMv = 0;
+		ESP_LOGW(TAG, "Failed to lock display @ Desktop::updateBatteryIcon");
+		return;
 	}
 
-	lv_color_t color = BatteryManager::getColor(m_hostBatteryPercent);
+	// 始终读取电量数据（充电时也需要显示百分比和进度条）
+	m_hostBatteryPercent = BatteryManager::instance().getPercent();
+	m_hostVoltageMv = BatteryManager::instance().getVoltageMv();
+	if (m_hostBatteryPercent < 0) m_hostBatteryPercent = 0;
+	if (m_hostVoltageMv < 0)      m_hostVoltageMv = 0;
 
-	// 电量图标
-	lv_label_set_text(m_hostIconLabel, BatteryManager::getIcon(m_hostBatteryPercent));
-	lv_obj_set_style_text_color(m_hostIconLabel, color, 0);
+	bool charging = BatteryManager::instance().isCharging();
+
+	if (charging)
+	{
+		// 充电时：电池格数循环动画
+		BatteryManager::startChargingAnim(m_hostIconLabel);
+	}
+	else
+	{
+		// 非充电时：停止动画，显示正常电池图标
+		BatteryManager::stopChargingAnim(m_hostIconLabel);
+
+		lv_color_t color = BatteryManager::getColor(m_hostBatteryPercent);
+		lv_label_set_text(m_hostIconLabel, BatteryManager::getIcon(m_hostBatteryPercent));
+		lv_obj_set_style_text_color(m_hostIconLabel, color, 0);
+		lv_obj_set_style_bg_color(m_hostBar, color, LV_PART_INDICATOR);
+	}
 
 	// 百分比
 	char pctStr[8];
 	snprintf(pctStr, sizeof(pctStr), "%d%%", m_hostBatteryPercent);
 	lv_label_set_text(m_hostPercentLabel, pctStr);
-	lv_obj_set_style_text_color(m_hostPercentLabel, color, 0);
 
 	// 进度条
 	lv_bar_set_value(m_hostBar, m_hostBatteryPercent, LV_ANIM_ON);
-	lv_obj_set_style_bg_color(m_hostBar, color, LV_PART_INDICATOR);
 
 	// 电压
 	char voltStr[16];

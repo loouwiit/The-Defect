@@ -38,7 +38,7 @@ bool BatteryManager::init()
 	}
 
 	adc_oneshot_chan_cfg_t chanCfg = {
-		.atten    = ADC_ATTEN,
+		.atten = ADC_ATTEN,
 		.bitwidth = ADC_BITWIDTH,
 	};
 	if (adc_oneshot_config_channel(m_adc.oneshot, ADC_CHANNEL, &chanCfg) != ESP_OK)
@@ -52,9 +52,9 @@ bool BatteryManager::init()
 	// ── 2. 创建 ADC 校准句柄 ──
 #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
 	adc_cali_curve_fitting_config_t caliCfg = {
-		.unit_id  = ADC_UNIT,
-		.chan     = ADC_CHANNEL,
-		.atten    = ADC_ATTEN,
+		.unit_id = ADC_UNIT,
+		.chan = ADC_CHANNEL,
+		.atten = ADC_ATTEN,
 		.bitwidth = ADC_BITWIDTH,
 	};
 	if (adc_cali_create_scheme_curve_fitting(&caliCfg, &m_adc.cali) != ESP_OK)
@@ -66,8 +66,8 @@ bool BatteryManager::init()
 	}
 #elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
 	adc_cali_line_fitting_config_t caliCfg = {
-		.unit_id  = ADC_UNIT,
-		.atten    = ADC_ATTEN,
+		.unit_id = ADC_UNIT,
+		.atten = ADC_ATTEN,
 		.bitwidth = ADC_BITWIDTH,
 	};
 	if (adc_cali_create_scheme_line_fitting(&caliCfg, &m_adc.cali) != ESP_OK)
@@ -84,12 +84,12 @@ bool BatteryManager::init()
 
 	// ── 4. 将自有句柄注入 adc_battery_estimation 组件（external 模式） ──
 	adc_battery_estimation_t cfg = {};
-	cfg.external.adc_handle      = m_adc.oneshot;
+	cfg.external.adc_handle = m_adc.oneshot;
 	cfg.external.adc_cali_handle = m_adc.cali;
-	cfg.adc_channel              = ADC_CHANNEL;
-	cfg.upper_resistor           = RESISTOR_UPPER;
-	cfg.lower_resistor           = RESISTOR_LOWER;
-	cfg.charging_detect_cb       = chargingDetectCb;
+	cfg.adc_channel = ADC_CHANNEL;
+	cfg.upper_resistor = RESISTOR_UPPER;
+	cfg.lower_resistor = RESISTOR_LOWER;
+	cfg.charging_detect_cb = chargingDetectCb;
 	cfg.charging_detect_user_data = this;
 	// battery_points / battery_points_count = nullptr/0 → 默认映射
 
@@ -109,7 +109,7 @@ bool BatteryManager::init()
 
 	m_initialized = true;
 	ESP_LOGI(TAG, "初始化完成（通道 %d, 分压 %.1f/%.1f kΩ）",
-			 ADC_CHANNEL, RESISTOR_UPPER, RESISTOR_LOWER);
+		ADC_CHANNEL, RESISTOR_UPPER, RESISTOR_LOWER);
 	return true;
 }
 
@@ -220,6 +220,87 @@ bool BatteryManager::chargingDetectCb(void* userData)
 	(void)userData;
 	// 低电平 = 充电中（GPIO_PULLUP_ONLY，不插入时被拉高）
 	return !(bool)(GPIO{ CHARGING_GPIO });
+}
+
+// ════════════════════════════════════════════════════════════════
+// 充电呼吸动画
+// ════════════════════════════════════════════════════════════════
+
+// 电池格数循环序列（ping-pong: 0→1→2→3→4→3→2→1→0→...）
+static const char* s_chargeIcons[] = {
+	LV_SYMBOL_BATTERY_EMPTY,
+	LV_SYMBOL_BATTERY_1,
+	LV_SYMBOL_BATTERY_2,
+	LV_SYMBOL_BATTERY_3,
+	LV_SYMBOL_BATTERY_FULL,
+};
+static constexpr int CHARGE_ICONS_COUNT = 5;
+
+struct ChargingAnimCtx {
+	lv_timer_t* timer{};
+	lv_obj_t* label{};
+	int8_t      step{ 0 };   // 0..4 当前格数
+};
+
+static void chargingAnimTimerCb(lv_timer_t* t)
+{
+	auto* ctx = static_cast<ChargingAnimCtx*>(lv_timer_get_user_data(t));
+	if (!ctx || !ctx->label)
+	{
+		lv_timer_del(t);
+		return;
+	}
+
+	// 图标
+	lv_label_set_text(ctx->label, s_chargeIcons[ctx->step]);
+
+	// 颜色随实际电量实时更新
+	int pct = BatteryManager::instance().getPercent();
+	if (pct >= 0)
+		lv_obj_set_style_text_color(ctx->label, BatteryManager::getColor(pct), 0);
+
+	// 循环增长：0→1→2→3→4→0→1→...
+	ctx->step = (ctx->step + 1) % CHARGE_ICONS_COUNT;
+}
+
+void BatteryManager::startChargingAnim(lv_obj_t* label)
+{
+	// 检查是否已有动画，有则不重建
+	auto* ctx = static_cast<ChargingAnimCtx*>(lv_obj_get_user_data(label));
+	if (ctx && ctx->timer)
+		return;
+
+	// 创建上下文
+	ctx = new ChargingAnimCtx{};
+	ctx->label = label;
+	ctx->step = 1;  // 首帧后从 1 开始
+	lv_obj_set_user_data(label, ctx);
+
+	// 创建定时器，300ms 切换一帧
+	ctx->timer = lv_timer_create([](lv_timer_t* t) {
+		chargingAnimTimerCb(t);
+		}, 300, ctx);
+
+	// 首帧立即显示 EMPTY
+	lv_label_set_text(label, s_chargeIcons[0]);
+}
+
+void BatteryManager::stopChargingAnim(lv_obj_t* label)
+{
+	auto* ctx = static_cast<ChargingAnimCtx*>(lv_obj_get_user_data(label));
+	if (!ctx)
+	{
+		ESP_LOGW(TAG, "Failed to get ChargingAnimCtx from label user data @ %p", label);
+		return;
+	}
+
+	if (ctx->timer)
+	{
+		lv_timer_del(ctx->timer);
+	}
+	delete ctx;
+
+	lv_obj_set_user_data(label, nullptr);
 }
 
 // ════════════════════════════════════════════════════════════════
