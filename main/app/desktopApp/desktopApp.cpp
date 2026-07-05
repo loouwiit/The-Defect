@@ -16,7 +16,7 @@
 #include "freertos/task.h"
 #include "display/font.hpp"
 #include "display/ili9881c.hpp"
-#include "adc_battery_estimation.h"
+#include "battery/batteryManager.hpp"
 #include <ctime>
 
 // ========== 游戏数据 ==========
@@ -97,16 +97,6 @@ void DesktopApp::init()
 	m_focusCardsIdx = 0;
 	applyFocus();
 
-	// ── 初始化电池 ADC ──
-	adc_battery_estimation_t batCfg = {};
-	batCfg.internal.adc_unit      = ADC_UNIT_2;
-	batCfg.internal.adc_bitwidth  = ADC_BITWIDTH_DEFAULT;
-	batCfg.internal.adc_atten     = ADC_ATTEN_DB_12;
-	batCfg.adc_channel            = ADC_CHANNEL_2;
-	batCfg.upper_resistor         = 10.2f;
-	batCfg.lower_resistor         = 5.1f;
-	m_batteryHandle = adc_battery_estimation_create(&batCfg);
-
 	m_batteryTimer = lv_timer_create([](lv_timer_t* t) {
 		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
 		self->updateBatteryIcon();
@@ -126,10 +116,6 @@ void DesktopApp::deinit()
 	if (m_batteryTimer) {
 		lv_timer_del(m_batteryTimer);
 		m_batteryTimer = nullptr;
-	}
-	if (m_batteryHandle) {
-		adc_battery_estimation_destroy((adc_battery_estimation_handle_t)m_batteryHandle);
-		m_batteryHandle = nullptr;
 	}
 	App::deinit();
 	ESP_LOGI(TAG, "桌面已释放");
@@ -1000,27 +986,9 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 
 void DesktopApp::updateBatteryIcon()
 {
-	if (!m_batteryHandle) return;
+	int pct = BatteryManager::instance().getPercent();
+	if (pct < 0) return;
 
-	float capacity = 0;
-	if (adc_battery_estimation_get_capacity(
-			(adc_battery_estimation_handle_t)m_batteryHandle, &capacity) != ESP_OK)
-		return;
-
-	int pct = (int)(capacity + 0.5f);
-
-	const char* icon;
-	if (pct >= 80)       icon = LV_SYMBOL_BATTERY_FULL;
-	else if (pct >= 60)  icon = LV_SYMBOL_BATTERY_3;
-	else if (pct >= 40)  icon = LV_SYMBOL_BATTERY_2;
-	else if (pct >= 20)  icon = LV_SYMBOL_BATTERY_1;
-	else                 icon = LV_SYMBOL_BATTERY_EMPTY;
-
-	lv_color_t color;
-	if (pct >= 61)       color = GUI::Color::SUCCESS;
-	else if (pct >= 21)  color = GUI::Color::WARNING;
-	else                 color = GUI::Color::DANGER;
-
-	lv_label_set_text(m_batteryLabel, icon);
-	lv_obj_set_style_text_color(m_batteryLabel, color, 0);
+	lv_label_set_text(m_batteryLabel, BatteryManager::getIcon(pct));
+	lv_obj_set_style_text_color(m_batteryLabel, BatteryManager::getColor(pct), 0);
 }

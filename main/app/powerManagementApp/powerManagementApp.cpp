@@ -4,24 +4,13 @@
 #include "display/font.hpp"
 #include "task/task.hpp"
 #include "bleGamepad/bleGamepad.hpp"
+#include "battery/batteryManager.hpp"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_pm.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "adc_battery_estimation.h"
-
-// ════════════════════════════════════════════════════════════════
-// ADC 电池配置（根据实际硬件调整）
-// ════════════════════════════════════════════════════════════════
-
-static constexpr int ADC_UNIT = 2;           // ADC_UNIT_2
-static constexpr int ADC_CHANNEL = 2;         // ADC_CHANNEL_2 (默认 ADC2_CH2)
-static constexpr int ADC_ATTEN = 3;           // ADC_ATTEN_DB_12
-static constexpr int ADC_BITWIDTH = 0;        // ADC_BITWIDTH_DEFAULT
-static constexpr int RESISTOR_UPPER = 10.2f;    // 上拉电阻 Ω
-static constexpr int RESISTOR_LOWER = 5.2f;    // 下拉电阻 Ω
 
 // ════════════════════════════════════════════════════════════════
 // 构造 / 析构
@@ -43,8 +32,6 @@ void PowerManagementApp::init()
 	App::init();
 
 	ESP_LOGI(TAG, "address = %p 初始化", this);
-
-	initBatteryAdc();
 
 	auto guard = display->lockGuard();
 	if (!guard)
@@ -88,10 +75,6 @@ void PowerManagementApp::deinit()
 		lv_timer_del(m_restoreTimer);
 		m_restoreTimer = nullptr;
 	}
-    if (m_adcHandle) {
-        adc_battery_estimation_destroy((adc_battery_estimation_handle_t)m_adcHandle);
-        m_adcHandle = nullptr;
-    }
 
 	App::deinit();
 	ESP_LOGI(TAG, "电源管理 App 已释放");
@@ -158,71 +141,6 @@ void PowerManagementApp::activityTimerCb(lv_timer_t* t)
 {
 	auto* self = static_cast<PowerManagementApp*>(lv_timer_get_user_data(t));
 	self->refreshActivityIndicators();
-}
-
-// ════════════════════════════════════════════════════════════════
-// 电量颜色
-// ════════════════════════════════════════════════════════════════
-
-lv_color_t PowerManagementApp::batteryColor(int percent)
-{
-	if (percent >= BatteryGreenMin)
-		return GUI::Color::SUCCESS;        // 绿
-	else if (percent >= BatteryYellowMin)
-		return GUI::Color::WARNING;        // 黄
-	else
-		return GUI::Color::DANGER;         // 红
-}
-
-// ════════════════════════════════════════════════════════════════
-// 电池读取
-// ════════════════════════════════════════════════════════════════
-
-bool PowerManagementApp::initBatteryAdc()
-{
-	adc_battery_estimation_t cfg = {};
-    cfg.internal.adc_unit      = ADC_UNIT_2;
-    cfg.internal.adc_bitwidth  = ADC_BITWIDTH_DEFAULT;
-    cfg.internal.adc_atten     = ADC_ATTEN_DB_12;
-    cfg.adc_channel            = ADC_CHANNEL_2;
-    cfg.upper_resistor         = 10.2f;
-    cfg.lower_resistor         = 5.1f;
-    // battery_points / battery_points_count = nullptr/0 → 使用默认映射
-    // charging_detect_cb = nullptr → 不检测充电状态
-
-    m_adcHandle = adc_battery_estimation_create(&cfg);
-    if (!m_adcHandle) {
-        ESP_LOGE(TAG, "ADC 电池初始化失败");
-        return false;
-    }
-
-	ESP_LOGI(TAG, "ADC 电池初始化完成（通道 %d, 分压 %d/%d）",
-			 ADC_CHANNEL, RESISTOR_UPPER, RESISTOR_LOWER);
-	return true;
-}
-
-int PowerManagementApp::readHostBatteryPercent()
-{	
-	   if (!m_adcHandle) {
-        return 50;  // 未初始化时返回默认值
-    }
-
-    float capacity = 0;
-    esp_err_t ret = adc_battery_estimation_get_capacity(
-        (adc_battery_estimation_handle_t)m_adcHandle, &capacity);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "读取电量失败: %s", esp_err_to_name(ret));
-        return m_hostBatteryPercent;  // 保持上次值
-    }
-    return (int)(capacity + 0.5f);
-
-}
-
-int PowerManagementApp::readHostVoltageMv()
-{
-	// 可从 adc_battery_estimation 或直接 ADC 读取电压
-	int pct = m_hostBatteryPercent;
-	return 3700 + (pct * 5);  // 0%→3700mV, 100%→4200mV
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -423,27 +341,20 @@ void PowerManagementApp::refreshBatteryUi()
 	auto guard = display->lockGuard();
 	if (!guard) return;
 
-	// 读取主机电量
-	m_hostBatteryPercent = readHostBatteryPercent();
-	m_hostVoltageMv = readHostVoltageMv();
+	// 从 BatteryManager 读取主机电量
+	m_hostBatteryPercent = BatteryManager::instance().getPercent();
+	m_hostVoltageMv = BatteryManager::instance().getVoltageMv();
 
-	// 更新 UI
-	lv_color_t color = batteryColor(m_hostBatteryPercent);
+	if (m_hostBatteryPercent < 0)
+	{
+		m_hostBatteryPercent = 0;
+		m_hostVoltageMv = 0;
+	}
 
-	// 电量图标（根据百分比选择对应图标）
-	const char* icon;
-	if (m_hostBatteryPercent >= 80)
-		icon = LV_SYMBOL_BATTERY_FULL;
-	else if (m_hostBatteryPercent >= 60)
-		icon = LV_SYMBOL_BATTERY_3;
-	else if (m_hostBatteryPercent >= 40)
-		icon = LV_SYMBOL_BATTERY_2;
-	else if (m_hostBatteryPercent >= 20)
-		icon = LV_SYMBOL_BATTERY_1;
-	else
-		icon = LV_SYMBOL_BATTERY_EMPTY;
+	lv_color_t color = BatteryManager::getColor(m_hostBatteryPercent);
 
-	lv_label_set_text(m_hostIconLabel, icon);
+	// 电量图标
+	lv_label_set_text(m_hostIconLabel, BatteryManager::getIcon(m_hostBatteryPercent));
 	lv_obj_set_style_text_color(m_hostIconLabel, color, 0);
 
 	// 百分比
@@ -493,7 +404,7 @@ void PowerManagementApp::refreshSlotUi()
 
 			// 进度条
 			lv_bar_set_value(m_slotBars[i], percent, LV_ANIM_ON);
-			lv_color_t color = batteryColor(percent);
+			lv_color_t color = BatteryManager::getColor(percent);
 			lv_obj_set_style_bg_color(m_slotBars[i], color, LV_PART_INDICATOR);
 			lv_obj_set_style_text_color(m_slotPercentLabels[i], color, 0);
 

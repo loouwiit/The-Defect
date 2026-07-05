@@ -33,6 +33,7 @@
 
 #include "bleGamepad/bleGamepad.hpp"
 #include "monitor/cpuMonitor.hpp"
+#include "battery/batteryManager.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -186,6 +187,9 @@ extern "C" void app_main(void)
 
 		vTaskDelay(10 * 1000);
 	}
+
+	// 初始化主机电池 ADC（全局一次性）
+	BatteryManager::instance().init();
 
 	// 启动 AppStackManager — 多栈导航系统
 	AppStackManager stackManager(&display);
