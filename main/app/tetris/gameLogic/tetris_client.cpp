@@ -8,7 +8,7 @@
 //  1 = 方块存在, 0 = 空
 // ============================================================
 
-// 注意: 3×3 方块嵌入在 4×4 网格的左上角
+// 注意: 3×3 方块嵌入在 4×4 网格的第二行，第一行全部留空
 
 #define R0 0
 #define R1 1
@@ -16,43 +16,43 @@
 #define R3 3
 
 // I piece
-#define I_SHAPE_R0 {{0,0,0,0},{1,1,1,1},{0,0,0,0},{0,0,0,0}}
+#define I_SHAPE_R0 {{0,0,0,0},{0,0,0,0},{1,1,1,1},{0,0,0,0}}
 #define I_SHAPE_R1 {{0,0,1,0},{0,0,1,0},{0,0,1,0},{0,0,1,0}}
-#define I_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{1,1,1,1},{0,0,0,0}}
+#define I_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{0,0,0,0},{1,1,1,1}}
 #define I_SHAPE_R3 {{0,1,0,0},{0,1,0,0},{0,1,0,0},{0,1,0,0}}
 
 // O piece
-#define O_SHAPE_R0 {{0,0,0,0},{0,1,1,0},{0,1,1,0},{0,0,0,0}}
+#define O_SHAPE_R0 {{0,0,0,0},{1,1,0,0},{1,1,0,0},{0,0,0,0}}
 
 // T piece
-#define T_SHAPE_R0 {{0,1,0,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}}
-#define T_SHAPE_R1 {{0,1,0,0},{0,1,1,0},{0,1,0,0},{0,0,0,0}}
-#define T_SHAPE_R2 {{0,0,0,0},{1,1,1,0},{0,1,0,0},{0,0,0,0}}
-#define T_SHAPE_R3 {{0,1,0,0},{1,1,0,0},{0,1,0,0},{0,0,0,0}}
+#define T_SHAPE_R0 {{0,0,0,0},{0,1,0,0},{1,1,1,0},{0,0,0,0}}
+#define T_SHAPE_R1 {{0,0,0,0},{0,1,0,0},{0,1,1,0},{0,1,0,0}}
+#define T_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{1,1,1,0},{0,1,0,0}}
+#define T_SHAPE_R3 {{0,0,0,0},{0,1,0,0},{1,1,0,0},{0,1,0,0}}
 
 // S piece
-#define S_SHAPE_R0 {{0,1,1,0},{1,1,0,0},{0,0,0,0},{0,0,0,0}}
-#define S_SHAPE_R1 {{0,1,0,0},{0,1,1,0},{0,0,1,0},{0,0,0,0}}
-#define S_SHAPE_R2 {{0,0,0,0},{0,1,1,0},{1,1,0,0},{0,0,0,0}}
-#define S_SHAPE_R3 {{1,0,0,0},{1,1,0,0},{0,1,0,0},{0,0,0,0}}
+#define S_SHAPE_R0 {{0,0,0,0},{0,1,1,0},{1,1,0,0},{0,0,0,0}}
+#define S_SHAPE_R1 {{0,0,0,0},{0,1,0,0},{0,1,1,0},{0,0,1,0}}
+#define S_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{0,1,1,0},{1,1,0,0}}
+#define S_SHAPE_R3 {{0,0,0,0},{1,0,0,0},{1,1,0,0},{0,1,0,0}}
 
 // Z piece
-#define Z_SHAPE_R0 {{1,1,0,0},{0,1,1,0},{0,0,0,0},{0,0,0,0}}
-#define Z_SHAPE_R1 {{0,0,1,0},{0,1,1,0},{0,1,0,0},{0,0,0,0}}
-#define Z_SHAPE_R2 {{0,0,0,0},{1,1,0,0},{0,1,1,0},{0,0,0,0}}
-#define Z_SHAPE_R3 {{0,1,0,0},{1,1,0,0},{1,0,0,0},{0,0,0,0}}
+#define Z_SHAPE_R0 {{0,0,0,0},{1,1,0,0},{0,1,1,0},{0,0,0,0}}
+#define Z_SHAPE_R1 {{0,0,0,0},{0,0,1,0},{0,1,1,0},{0,1,0,0}}
+#define Z_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{1,1,0,0},{0,1,1,0}}
+#define Z_SHAPE_R3 {{0,0,0,0},{0,1,0,0},{1,1,0,0},{1,0,0,0}}
 
 // J piece
-#define J_SHAPE_R0 {{1,0,0,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}}
-#define J_SHAPE_R1 {{0,1,1,0},{0,1,0,0},{0,1,0,0},{0,0,0,0}}
-#define J_SHAPE_R2 {{0,0,0,0},{1,1,1,0},{0,0,1,0},{0,0,0,0}}
-#define J_SHAPE_R3 {{0,1,0,0},{0,1,0,0},{1,1,0,0},{0,0,0,0}}
+#define J_SHAPE_R0 {{0,0,0,0},{1,0,0,0},{1,1,1,0},{0,0,0,0}}
+#define J_SHAPE_R1 {{0,0,0,0},{0,1,1,0},{0,1,0,0},{0,1,0,0}}
+#define J_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{1,1,1,0},{0,0,1,0}}
+#define J_SHAPE_R3 {{0,0,0,0},{0,1,0,0},{0,1,0,0},{1,1,0,0}}
 
 // L piece
-#define L_SHAPE_R0 {{0,0,1,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}}
-#define L_SHAPE_R1 {{0,1,0,0},{0,1,0,0},{0,1,1,0},{0,0,0,0}}
-#define L_SHAPE_R2 {{0,0,0,0},{1,1,1,0},{1,0,0,0},{0,0,0,0}}
-#define L_SHAPE_R3 {{1,1,0,0},{0,1,0,0},{0,1,0,0},{0,0,0,0}}
+#define L_SHAPE_R0 {{0,0,0,0},{0,0,1,0},{1,1,1,0},{0,0,0,0}}
+#define L_SHAPE_R1 {{0,0,0,0},{0,1,0,0},{0,1,0,0},{0,1,1,0}}
+#define L_SHAPE_R2 {{0,0,0,0},{0,0,0,0},{1,1,1,0},{1,0,0,0}}
+#define L_SHAPE_R3 {{0,0,0,0},{1,1,0,0},{0,1,0,0},{0,1,0,0}}
 
 const uint8_t SRS_SHAPES[7][4][4][4] = {
     { I_SHAPE_R0, I_SHAPE_R1, I_SHAPE_R2, I_SHAPE_R3 },  // I
@@ -180,9 +180,9 @@ void Piece::getBlocks(int outCols[4], int outRows[4]) const
     for (int row = 0; row < PIECE_SIZE && idx < 4; row++) {
         for (int col = 0; col < PIECE_SIZE && idx < 4; col++) {
             if (shape[row][col]) {
-                outCols[idx]   = m_x + col;
+                outCols[idx] = m_x + col;
                 // row=0 = 形状顶部 → y 最大（C++ y-up）, row=3 = 形状底部 → y 最小
-                outRows[idx]   = m_y + (PIECE_SIZE - 1 - row);
+                outRows[idx] = m_y + (PIECE_SIZE - 1 - row);
                 idx++;
             }
         }
@@ -438,7 +438,8 @@ void PieceQueue::ensureAtLeast(int totalNodes)
         shuffleBag(node->pieces);
         if (m_tail) {
             m_tail->next = node;
-        } else {
+        }
+        else {
             m_head = node;
         }
         m_tail = node;
@@ -467,15 +468,15 @@ PieceType PieceQueue::peek(int index)
 
 void Scoring::reset()
 {
-    m_score      = 0;
-    m_level      = 0;
+    m_score = 0;
+    m_level = 0;
     m_totalLines = 0;
-    m_combo      = -1;
-    m_b2b        = false;
+    m_combo = -1;
+    m_b2b = false;
 }
 
 int Scoring::processLines(int lines, bool isTSpin, bool isTSpinMini,
-                           int softDropRows, int hardDropRows)
+    int softDropRows, int hardDropRows)
 {
     int earned = 0;
 
@@ -495,25 +496,27 @@ int Scoring::processLines(int lines, bool isTSpin, bool isTSpinMini,
     if (isTSpin) {
         if (isTSpinMini) {
             switch (lines) {
-                case 1: baseScore = SCORE_TSPIN_MINI;    break;
-                case 2: baseScore = SCORE_TSPIN_SINGLE;  break;
-                default: break;
-            }
-        } else {
-            switch (lines) {
-                case 1: baseScore = SCORE_TSPIN_SINGLE;  break;
-                case 2: baseScore = SCORE_TSPIN_DOUBLE;  break;
-                case 3: baseScore = SCORE_TSPIN_TRIPLE;  break;
-                default: break;
+            case 1: baseScore = SCORE_TSPIN_MINI;    break;
+            case 2: baseScore = SCORE_TSPIN_SINGLE;  break;
+            default: break;
             }
         }
-    } else {
-        switch (lines) {
-            case 1: baseScore = SCORE_SINGLE;  break;
-            case 2: baseScore = SCORE_DOUBLE;  break;
-            case 3: baseScore = SCORE_TRIPLE;  break;
-            case 4: baseScore = SCORE_TETRIS;  break;
+        else {
+            switch (lines) {
+            case 1: baseScore = SCORE_TSPIN_SINGLE;  break;
+            case 2: baseScore = SCORE_TSPIN_DOUBLE;  break;
+            case 3: baseScore = SCORE_TSPIN_TRIPLE;  break;
             default: break;
+            }
+        }
+    }
+    else {
+        switch (lines) {
+        case 1: baseScore = SCORE_SINGLE;  break;
+        case 2: baseScore = SCORE_DOUBLE;  break;
+        case 3: baseScore = SCORE_TRIPLE;  break;
+        case 4: baseScore = SCORE_TETRIS;  break;
+        default: break;
         }
     }
 
@@ -524,7 +527,8 @@ int Scoring::processLines(int lines, bool isTSpin, bool isTSpinMini,
             baseScore = baseScore * SCORE_B2B_MULTIPLIER / SCORE_B2B_DIVISOR;
         }
         m_b2b = true;
-    } else {
+    }
+    else {
         m_b2b = false;
     }
 
@@ -575,9 +579,9 @@ bool checkThreeCorner(const Piece& piece, const Board& board)
     // TL = (x, y),   TR = (x+2, y)
     // BL = (x, y+2), BR = (x+2, y+2)
     int corners = 0;
-    if (isOccupied(board, x,     y))     corners++;
+    if (isOccupied(board, x, y))     corners++;
     if (isOccupied(board, x + 2, y))     corners++;
-    if (isOccupied(board, x,     y + 2)) corners++;
+    if (isOccupied(board, x, y + 2)) corners++;
     if (isOccupied(board, x + 2, y + 2)) corners++;
 
     return corners >= 3;
@@ -594,21 +598,23 @@ int calcAttackLines(int linesCleared, bool isTSpin, bool isTSpinMini, bool isB2B
     if (isTSpin) {
         if (isTSpinMini) {
             attack = (linesCleared == 2) ? 2 : 0;
-        } else {
+        }
+        else {
             switch (linesCleared) {
-                case 1: attack = 2; break;
-                case 2: attack = 4; break;
-                case 3: attack = 6; break;
-                default: break;
+            case 1: attack = 2; break;
+            case 2: attack = 4; break;
+            case 3: attack = 6; break;
+            default: break;
             }
         }
-    } else {
+    }
+    else {
         switch (linesCleared) {
-            case 1: attack = 0; break;  // Single: 0 垃圾行
-            case 2: attack = 1; break;  // Double: 1
-            case 3: attack = 2; break;  // Triple: 2
-            case 4: attack = 4; break;  // Tetris: 4
-            default: break;
+        case 1: attack = 0; break;  // Single: 0 垃圾行
+        case 2: attack = 1; break;  // Double: 1
+        case 3: attack = 2; break;  // Triple: 2
+        case 4: attack = 4; break;  // Tetris: 4
+        default: break;
         }
     }
 

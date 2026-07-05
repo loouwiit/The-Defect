@@ -42,7 +42,7 @@ void PlayerState::reset()
 void PlayerState::spawnType(PieceType type)
 {
     int spawnX = (type == PieceType::O) ? 4 : 3;
-    int spawnY = BOARD_HEIGHT - 2;  // 隐藏区顶部
+    int spawnY = BOARD_HEIGHT - 3;  // y=18，4×4 包围盒包含其中的三行
 
     currentPiece = Piece(type, Rotation::R0, spawnX, spawnY);
 

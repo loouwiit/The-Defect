@@ -88,7 +88,7 @@ extern const KickOffset I_KICKS[4][4][5];
 class Piece {
 public:
     Piece() = default;
-    Piece(PieceType type, Rotation rot = Rotation::R0, int x = 3, int y = BOARD_HEIGHT - 2);
+    Piece(PieceType type, Rotation rot = Rotation::R0, int x = 3, int y = BOARD_HEIGHT - PIECE_SIZE);
 
     // 访问
     PieceType  type()     const { return m_type; }
