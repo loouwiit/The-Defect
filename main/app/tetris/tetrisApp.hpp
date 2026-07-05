@@ -73,6 +73,13 @@ private:
     lv_obj_t* m_restartBtn{};
     lv_obj_t* m_backBtn{};
     bool      m_allDead = false;
+    int8_t    m_focusGameOverIdx = 0;
+    TickType_t m_nextMoveTime = 0;
+    uint16_t  m_prevBtnsAll = 0;
+
+	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
+	static constexpr TickType_t MOVE_DELAY = 120;
+	static constexpr TickType_t ACTION_DELAY = 500;
 
     void createGameOverUI();
     static void onRestartCb(lv_event_t* e);
