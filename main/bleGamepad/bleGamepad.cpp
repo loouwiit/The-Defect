@@ -1,5 +1,7 @@
 #include "bleGamepad.hpp"
 
+#include "task/task.hpp"
+
 #include "app/app.hpp"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -47,325 +49,333 @@ BleGamepad& BleGamepad::instance()
 // NimBLE 同步回调
 void BleGamepad::onSync()
 {
-    ESP_LOGI(TAG, "NimBLE synced");
-    instance().autoConnectPaired();
+	ESP_LOGI(TAG, "NimBLE synced");
+	instance().autoConnectPaired();
 }
 
 void BleGamepad::onReset(int reason)
 {
-    ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
+	ESP_LOGE(TAG, "NimBLE reset, reason=%d", reason);
 }
 
 // ── NVS 持久化 ──
 
 void BleGamepad::syncPairedToNvs()
 {
-    // 收集当前已连接的设备 (BDA + name)
-    std::vector<PairedDevice> connectedDevices;
-    for (int i = 0; i < MaxPlayers; i++)
-    {
-        if (m_devices[i].connected)
-        {
-            PairedDevice pd;
-            memcpy(pd.bda, m_devices[i].bda, 6);
-            strncpy(pd.name, m_devices[i].name, sizeof(pd.name) - 1);
-            pd.name[sizeof(pd.name) - 1] = '\0';
-            connectedDevices.push_back(pd);
-        }
-    }
+	// 收集当前已连接的设备 (BDA + name)
+	std::vector<PairedDevice> connectedDevices;
+	for (int i = 0; i < MaxPlayers; i++)
+	{
+		if (m_devices[i].connected)
+		{
+			PairedDevice pd;
+			memcpy(pd.bda, m_devices[i].bda, 6);
+			strncpy(pd.name, m_devices[i].name, sizeof(pd.name) - 1);
+			pd.name[sizeof(pd.name) - 1] = '\0';
+			connectedDevices.push_back(pd);
+		}
+	}
 
-    nvs_handle handle;
-    esp_err_t err = nvs_open("ble_gamepad", NVS_READWRITE, &handle);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "NVS open failed: %d", err);
-        return;
-    }
+	nvs_handle handle;
+	esp_err_t err = nvs_open("ble_gamepad", NVS_READWRITE, &handle);
+	if (err != ESP_OK)
+	{
+		ESP_LOGE(TAG, "NVS open failed: %d", err);
+		return;
+	}
 
-    if (connectedDevices.empty())
-    {
-        err = nvs_erase_key(handle, "paired");
-        if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
-            ESP_LOGW(TAG, "NVS erase failed: %d", err);
-    }
-    else
-    {
-        err = nvs_set_blob(handle, "paired", connectedDevices.data(),
-                           connectedDevices.size() * sizeof(PairedDevice));
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "NVS set blob failed: %d", err);
-            nvs_close(handle);
-            return;
-        }
-    }
+	if (connectedDevices.empty())
+	{
+		err = nvs_erase_key(handle, "paired");
+		if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
+			ESP_LOGW(TAG, "NVS erase failed: %d", err);
+	}
+	else
+	{
+		err = nvs_set_blob(handle, "paired", connectedDevices.data(),
+			connectedDevices.size() * sizeof(PairedDevice));
+		if (err != ESP_OK)
+		{
+			ESP_LOGE(TAG, "NVS set blob failed: %d", err);
+			nvs_close(handle);
+			return;
+		}
+	}
 
-    err = nvs_commit(handle);
-    if (err != ESP_OK)
-        ESP_LOGE(TAG, "NVS commit failed: %d", err);
+	err = nvs_commit(handle);
+	if (err != ESP_OK)
+		ESP_LOGE(TAG, "NVS commit failed: %d", err);
 
-    nvs_close(handle);
+	nvs_close(handle);
 
-    ESP_LOGI(TAG, "配对状态已保存 (%zu 台设备)", connectedDevices.size());
+	ESP_LOGI(TAG, "配对状态已保存 (%zu 台设备)", connectedDevices.size());
 }
 
 void BleGamepad::loadPairedFromNvs()
 {
-    m_pairedDevices.clear();
+	m_pairedDevices.clear();
 
-    nvs_handle handle;
-    esp_err_t err = nvs_open("ble_gamepad", NVS_READONLY, &handle);
-    if (err != ESP_OK)
-    {
-        if (err != ESP_ERR_NVS_NOT_FOUND)
-            ESP_LOGE(TAG, "NVS open failed: %d", err);
-        return;
-    }
+	nvs_handle handle;
+	esp_err_t err = nvs_open("ble_gamepad", NVS_READONLY, &handle);
+	if (err != ESP_OK)
+	{
+		if (err != ESP_ERR_NVS_NOT_FOUND)
+			ESP_LOGE(TAG, "NVS open failed: %d", err);
+		return;
+	}
 
-    size_t blobSize = 0;
-    err = nvs_get_blob(handle, "paired", nullptr, &blobSize);
-    if (err != ESP_OK || blobSize == 0)
-    {
-        nvs_close(handle);
-        return;
-    }
+	size_t blobSize = 0;
+	err = nvs_get_blob(handle, "paired", nullptr, &blobSize);
+	if (err != ESP_OK || blobSize == 0)
+	{
+		nvs_close(handle);
+		return;
+	}
 
-    size_t count = blobSize / sizeof(PairedDevice);
-    m_pairedDevices.resize(count);
+	size_t count = blobSize / sizeof(PairedDevice);
+	m_pairedDevices.resize(count);
 
-    err = nvs_get_blob(handle, "paired", m_pairedDevices.data(), &blobSize);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "NVS get blob failed: %d", err);
-        m_pairedDevices.clear();
-    }
-    else
-    {
-        ESP_LOGI(TAG, "从 NVS 加载了 %zu 个配对设备", m_pairedDevices.size());
-    }
+	err = nvs_get_blob(handle, "paired", m_pairedDevices.data(), &blobSize);
+	if (err != ESP_OK)
+	{
+		ESP_LOGE(TAG, "NVS get blob failed: %d", err);
+		m_pairedDevices.clear();
+	}
+	else
+	{
+		ESP_LOGI(TAG, "从 NVS 加载了 %zu 个配对设备", m_pairedDevices.size());
+	}
 
-    nvs_close(handle);
+	nvs_close(handle);
 }
 
 std::vector<PairedDevice> BleGamepad::getPairedDevices() const
 {
-    return m_pairedDevices;
+	return m_pairedDevices;
 }
 
 // ── 自动重连 (scan-then-connect) ──
 
 int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
 {
-    auto& self = instance();
+	auto& self = instance();
 
-    switch (event->type)
-    {
-    case BLE_GAP_EVENT_DISC:
-    {
-        // 检查是否 HID 设备
-        struct ble_hs_adv_fields fields;
-        if (ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data) != 0)
-            return 0;
+	switch (event->type)
+	{
+	case BLE_GAP_EVENT_DISC:
+	{
+		// 检查是否 HID 设备
+		struct ble_hs_adv_fields fields;
+		if (ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data) != 0)
+			return 0;
 
-        bool isHid = false;
-        if (fields.appearance_is_present)
-            isHid = (fields.appearance >= 0x03C0 && fields.appearance <= 0x03C9);
-        if (!isHid && fields.num_uuids16 > 0)
-        {
-            for (int i = 0; i < fields.num_uuids16; i++)
-            {
-                if (fields.uuids16[i].value == 0x1812)
-                {
-                    isHid = true;
-                    break;
-                }
-            }
-        }
-        if (!isHid) return 0;
+		bool isHid = false;
+		if (fields.appearance_is_present)
+			isHid = (fields.appearance >= 0x03C0 && fields.appearance <= 0x03C9);
+		if (!isHid && fields.num_uuids16 > 0)
+		{
+			for (int i = 0; i < fields.num_uuids16; i++)
+			{
+				if (fields.uuids16[i].value == 0x1812)
+				{
+					isHid = true;
+					break;
+				}
+			}
+		}
+		if (!isHid) return 0;
 
-        // 检查 BDA 是否在配对列表中
-        BdaBuffer foundBda;
-        memcpy(foundBda.data(), event->disc.addr.val, 6);
+		// 检查 BDA 是否在配对列表中
+		BdaBuffer foundBda;
+		memcpy(foundBda.data(), event->disc.addr.val, 6);
 
-        for (auto& paired : self.m_pairedDevices)
-        {
-            if (memcmp(paired.bda, foundBda.data(), 6) == 0)
-            {
-                // 去重
-                bool alreadyFound = false;
-                for (const auto& f : self.m_foundBdas)
-                {
-                    if (memcmp(f.data(), foundBda.data(), 6) == 0)
-                    {
-                        alreadyFound = true;
-                        break;
-                    }
-                }
-                if (!alreadyFound)
-                {
-                    self.m_foundBdas.push_back(foundBda);
+		for (auto& paired : self.m_pairedDevices)
+		{
+			if (memcmp(paired.bda, foundBda.data(), 6) == 0)
+			{
+				// 去重
+				bool alreadyFound = false;
+				for (const auto& f : self.m_connectQueue)
+				{
+					if (memcmp(f.data(), foundBda.data(), 6) == 0)
+					{
+						alreadyFound = true;
+						break;
+					}
+				}
+				if (!alreadyFound)
+				{
+					self.m_connectQueue.push_back(foundBda);
 
-                    // 从广告中更新 name
-                    if (fields.name_len > 0)
-                    {
-                        size_t cpLen = std::min<size_t>(fields.name_len, sizeof(paired.name) - 1);
-                        memcpy(paired.name, fields.name, cpLen);
-                        paired.name[cpLen] = '\0';
-                    }
+					// 从广告中更新 name
+					if (fields.name_len > 0)
+					{
+						size_t cpLen = std::min<size_t>(fields.name_len, sizeof(paired.name) - 1);
+						memcpy(paired.name, fields.name, cpLen);
+						paired.name[cpLen] = '\0';
+					}
 
-                    ESP_LOGI(TAG, "Auto-connect 发现配对设备: %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-                            paired.name,
-                            foundBda[0], foundBda[1], foundBda[2],
-                            foundBda[3], foundBda[4], foundBda[5]);
-                }
-                break;
-            }
-        }
-        break;
-    }
+					ESP_LOGI(TAG, "Auto-connect 发现配对设备: %s [%02x:%02x:%02x:%02x:%02x:%02x]",
+						paired.name,
+						foundBda[0], foundBda[1], foundBda[2],
+						foundBda[3], foundBda[4], foundBda[5]);
+				}
+				break;
+			}
+		}
+		break;
+	}
 
-    case BLE_GAP_EVENT_DISC_COMPLETE:
-    {
-        ESP_LOGI(TAG, "Auto-connect 扫描完成，找到 %zu 个配对设备", self.m_foundBdas.size());
+	case BLE_GAP_EVENT_DISC_COMPLETE:
+	{
+		ESP_LOGI(TAG, "Auto-connect 扫描完成，找到 %zu 个配对设备", self.m_connectQueue.size());
+		self.conectNext();
+		break;
+	}
 
-        // 逐台连接（异步，由 connectGapEvent 回调驱动下一台）
-        self.autoConnectNext();
-        break;
-    }
-
-    default:
-        break;
-    }
-    return 0;
+	default:
+		break;
+	}
+	return 0;
 }
 
 void BleGamepad::autoConnectPaired()
 {
-    // 从 NVS 加载配对列表
-    loadPairedFromNvs();
+	// 从 NVS 加载配对列表
+	loadPairedFromNvs();
 
-    if (m_pairedDevices.empty())
-    {
-        ESP_LOGI(TAG, "无配对设备，跳过自动重连");
-        return;
-    }
+	if (m_pairedDevices.empty())
+	{
+		ESP_LOGI(TAG, "无配对设备，跳过自动重连");
+		return;
+	}
 
-    ESP_LOGI(TAG, "开始自动重连，%zu 个配对设备", m_pairedDevices.size());
+	ESP_LOGI(TAG, "开始自动重连，%zu 个配对设备", m_pairedDevices.size());
 
-    // 清空上次扫描结果
-    m_foundBdas.clear();
+	// 清空上次扫描结果
+	m_connectQueue.clear();
 
-    // 启动扫描
-    uint8_t own_addr_type;
-    int rc = ble_hs_id_infer_auto(0, &own_addr_type);
-    if (rc != 0)
-    {
-        ESP_LOGE(TAG, "auto-connect: ble_hs_id_infer_auto failed: %d", rc);
-        own_addr_type = BLE_OWN_ADDR_PUBLIC;
-    }
+	// 启动扫描
+	uint8_t own_addr_type;
+	int rc = ble_hs_id_infer_auto(0, &own_addr_type);
+	if (rc != 0)
+	{
+		ESP_LOGE(TAG, "auto-connect: ble_hs_id_infer_auto failed: %d", rc);
+		own_addr_type = BLE_OWN_ADDR_PUBLIC;
+	}
 
-    struct ble_gap_disc_params params{};
-    params.passive = 1;
-    params.itvl = 0;
-    params.window = 0;
-    params.filter_duplicates = 1;
+	struct ble_gap_disc_params params{};
+	params.passive = 1;
+	params.itvl = 0;
+	params.window = 0;
+	params.filter_duplicates = 1;
 
-    rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(5000), &params, autoScanCb, nullptr);
-    if (rc != 0)
-        ESP_LOGE(TAG, "auto-connect: scan start failed: %d", rc);
-    else
-        ESP_LOGI(TAG, "auto-connect: 扫描中...");
+	rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(5000), &params, autoScanCb, nullptr);
+	if (rc != 0)
+		ESP_LOGE(TAG, "auto-connect: scan start failed: %d", rc);
+	else
+		ESP_LOGI(TAG, "auto-connect: 扫描中...");
 }
 
-void BleGamepad::autoConnectNext()
+void BleGamepad::conectNext(TickType_t delay)
 {
-    while (!m_foundBdas.empty())
-    {
-        const auto& bda = m_foundBdas.front();
-
-        // 跳过已连接的设备（可能在上一次连接成功时已处理）
-        bool alreadyConnected = false;
-        for (int i = 0; i < MaxPlayers; i++)
-        {
-            if (m_devices[i].connected &&
-                memcmp(m_devices[i].bda, bda.data(), 6) == 0)
-            {
-                alreadyConnected = true;
-                break;
-            }
-        }
-        if (alreadyConnected)
-        {
-            m_foundBdas.erase(m_foundBdas.begin());
-            continue;
-        }
-
-        // 构造 ScanDevice，从配对列表取真实 name
-        ScanDevice dev;
-        memcpy(dev.bda, bda.data(), 6);
-        dev.addrType = BLE_ADDR_PUBLIC;
-        dev.name[0] = '\0';
-        for (auto& pd : m_pairedDevices)
-        {
-            if (memcmp(pd.bda, bda.data(), 6) == 0)
-            {
-                strncpy(dev.name, pd.name, sizeof(dev.name) - 1);
-                break;
-            }
-        }
-        if (dev.name[0] == '\0')
-            snprintf(dev.name, sizeof(dev.name), "HID_%02X%02X%02X",
-                     bda[3], bda[4], bda[5]);
-        dev.rssi = 0;
-        dev.appearance = 0;
-
-        ESP_LOGI(TAG, "连接队列 → %s [%02x:%02x:%02x:%02x:%02x:%02x]",
-                 dev.name,
-                 bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-
-        if (connectDirect(dev)) {
-            return;  // 连接发起成功，等 GAP 回调
-        }
-        // 同步失败 → 弹出队首，继续下一台
-        ESP_LOGW(TAG, "发起连接失败，从队列移除并尝试下一台");
-        m_foundBdas.erase(m_foundBdas.begin());
-    }
-
-    // 队列清空
-    ESP_LOGI(TAG, "连接队列已清空");
+	Task::addTask([](void*)
+		{
+			auto& self = BleGamepad::instance();
+			self.conectNext();
+			return Task::infinityTime;
+		}, "ble connect next", nullptr, delay, Task::Affinity::NotAssigned);
 }
 
-void BleGamepad::queueConnect(const uint8_t bda[6])
+void BleGamepad::conectNext()
 {
-    // 去重：检查 BDA 是否已在队列中
-    for (const auto& qbda : m_foundBdas)
-    {
-        if (memcmp(qbda.data(), bda, 6) == 0)
-        {
-            ESP_LOGW(TAG, "BDA 已在连接队列中");
-            return;
-        }
-    }
-    // 检查是否已连接
-    for (int i = 0; i < MaxPlayers; i++)
-    {
-        if (m_devices[i].connected && memcmp(m_devices[i].bda, bda, 6) == 0)
-        {
-            ESP_LOGW(TAG, "设备已连接，无需入队");
-            return;
-        }
-    }
+	while (!m_connectQueue.empty())
+	{
+		const auto& bda = m_connectQueue.front();
 
-    BdaBuffer buf;
-    memcpy(buf.data(), bda, 6);
-    m_foundBdas.push_back(buf);
+		// 跳过已连接的设备（可能在上一次连接成功时已处理）
+		bool alreadyConnected = false;
+		for (int i = 0; i < MaxPlayers; i++)
+		{
+			if (m_devices[i].connected &&
+				memcmp(m_devices[i].bda, bda.data(), 6) == 0)
+			{
+				alreadyConnected = true;
+				break;
+			}
+		}
+		if (alreadyConnected)
+		{
+			m_connectQueue.erase(m_connectQueue.begin());
+			continue;
+		}
 
-    ESP_LOGI(TAG, "已加入连接队列 (%zu 台待连接)", m_foundBdas.size());
+		// 构造 ScanDevice，从配对列表取真实 name
+		ScanDevice dev;
+		memcpy(dev.bda, bda.data(), 6);
+		dev.addrType = BLE_ADDR_PUBLIC;
+		dev.name[0] = '\0';
+		for (auto& pd : m_pairedDevices)
+		{
+			if (memcmp(pd.bda, bda.data(), 6) == 0)
+			{
+				strncpy(dev.name, pd.name, sizeof(dev.name) - 1);
+				break;
+			}
+		}
+		if (dev.name[0] == '\0')
+			snprintf(dev.name, sizeof(dev.name), "HID_%02X%02X%02X",
+				bda[3], bda[4], bda[5]);
+		dev.rssi = 0;
+		dev.appearance = 0;
 
-    // 如果队列之前为空，启动队列处理
-    if (m_foundBdas.size() == 1) {
-        autoConnectNext();
-    }
+		ESP_LOGI(TAG, "连接队列 → %s [%02x:%02x:%02x:%02x:%02x:%02x]",
+			dev.name,
+			bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+
+		if (connectDirect(dev)) {
+			return;  // 连接发起成功，等 GAP 回调
+		}
+		// 同步失败 → 弹出队首，继续下一台
+		ESP_LOGW(TAG, "发起连接失败，从队列移除并尝试下一台");
+		m_connectQueue.erase(m_connectQueue.begin());
+	}
+
+	// 队列清空
+	ESP_LOGI(TAG, "连接队列已清空");
+}
+
+void BleGamepad::connect(const uint8_t bda[6])
+{
+	// 去重：检查 BDA 是否已在队列中
+	for (const auto& qbda : m_connectQueue)
+	{
+		if (memcmp(qbda.data(), bda, 6) == 0)
+		{
+			ESP_LOGW(TAG, "BDA 已在连接队列中");
+			return;
+		}
+	}
+	// 检查是否已连接
+	for (int i = 0; i < MaxPlayers; i++)
+	{
+		if (m_devices[i].connected && memcmp(m_devices[i].bda, bda, 6) == 0)
+		{
+			ESP_LOGW(TAG, "设备已连接，无需入队");
+			return;
+		}
+	}
+
+	BdaBuffer buf;
+	memcpy(buf.data(), bda, 6);
+	m_connectQueue.push_back(buf);
+
+	ESP_LOGI(TAG, "已加入连接队列 (%zu 台待连接)", m_connectQueue.size());
+
+	// 如果队列之前为空，启动队列处理
+	if (m_connectQueue.size() == 1) {
+		conectNext();
+	}
 }
 
 // NimBLE GAP 事件（扫描发现）
@@ -443,7 +453,7 @@ int BleGamepad::scanGapEventCb(struct ble_gap_event* event, void* /*arg*/)
 			struct ble_gap_disc_params params{};
 			params.passive = 1;
 			params.filter_duplicates = 1;
-ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, scanGapEventCb, nullptr);
+			ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, scanGapEventCb, nullptr);
 		}
 		break;
 	}
@@ -665,9 +675,7 @@ void BleGamepad::connect(uint8_t scanIndex)
 		dev.name,
 		dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5]);
 
-	// 连接前停止扫描
-	stopScan();
-	queueConnect(dev.bda);
+	connect(dev.bda);
 }
 
 bool BleGamepad::connectDirect(const ScanDevice& dev)
@@ -857,9 +865,9 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		if (event->connect.status != 0) {
 			ESP_LOGE(TAG, "Connect failed: %d", event->connect.status);
 			// 从队列移除当前失败的设备
-			if (!self.m_foundBdas.empty())
-				self.m_foundBdas.erase(self.m_foundBdas.begin());
-			self.autoConnectNext();
+			if (!self.m_connectQueue.empty())
+				self.m_connectQueue.erase(self.m_connectQueue.begin());
+			self.conectNext();
 			return 0;
 		}
 		uint16_t connHandle = event->connect.conn_handle;
@@ -902,8 +910,8 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		}
 
 		// 从队列移除已连接的设备
-		if (!self.m_foundBdas.empty())
-			self.m_foundBdas.erase(self.m_foundBdas.begin());
+		if (!self.m_connectQueue.empty())
+			self.m_connectQueue.erase(self.m_connectQueue.begin());
 
 		// 发现所有服务并打印
 		int rc = ble_gattc_disc_all_svcs(connHandle, svcDiscCb, nullptr);
@@ -912,7 +920,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 		}
 
 		// 继续连接队列下一台
-		self.autoConnectNext();
+		self.conectNext(500);
 		break;
 	}
 	case BLE_GAP_EVENT_DISCONNECT:
@@ -1028,7 +1036,8 @@ void BleGamepad::movePlayer(uint8_t from, uint8_t to)
 		m_devices[to].playerId = to;
 		ESP_LOGI(TAG, "  交换完成: P%u(%s) ↔ P%u(%s)",
 			from, m_devices[from].name, to, m_devices[to].name);
-	} else {
+	}
+	else {
 		// 目标为空 → 直接移动
 		m_devices[to] = m_devices[from];
 		m_devices[to].playerId = to;

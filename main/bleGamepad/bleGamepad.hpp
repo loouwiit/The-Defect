@@ -39,7 +39,7 @@ public:
     void stopScan();
 
     void connect(uint8_t scanIndex);
-    void queueConnect(const uint8_t bda[6]);   // 将 BDA 加入连接队列，自动逐个处理
+    void connect(const uint8_t bda[6]);
     void disconnect(uint8_t playerId);
     void disconnectAll();
     void movePlayer(uint8_t from, uint8_t to);
@@ -77,13 +77,13 @@ private:
     // GAP 连接事件回调（静态，用作 C 回调）
     static int connectGapEvent(struct ble_gap_event* event, void* arg);
 
-    // ── NVS 内部 ──
     void loadPairedFromNvs();                   // 从 NVS 读取配对 BDA 列表
 
-    // ── 自动重连 ──
     void autoConnectPaired();                   // 启动 5 秒扫描，重连已配对设备
     static int autoScanCb(struct ble_gap_event* event, void* arg); // 自动重连扫描回调
-    void autoConnectNext();                     // 从 m_foundBdas 顺序连接下一台未连接的设备
+
+    void conectNext(TickType_t delay);
+    void conectNext();                     // 从 m_connectQueue 顺序连接下一台未连接的设备
 
     // 内部状态
     Display* m_display{};
@@ -94,12 +94,12 @@ private:
     QueueHandle_t m_inputQueue{};
     TaskHandle_t m_processTask{};
 
-    bool m_scanning{false};
-    bool m_running{false};
+    bool m_scanning{ false };
+    bool m_running{ false };
 
     // ── NVS 配对 ──
     std::vector<PairedDevice> m_pairedDevices;  // 从 NVS 加载的配对设备列表 (BDA+name)
-    std::vector<BdaBuffer> m_foundBdas;         // auto-connect 扫描过程中匹配到的 BDA
+    std::vector<BdaBuffer> m_connectQueue;         // auto-connect 扫描过程中匹配到的 BDA
 
     static BleGamepad* s_instance;
 
