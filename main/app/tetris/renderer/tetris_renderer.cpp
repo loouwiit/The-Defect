@@ -44,7 +44,8 @@ TetrisRenderer::TetrisRenderer(Display* display, lv_obj_t* parent, lv_coord_t pl
 {
     // 根据可用宽度计算格子尺寸
     // boardPad(16) + 10*cs + sideGap(16) + sidePad(12)*2 + 4*(cs*3/4) = 56 + 13*cs
-    m_cellSize = std::max(16, std::min(32,
+    // 同时受高度限制：pad(16) + 22*cs + 按钮(~64) <= 720 → cs <= 29
+    m_cellSize = std::max(16, std::min(29,
         static_cast<int>((playerWidth - 56) / 13)));
     // ── 玩家主容器：flex 列，flex_grow 让 flexRow 自动分配等宽 ──
     m_container = lv_obj_create(parent);
