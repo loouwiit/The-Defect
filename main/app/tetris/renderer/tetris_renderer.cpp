@@ -292,11 +292,18 @@ void TetrisRenderer::createInfoLabels(lv_obj_t* parent)
 //  信息栏
 // ============================================================
 
-void TetrisRenderer::drawInfo(int combo, int garbageFlash)
+void TetrisRenderer::drawInfo(int combo, int garbageFlash, int attackTarget)
 {
-    // 攻击目标（静态，中文缩窄）
-    lv_label_set_text(m_attackLabel, "攻击：其他");
-    lv_obj_clear_flag(m_attackLabel, LV_OBJ_FLAG_HIDDEN);
+    // 攻击目标
+    if (attackTarget >= 0) {
+        char buf[24];
+        snprintf(buf, sizeof(buf), "攻击: P%d", attackTarget + 1);
+        lv_label_set_text(m_attackLabel, buf);
+        lv_obj_clear_flag(m_attackLabel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(m_attackLabel, "攻击: 下家");
+        lv_obj_clear_flag(m_attackLabel, LV_OBJ_FLAG_HIDDEN);
+    }
 
     // 连击（combo=-1 隐藏，0=首次不显示，1+=显示连击 2+）
     if (combo >= 1) {
@@ -541,8 +548,9 @@ void TetrisRenderer::syncState()
     {
         if (cur.score != m_prevState.score
             || cur.combo != m_prevState.combo
-            || cur.garbageFlash != m_prevState.garbageFlash) {
-            drawInfo(cur.combo, cur.garbageFlash);
+            || cur.garbageFlash != m_prevState.garbageFlash
+            || cur.attackTarget != m_prevState.attackTarget) {
+            drawInfo(cur.combo, cur.garbageFlash, cur.attackTarget);
         }
     }
 

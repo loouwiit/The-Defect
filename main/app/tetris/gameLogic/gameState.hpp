@@ -40,6 +40,7 @@ struct GameState {
     // ── 对战 ──
     int pendingGarbage = 0;
     int garbageFlash   = 0;
+    int attackTarget   = -1;  // 攻击目标玩家索引，-1=下家
 
     // ── 状态 ──
     bool gameOver = false;

@@ -145,7 +145,9 @@ public:
     /// 当前方块颜色值
     BoardCell currentColor() const { return pieceToColor(currentPiece.type()); }
 
-    /// 上一次 lockPiece 产生的攻击行数
+    /// 攻击目标
+    int  attackTarget() const { return m_attackTarget; }
+    void setAttackTarget(int t) { m_attackTarget = t; setDirty(DIRTY_SCORE); }
     int  attackOut() const { return m_attackOut; }
     void clearAttackOut()  { m_attackOut = 0; }
 
@@ -170,6 +172,7 @@ public:
 
 private:
     int         m_pieceIndex         = 0;
+    int         m_attackTarget       = -1;  // -1=默认循环下家
     PieceQueue* m_queue              = nullptr;
     int         m_attackOut          = 0;
     int         m_pendingGarbage     = 0;

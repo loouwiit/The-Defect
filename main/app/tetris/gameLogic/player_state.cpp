@@ -88,6 +88,7 @@ void PlayerState::exportState(GameState& out) const
     // ── Battle ──
     out.pendingGarbage = m_pendingGarbage;
     out.garbageFlash   = m_garbageFlash;
+    out.attackTarget   = m_attackTarget;
 
     // ── Status ──
     out.gameOver = gameOver;

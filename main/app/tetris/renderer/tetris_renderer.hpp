@@ -126,5 +126,5 @@ private:
     // 内部渲染辅助方法
     void syncBoard(const Board& board);
     void drawNext(const PieceType preview[4]);
-    void drawInfo(int combo, int garbageFlash);
+    void drawInfo(int combo, int garbageFlash, int attackTarget);
 };

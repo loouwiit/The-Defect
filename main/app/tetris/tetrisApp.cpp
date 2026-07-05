@@ -66,6 +66,7 @@ void TetrisApp::init()
 	for (int i = 0; i < m_playerCount; i++) {
 		m_players[i].setQueue(&m_sharedQueue);
 		m_players[i].init();
+		m_players[i].setAttackTarget((i + 1) % m_playerCount);  // 默认攻击下家
 		m_players[i].exportState(m_gameStates[i]);
 		// 填充初始预览
 		for (int s = 0; s < 4; s++)
@@ -190,6 +191,22 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	p.keyRight = lxRight;
 	p.keySoft  = lyDown;
 
+	// 摇杆上推 → 切换攻击目标（边沿触发）
+	if (lyUp && !m_lastLyUp[playerId]) {
+		int next = p.attackTarget();
+		if (next < 0) next = playerId;  // 从自身开始搜索
+		// 找下一个存活的非自身玩家
+		int attempts = 0;
+		do {
+			next = (next + 1) % m_playerCount;
+			attempts++;
+		} while (attempts < m_playerCount &&
+			(next == playerId || m_players[next].gameOver));
+
+		p.setAttackTarget(next == playerId ? -1 : next);
+	}
+	m_lastLyUp[playerId] = lyUp;
+
 	// A → 逆时针旋转
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A))
 		p.keyCCW = true;
@@ -312,8 +329,21 @@ void TetrisApp::gameLoop()
 		for (int i = 0; i < m_playerCount; i++) {
 			int atk = m_players[i].attackOut();
 			if (atk > 0) {
-				int target = (i + 1) % m_playerCount;
-				m_players[target].addGarbage(atk);
+				int target = m_players[i].attackTarget();
+				// 默认目标 / 目标已死亡 → 找下一个存活的非自身玩家
+				if (target < 0 || m_players[target].gameOver) {
+					target = i;
+					int attempts = 0;
+					do {
+						target = (target + 1) % m_playerCount;
+						attempts++;
+					} while (attempts < m_playerCount &&
+						(target == i || m_players[target].gameOver));
+					if (target == i) target = -1;  // 无人可攻击
+				}
+				if (target >= 0) {
+					m_players[target].addGarbage(atk);
+				}
 				m_players[i].clearAttackOut();
 			}
 		}

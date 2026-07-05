@@ -103,6 +103,7 @@ static cJSON* gameStateToJson(const GameState& state, int playerIndex)
     // battle
     cJSON_AddNumberToObject(root, "g", state.pendingGarbage);
     cJSON_AddNumberToObject(root, "gf", state.garbageFlash);
+    cJSON_AddNumberToObject(root, "at", state.attackTarget);
 
     // status
     cJSON_AddBoolToObject(root, "go", state.gameOver);
@@ -173,6 +174,7 @@ static bool gameStateFromJson(const cJSON* root, GameState& out)
     // battle
     cJSON* g  = cJSON_GetObjectItem(root, "g");  if (g)  out.pendingGarbage = g->valueint;
     cJSON* gf = cJSON_GetObjectItem(root, "gf"); if (gf) out.garbageFlash = gf->valueint;
+    cJSON* at = cJSON_GetObjectItem(root, "at"); if (at) out.attackTarget = at->valueint;
 
     // status
     cJSON* go = cJSON_GetObjectItem(root, "go"); if (go) out.gameOver = cJSON_IsTrue(go);
