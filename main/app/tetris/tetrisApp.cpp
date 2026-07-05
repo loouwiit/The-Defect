@@ -133,36 +133,36 @@ void TetrisApp::deinit()
 
 void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-	// ── 全局 Game Over 模式 ──
+	// ── 统一解析摇杆 / D-pad ──
+	constexpr uint8_t deadZone = 50;
+	constexpr uint8_t center = 128;
+
+	bool lxLeft  = (state.lx < center - deadZone);
+	bool lxRight = (state.lx > center + deadZone);
+	bool lyUp    = (state.ly < center - deadZone);
+	bool lyDown  = (state.ly > center + deadZone);
+
+	if (state.dpad < 8) {
+		lxLeft  = (state.dpad == 6 || state.dpad == 5 || state.dpad == 7);
+		lxRight = (state.dpad == 2 || state.dpad == 1 || state.dpad == 3);
+		lyUp    = (state.dpad == 0 || state.dpad == 1 || state.dpad == 7);
+		lyDown  = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
+	}
+
+	uint16_t newPress = state.buttons & ~m_prevBtnsAll;
+	m_prevBtnsAll = state.buttons;
+
+	// ── 路由：Game Over 界面 ──
 	if (m_allDead) {
-		constexpr uint8_t deadZone = 50;
-		constexpr uint8_t center = 128;
-		bool lxLeft = (state.lx < center - deadZone);
-		bool lxRight = (state.lx > center + deadZone);
-		bool lyUp = (state.ly < center - deadZone);
-		bool lyDown = (state.ly > center + deadZone);
-
-		if (state.dpad < 8) {
-			lxLeft = (state.dpad == 6);
-			lxRight = (state.dpad == 2);
-			lyUp = (state.dpad == 0);
-			lyDown = (state.dpad == 4);
-		}
-
-		uint16_t newPress = state.buttons & ~m_prevBtnsAll;
-		m_prevBtnsAll = state.buttons;
-
-		// A / L3 → 激活
 		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3))) {
-			if (m_focusGameOverIdx == 0)
-				lv_obj_send_event(m_restartBtn, LV_EVENT_CLICKED, nullptr);
-			else
-				lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr);
+			auto guard = display->lockGuard();
+			lv_obj_send_event(
+				m_focusGameOverIdx == 0 ? m_restartBtn : m_backBtn,
+				LV_EVENT_CLICKED, nullptr);
 			return;
 		}
 
-		// 摇杆归位
 		if (!lxLeft && !lxRight && !lyUp && !lyDown) {
 			m_nextMoveTime = 0;
 			return;
@@ -175,7 +175,6 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (lyUp && m_focusGameOverIdx > 0)   m_focusGameOverIdx--;
 		if (lyDown && m_focusGameOverIdx < 1) m_focusGameOverIdx++;
 
-		// 更新聚焦样式
 		auto guard = display->lockGuard();
 		lv_obj_clear_state(m_restartBtn, LV_STATE_FOCUSED);
 		lv_obj_clear_state(m_backBtn, LV_STATE_FOCUSED);
@@ -183,33 +182,13 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		return;
 	}
 
+	// ── 路由：游戏中 ──
 	if (playerId >= m_playerCount) return;
 	auto& p = m_players[playerId];
 
-	constexpr uint8_t deadZone = 50;
-	constexpr uint8_t center = 128;
-
-	// ── 摇杆 → 方向及软降 ──
-	bool lxLeft = (state.lx < center - deadZone);
-	bool lxRight = (state.lx > center + deadZone);
-	bool lyUp = (state.ly < center - deadZone);
-	bool lyDown = (state.ly > center + deadZone);
-
-	// D-pad 补充／覆盖摇杆（dpad 0~7=方向, 15=松开）
-	if (state.dpad < 8) {
-		lxLeft = (state.dpad == 6 || state.dpad == 5 || state.dpad == 7);
-		lxRight = (state.dpad == 2 || state.dpad == 1 || state.dpad == 3);
-		lyUp = (state.dpad == 0 || state.dpad == 1 || state.dpad == 7);
-		lyDown = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
-	}
-
-	p.keyLeft = lxLeft;
+	p.keyLeft  = lxLeft;
 	p.keyRight = lxRight;
-	p.keySoft = lyDown;
-
-	// ── 按钮边沿检测（仅刚按下时触发） ──
-	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
-	m_prevButtons[playerId] = state.buttons;
+	p.keySoft  = lyDown;
 
 	// A → 逆时针旋转
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A))
