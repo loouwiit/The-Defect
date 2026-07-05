@@ -67,8 +67,16 @@ private:
     uint16_t m_prevButtons[MAX_PLAYERS] = {};
 
     // ============================================================
-    //  内部方法
+    //  全局 Game Over
     // ============================================================
+    lv_obj_t* m_gameOverOverlay{};
+    lv_obj_t* m_restartBtn{};
+    lv_obj_t* m_backBtn{};
+    bool      m_allDead = false;
+
+    void createGameOverUI();
+    static void onRestartCb(lv_event_t* e);
+    static void onBackToRoomCb(lv_event_t* e);
 
     static void gameLoopTask(void* param);
     void gameLoop();

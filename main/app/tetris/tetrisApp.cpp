@@ -99,6 +99,9 @@ void TetrisApp::init()
     };
     tetrisNetInit(true, hostCb, {});
 
+    // ── 全局 Game Over UI（初始隐藏） ──
+    createGameOverUI();
+
     // 启动游戏线程
     m_gameThread = new Thread(gameLoopTask, "tetrisGame", this,
                               Thread::Priority::Normal, 4096);
@@ -176,6 +179,77 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 }
 
 // ============================================================
+//  全局 Game Over UI
+// ============================================================
+
+void TetrisApp::createGameOverUI()
+{
+    auto guard = display->lockGuard();
+    if (!guard) return;
+
+    m_gameOverOverlay = lv_obj_create(screen);
+    lv_obj_set_size(m_gameOverOverlay, lv_pct(100), lv_pct(100));
+    lv_obj_set_pos(m_gameOverOverlay, 0, 0);
+    lv_obj_set_style_bg_color(m_gameOverOverlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(m_gameOverOverlay, LV_OPA_60, 0);
+    lv_obj_set_style_border_width(m_gameOverOverlay, 0, 0);
+    lv_obj_add_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    auto title = lv_label_create(m_gameOverOverlay);
+    lv_label_set_text(title, "GAME OVER");
+    lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -60);
+
+    m_restartBtn = lv_button_create(m_gameOverOverlay);
+    lv_obj_set_size(m_restartBtn, 200, 60);
+    lv_obj_set_style_radius(m_restartBtn, 16, 0);
+    lv_obj_set_style_bg_color(m_restartBtn, lv_color_hex(0x4A6CF7), 0);
+    lv_obj_set_style_bg_opa(m_restartBtn, LV_OPA_COVER, 0);
+    lv_obj_set_style_outline_width(m_restartBtn, 3, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(m_restartBtn, lv_color_white(), LV_STATE_FOCUSED);
+    lv_obj_align(m_restartBtn, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_add_event_cb(m_restartBtn, onRestartCb, LV_EVENT_CLICKED, this);
+    auto lblR = lv_label_create(m_restartBtn);
+    lv_label_set_text(lblR, "重新开始");
+    lv_obj_center(lblR);
+
+    m_backBtn = lv_button_create(m_gameOverOverlay);
+    lv_obj_set_size(m_backBtn, 200, 60);
+    lv_obj_set_style_radius(m_backBtn, 16, 0);
+    lv_obj_set_style_bg_color(m_backBtn, lv_color_hex(0x555566), 0);
+    lv_obj_set_style_bg_opa(m_backBtn, LV_OPA_COVER, 0);
+    lv_obj_set_style_outline_width(m_backBtn, 3, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(m_backBtn, lv_color_white(), LV_STATE_FOCUSED);
+    lv_obj_align(m_backBtn, LV_ALIGN_CENTER, 0, 90);
+    lv_obj_add_event_cb(m_backBtn, onBackToRoomCb, LV_EVENT_CLICKED, this);
+    auto lblB = lv_label_create(m_backBtn);
+    lv_label_set_text(lblB, "返回房间");
+    lv_obj_center(lblB);
+}
+
+void TetrisApp::onRestartCb(lv_event_t* e)
+{
+    auto* self = static_cast<TetrisApp*>(lv_event_get_user_data(e));
+    Task::addTask([](void* p) -> TickType_t {
+        auto* app = static_cast<TetrisApp*>(p);
+        app->replaceWith(new TetrisApp(app->display, app->m_playerCount));
+        return Task::infinityTime;
+    }, "tetrisRestart", self, 0, Task::Affinity::None);
+}
+
+void TetrisApp::onBackToRoomCb(lv_event_t* e)
+{
+    auto* self = static_cast<TetrisApp*>(lv_event_get_user_data(e));
+    Task::addTask([](void* p) -> TickType_t {
+        static_cast<TetrisApp*>(p)->popApp();
+        return Task::infinityTime;
+    }, "tetrisBackToRoom", self, 0, Task::Affinity::None);
+}
+
+// ============================================================
 //  游戏循环（Host-authoritative）
 // ============================================================
 
@@ -245,7 +319,18 @@ void TetrisApp::gameLoop()
             snapTick = now;
         }
 
-        // ── 6. 保持 60fps ──
+        // ── 6. 全局 Game Over 检测 ──
+        bool allDead = true;
+        for (int i = 0; i < m_playerCount; i++) {
+            if (!m_players[i].gameOver) { allDead = false; break; }
+        }
+        if (allDead && !m_allDead) {
+            m_allDead = true;
+            if (auto guard = display->lockGuard())
+                lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // ── 7. 保持 60fps ──
         TickType_t elapsed = now - lastTick;
         if (elapsed < pdMS_TO_TICKS(16)) {
             vTaskDelay(pdMS_TO_TICKS(16) - elapsed);
