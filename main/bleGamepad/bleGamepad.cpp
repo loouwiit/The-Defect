@@ -205,7 +205,7 @@ int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
 				}
 				if (!alreadyFound)
 				{
-					self.m_connectQueue.push_back(foundBda);
+					self.connect(foundBda.data());
 
 					// 从广告中更新 name
 					if (fields.name_len > 0)
@@ -229,7 +229,6 @@ int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
 	case BLE_GAP_EVENT_DISC_COMPLETE:
 	{
 		ESP_LOGI(TAG, "Auto-connect 扫描完成，找到 %zu 个配对设备", self.m_connectQueue.size());
-		self.conectNext();
 		break;
 	}
 
@@ -374,7 +373,7 @@ void BleGamepad::connect(const uint8_t bda[6])
 
 	// 如果队列之前为空，启动队列处理
 	if (m_connectQueue.size() == 1) {
-		conectNext();
+		conectNext(0);
 	}
 }
 
@@ -675,6 +674,7 @@ void BleGamepad::connect(uint8_t scanIndex)
 		dev.name,
 		dev.bda[0], dev.bda[1], dev.bda[2], dev.bda[3], dev.bda[4], dev.bda[5]);
 
+	stopScan();
 	connect(dev.bda);
 }
 
@@ -867,7 +867,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 			// 从队列移除当前失败的设备
 			if (!self.m_connectQueue.empty())
 				self.m_connectQueue.erase(self.m_connectQueue.begin());
-			self.conectNext();
+			self.conectNext(0);
 			return 0;
 		}
 		uint16_t connHandle = event->connect.conn_handle;
