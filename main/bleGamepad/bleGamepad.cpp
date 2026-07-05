@@ -205,7 +205,21 @@ int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
 				}
 				if (!alreadyFound)
 				{
-					self.connect(foundBda.data());
+					self.m_connectQueue.push_back(foundBda);
+					if (!self.m_autoConnectPending)
+					{
+						self.m_autoConnectPending = true;
+						Task::addTask([](void* param)
+							{
+								auto& self = *(BleGamepad*)param;
+
+								self.stopScan();
+								self.m_autoConnectPending = false;
+								self.conectNext(0);
+
+								return Task::infinityTime;
+							}, "auto connect", &self);
+					}
 
 					// 从广告中更新 name
 					if (fields.name_len > 0)
@@ -228,7 +242,11 @@ int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
 
 	case BLE_GAP_EVENT_DISC_COMPLETE:
 	{
-		ESP_LOGI(TAG, "Auto-connect 扫描完成，找到 %zu 个配对设备", self.m_connectQueue.size());
+		if (self.m_autoConnectActive && !self.m_autoConnectPending && self.m_connectQueue.empty())
+		{
+			ESP_LOGI(TAG, "自动重连完成，未发现新设备");
+			self.m_autoConnectActive = false;
+		}
 		break;
 	}
 
@@ -249,10 +267,15 @@ void BleGamepad::autoConnectPaired()
 		return;
 	}
 
+	m_autoConnectActive = true;
+	m_autoConnectPending = false;
+
 	ESP_LOGI(TAG, "开始自动重连，%zu 个配对设备", m_pairedDevices.size());
 
 	// 清空上次扫描结果
 	m_connectQueue.clear();
+
+	m_scanning = true;
 
 	// 启动扫描
 	uint8_t own_addr_type;
@@ -332,16 +355,38 @@ void BleGamepad::conectNext()
 			dev.name,
 			bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
-		if (connectDirect(dev)) {
+		int rc = connectDirect(dev);
+		if (rc == 0) {
 			return;  // 连接发起成功，等 GAP 回调
 		}
-		// 同步失败 → 弹出队首，继续下一台
+		if (rc == BLE_HS_EBUSY) {
+			// 扫描取消尚未完成（esp-hosted 异步），稍后重试
+			ESP_LOGW(TAG, "NimBLE 忙，200ms 后重试");
+			Task::addTask([](void*)
+				{
+					BleGamepad::instance().conectNext();
+					return Task::infinityTime;
+				}, "retry connect", nullptr, pdMS_TO_TICKS(200));
+			return;
+		}
+		// 其他错误 → 弹出队首，继续下一台
 		ESP_LOGW(TAG, "发起连接失败，从队列移除并尝试下一台");
 		m_connectQueue.erase(m_connectQueue.begin());
 	}
 
 	// 队列清空
 	ESP_LOGI(TAG, "连接队列已清空");
+
+	// auto-connect 模式：队列为空 → 等一会再扫（给刚连上的设备一点时间）
+	if (m_autoConnectActive) {
+		Task::addTask([](void*)
+			{
+				auto& self = BleGamepad::instance();
+				if (self.m_autoConnectActive)
+					self.autoConnectPaired();
+				return Task::infinityTime;
+			}, "auto reconnect", nullptr, pdMS_TO_TICKS(1000), Task::Affinity::NotAssigned);
+	}
 }
 
 void BleGamepad::connect(const uint8_t bda[6])
@@ -678,7 +723,7 @@ void BleGamepad::connect(uint8_t scanIndex)
 	connect(dev.bda);
 }
 
-bool BleGamepad::connectDirect(const ScanDevice& dev)
+int BleGamepad::connectDirect(const ScanDevice& dev)
 {
 	// 使用原始 NimBLE GAP 连接
 	ble_addr_t addr;
@@ -691,10 +736,9 @@ bool BleGamepad::connectDirect(const ScanDevice& dev)
 	int rc = ble_gap_connect(own_addr_type, &addr, 30000, NULL,
 		connectGapEvent, nullptr);
 	if (rc != 0) {
-		ESP_LOGE(TAG, "ble_gap_connect failed: %d", rc);
-		return false;
+		ESP_LOGW(TAG, "ble_gap_connect failed: %d", rc);
 	}
-	return true;
+	return rc;
 }
 
 // 订阅 CCCD 写回调

@@ -72,7 +72,7 @@ private:
     int playerIdByConnHandle(uint16_t handle) const;
 
     // 直接连接设备（原始 NimBLE GAP）
-    bool connectDirect(const ScanDevice& dev);
+    int connectDirect(const ScanDevice& dev);
 
     // GAP 连接事件回调（静态，用作 C 回调）
     static int connectGapEvent(struct ble_gap_event* event, void* arg);
@@ -96,6 +96,8 @@ private:
 
     bool m_scanning{ false };
     bool m_running{ false };
+    bool m_autoConnectActive{ false };
+    bool m_autoConnectPending{ false };
 
     // ── NVS 配对 ──
     std::vector<PairedDevice> m_pairedDevices;  // 从 NVS 加载的配对设备列表 (BDA+name)
