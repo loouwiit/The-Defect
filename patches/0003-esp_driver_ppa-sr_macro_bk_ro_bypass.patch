@@ -1,0 +1,11 @@
+--- a/components/esp_driver_ppa/src/ppa_srm.c
++++ b/components/esp_driver_ppa/src/ppa_srm.c
+@@ -24,6 +24,8 @@ bool ppa_srm_transaction_on_picked(uint32_t num_chans, const dma2d_trans_channel
+     ppa_dma2d_trans_on_picked_config_t *trans_on_picked_desc = (ppa_dma2d_trans_on_picked_config_t *)user_config;
+     assert(trans_on_picked_desc->trigger_periph == DMA2D_TRIG_PERIPH_PPA_SRM && trans_on_picked_desc->srm_desc && trans_on_picked_desc->ppa_engine);
+ 
++    PPA.sr_byte_order.sr_macro_bk_ro_bypass = 1;
++
+     ppa_srm_oper_t *srm_trans_desc = (ppa_srm_oper_t *)trans_on_picked_desc->srm_desc;
+     ppa_srm_engine_t *srm_engine = __containerof(trans_on_picked_desc->ppa_engine, ppa_srm_engine_t, base);
+     ppa_platform_t *platform = srm_engine->base.platform;

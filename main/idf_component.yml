@@ -24,3 +24,4 @@ dependencies:
   lvgl/lvgl: ^9.4.0
   espressif/esp_codec_dev: ^1.5.10
   espressif/esp_audio_render: ^0.8.1
+  espressif/adc_battery_estimation: ^0.2.1

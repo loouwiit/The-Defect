@@ -3,6 +3,9 @@
 #include "app/appStackManager.hpp"
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
+#include "app/wifiSettingsApp/wifiSettingsApp.hpp"
+#include "app/timeSettingsApp/timeSettingsApp.hpp"
+#include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisApp.hpp"
 #include "audio/Audio.hpp"
@@ -13,6 +16,8 @@
 #include "freertos/task.h"
 #include "display/font.hpp"
 #include "display/ili9881c.hpp"
+#include "adc_battery_estimation.h"
+#include <ctime>
 
 // ========== 游戏数据 ==========
 
@@ -72,16 +77,60 @@ void DesktopApp::init()
 
 	buildUi();
 
+	// 创建时间更新定时器（每 10 秒更新一次）
+	m_timeTimer = lv_timer_create([](lv_timer_t* t) {
+		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
+		time_t now = time(nullptr);
+		struct tm timeinfo;
+		localtime_r(&now, &timeinfo);
+		if (timeinfo.tm_year > (2024 - 1900))
+		{
+			char buf[8];
+			strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
+			lv_label_set_text(self->m_timeLabel, buf);
+		}
+		}, 10000, this);
+	lv_timer_ready(m_timeTimer); // 首帧立即触发
+
 	// 初始聚焦
 	m_focusGroup = FOCUS_CARDS;
 	m_focusCardsIdx = 0;
 	applyFocus();
+
+	// ── 初始化电池 ADC ──
+	adc_battery_estimation_t batCfg = {};
+	batCfg.internal.adc_unit      = ADC_UNIT_2;
+	batCfg.internal.adc_bitwidth  = ADC_BITWIDTH_DEFAULT;
+	batCfg.internal.adc_atten     = ADC_ATTEN_DB_12;
+	batCfg.adc_channel            = ADC_CHANNEL_2;
+	batCfg.upper_resistor         = 10.2f;
+	batCfg.lower_resistor         = 5.1f;
+	m_batteryHandle = adc_battery_estimation_create(&batCfg);
+
+	m_batteryTimer = lv_timer_create([](lv_timer_t* t) {
+		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
+		self->updateBatteryIcon();
+	}, 5000, this);
+	updateBatteryIcon();
 
 	ESP_LOGI(TAG, "桌面初始化完成");
 }
 
 void DesktopApp::deinit()
 {
+	if (m_timeTimer)
+	{
+		lv_timer_del(m_timeTimer);
+		m_timeTimer = nullptr;
+	}
+	if (m_batteryTimer) {
+		lv_timer_del(m_batteryTimer);
+		m_batteryTimer = nullptr;
+	}
+	if (m_batteryHandle) {
+		adc_battery_estimation_destroy((adc_battery_estimation_handle_t)m_batteryHandle);
+		m_batteryHandle = nullptr;
+	}
 	App::deinit();
 	ESP_LOGI(TAG, "桌面已释放");
 }
@@ -125,8 +174,26 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_border_width(status_row, 0, 0);
 	lv_obj_set_style_bg_opa(status_row, LV_OPA_TRANSP, 0);
 
-	auto time_label = GUI::createLabel(status_row, "21:44");
-	lv_obj_set_style_text_color(time_label, GUI::Color::TEXT, 0);
+	m_timeLabel = GUI::createLabel(status_row, "--:--");
+	lv_obj_set_style_text_color(m_timeLabel, GUI::Color::TEXT, 0);
+	lv_obj_add_flag(m_timeLabel, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_timeLabel, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		self->m_focusGroup = FOCUS_STATUS;
+		self->m_focusStatusIdx = 0;
+		Task::addTask([](void* param) -> TickType_t
+			{
+				auto* app = static_cast<DesktopApp*>(param);
+				if (app->getManager()) {
+					auto* timeApp = new TimeSettingsApp(app->getDisplay());
+					app->getManager()->pushToNewStack(timeApp);
+				}
+				return Task::infinityTime;
+			}, "openTimeSettings", self, 0, Task::Affinity::NotAssigned);
+		}, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_outline_width(m_timeLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_timeLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_timeLabel, 2, LV_STATE_FOCUSED);
 
 	// ── 弹性分隔符（flex_grow 参考系，分隔时钟与状态图标） ──
 	m_statusSpacer = lv_obj_create(status_row);
@@ -144,8 +211,17 @@ void DesktopApp::buildUi()
 	lv_obj_add_event_cb(m_wifiLabel, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 0;
-		ESP_LOGI(TAG, "WiFi 设置（待实现）");
+		self->m_focusStatusIdx = 1;
+		/* LVGL 事件回调中持锁，栈操作须延后 */
+		Task::addTask([](void* param) -> TickType_t
+			{
+				auto* app = static_cast<DesktopApp*>(param);
+				if (app->getManager()) {
+					auto* wifiApp = new WifiSettingsApp(app->getDisplay());
+					app->getManager()->pushToNewStack(wifiApp);
+				}
+				return Task::infinityTime;
+			}, "openWifiSettings", self, 0, Task::Affinity::NotAssigned);
 		}, LV_EVENT_CLICKED, this);
 	lv_obj_set_style_outline_width(m_wifiLabel, 3, LV_STATE_FOCUSED);
 	lv_obj_set_style_outline_color(m_wifiLabel, lv_color_white(), LV_STATE_FOCUSED);
@@ -184,7 +260,6 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_outline_pad(m_brightnessLabel, 2, LV_STATE_FOCUSED);
 
 	m_batteryLabel = GUI::createLabel(status_row, LV_SYMBOL_BATTERY_FULL);
-	lv_obj_set_style_text_color(m_batteryLabel, GUI::Color::SUCCESS, 0);
 	lv_obj_set_style_text_font(m_batteryLabel, LV_FONT_DEFAULT, 0);
 	lv_obj_add_flag(m_batteryLabel, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_add_event_cb(m_batteryLabel, onBatteryLabelCb, LV_EVENT_CLICKED, this);
@@ -324,6 +399,7 @@ void DesktopApp::applyFocus()
 			if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED);
 		};
 
+	clearFocus(m_timeLabel);
 	clearFocus(m_wifiLabel);
 	clearFocus(m_bluetoothLabel);
 	clearFocus(m_volumeLabel);
@@ -355,8 +431,8 @@ void DesktopApp::applyFocus()
 
 	case FOCUS_STATUS:
 	{
-		lv_obj_t* targets[] = { m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_batteryLabel };
-		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < 5)
+		lv_obj_t* targets[] = { m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_batteryLabel };
+		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < 6)
 			focus(targets[m_focusStatusIdx]);
 		break;
 	}
@@ -377,7 +453,7 @@ void DesktopApp::activateFocus()
 
 	case FOCUS_STATUS:
 	{
-		lv_obj_t* target[]{ m_wifiLabel, m_bluetoothLabel,m_volumeLabel,m_brightnessLabel,m_batteryLabel };
+		lv_obj_t* target[]{ m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_batteryLabel };
 		auto guard = display->lockGuard();
 		lv_obj_send_event(target[m_focusStatusIdx],
 			LV_EVENT_CLICKED, nullptr);
@@ -463,7 +539,6 @@ void DesktopApp::startGame()
 		break;
 
 	case 1:
-		// 水果忍者（待实现）
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
 		break;
 
@@ -539,7 +614,7 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 	case FOCUS_STATUS:
 		// 音量滑块激活时的特殊处理
-		if (m_volumeSliderActive && m_focusStatusIdx == 2)
+		if (m_volumeSliderActive && m_focusStatusIdx == 3)
 		{
 			if (lxLeft) {
 				auto guard = display->lockGuard();
@@ -560,7 +635,7 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		}
 
 		// 亮度滑块激活时的特殊处理
-		if (m_brightnessSliderActive && m_focusStatusIdx == 3)
+		if (m_brightnessSliderActive && m_focusStatusIdx == 4)
 		{
 			if (lxLeft) {
 				auto guard = display->lockGuard();
@@ -581,15 +656,15 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		}
 
 		// 非滑块激活时的状态栏导航
-		if (!(m_volumeSliderActive && m_focusStatusIdx == 2) &&
-			!(m_brightnessSliderActive && m_focusStatusIdx == 3))
+		if (!(m_volumeSliderActive && m_focusStatusIdx == 3) &&
+			!(m_brightnessSliderActive && m_focusStatusIdx == 4))
 		{
 			if (lxLeft && m_focusStatusIdx > 0)
 			{
 				m_focusStatusIdx--;
 				applyFocus();
 			}
-			if (lxRight && m_focusStatusIdx < 4)
+			if (lxRight && m_focusStatusIdx < 5)
 			{
 				m_focusStatusIdx++;
 				applyFocus();
@@ -886,7 +961,7 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-	self->m_focusStatusIdx = 2;
+		self->m_focusStatusIdx = 3;
 	if (self->m_volumeSliderActive)
 		self->hideVolumeSlider();
 	else
@@ -898,7 +973,7 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-	self->m_focusStatusIdx = 3;
+		self->m_focusStatusIdx = 4;
 	if (self->m_brightnessSliderActive)
 		self->hideBrightnessSlider();
 	else
@@ -910,6 +985,42 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-	self->m_focusStatusIdx = 4;
-	ESP_LOGI(TAG, "电源管理（待实现）");
+		self->m_focusStatusIdx = 5;
+
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* app = static_cast<DesktopApp*>(param);
+			if (app->getManager()) {
+				auto* powerApp = new PowerManagementApp(app->getDisplay());
+				app->getManager()->pushToNewStack(powerApp);
+			}
+			return Task::infinityTime;
+		}, "openPowerMgr", self, 0, Task::Affinity::NotAssigned);
+}
+
+void DesktopApp::updateBatteryIcon()
+{
+	if (!m_batteryHandle) return;
+
+	float capacity = 0;
+	if (adc_battery_estimation_get_capacity(
+			(adc_battery_estimation_handle_t)m_batteryHandle, &capacity) != ESP_OK)
+		return;
+
+	int pct = (int)(capacity + 0.5f);
+
+	const char* icon;
+	if (pct >= 80)       icon = LV_SYMBOL_BATTERY_FULL;
+	else if (pct >= 60)  icon = LV_SYMBOL_BATTERY_3;
+	else if (pct >= 40)  icon = LV_SYMBOL_BATTERY_2;
+	else if (pct >= 20)  icon = LV_SYMBOL_BATTERY_1;
+	else                 icon = LV_SYMBOL_BATTERY_EMPTY;
+
+	lv_color_t color;
+	if (pct >= 61)       color = GUI::Color::SUCCESS;
+	else if (pct >= 21)  color = GUI::Color::WARNING;
+	else                 color = GUI::Color::DANGER;
+
+	lv_label_set_text(m_batteryLabel, icon);
+	lv_obj_set_style_text_color(m_batteryLabel, color, 0);
 }

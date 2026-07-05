@@ -277,8 +277,8 @@ CONFIG_LV_FONT_DEFAULT_MONTSERRAT_32=y
 # ============================================================
 # PPA (Pixel Processing Accelerator) — ESP32-P4 2D 加速
 # ============================================================
-CONFIG_LV_USE_PPA=y
-CONFIG_LV_USE_PPA_IMG=y
+# CONFIG_LV_USE_PPA is not set
+# CONFIG_LV_USE_PPA_IMG is not set
 CONFIG_LV_CACHE_DEF_SIZE=1048576
 
 # ============================================================

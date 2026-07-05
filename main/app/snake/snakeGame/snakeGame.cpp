@@ -102,7 +102,7 @@ void SnakeGame::init()
 	lv_label_set_text(m_gameOverLabel, "游戏结束");
 	lv_obj_set_style_text_color(m_gameOverLabel, lv_color_hex(Color::FOOD), 0);
 	lv_obj_set_style_text_font(m_gameOverLabel, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
-	lv_obj_align(m_gameOverLabel, LV_ALIGN_CENTER, 0, -140);
+	lv_obj_align(m_gameOverLabel, LV_ALIGN_CENTER, 0, -160);
 	lv_obj_add_flag(m_gameOverLabel, LV_OBJ_FLAG_HIDDEN);
 
 	// 重新开始按钮（初始隐藏）
@@ -115,8 +115,11 @@ void SnakeGame::init()
 	lv_obj_set_style_shadow_color(m_restartBtn, lv_color_hex(Color::BTN_1P), 0);
 	lv_obj_set_style_shadow_opa(m_restartBtn, LV_OPA_40, 0);
 	lv_obj_set_style_border_width(m_restartBtn, 0, 0);
-	lv_obj_set_style_outline_width(m_restartBtn, 0, LV_STATE_FOCUSED);
-	lv_obj_align(m_restartBtn, LV_ALIGN_CENTER, 0, -10);
+	lv_obj_set_style_outline_width(m_restartBtn, 4, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_restartBtn, lv_color_hex(0xFFFFFFFF), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_opa(m_restartBtn, LV_OPA_60, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_restartBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_align(m_restartBtn, LV_ALIGN_CENTER, 0, 30);
 	auto lblRestart = lv_label_create(m_restartBtn);
 	lv_label_set_text(lblRestart, "重新开始");
 	lv_obj_set_style_text_color(lblRestart, lv_color_hex(0x000000), 0);
@@ -142,8 +145,11 @@ void SnakeGame::init()
 	lv_obj_set_style_shadow_color(m_backBtn, lv_color_hex(0xff555566), 0);
 	lv_obj_set_style_shadow_opa(m_backBtn, LV_OPA_40, 0);
 	lv_obj_set_style_border_width(m_backBtn, 0, 0);
-	lv_obj_set_style_outline_width(m_backBtn, 0, LV_STATE_FOCUSED);
-	lv_obj_align(m_backBtn, LV_ALIGN_CENTER, 0, 70);
+	lv_obj_set_style_outline_width(m_backBtn, 4, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_backBtn, lv_color_hex(0xFFFFFFFF), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_opa(m_backBtn, LV_OPA_60, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_backBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_align(m_backBtn, LV_ALIGN_CENTER, 0, 110);
 	auto lblBack = lv_label_create(m_backBtn);
 	lv_label_set_text(lblBack, "返回菜单");
 	lv_obj_set_style_text_color(lblBack, lv_color_hex(Color::TEXT), 0);
@@ -575,6 +581,7 @@ void SnakeGame::updateScene()
 		lv_obj_clear_flag(m_gameOverScoreLabel, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_clear_flag(m_restartBtn, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_clear_flag(m_backBtn, LV_OBJ_FLAG_HIDDEN);
+		applyFocus();
 	}
 	else
 	{
@@ -583,6 +590,45 @@ void SnakeGame::updateScene()
 		lv_obj_add_flag(m_restartBtn, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_add_flag(m_backBtn, LV_OBJ_FLAG_HIDDEN);
 	}
+}
+
+// ============================================================
+// 焦点导航
+// ============================================================
+
+void SnakeGame::applyFocus()
+{
+	auto clear = [](lv_obj_t* obj) { if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
+	auto focus = [](lv_obj_t* obj) { if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
+
+	clear(m_restartBtn);
+	clear(m_backBtn);
+
+	switch (m_focusIdx)
+	{
+	case 0: focus(m_restartBtn); break;
+	case 1: focus(m_backBtn);    break;
+	}
+}
+
+void SnakeGame::activateFocus()
+{
+	switch (m_focusIdx)
+	{
+	case 0: lv_obj_send_event(m_restartBtn, LV_EVENT_CLICKED, nullptr); break;
+	case 1: lv_obj_send_event(m_backBtn,   LV_EVENT_CLICKED, nullptr); break;
+	}
+}
+
+void SnakeGame::onForeground()
+{
+	// 全置按下：下一帧 newPress = 0，跳过边沿检测
+	m_prevButtons = 0xFFFF;
+	for (auto& t : m_nextMoveTime) t = 0;
+	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
+	m_focusIdx = 0;
+	if (auto guard = display->lockGuard())
+		applyFocus();
 }
 
 // ============================================================
@@ -783,4 +829,81 @@ void SnakeGame::gameLoop(void* param)
 
 	while (true)
 		vTaskDelay(5000); // 等待delete的时候删除
+}
+
+void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
+{
+	constexpr uint8_t deadZone = 50;
+	constexpr uint8_t center = 128;
+
+	bool lxLeft = (state.lx < center - deadZone);
+	bool lxRight = (state.lx > center + deadZone);
+	bool lyUp = (state.ly < center - deadZone);
+	bool lyDown = (state.ly > center + deadZone);
+
+	// ── 边沿检测：仅刚按下的按钮有效 ──
+	uint16_t newPress = state.buttons & ~m_prevButtons;
+	m_prevButtons = state.buttons;
+
+	auto gameState = m_logic.getState();
+
+	// ── BTN_B：GameOver 时返回菜单 ──
+	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	{
+		if (gameState == SnakeGameLogic::State::GameOver)
+		{
+			Task::addTask([](void* p) -> TickType_t {
+				static_cast<SnakeGame*>(p)->popApp();
+				return Task::infinityTime;
+			}, "backToRoom", this, 0, Task::Affinity::None);
+			return;
+		}
+	}
+
+	// ── 激活 (BTN_A / BTN_L3) ──
+	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
+	{
+		if (m_nextActionTime < xTaskGetTickCount())
+		{
+			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
+			if (gameState == SnakeGameLogic::State::GameOver)
+			{
+				activateFocus();
+				return;
+			}
+			else if (gameState == SnakeGameLogic::State::Paused)
+				m_logic.setState(SnakeGameLogic::State::Playing);
+			else if (gameState == SnakeGameLogic::State::Playing)
+				m_logic.setState(SnakeGameLogic::State::Paused);
+		}
+	}
+
+	// ── 摇杆归位判断 ──
+	if (!lxLeft && !lxRight && !lyUp && !lyDown)
+	{
+		m_nextMoveTime[playerId] = 0;
+		return;
+	}
+	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+
+	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+
+	if (gameState == SnakeGameLogic::State::Playing)
+	{
+		if (lxLeft) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Left);
+		else if (lxRight) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Right);
+		else if (lyUp) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Up);
+		else if (lyDown) setDirAndStart(this, playerId, SnakeGameLogic::Direction::Down);
+	}
+	else if (gameState == SnakeGameLogic::State::GameOver)
+	{
+		// ── 上下导航焦点 ──
+		if (lyUp && m_focusIdx > 0)   m_focusIdx--;
+		if (lyDown && m_focusIdx < 1) m_focusIdx++;
+
+		auto guard = display->lockGuard();
+		applyFocus();
+	}
 }
