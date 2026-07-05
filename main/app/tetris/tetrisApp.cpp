@@ -14,8 +14,8 @@ static constexpr int SCREEN_H     = 720;
 //  构造 / 析构
 // ============================================================
 
-TetrisApp::TetrisApp(Display* display)
-    : App(display)
+TetrisApp::TetrisApp(Display* display, int playerCount)
+    : App(display), m_playerCount(playerCount)
 {
 }
 
@@ -52,9 +52,9 @@ void TetrisApp::init()
     lv_obj_set_flex_flow(flexRow, LV_FLEX_FLOW_ROW);
     lv_obj_set_scrollbar_mode(flexRow, LV_SCROLLBAR_MODE_OFF);
 
-    // 每玩家宽度由人数决定，flex_grow 自动分配剩余空间
-    lv_coord_t playerW = SCREEN_W / PLAYER_COUNT;
-    for (int i = 0; i < PLAYER_COUNT; i++) {
+    // 每玩家宽度由人数决定
+    lv_coord_t playerW = SCREEN_W / m_playerCount;
+    for (int i = 0; i < m_playerCount; i++) {
         m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
         m_renderers[i]->bindGameState(&m_gameStates[i]);
         m_renderers[i]->bindPlayer(&m_players[i]);
@@ -63,7 +63,7 @@ void TetrisApp::init()
     // 初始化共享出块队列 + 游戏状态
     m_sharedQueue.reset();
 
-    for (int i = 0; i < PLAYER_COUNT; i++) {
+    for (int i = 0; i < m_playerCount; i++) {
         m_players[i].setQueue(&m_sharedQueue);
         m_players[i].init();
         m_players[i].exportState(m_gameStates[i]);
@@ -79,7 +79,7 @@ void TetrisApp::init()
     };
     hostCb.onInput = [this](int playerId, const char* key, bool down) {
         int target = playerId;
-        if (target < 0 || target >= PLAYER_COUNT) target = 0;
+        if (target < 0 || target >= m_playerCount) target = 0;
         auto& p = m_players[target];
         if (strcmp(key, "left") == 0) {
             p.keyLeft = down;
@@ -116,7 +116,7 @@ void TetrisApp::deinit()
         m_gameThread = nullptr;
     }
 
-    for (int i = 0; i < PLAYER_COUNT; i++) {
+    for (int i = 0; i < m_playerCount; i++) {
         delete m_renderers[i];
         m_renderers[i] = nullptr;
     }
@@ -130,7 +130,7 @@ void TetrisApp::deinit()
 
 void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-    if (playerId >= PLAYER_COUNT) return;
+    if (playerId >= m_playerCount) return;
     auto& p = m_players[playerId];
 
     constexpr uint8_t deadZone = 50;
@@ -198,7 +198,7 @@ void TetrisApp::gameLoop()
         tetrisNetUpdate();
 
         // ── 2. 推进所有玩家的游戏逻辑 ──
-        for (int i = 0; i < PLAYER_COUNT; i++) {
+        for (int i = 0; i < m_playerCount; i++) {
             if (!m_players[i].gameOver) {
                 m_players[i].processInput();
                 m_players[i].updateGame();  // 内部可能 lockPiece → spawnPiece
@@ -206,17 +206,17 @@ void TetrisApp::gameLoop()
         }
 
         // ── 3. 跨玩家攻击路由 ──
-        for (int i = 0; i < PLAYER_COUNT; i++) {
+        for (int i = 0; i < m_playerCount; i++) {
             int atk = m_players[i].attackOut();
             if (atk > 0) {
-                int target = (i + 1) % PLAYER_COUNT;
+                int target = (i + 1) % m_playerCount;
                 m_players[target].addGarbage(atk);
                 m_players[i].clearAttackOut();
             }
         }
 
         // ── 4. 导出 GameState + 渲染（含预览，基于每玩家游标）──
-        for (int i = 0; i < PLAYER_COUNT; i++) {
+        for (int i = 0; i < m_playerCount; i++) {
             // 填充预览（基于该玩家游标位置，考虑 Hold 槽）
             bool prevChanged = false;
             for (int s = 0; s < 4; s++) {
@@ -240,7 +240,7 @@ void TetrisApp::gameLoop()
         int remoteFd = tetrisNetHostGetFirstClientFd();
         if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(50)) {
             int target = tetrisNetHostGetClientTarget();
-            if (target < 0 || target >= PLAYER_COUNT) target = 0;
+            if (target < 0 || target >= m_playerCount) target = 0;
             tetrisNetHostSendSnapshot(remoteFd, target, m_gameStates[target]);
             snapTick = now;
         }

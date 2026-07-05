@@ -8,6 +8,7 @@
 #include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisApp.hpp"
+#include "app/tetris/tetrisRoomApp.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
@@ -529,8 +530,8 @@ void DesktopApp::startGame()
 		break;
 
 	case 2:
-		// 俄罗斯方块 — 通过 AppStack 启动
-		m_manager->pushToNewStack(new TetrisApp(display));
+		// 俄罗斯方块 — 先打开房间选人
+		m_manager->pushToNewStack(new TetrisRoomApp(display));
 		break;
 
 	default:

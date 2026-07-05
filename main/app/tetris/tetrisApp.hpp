@@ -22,7 +22,7 @@ class TetrisApp : public App
 public:
     constexpr static char TAG[] = "TetrisApp";
 
-    TetrisApp(Display* display);
+    TetrisApp(Display* display, int playerCount = 3);
     ~TetrisApp() override;
 
     void init() override;
@@ -32,7 +32,9 @@ public:
     void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
 
 private:
-    static constexpr int PLAYER_COUNT = 3;
+    int m_playerCount;
+
+    static constexpr int MAX_PLAYERS = 3;
 
     // ============================================================
     //  共享出块队列（所有玩家共用唯一 next() 游标）
@@ -42,17 +44,17 @@ private:
     // ============================================================
     //  游戏逻辑（仅 Host 运行）
     // ============================================================
-    PlayerState m_players[PLAYER_COUNT];
+    PlayerState m_players[MAX_PLAYERS];
 
     // ============================================================
     //  导出状态（供 Renderer / Network 使用）
     // ============================================================
-    GameState   m_gameStates[PLAYER_COUNT];
+    GameState   m_gameStates[MAX_PLAYERS];
 
     // ============================================================
     //  渲染（每玩家独立）
     // ============================================================
-    TetrisRenderer* m_renderers[PLAYER_COUNT] = {};
+    TetrisRenderer* m_renderers[MAX_PLAYERS] = {};
 
     // ============================================================
     //  游戏线程
@@ -62,7 +64,7 @@ private:
     // ============================================================
     //  手柄输入状态
     // ============================================================
-    uint16_t m_prevButtons[PLAYER_COUNT] = {};
+    uint16_t m_prevButtons[MAX_PLAYERS] = {};
 
     // ============================================================
     //  内部方法
