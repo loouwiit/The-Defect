@@ -1,4 +1,5 @@
 #include "tetris_client.hpp"
+#include <esp_heap_caps.h>
 #include <cstring>
 
 // ============================================================
@@ -368,7 +369,7 @@ uint16_t Board::getColumnMask(int y) const
 }
 
 // ============================================================
-//  PieceQueue 实现 (7-bag 链表)
+//  PieceQueue 实现 (7-bag 动态链表，按索引自增长)
 // ============================================================
 
 static FastRng s_rng(12345678);
@@ -380,30 +381,42 @@ PieceQueue::PieceQueue()
 
 PieceQueue::~PieceQueue()
 {
-    // m_pool 是栈数组，无需额外释放
+    freeAll();
 }
 
 void PieceQueue::reset()
 {
-    m_poolNext = 0;
-    m_pos = 7;  // 强制下次 next() 取新 bag
+    freeAll();
 
-    // 分配第一个 bag
-    m_head = allocBag();
-    shuffleBag(m_head->pieces);
-    m_head->next = nullptr;
-    m_pos = 0;
-
-    // 预分配后续 bag
-    ensureAhead();
+    m_head = allocNode();
+    if (m_head) {
+        shuffleBag(m_head->pieces);
+        m_tail = m_head;
+        m_totalNodes = 1;
+    }
 }
 
-BagNode* PieceQueue::allocBag()
+PieceQueue::Node* PieceQueue::allocNode()
 {
-    BagNode* node = &m_pool[m_poolNext];
-    m_poolNext = (m_poolNext + 1) % POOL_SIZE;
-    node->next = nullptr;
+    auto* node = static_cast<Node*>(
+        heap_caps_malloc(sizeof(Node), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (node) {
+        node->next = nullptr;
+    }
     return node;
+}
+
+void PieceQueue::freeAll()
+{
+    Node* node = m_head;
+    while (node) {
+        Node* next = node->next;
+        heap_caps_free(node);
+        node = next;
+    }
+    m_head = nullptr;
+    m_tail = nullptr;
+    m_totalNodes = 0;
 }
 
 void PieceQueue::shuffleBag(PieceType* bag)
@@ -417,66 +430,35 @@ void PieceQueue::shuffleBag(PieceType* bag)
     }
 }
 
-void PieceQueue::ensureAhead()
+void PieceQueue::ensureAtLeast(int totalNodes)
 {
-    // 确保当前 bag 后面至少有 2 个预分配的 bag
-    BagNode* node = m_head;
-    int depth = 0;
-    while (node->next && depth < 2) {
-        node = node->next;
-        depth++;
-    }
-    while (depth < 2) {
-        node->next = allocBag();
-        node = node->next;
+    while (m_totalNodes < totalNodes) {
+        Node* node = allocNode();
+        if (!node) break;  // OOM 保护
         shuffleBag(node->pieces);
-        depth++;
-    }
-}
-
-PieceType PieceQueue::next()
-{
-    if (m_pos >= 7) {
-        // 前进到下一个 bag
-        m_head = m_head->next;
-        m_pos = 0;
-        // 确保后续 bag 充足
-        ensureAhead();
-    }
-
-    return m_head->pieces[m_pos++];
-}
-
-PieceType PieceQueue::peek(int index) const
-{
-    int pos = m_pos + index;
-    const BagNode* node = m_head;
-
-    while (pos >= 7) {
-        if (!node->next)
-            return PieceType::NONE;  // 不应发生（ensureAhead 保证）
-        node = node->next;
-        pos -= 7;
-    }
-
-    return node->pieces[pos];
-}
-
-int PieceQueue::serialize(PieceType* out, int maxCount) const
-{
-    int count = 0;
-    int pos = m_pos;
-    const BagNode* node = m_head;
-
-    while (node && count < maxCount) {
-        while (pos < 7 && count < maxCount) {
-            out[count++] = node->pieces[pos++];
+        if (m_tail) {
+            m_tail->next = node;
+        } else {
+            m_head = node;
         }
-        node = node->next;
-        pos = 0;
+        m_tail = node;
+        m_totalNodes++;
     }
+}
 
-    return count;
+PieceType PieceQueue::peek(int index)
+{
+    int nodeIdx = index / 7;
+    ensureAtLeast(nodeIdx + 1);  // 保证目标节点存在
+
+    Node* node = m_head;
+    for (int i = 0; i < nodeIdx; i++) {
+        if (!node) return PieceType::NONE;
+        node = node->next;
+    }
+    if (!node) return PieceType::NONE;
+
+    return node->pieces[index % 7];
 }
 
 // ============================================================

@@ -17,7 +17,7 @@
 #include "freertos/task.h"
 #include "display/font.hpp"
 #include "display/ili9881c.hpp"
-#include "adc_battery_estimation.h"
+#include "battery/batteryManager.hpp"
 #include <ctime>
 
 // ========== 游戏数据 ==========
@@ -98,20 +98,10 @@ void DesktopApp::init()
 	m_focusCardsIdx = 0;
 	applyFocus();
 
-	// ── 初始化电池 ADC ──
-	adc_battery_estimation_t batCfg = {};
-	batCfg.internal.adc_unit      = ADC_UNIT_2;
-	batCfg.internal.adc_bitwidth  = ADC_BITWIDTH_DEFAULT;
-	batCfg.internal.adc_atten     = ADC_ATTEN_DB_12;
-	batCfg.adc_channel            = ADC_CHANNEL_2;
-	batCfg.upper_resistor         = 10.2f;
-	batCfg.lower_resistor         = 5.1f;
-	m_batteryHandle = adc_battery_estimation_create(&batCfg);
-
 	m_batteryTimer = lv_timer_create([](lv_timer_t* t) {
 		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
 		self->updateBatteryIcon();
-	}, 5000, this);
+		}, 5000, this);
 	updateBatteryIcon();
 
 	ESP_LOGI(TAG, "桌面初始化完成");
@@ -127,10 +117,6 @@ void DesktopApp::deinit()
 	if (m_batteryTimer) {
 		lv_timer_del(m_batteryTimer);
 		m_batteryTimer = nullptr;
-	}
-	if (m_batteryHandle) {
-		adc_battery_estimation_destroy((adc_battery_estimation_handle_t)m_batteryHandle);
-		m_batteryHandle = nullptr;
 	}
 	App::deinit();
 	ESP_LOGI(TAG, "桌面已释放");
@@ -967,7 +953,7 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 3;
+	self->m_focusStatusIdx = 3;
 	if (self->m_volumeSliderActive)
 		self->hideVolumeSlider();
 	else
@@ -979,7 +965,7 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 4;
+	self->m_focusStatusIdx = 4;
 	if (self->m_brightnessSliderActive)
 		self->hideBrightnessSlider();
 	else
@@ -991,7 +977,7 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 5;
+	self->m_focusStatusIdx = 5;
 
 	Task::addTask([](void* param) -> TickType_t
 		{
@@ -1006,27 +992,24 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 
 void DesktopApp::updateBatteryIcon()
 {
-	if (!m_batteryHandle) return;
-
-	float capacity = 0;
-	if (adc_battery_estimation_get_capacity(
-			(adc_battery_estimation_handle_t)m_batteryHandle, &capacity) != ESP_OK)
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGW(TAG, "Failed to lock display @ Desktop::updateBatteryIcon");
 		return;
+	}
 
-	int pct = (int)(capacity + 0.5f);
+	if (BatteryManager::instance().isCharging())
+	{
+		BatteryManager::startChargingAnim(m_batteryLabel);
+	}
+	else
+	{
+		BatteryManager::stopChargingAnim(m_batteryLabel);
 
-	const char* icon;
-	if (pct >= 80)       icon = LV_SYMBOL_BATTERY_FULL;
-	else if (pct >= 60)  icon = LV_SYMBOL_BATTERY_3;
-	else if (pct >= 40)  icon = LV_SYMBOL_BATTERY_2;
-	else if (pct >= 20)  icon = LV_SYMBOL_BATTERY_1;
-	else                 icon = LV_SYMBOL_BATTERY_EMPTY;
-
-	lv_color_t color;
-	if (pct >= 61)       color = GUI::Color::SUCCESS;
-	else if (pct >= 21)  color = GUI::Color::WARNING;
-	else                 color = GUI::Color::DANGER;
-
-	lv_label_set_text(m_batteryLabel, icon);
-	lv_obj_set_style_text_color(m_batteryLabel, color, 0);
+		int pct = BatteryManager::instance().getPercent();
+		if (pct < 0) return;
+		lv_label_set_text(m_batteryLabel, BatteryManager::getIcon(pct));
+		lv_obj_set_style_text_color(m_batteryLabel, BatteryManager::getColor(pct), 0);
+	}
 }

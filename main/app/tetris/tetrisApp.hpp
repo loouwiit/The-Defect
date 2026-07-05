@@ -3,16 +3,19 @@
 #include "app/app.hpp"
 #include "app/tetris/gameLogic/tetris_client.hpp"
 #include "app/tetris/gameLogic/player_state.hpp"
+#include "app/tetris/gameLogic/gameState.hpp"
 #include "app/tetris/renderer/tetris_renderer.hpp"
+#include "app/tetris/net/tetris_net.hpp"
 #include "task/task.hpp"
 
 /**
  * @brief 俄罗斯方块主游戏 App
  *
- * 单机模式：完整的游戏循环 + 渲染 + 触屏虚拟按钮。
- * 内部使用 PlayerState 管理游戏逻辑。
- *
- * 双人模式：持有 2 个 PlayerState，各自独立运行游戏循环。
+ * Host-authoritative 模式：
+ *   - 所有 PlayState 游戏逻辑只运行在 Host 上
+ *   - 共享 PieceQueue（唯一 next() 游标）
+ *   - 每帧将 GameState 导出给 Renderer 和 Network
+ *   - 远程客户端只转发输入 + 收 snapshot 渲染
  */
 class TetrisApp : public App
 {
@@ -25,17 +28,29 @@ public:
     void init() override;
     void deinit() override;
 
+    // ── BLE 手柄输入 ──
+    void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+
 private:
     static constexpr int PLAYER_COUNT = 3;
 
     // ============================================================
-    //  共享出块队列 + 游戏状态（每个玩家独立）
+    //  共享出块队列（所有玩家共用唯一 next() 游标）
     // ============================================================
-    PieceQueue      m_sharedQueue;
-    PlayerState     m_players[PLAYER_COUNT];
+    PieceQueue  m_sharedQueue;
 
     // ============================================================
-    //  渲染（每个玩家独立）
+    //  游戏逻辑（仅 Host 运行）
+    // ============================================================
+    PlayerState m_players[PLAYER_COUNT];
+
+    // ============================================================
+    //  导出状态（供 Renderer / Network 使用）
+    // ============================================================
+    GameState   m_gameStates[PLAYER_COUNT];
+
+    // ============================================================
+    //  渲染（每玩家独立）
     // ============================================================
     TetrisRenderer* m_renderers[PLAYER_COUNT] = {};
 
@@ -45,8 +60,14 @@ private:
     Thread* m_gameThread = nullptr;
 
     // ============================================================
+    //  手柄输入状态
+    // ============================================================
+    uint16_t m_prevButtons[PLAYER_COUNT] = {};
+
+    // ============================================================
     //  内部方法
     // ============================================================
 
     static void gameLoopTask(void* param);
+    void gameLoop();
 };

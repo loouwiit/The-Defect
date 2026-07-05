@@ -74,6 +74,7 @@ private:
 	lv_timer_t* m_volumeSliderTimer{};
 
 	lv_obj_t* m_batteryLabel{};
+	lv_timer_t* m_batteryTimer{};
 
 	// ── 尺寸常量 ──
 	static constexpr int CARD_W = 240;
@@ -124,7 +125,4 @@ private:
 	static void onBrightnessLabelCb(lv_event_t* e);
 	static void onBatteryLabelCb(lv_event_t* e);
 
-	// ── 电池 ──
-	void* m_batteryHandle{};
-	lv_timer_t* m_batteryTimer{};
 };

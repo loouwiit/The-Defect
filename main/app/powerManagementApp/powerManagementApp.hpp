@@ -16,9 +16,7 @@
  *   - 20%~60% 黄色
  *   - <20% 红色
  *
- * 电池读取（使用 adc_battery_estimation 组件）：
- *   依赖 `espressif/adc_battery_estimation` 组件，
- *   ADC 通道和分压电阻参数根据实际硬件配置。
+ * 电量数据由 BatteryManager 单例统一提供。
  */
 class PowerManagementApp final : public App
 {
@@ -44,10 +42,6 @@ private:
 	static constexpr int RefreshIntervalMs = 2000;     // 电量刷新间隔
 	static constexpr int ActivityRefreshMs = 20;       // 活动指示刷新间隔
 	static constexpr TickType_t ActivityTimeout = pdMS_TO_TICKS(100);
-
-	static constexpr int BatteryGreenMin = 61;   // 60%+ 绿色
-	static constexpr int BatteryYellowMin = 21;  // 20%~60% 黄色
-	                                         // <20% 红色
 
 	static constexpr int HostBatteryCardH = 260;
 	static constexpr int SlotCardH = 100;
@@ -103,12 +97,6 @@ private:
 	static constexpr TickType_t MOVE_DELAY = 120;
 	static constexpr TickType_t ACTION_DELAY = 500;
 
-	// ── 电池读取 ──
-	bool initBatteryAdc();
-	int readHostBatteryPercent();
-	int readHostVoltageMv();
-    void* m_adcHandle{};
-
 	// ── 低功耗模式状态 ──
 	bool mLowPowerActive{ false };
 
@@ -122,8 +110,6 @@ private:
 	void doToggleLowPower();
 	void applyFocus();
 	void activateFocus();
-
-	static lv_color_t batteryColor(int percent);
 
 	// ── 静态回调 ──
 	static void timerCb(lv_timer_t* t);

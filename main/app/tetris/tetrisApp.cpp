@@ -1,5 +1,4 @@
 #include "tetrisApp.hpp"
-#include "app/tetris/net/tetris_net.hpp"
 #include "display/font.hpp"
 #include "gui/gui.hpp"
 #include <esp_log.h>
@@ -57,19 +56,23 @@ void TetrisApp::init()
     lv_coord_t playerW = SCREEN_W / PLAYER_COUNT;
     for (int i = 0; i < PLAYER_COUNT; i++) {
         m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
+        m_renderers[i]->bindGameState(&m_gameStates[i]);
         m_renderers[i]->bindPlayer(&m_players[i]);
     }
 
-    // 初始化共享出块队列
+    // 初始化共享出块队列 + 游戏状态
     m_sharedQueue.reset();
 
-    // 初始化游戏状态（所有玩家共享同一出块序列）
     for (int i = 0; i < PLAYER_COUNT; i++) {
         m_players[i].setQueue(&m_sharedQueue);
         m_players[i].init();
+        m_players[i].exportState(m_gameStates[i]);
+        // 填充初始预览
+        for (int s = 0; s < 4; s++)
+            m_gameStates[i].nextPieces[s] = m_players[i].peekPreview(s);
     }
 
-    // 初始化网络层（注册 /ws/tetris handler，Host 模式）
+    // 初始化网络层（Host 模式）
     TetrisHostCallbacks hostCb;
     hostCb.onJoin = [](int playerId, int fd) {
         ESP_LOGI(TAG, "remote player %d joined (fd=%d)", playerId, fd);
@@ -81,7 +84,7 @@ void TetrisApp::init()
         if (strcmp(key, "left") == 0) {
             p.keyLeft = down;
             if (!down) { p.dasTimer = 0; }
-            else { p.netLeftReq++; }  // 网络防吞计数
+            else { p.netLeftReq++; }
         }
         else if (strcmp(key, "right") == 0) {
             p.keyRight = down;
@@ -93,13 +96,6 @@ void TetrisApp::init()
         else if (strcmp(key, "cw") == 0)    { if(down) p.keyCW   = true; }
         else if (strcmp(key, "ccw") == 0)   { if(down) p.keyCCW  = true; }
         else if (strcmp(key, "hold") == 0)  { if(down) p.keyHold = true; }
-    };
-    hostCb.onAttack = [this](int playerId, int lines) {
-        ESP_LOGI(TAG, "attack from player %d: %d lines → local player 0", playerId, lines);
-        m_players[0].addGarbage(lines);
-    };
-    hostCb.onGameOver = [](int playerId) {
-        ESP_LOGI(TAG, "player %d game over", playerId);
     };
     tetrisNetInit(true, hostCb, {});
 
@@ -129,65 +125,127 @@ void TetrisApp::deinit()
 }
 
 // ============================================================
-//  游戏线程 — 每帧更新 2 个玩家
+//  BLE 手柄输入
+// ============================================================
+
+void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+{
+    if (playerId >= PLAYER_COUNT) return;
+    auto& p = m_players[playerId];
+
+    constexpr uint8_t deadZone = 50;
+    constexpr uint8_t center = 128;
+
+    // ── 摇杆 → 方向及软降 ──
+    bool lxLeft  = (state.lx < center - deadZone);
+    bool lxRight = (state.lx > center + deadZone);
+    bool lyUp    = (state.ly < center - deadZone);
+    bool lyDown  = (state.ly > center + deadZone);
+
+    // D-pad 补充／覆盖摇杆（dpad 0~7=方向, 15=松开）
+    if (state.dpad < 8) {
+        lxLeft  = (state.dpad == 6 || state.dpad == 5 || state.dpad == 7);
+        lxRight = (state.dpad == 2 || state.dpad == 1 || state.dpad == 3);
+        lyUp    = (state.dpad == 0 || state.dpad == 1 || state.dpad == 7);
+        lyDown  = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
+    }
+
+    p.keyLeft  = lxLeft;
+    p.keyRight = lxRight;
+    p.keySoft  = lyDown;
+
+    // ── 按钮边沿检测（仅刚按下时触发） ──
+    uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
+    m_prevButtons[playerId] = state.buttons;
+
+    // A → 逆时针旋转
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A))
+        p.keyCCW = true;
+
+    // B → 顺时针旋转
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+        p.keyCW = true;
+
+    // X → Hold
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_X))
+        p.keyHold = true;
+
+    // Y → 硬降
+    if (newPress & static_cast<uint16_t>(GamepadButton::BTN_Y))
+        p.keyHard = true;
+}
+
+// ============================================================
+//  游戏循环（Host-authoritative）
 // ============================================================
 
 void TetrisApp::gameLoopTask(void* param)
 {
     auto app = static_cast<TetrisApp*>(param);
+    app->gameLoop();
+    vTaskDelete(nullptr);
+}
 
+void TetrisApp::gameLoop()
+{
     TickType_t lastTick = xTaskGetTickCount();
+    TickType_t snapTick = 0;
 
-    int remoteFd = -1;
-    TickType_t snapTick = 0;  // 快照计时器
+    while (running) {
+        TickType_t now = xTaskGetTickCount();
 
-    while (app->running) {
-        // 更新 2 个玩家
+        // ── 1. 消费网络数据 ──
+        tetrisNetUpdate();
+
+        // ── 2. 推进所有玩家的游戏逻辑 ──
         for (int i = 0; i < PLAYER_COUNT; i++) {
-            app->m_players[i].processInput();
-            app->m_players[i].updateGame();
+            if (!m_players[i].gameOver) {
+                m_players[i].processInput();
+                m_players[i].updateGame();  // 内部可能 lockPiece → spawnPiece
+            }
         }
 
-        // 跨玩家应用攻击（消行 → 垃圾行）
+        // ── 3. 跨玩家攻击路由 ──
         for (int i = 0; i < PLAYER_COUNT; i++) {
-            int atk = app->m_players[i].attackOut();
+            int atk = m_players[i].attackOut();
             if (atk > 0) {
                 int target = (i + 1) % PLAYER_COUNT;
-                app->m_players[target].addGarbage(atk);
-                if (remoteFd >= 0) tetrisNetHostSendGarbage(remoteFd, atk);
-                app->m_players[i].clearAttackOut();
+                m_players[target].addGarbage(atk);
+                m_players[i].clearAttackOut();
             }
         }
 
-        // 刷新远程客户端 fd
-        remoteFd = tetrisNetHostGetFirstClientFd();
-
-        // 事件驱动渲染 — 仅处理有 dirty flag 的玩家
+        // ── 4. 导出 GameState + 渲染（含预览，基于每玩家游标）──
         for (int i = 0; i < PLAYER_COUNT; i++) {
-            DirtyFlags flags = app->m_players[i].consumeDirty();
+            // 填充预览（基于该玩家游标位置，考虑 Hold 槽）
+            bool prevChanged = false;
+            for (int s = 0; s < 4; s++) {
+                PieceType p = m_players[i].peekPreview(s);
+                if (p != m_gameStates[i].nextPieces[s]) prevChanged = true;
+                m_gameStates[i].nextPieces[s] = p;
+            }
+
+            DirtyFlags flags = m_players[i].consumeDirty();
             if (flags) {
-                if (auto guard = app->display->lockGuard())
-                    app->m_renderers[i]->syncDirty(app->m_players[i], flags);
+                m_players[i].exportState(m_gameStates[i]);
+            }
+
+            if (flags || prevChanged || m_gameStates[i].gameOver != m_players[i].gameOver) {
+                if (auto guard = display->lockGuard())
+                    m_renderers[i]->syncState();
             }
         }
 
-        // 发送快照给远程客户端（10fps）
-        TickType_t now = xTaskGetTickCount();
-        if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(100)) {
+        // ── 5. 发送 snapshot 给远程客户端（20fps） ──
+        int remoteFd = tetrisNetHostGetFirstClientFd();
+        if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(50)) {
             int target = tetrisNetHostGetClientTarget();
             if (target < 0 || target >= PLAYER_COUNT) target = 0;
-            auto& p = app->m_players[target];
-            PieceType preview[4];
-            for (int s = 0; s < 4; s++) preview[s] = p.peekPreview(s);
-            int gy = calculateGhost(p.currentPiece, p.board).y();
-            tetrisNetHostSendBoardSnapshot(remoteFd, 0,
-                p.board, p.currentPiece, gy,
-                p.scoring.score(), p.scoring.level(), p.scoring.totalLines(),
-                preview, 4, p.holdPiece(), p.pendingGarbage());
+            tetrisNetHostSendSnapshot(remoteFd, target, m_gameStates[target]);
             snapTick = now;
         }
 
-        // 游戏逻辑 60fps
+        // ── 6. 保持 60fps ──
         TickType_t elapsed = now - lastTick;
         if (elapsed < pdMS_TO_TICKS(16)) {
             vTaskDelay(pdMS_TO_TICKS(16) - elapsed);
@@ -195,14 +253,7 @@ void TetrisApp::gameLoopTask(void* param)
         lastTick = now;
     }
 
-    ESP_LOGI(TAG, "game thread exit");
-    vTaskDelete(nullptr);
+    ESP_LOGI(TAG, "game loop exit");
 }
-
-// ============================================================
-//  触屏按钮 — 每个玩家半屏内一套
-// ============================================================
-
-// 按钮创建和回调已移至 TetrisRenderer
 
 

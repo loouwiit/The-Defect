@@ -7,23 +7,7 @@
 static constexpr char TAG[] = "TetrisRenderer";
 
 // ============================================================
-//  Guideline 标准色
-// ============================================================
-
-static constexpr lv_color_t COLOR_I   = LV_COLOR_MAKE(0x00, 0xFF, 0xFF);  // 青
-static constexpr lv_color_t COLOR_O   = LV_COLOR_MAKE(0xFF, 0xFF, 0x00);  // 黄
-static constexpr lv_color_t COLOR_T   = LV_COLOR_MAKE(0xAA, 0x00, 0xFF);  // 紫
-static constexpr lv_color_t COLOR_S   = LV_COLOR_MAKE(0x00, 0xFF, 0x00);  // 绿
-static constexpr lv_color_t COLOR_Z   = LV_COLOR_MAKE(0xFF, 0x00, 0x00);  // 红
-static constexpr lv_color_t COLOR_J   = LV_COLOR_MAKE(0x00, 0x00, 0xFF);  // 蓝
-static constexpr lv_color_t COLOR_L   = LV_COLOR_MAKE(0xFF, 0x88, 0x00);  // 橙
-static constexpr lv_color_t COLOR_GHOST = LV_COLOR_MAKE(0x88, 0x88, 0x88); // 灰
-static constexpr lv_color_t COLOR_GARBAGE = LV_COLOR_MAKE(0x55, 0x55, 0x55); // 暗灰
-static constexpr lv_color_t COLOR_EMPTY   = LV_COLOR_MAKE(0x1a, 0x1a, 0x2e); // 背景色
-static constexpr lv_color_t COLOR_GRID_LINE = LV_COLOR_MAKE(0x22, 0x22, 0x38); // 网格线
-
-// ============================================================
-//  颜色映射
+//  颜色映射（颜色常量定义在 tetris_renderer.hpp 中）
 // ============================================================
 
 lv_color_t TetrisRenderer::pieceToColor(BoardCell val)
@@ -85,6 +69,13 @@ TetrisRenderer::TetrisRenderer(Display* display, lv_obj_t* parent, lv_coord_t pl
     lv_obj_set_style_pad_left(gameArea, BOARD_PAD, 0);
     lv_obj_set_scrollbar_mode(gameArea, LV_SCROLLBAR_MODE_OFF);
 
+    // 初始化 prevState 为不可能值，强制首次渲染检测到变化
+    m_prevState.ghostPieceX = -1;
+    m_prevState.ghostPieceY = -1;
+    m_prevState.currentPieceType = PieceType::NONE;
+    for (auto& v : m_prevState.nextPieces) v = PieceType::NONE;
+    m_prevState.holdPiece = PieceType::NONE;
+
     createBoardGrid(gameArea);
 
     // ── 侧栏：flex 列，Next 预览 + 信息标签 ──
@@ -128,12 +119,14 @@ void TetrisRenderer::createBoardGrid(lv_obj_t* parent)
     lv_obj_set_scroll_dir(board, LV_DIR_NONE);
 
     for (int lvglRow = 0; lvglRow < ROWS; lvglRow++) {
+        bool isHidden = (lvglRow < BOARD_HIDDEN_H);  // 顶 2 行为隐藏行
+        lv_color_t bgColor = isHidden ? COLOR_HIDDEN : COLOR_EMPTY;
         for (int col = 0; col < BOARD_WIDTH; col++) {
             auto cell = lv_obj_create(board);
             lv_obj_remove_style_all(cell);
             lv_obj_set_size(cell, m_cellSize, m_cellSize);
             lv_obj_set_pos(cell, col * m_cellSize, lvglRow * m_cellSize);
-            lv_obj_set_style_bg_color(cell, COLOR_EMPTY, 0);
+            lv_obj_set_style_bg_color(cell, bgColor, 0);
             lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(cell, 1, 0);
             lv_obj_set_style_border_color(cell, COLOR_GRID_LINE, 0);
@@ -341,8 +334,8 @@ void TetrisRenderer::createTouchButtons(lv_obj_t* parent)
     m_btnRight = makeBtn(">");
     m_btnSoft  = makeBtn("v");
     m_btnHard  = makeBtn("V");
-    m_btnCW    = makeBtn("CW");
     m_btnCCW   = makeBtn("CCW");
+    m_btnCW    = makeBtn("CW");
     m_btnHold  = makeBtn("H");
 }
 
@@ -379,93 +372,159 @@ void TetrisRenderer::onBtnReleased(lv_event_t* e)
 }
 
 // ============================================================
-//  增量同步 — 事件驱动入口
+//  渲染主入口 — 对比 GameState diff 后增量更新
 // ============================================================
 
-void TetrisRenderer::syncDirty(const PlayerState& player, DirtyFlags flags)
+void TetrisRenderer::syncState()
 {
-    if (flags & DIRTY_BOARD) {
-        syncBoard(player.board);
-    }
+    if (!m_gameState) return;
 
-    if (flags & (DIRTY_PIECE | DIRTY_GHOST)) {
-        lv_color_t color = pieceTypeToColor(player.currentPiece.type());
+    const GameState& cur = *m_gameState;
 
-        // ── 清除旧 ghost ──
-        if ((flags & DIRTY_GHOST) && m_lastGhostValid) {
-            for (int i = 0; i < 4; i++) {
-                int c = m_lastGhostCols[i], r = m_lastGhostRows[i];
-                if (r >= 0 && r < ROWS) {
-                    lv_obj_set_style_bg_color(m_cells[r][c],
-                        pieceToColor(m_visualCache[r][c]), 0);
-                    lv_obj_set_style_bg_opa(m_cells[r][c], LV_OPA_COVER, 0);
-                    lv_obj_set_style_border_width(m_cells[r][c], 1, 0);
-                    lv_obj_set_style_border_color(m_cells[r][c], COLOR_GRID_LINE, 0);
+    // ── 棋盘 diff ──
+    {
+        for (int y = 0; y < BOARD_HEIGHT; y++) {
+            int lvglRow = boardYToLvglRow(y);
+            for (int col = 0; col < BOARD_WIDTH; col++) {
+                BoardCell val = cur.board.get(col, y);
+                if (m_visualCache[lvglRow][col] != val) {
+                    m_visualCache[lvglRow][col] = val;
+                    applyCellColor(lvglRow, col,
+                        val ? pieceToColor(val) : emptyColorForRow(lvglRow));
                 }
             }
-            m_lastGhostValid = false;
-        }
-
-        // ── 清除旧方块 ──
-        if ((flags & DIRTY_PIECE) && m_lastPieceValid) {
-            for (int i = 0; i < 4; i++) {
-                int c = m_lastPieceCols[i], r = m_lastPieceRows[i];
-                if (r >= 0 && r < ROWS) {
-                    lv_obj_set_style_bg_color(m_cells[r][c],
-                        pieceToColor(m_visualCache[r][c]), 0);
-                }
-            }
-            m_lastPieceValid = false;
-        }
-
-        // ── 画新 ghost ──
-        if (flags & DIRTY_GHOST) {
-            int cols[4], rows[4];
-            player.ghostPiece.getBlocks(cols, rows);
-            for (int i = 0; i < 4; i++) {
-                int r = boardYToLvglRow(rows[i]);
-                m_lastGhostCols[i] = cols[i];
-                m_lastGhostRows[i] = r;
-                if (r >= 0 && r < ROWS) {
-                    lv_obj_set_style_bg_color(m_cells[r][cols[i]], color, 0);
-                    lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_30, 0);
-                    lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
-                    lv_obj_set_style_border_color(m_cells[r][cols[i]], color, 0);
-                    lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_50, 0);
-                }
-            }
-            m_lastGhostValid = true;
-        }
-
-        // ── 画新方块 ──
-        if (flags & DIRTY_PIECE) {
-            int cols[4], rows[4];
-            player.currentPiece.getBlocks(cols, rows);
-            for (int i = 0; i < 4; i++) {
-                int r = boardYToLvglRow(rows[i]);
-                m_lastPieceCols[i] = cols[i];
-                m_lastPieceRows[i] = r;
-                if (r >= 0 && r < ROWS) {
-                    applyCellColor(r, cols[i], color);
-                    // 覆盖 ghost 设置的半透明和彩色边框
-                    lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
-                    lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
-                    lv_obj_set_style_border_color(m_cells[r][cols[i]], COLOR_GRID_LINE, 0);
-                    lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
-                }
-            }
-            m_lastPieceValid = true;
         }
     }
 
-    if (flags & DIRTY_PREVIEW) {
-        PieceType preview[4];
-        for (int s = 0; s < 4; s++)
-            preview[s] = player.peekPreview(s);
-        drawNext(preview);
+    // ── 方块 / Ghost ──
+    {
+        bool pieceChanged = false, ghostChanged = false;
+
+        pieceChanged = (cur.currentPieceType != m_prevState.currentPieceType)
+                    || (cur.currentPieceX    != m_prevState.currentPieceX)
+                    || (cur.currentPieceY    != m_prevState.currentPieceY)
+                    || (cur.currentPieceRotation != m_prevState.currentPieceRotation);
+
+        ghostChanged = (cur.ghostPieceX != m_prevState.ghostPieceX)
+                     || (cur.ghostPieceY != m_prevState.ghostPieceY)
+                     || (cur.currentPieceRotation != m_prevState.currentPieceRotation);
+
+        if (pieceChanged || ghostChanged) {
+            lv_color_t color = pieceTypeToColor(cur.currentPieceType);
+
+            // 清除旧 ghost
+            if (ghostChanged && m_lastGhostValid) {
+                for (int i = 0; i < 4; i++) {
+                    int c = m_lastGhostCols[i], r = m_lastGhostRows[i];
+                    if (r >= 0 && r < ROWS) {
+                        lv_obj_set_style_bg_color(m_cells[r][c],
+                            m_visualCache[r][c]
+                                ? pieceToColor(m_visualCache[r][c])
+                                : emptyColorForRow(r), 0);
+                        lv_obj_set_style_bg_opa(m_cells[r][c], LV_OPA_COVER, 0);
+                        lv_obj_set_style_border_width(m_cells[r][c], 1, 0);
+                        lv_obj_set_style_border_color(m_cells[r][c], COLOR_GRID_LINE, 0);
+                    }
+                }
+                m_lastGhostValid = false;
+            }
+
+            // 清除旧方块
+            if (pieceChanged && m_lastPieceValid) {
+                for (int i = 0; i < 4; i++) {
+                    int c = m_lastPieceCols[i], r = m_lastPieceRows[i];
+                    if (r >= 0 && r < ROWS) {
+                        lv_obj_set_style_bg_color(m_cells[r][c],
+                            m_visualCache[r][c]
+                                ? pieceToColor(m_visualCache[r][c])
+                                : emptyColorForRow(r), 0);
+                    }
+                }
+                m_lastPieceValid = false;
+            }
+
+            // 画新 ghost
+            if (ghostChanged && cur.currentPieceType != PieceType::NONE) {
+                // 从 currentPiece 信息重建 ghost
+                Piece ghost(cur.currentPieceType, cur.currentPieceRotation,
+                           cur.currentPieceX, cur.currentPieceY);
+                int gy = cur.ghostPieceY;
+                ghost.setY(gy);
+                int cols[4], rows[4];
+                ghost.getBlocks(cols, rows);
+                for (int i = 0; i < 4; i++) {
+                    int r = boardYToLvglRow(rows[i]);
+                    m_lastGhostCols[i] = cols[i];
+                    m_lastGhostRows[i] = r;
+                    if (r >= 0 && r < ROWS) {
+                        lv_obj_set_style_bg_color(m_cells[r][cols[i]], color, 0);
+                        lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_30, 0);
+                        lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
+                        lv_obj_set_style_border_color(m_cells[r][cols[i]], color, 0);
+                        lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_50, 0);
+                    }
+                }
+                m_lastGhostValid = true;
+            }
+
+            // 画新方块
+            if (pieceChanged && cur.currentPieceType != PieceType::NONE) {
+                // 从 currentPiece 信息重建
+                Piece p(cur.currentPieceType, cur.currentPieceRotation,
+                        cur.currentPieceX, cur.currentPieceY);
+                int cols[4], rows[4];
+                p.getBlocks(cols, rows);
+                for (int i = 0; i < 4; i++) {
+                    int r = boardYToLvglRow(rows[i]);
+                    m_lastPieceCols[i] = cols[i];
+                    m_lastPieceRows[i] = r;
+                    if (r >= 0 && r < ROWS) {
+                        applyCellColor(r, cols[i], color);
+                        lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
+                        lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
+                        lv_obj_set_style_border_color(m_cells[r][cols[i]], COLOR_GRID_LINE, 0);
+                        lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
+                    }
+                }
+                m_lastPieceValid = true;
+            }
+        }
     }
 
-    if (flags & DIRTY_SCORE) {
-        drawInfo(player.scoring.combo(), player.garbageFlash());
+    // ── 预览队列 ──
+    {
+        bool previewChanged = false;
+        for (int s = 0; s < 4; s++) {
+            if (cur.nextPieces[s] != m_prevState.nextPieces[s]) {
+                previewChanged = true;
+                break;
+            }
+        }
+        if (previewChanged) {
+            drawNext(cur.nextPieces);
+        }
     }
+
+    // ── Hold ──
+    {
+        if (cur.holdPiece != m_prevState.holdPiece
+            || cur.holdUsed != m_prevState.holdUsed) {
+            // Hold 显示已合并到预览区第一个槽
+            PieceType preview[4];
+            for (int s = 0; s < 4; s++) preview[s] = cur.nextPieces[s];
+            drawNext(preview);
+        }
+    }
+
+    // ── 分数 / 信息 ──
+    {
+        if (cur.score != m_prevState.score
+            || cur.combo != m_prevState.combo
+            || cur.garbageFlash != m_prevState.garbageFlash) {
+            drawInfo(cur.combo, cur.garbageFlash);
+        }
+    }
+
+    // ── 保存快照供下次 diff ──
+    m_prevState = cur;
 }
