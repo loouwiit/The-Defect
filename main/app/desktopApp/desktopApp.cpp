@@ -7,8 +7,8 @@
 #include "app/timeSettingsApp/timeSettingsApp.hpp"
 #include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
-#include "app/tetris/tetrisApp.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
+#include "app/chineseChess/chineseChessRoom.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
@@ -532,6 +532,11 @@ void DesktopApp::startGame()
 	case 2:
 		// 俄罗斯方块 — 先打开房间选人
 		m_manager->pushToNewStack(new TetrisRoomApp(display));
+		break;
+
+	case 4:
+		// 中国象棋
+		m_manager->pushToNewStack(new ChineseChessRoom(display));
 		break;
 
 	default:
