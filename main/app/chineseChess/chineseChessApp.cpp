@@ -29,9 +29,19 @@ namespace
 	constexpr uint32_t PIECE_BLACK_TEXT = 0xff000000;
 
 	constexpr uint32_t SELECTION_HIGHLIGHT = 0x44ffdd00;
-	constexpr uint32_t CURSOR_HIGHLIGHT = 0x44ffffff;
 	constexpr uint32_t MOVE_MARKER = 0x6600ff88;
 	constexpr uint32_t CAPTURE_MARKER = 0x66ff5252;
+
+	// ── 选中棋子边框颜色 ──
+	constexpr uint32_t SELECTED_BORDER = 0xffffdd00;
+
+	// ── 玩家光标颜色 ──
+	constexpr uint32_t CURSOR_P0_BORDER = 0xddff4444;
+	constexpr uint32_t CURSOR_P1_BORDER = 0xdd4488ff;
+
+	constexpr int CURSOR_ACTIVE_BORDER_W   = 2;
+	constexpr int CURSOR_INACTIVE_BORDER_W = 1;
+	constexpr lv_opa_t CURSOR_INACTIVE_OPA = LV_OPA_40;
 
 	constexpr uint32_t TEXT_COLOR = 0xffffffff;
 	constexpr uint32_t SUBTLE = 0xff888899;
@@ -107,11 +117,18 @@ void ChineseChessApp::deinit()
 
 void ChineseChessApp::onForeground()
 {
-	m_prevButtons = 0xFFFF;
+	for (auto& pb : m_prevButtons) pb = 0xFFFF;
 	for (auto& t : m_nextMoveTime) t = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	m_focusIdx = 0;
-	m_dirty = true;
+	m_dirty = true;	m_prevSelX = -1;
+	m_prevSelY = -1;
+	// 重置光标到初始位置
+	for (int i = 0; i < MaxPlayers; i++)
+	{
+		m_cursorX[i] = 4;
+		m_cursorY[i] = (i == 0) ? 7 : 2;  // P0=红方底线，P1=黑方底线
+	}
 }
 
 // ============================================================
@@ -219,26 +236,19 @@ void ChineseChessApp::createPieces(lv_obj_t* parent)
 		}
 	}
 
-	// 选中高亮（黄色边框）
-	m_selectionHighlight = lv_obj_create(parent);
-	lv_obj_set_size(m_selectionHighlight, CELL_SIZE, CELL_SIZE);
-	lv_obj_set_style_radius(m_selectionHighlight, 4, 0);
-	lv_obj_set_style_border_width(m_selectionHighlight, 3, 0);
-	lv_obj_set_style_border_color(m_selectionHighlight, lv_color_hex(SELECTION_HIGHLIGHT), 0);
-	lv_obj_set_style_border_opa(m_selectionHighlight, LV_OPA_COVER, 0);
-	lv_obj_set_style_bg_opa(m_selectionHighlight, LV_OPA_TRANSP, 0);
-	lv_obj_remove_flag(m_selectionHighlight, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_flag(m_selectionHighlight, LV_OBJ_FLAG_HIDDEN);
-
-	// 手柄光标（白色半透明边框）
-	m_cursorHighlight = lv_obj_create(parent);
-	lv_obj_set_size(m_cursorHighlight, CELL_SIZE, CELL_SIZE);
-	lv_obj_set_style_radius(m_cursorHighlight, 4, 0);
-	lv_obj_set_style_border_width(m_cursorHighlight, 2, 0);
-	lv_obj_set_style_border_color(m_cursorHighlight, lv_color_hex(CURSOR_HIGHLIGHT), 0);
-	lv_obj_set_style_border_opa(m_cursorHighlight, LV_OPA_COVER, 0);
-	lv_obj_set_style_bg_opa(m_cursorHighlight, LV_OPA_TRANSP, 0);
-	lv_obj_remove_flag(m_cursorHighlight, LV_OBJ_FLAG_CLICKABLE);
+	// ── 手柄光标（每玩家独立，空心边框不覆盖棋子） ──
+	constexpr uint32_t cursorBorders[] = { CURSOR_P0_BORDER, CURSOR_P1_BORDER };
+	for (int i = 0; i < 2; i++)
+	{
+		m_cursorHighlight[i] = lv_obj_create(parent);
+		lv_obj_set_size(m_cursorHighlight[i], CELL_SIZE, CELL_SIZE);
+		lv_obj_set_style_radius(m_cursorHighlight[i], 4, 0);
+		lv_obj_set_style_border_width(m_cursorHighlight[i], CURSOR_ACTIVE_BORDER_W, 0);
+		lv_obj_set_style_border_color(m_cursorHighlight[i], lv_color_hex(cursorBorders[i]), 0);
+		lv_obj_set_style_border_opa(m_cursorHighlight[i], LV_OPA_COVER, 0);
+		lv_obj_set_style_bg_opa(m_cursorHighlight[i], LV_OPA_TRANSP, 0);
+		lv_obj_remove_flag(m_cursorHighlight[i], LV_OBJ_FLAG_CLICKABLE);
+	}
 
 	// 合法走法标记（绿色小圆点 / 红色捕获标记）
 	for (int i = 0; i < 30; i++)
@@ -413,23 +423,54 @@ void ChineseChessApp::syncCell(int x, int y)
 
 void ChineseChessApp::updateSelection()
 {
-	// ── 选中高亮（中心对齐到交点） ──
+	// ── 选中高亮：修改棋子自身边框表示选中状态 ──
+	if (m_prevSelX >= 0 && m_prevSelY >= 0)
+	{
+		// 恢复上一颗被选中棋子的默认边框
+		auto* prevBg = m_pieceBg[m_prevSelX][m_prevSelY];
+		lv_obj_set_style_border_width(prevBg, 1, 0);
+		lv_obj_set_style_border_color(prevBg, lv_color_hex(0xff555555), 0);
+		lv_obj_set_style_border_opa(prevBg, LV_OPA_30, 0);
+	}
+
 	if (m_selected && m_selX >= 0 && m_selY >= 0)
 	{
-		lv_obj_set_pos(m_selectionHighlight,
-			OFFSET_X + m_selX * CELL_SIZE - CELL_SIZE / 2,
-			OFFSET_Y + m_selY * CELL_SIZE - CELL_SIZE / 2);
-		lv_obj_clear_flag(m_selectionHighlight, LV_OBJ_FLAG_HIDDEN);
+		// 当前选中棋子边框改为高亮黄色
+		auto* curBg = m_pieceBg[m_selX][m_selY];
+		lv_obj_set_style_border_width(curBg, 3, 0);
+		lv_obj_set_style_border_color(curBg, lv_color_hex(SELECTED_BORDER), 0);
+		lv_obj_set_style_border_opa(curBg, LV_OPA_COVER, 0);
+		m_prevSelX = m_selX;
+		m_prevSelY = m_selY;
 	}
 	else
 	{
-		lv_obj_add_flag(m_selectionHighlight, LV_OBJ_FLAG_HIDDEN);
+		m_prevSelX = -1;
+		m_prevSelY = -1;
 	}
 
-	// ── 手柄光标（中心对齐到交点） ──
-	lv_obj_set_pos(m_cursorHighlight,
-		OFFSET_X + m_cursorX * CELL_SIZE - CELL_SIZE / 2,
-		OFFSET_Y + m_cursorY * CELL_SIZE - CELL_SIZE / 2);
+	// ── 手柄光标（每玩家独立，始终可见） ──
+	uint8_t activeId = getActivePlayerId();
+	for (int i = 0; i < 2; i++)
+	{
+		int px = OFFSET_X + m_cursorX[i] * CELL_SIZE - CELL_SIZE / 2;
+		int py = OFFSET_Y + m_cursorY[i] * CELL_SIZE - CELL_SIZE / 2;
+		lv_obj_set_pos(m_cursorHighlight[i], px, py);
+		lv_obj_clear_flag(m_cursorHighlight[i], LV_OBJ_FLAG_HIDDEN);
+
+		if (i == activeId)
+		{
+			// 活跃：粗边框 + 全 opa
+			lv_obj_set_style_border_width(m_cursorHighlight[i], CURSOR_ACTIVE_BORDER_W, 0);
+			lv_obj_set_style_opa(m_cursorHighlight[i], LV_OPA_COVER, 0);
+		}
+		else
+		{
+			// 非活跃：细边框 + 淡化
+			lv_obj_set_style_border_width(m_cursorHighlight[i], CURSOR_INACTIVE_BORDER_W, 0);
+			lv_obj_set_style_opa(m_cursorHighlight[i], CURSOR_INACTIVE_OPA, 0);
+		}
+	}
 
 	// ── 合法走法标记 ──
 	int markerIdx = 0;
@@ -529,6 +570,11 @@ void ChineseChessApp::onTouchClick(int px, int py)
 	int gx = coordToGrid(px, OFFSET_X, 8);
 	int gy = coordToGrid(py, OFFSET_Y, 9);
 
+	// 同步活跃玩家的光标到触摸位置
+	uint8_t activeId = getActivePlayerId();
+	m_cursorX[activeId] = gx;
+	m_cursorY[activeId] = gy;
+
 	const auto& target = m_logic.getPiece(gx, gy);
 
 	if (m_selected)
@@ -587,7 +633,7 @@ void ChineseChessApp::onTouchClick(int px, int py)
 // 输入处理 — 手柄 select/cancel
 // ============================================================
 
-void ChineseChessApp::handleSelect()
+void ChineseChessApp::handleSelect(uint8_t playerId)
 {
 	if (m_logic.getState() == ChessLogic::State::GameOver)
 	{
@@ -595,16 +641,18 @@ void ChineseChessApp::handleSelect()
 		return;
 	}
 
-	const auto& target = m_logic.getPiece(m_cursorX, m_cursorY);
+	int cx = m_cursorX[playerId];
+	int cy = m_cursorY[playerId];
+	const auto& target = m_logic.getPiece(cx, cy);
 
 	if (m_selected)
 	{
 		// 检查光标位置是否在合法走法中
 		for (const auto& mv : m_validMoves)
 		{
-			if (mv.x == m_cursorX && mv.y == m_cursorY)
+			if (mv.x == cx && mv.y == cy)
 			{
-				m_logic.movePiece(m_selX, m_selY, m_cursorX, m_cursorY);
+				m_logic.movePiece(m_selX, m_selY, cx, cy);
 				m_selected = false;
 				m_validMoves.clear();
 				m_dirty = true;
@@ -620,10 +668,10 @@ void ChineseChessApp::handleSelect()
 		// 如果光标在自己棋子上，重新选中
 		if (!target.isEmpty() && target.side == m_logic.getCurrentTurn())
 		{
-			m_selX = m_cursorX;
-			m_selY = m_cursorY;
+			m_selX = cx;
+			m_selY = cy;
 			m_selected = true;
-			m_validMoves = m_logic.getValidMoves(m_cursorX, m_cursorY);
+			m_validMoves = m_logic.getValidMoves(cx, cy);
 			m_dirty = true;
 		}
 	}
@@ -632,10 +680,10 @@ void ChineseChessApp::handleSelect()
 		// 选中光标位置的棋子（如果是己方）
 		if (!target.isEmpty() && target.side == m_logic.getCurrentTurn())
 		{
-			m_selX = m_cursorX;
-			m_selY = m_cursorY;
+			m_selX = cx;
+			m_selY = cy;
 			m_selected = true;
-			m_validMoves = m_logic.getValidMoves(m_cursorX, m_cursorY);
+			m_validMoves = m_logic.getValidMoves(cx, cy);
 			m_dirty = true;
 		}
 	}
@@ -686,6 +734,8 @@ void ChineseChessApp::activateFocus()
 
 void ChineseChessApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
+	if (playerId >= MaxPlayers) return;
+
 	constexpr uint8_t deadZone = 50;
 	constexpr uint8_t center = 128;
 
@@ -694,16 +744,20 @@ void ChineseChessApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 	bool lyUp = (state.ly < center - deadZone);
 	bool lyDown = (state.ly > center + deadZone);
 
-	// 边沿检测
-	uint16_t newPress = state.buttons & ~m_prevButtons;
-	m_prevButtons = state.buttons;
+	// 边沿检测（每玩家独立）
+	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
+	m_prevButtons[playerId] = state.buttons;
 
 	auto gameState = m_logic.getState();
+	uint8_t activeId = getActivePlayerId();
 
-	// ── B 键：取消/返回 ──
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	// ═══════════════════════════════════════════════════════════
+	// GameOver 状态 — 任何玩家均可操作
+	// ═══════════════════════════════════════════════════════════
+	if (gameState == ChessLogic::State::GameOver)
 	{
-		if (gameState == ChessLogic::State::GameOver)
+		// B 键：返回菜单
+		if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 		{
 			auto guard = display->lockGuard();
 			Task::addTask([](void* p) -> TickType_t {
@@ -712,7 +766,76 @@ void ChineseChessApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 				}, "chessBack", this, 0, Task::Affinity::None);
 			return;
 		}
-		else if (m_selected)
+
+		// A 键：激活焦点按钮
+		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
+		{
+			if (auto guard = display->lockGuard())
+				activateFocus();
+			return;
+		}
+
+		// 摇杆/方向导航焦点
+		if (!lxLeft && !lxRight && !lyUp && !lyDown)
+		{
+			m_nextMoveTime[playerId] = 0;
+			return;
+		}
+		if (m_nextMoveTime[playerId] >= xTaskGetTickCount())
+			return;
+
+		TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+		m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+
+		if (lyUp && m_focusIdx > 0)   m_focusIdx--;
+		if (lyDown && m_focusIdx < 1) m_focusIdx++;
+		auto guard = display->lockGuard();
+		applyFocus();
+		return;
+	}
+
+	// ═══════════════════════════════════════════════════════════
+	// Playing 状态 — 活跃玩家可操作
+	// ═══════════════════════════════════════════════════════════
+
+	// ── 摇杆移动：任何玩家随时可移动自己的光标 ──
+	if (lxLeft || lxRight || lyUp || lyDown)
+	{
+		if (m_nextMoveTime[playerId] < xTaskGetTickCount())
+		{
+			TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+			m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+
+			int newX = m_cursorX[playerId];
+			int newY = m_cursorY[playerId];
+			if (lxLeft && newX > 0)  newX--;
+			if (lxRight && newX < 8) newX++;
+			if (lyUp && newY > 0)    newY--;
+			if (lyDown && newY < 9)  newY++;
+
+			if (newX != m_cursorX[playerId] || newY != m_cursorY[playerId])
+			{
+				m_cursorX[playerId] = newX;
+				m_cursorY[playerId] = newY;
+				auto guard = display->lockGuard();
+				updateSelection();
+			}
+		}
+	}
+	else
+	{
+		m_nextMoveTime[playerId] = 0;
+	}
+
+	// ── 非活跃玩家的 A/B 键被忽略 ──
+	if (playerId != activeId)
+		return;
+
+	// ── B 键：取消选中 ──
+	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	{
+		if (m_selected)
 		{
 			auto guard = display->lockGuard();
 			handleCancel();
@@ -728,48 +851,9 @@ void ChineseChessApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 		{
 			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 			auto guard = display->lockGuard();
-			handleSelect();
+			handleSelect(playerId);
 		}
 		return;
-	}
-
-	// ── 摇杆归位判断 ──
-	if (!lxLeft && !lxRight && !lyUp && !lyDown)
-	{
-		m_nextMoveTime[playerId] = 0;
-		return;
-	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount())
-		return;
-
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
-
-	if (gameState == ChessLogic::State::Playing)
-	{
-		// 光标移动
-		int newX = m_cursorX;
-		int newY = m_cursorY;
-		if (lxLeft && newX > 0)  newX--;
-		if (lxRight && newX < 8) newX++;
-		if (lyUp && newY > 0)    newY--;
-		if (lyDown && newY < 9)  newY++;
-
-		if (newX != m_cursorX || newY != m_cursorY)
-		{
-			m_cursorX = newX;
-			m_cursorY = newY;
-			auto guard = display->lockGuard();
-			updateSelection();
-		}
-	}
-	else if (gameState == ChessLogic::State::GameOver)
-	{
-		// 上下导航 GameOver 按钮
-		if (lyUp && m_focusIdx > 0)   m_focusIdx--;
-		if (lyDown && m_focusIdx < 1) m_focusIdx++;
-		auto guard = display->lockGuard();
-		applyFocus();
 	}
 }
 
@@ -807,6 +891,16 @@ void ChineseChessApp::btnBackCb(lv_event_t* e)
 }
 
 // ============================================================
+// 活跃玩家 ID
+// ============================================================
+
+uint8_t ChineseChessApp::getActivePlayerId() const
+{
+	if (m_opponentType == 0) return 0;  // AI 模式 → P1 永远是唯一玩家
+	return (m_logic.getCurrentTurn() == ChessLogic::Side::Red) ? 0 : 1;
+}
+
+// ============================================================
 // 游戏主循环
 // ============================================================
 
@@ -832,6 +926,9 @@ void ChineseChessApp::gameLoop(void* param)
 				self.m_logic.movePiece(move.from.x, move.from.y, move.to.x, move.to.y);
 				self.m_selected = false;
 				self.m_validMoves.clear();
+				// P1 蓝方光标跳转到 AI 走棋的目标位置，起到指示作用
+				self.m_cursorX[1] = move.to.x;
+				self.m_cursorY[1] = move.to.y;
 				needsUpdate = true;
 			}
 		}

@@ -47,13 +47,14 @@ private:
 	int m_selX = -1, m_selY = -1;
 	std::vector<ChessLogic::Position> m_validMoves;
 
-	// 光标位置（手柄导航）
-	int m_cursorX = 4, m_cursorY = 4;
+	// 光标位置（手柄导航，每玩家独立；P0=红方底线(4,7), P1=黑方底线(4,2)）
+	int m_cursorX[MaxPlayers]{4, 4};
+	int m_cursorY[MaxPlayers]{7, 2};
 
 	// 输入去抖
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
-	uint16_t m_prevButtons{};
+	uint16_t m_prevButtons[MaxPlayers]{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);
 	static constexpr TickType_t MOVE_DELAY = pdMS_TO_TICKS(120);
 	static constexpr TickType_t ACTION_DELAY = pdMS_TO_TICKS(400);
@@ -81,8 +82,8 @@ private:
 	lv_obj_t* m_pieceText[9][10]{};
 
 	// 选中高亮
-	lv_obj_t* m_cursorHighlight = nullptr;  // 手柄光标
-	lv_obj_t* m_selectionHighlight = nullptr; // 选中高亮
+	lv_obj_t* m_cursorHighlight[MaxPlayers]{};  // 手柄光标（每玩家）
+	int m_prevSelX = -1, m_prevSelY = -1;      // 上一选中位置（恢复棋子样式用）
 
 	// 合法走法标记
 	lv_obj_t* m_moveMarkers[30]{};
@@ -133,7 +134,10 @@ private:
 
 	// ── 输入处理 ──
 	void onTouchClick(int px, int py);
-	void handleSelect();
+	void handleSelect(uint8_t playerId);
+
+	/** @brief 获取当前回合对应的玩家 ID */
+	uint8_t getActivePlayerId() const;
 	void handleCancel();
 
 	// ── 焦点导航 ──
