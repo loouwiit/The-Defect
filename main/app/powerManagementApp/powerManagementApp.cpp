@@ -713,13 +713,6 @@ void PowerManagementApp::onBackBtnCb(lv_event_t* e)
 
 	self->m_focusGroup = FOCUS_TITLE;
 
-	if (xTaskGetTickCount() < self->m_nextActionTime)
-	{
-		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
-		return;
-	}
-	self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
-
 	Task::addTask([](void* param) -> TickType_t
 		{
 			auto* app = static_cast<PowerManagementApp*>(param);
