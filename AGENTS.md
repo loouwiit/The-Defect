@@ -84,6 +84,36 @@ protected:
 - **push 不删旧 app** — 旧 app 留在栈底，等 pop 才删
 - **异步删除** — `scheduleDeletion()` 在独立 Task 中 `deinit()` → 等 `deletable` → `lockGuard` → `delete`
 - **LVGL 事件回调中不可执行栈操作** — 须用 `Task::addTask` 延后（因 LVGL 锁已被持有）
+- **AppStack 操作须手动去重** — AppStack 不提供内置防重入保护，`popApp()` / `replaceWith()` / `pushToNewStack()` 等操作在快速连续触发时会导致重复执行（如双击"重新开始"创建两个实例）。**所有 AppStack 操作的入口点必须手动实现防重逻辑**。
+
+### 去重模式
+
+```cpp
+// 1️⃣ 在类中声明时间戳字段
+TickType_t m_nextActionTime = 0;
+static constexpr TickType_t ACTION_COOLDOWN_MS = 500;
+
+// 2️⃣ LVGL 事件回调中加去重检查
+void onRestartCb(lv_event_t* e) {
+    auto* self = static_cast<MyApp*>(lv_event_get_user_data(e));
+
+    if (xTaskGetTickCount() < self->m_nextActionTime) {
+        ESP_LOGI(TAG, "多次点击，已过滤");
+        return;
+    }
+    self->m_nextActionTime = xTaskGetTickCount() + ACTION_COOLDOWN_MS;
+
+    Task::addTask([](void* p) -> TickType_t {
+        static_cast<MyApp*>(p)->replaceWith(new MyApp(...));
+        return Task::infinityTime;
+    }, "deferredOp", self, 0, Task::Affinity::None);
+}
+
+// 3️⃣ onForeground 中设初始延迟，防止恢复前台时误触
+void onForeground() override {
+    m_nextActionTime = xTaskGetTickCount() + ACTION_COOLDOWN_MS;
+}
+```
 
 ### 使用方式
 
