@@ -1012,7 +1012,11 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	// ── 激活 ──
 	if (state.isPressed(GamepadButton::BTN_A) || state.isPressed(GamepadButton::BTN_L3))
 	{
-		// 按钮有按钮重复检测，这里不再检测，否则导致判定永远失败。
+		if (xTaskGetTickCount() < m_nextActionTime) {
+			ESP_LOGI(TAG, "多次点击，已过滤");
+			return;
+		}
+		m_nextActionTime = xTaskGetTickCount() + 500;
 		activateFocus();
 	}
 
@@ -1256,12 +1260,6 @@ void BleSettingsApp::onBackBtnCb(lv_event_t* e)
 
 	self->m_focusGroup = FOCUS_TITLE;
 	self->m_focusTitleIdx = 0;
-
-	if (xTaskGetTickCount() < self->m_nextActionTime) {
-		ESP_LOGI(TAG, "多次点击，已过滤");
-		return;
-	}
-	self->m_nextActionTime = xTaskGetTickCount() + 500;
 
 	// LVGL 事件回调中持锁，栈操作须延后
 	Task::addTask([](void* param) -> TickType_t
