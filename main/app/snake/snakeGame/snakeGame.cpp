@@ -869,7 +869,8 @@ void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 			if (gameState == SnakeGameLogic::State::GameOver)
 			{
-				activateFocus();
+				if (auto guard = display->lockGuard())
+					activateFocus();
 				return;
 			}
 			else if (gameState == SnakeGameLogic::State::Paused)

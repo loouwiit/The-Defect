@@ -394,7 +394,10 @@ void TetrisRoomApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	// 记录活动
 	if (playerId < MAX_PLAYERS) {
 		m_lastActivity[playerId] = xTaskGetTickCount();
-		updateActivity();
+		{
+			auto guard = display->lockGuard();
+			updateActivity();
+		}
 	}
 
 	constexpr uint8_t deadZone = 50;
