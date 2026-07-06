@@ -69,7 +69,7 @@ void TetrisApp::init()
 			} while (attempts < m_playerCount &&
 				(next == i || m_players[next].gameOver));
 			m_players[i].setAttackTarget(next == i ? -1 : next);
-		});
+			});
 	}
 
 	// 初始化共享出块队列 + 游戏状态
@@ -140,6 +140,11 @@ void TetrisApp::deinit()
 	App::deinit();
 }
 
+void TetrisApp::onForeground()
+{
+	m_nextActionTime = xTaskGetTickCount() + 500;
+}
+
 // ============================================================
 //  BLE 手柄输入
 // ============================================================
@@ -150,16 +155,16 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	constexpr uint8_t deadZone = 50;
 	constexpr uint8_t center = 128;
 
-	bool lxLeft  = (state.lx < center - deadZone);
+	bool lxLeft = (state.lx < center - deadZone);
 	bool lxRight = (state.lx > center + deadZone);
-	bool lyUp    = (state.ly < center - deadZone);
-	bool lyDown  = (state.ly > center + deadZone);
+	bool lyUp = (state.ly < center - deadZone);
+	bool lyDown = (state.ly > center + deadZone);
 
 	if (state.dpad < 8) {
-		lxLeft  = (state.dpad == 6 || state.dpad == 5 || state.dpad == 7);
+		lxLeft = (state.dpad == 6 || state.dpad == 5 || state.dpad == 7);
 		lxRight = (state.dpad == 2 || state.dpad == 1 || state.dpad == 3);
-		lyUp    = (state.dpad == 0 || state.dpad == 1 || state.dpad == 7);
-		lyDown  = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
+		lyUp = (state.dpad == 0 || state.dpad == 1 || state.dpad == 7);
+		lyDown = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
 	}
 
 	uint16_t newPress = state.buttons & ~m_prevBtnsAll;
@@ -199,9 +204,9 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	if (playerId >= m_playerCount) return;
 	auto& p = m_players[playerId];
 
-	p.keyLeft  = lxLeft;
+	p.keyLeft = lxLeft;
 	p.keyRight = lxRight;
-	p.keySoft  = lyDown;
+	p.keySoft = lyDown;
 
 	// 摇杆上推 → 切换攻击目标（边沿触发）
 	if (lyUp && !m_lastLyUp[playerId]) {
@@ -291,6 +296,14 @@ void TetrisApp::createGameOverUI()
 void TetrisApp::onRestartCb(lv_event_t* e)
 {
 	auto* self = static_cast<TetrisApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
 	Task::addTask([](void* p) -> TickType_t {
 		auto* app = static_cast<TetrisApp*>(p);
 		app->replaceWith(new TetrisApp(app->display, app->m_playerCount));
@@ -301,6 +314,14 @@ void TetrisApp::onRestartCb(lv_event_t* e)
 void TetrisApp::onBackToRoomCb(lv_event_t* e)
 {
 	auto* self = static_cast<TetrisApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
 	Task::addTask([](void* p) -> TickType_t {
 		static_cast<TetrisApp*>(p)->popApp();
 		return Task::infinityTime;

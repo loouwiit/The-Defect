@@ -28,6 +28,8 @@ public:
     void init() override;
     void deinit() override;
 
+    void onForeground() override;
+
     // ── BLE 手柄输入 ──
     void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
 
@@ -77,6 +79,8 @@ private:
     int8_t    m_focusGameOverIdx = 0;
     TickType_t m_nextMoveTime = 0;
     uint16_t  m_prevBtnsAll = 0;
+
+	TickType_t m_nextActionTime{};
 
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
 	static constexpr TickType_t MOVE_DELAY = 120;

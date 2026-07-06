@@ -10,13 +10,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static constexpr uint32_t BG      = 0x0D0D1A;
-static constexpr uint32_t TEXT    = 0xFFFFFF;
-static constexpr uint32_t SUBTLE  = 0x888888;
-static constexpr uint32_t CARD    = 0x1E1E2E;
-static constexpr uint32_t ACCENT  = 0x4A6CF7;
+static constexpr uint32_t BG = 0x0D0D1A;
+static constexpr uint32_t TEXT = 0xFFFFFF;
+static constexpr uint32_t SUBTLE = 0x888888;
+static constexpr uint32_t CARD = 0x1E1E2E;
+static constexpr uint32_t ACCENT = 0x4A6CF7;
 static constexpr uint32_t SUCCESS = 0x44FF44;
-static constexpr uint32_t WARN    = 0x888888;
+static constexpr uint32_t WARN = 0x888888;
 
 // ════════════════════════════════════════════════════════════════
 //  构造 / 析构
@@ -38,7 +38,8 @@ void TetrisRoomApp::init()
 	App::init();
 
 	auto guard = display->lockGuard();
-	if (!guard) {
+	if (!guard)
+	{
 		ESP_LOGE(TAG, "无法获取 LVGL 锁");
 		return;
 	}
@@ -63,6 +64,8 @@ void TetrisRoomApp::onForeground()
 	// 防抖重置
 	for (auto& t : m_nextMoveTime) t = 0;
 	m_prevButtons = 0xFFFF;
+
+	m_nextActionTime = xTaskGetTickCount() + 500;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -148,23 +151,24 @@ void TetrisRoomApp::buildUi()
 	lv_obj_set_style_pad_column(btnRow, 12, 0);
 	lv_obj_set_style_pad_bottom(btnRow, 20, 0);
 
-	auto mkBtn = [&](lv_obj_t*& btn, const char* text, lv_event_cb_t cb) {
-		btn = lv_button_create(btnRow);
-		lv_obj_set_size(btn, 150, 54);
-		lv_obj_set_style_radius(btn, 12, 0);
-		lv_obj_set_style_bg_color(btn, lv_color_hex(CARD), 0);
-		lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-		lv_obj_set_style_outline_width(btn, 3, LV_STATE_FOCUSED);
-		lv_obj_set_style_outline_color(btn, lv_color_white(), LV_STATE_FOCUSED);
-		lv_obj_set_style_outline_pad(btn, 3, LV_STATE_FOCUSED);
-		lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-		lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
+	auto mkBtn = [&](lv_obj_t*& btn, const char* text, lv_event_cb_t cb)
+		{
+			btn = lv_button_create(btnRow);
+			lv_obj_set_size(btn, 150, 54);
+			lv_obj_set_style_radius(btn, 12, 0);
+			lv_obj_set_style_bg_color(btn, lv_color_hex(CARD), 0);
+			lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+			lv_obj_set_style_outline_width(btn, 3, LV_STATE_FOCUSED);
+			lv_obj_set_style_outline_color(btn, lv_color_white(), LV_STATE_FOCUSED);
+			lv_obj_set_style_outline_pad(btn, 3, LV_STATE_FOCUSED);
+			lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+			lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
 
-		auto label = lv_label_create(btn);
-		lv_label_set_text(label, text);
-		lv_obj_center(label);
-		lv_obj_set_style_text_color(label, lv_color_hex(TEXT), 0);
-	};
+			auto label = lv_label_create(btn);
+			lv_label_set_text(label, text);
+			lv_obj_center(label);
+			lv_obj_set_style_text_color(label, lv_color_hex(TEXT), 0);
+		};
 
 	mkBtn(m_btn1P, "单人游戏", onPlayerBtnCb);
 	mkBtn(m_btn2P, "双人游戏", onPlayerBtnCb);
@@ -182,7 +186,8 @@ void TetrisRoomApp::buildUi()
 	lv_obj_set_style_pad_right(slotsRow, 24, 0);
 	lv_obj_set_style_pad_column(slotsRow, 12, 0);
 
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MAX_PLAYERS; i++)
+	{
 		auto card = lv_obj_create(slotsRow);
 		lv_obj_set_size(card, 400, 200);
 		lv_obj_set_style_radius(card, 12, 0);
@@ -232,7 +237,8 @@ void TetrisRoomApp::buildUi()
 	refreshSlotStatus();
 
 	// 初始化槽位可见性（默认 2P：隐藏 P3）
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MAX_PLAYERS; i++)
+	{
 		if (i < m_selectedPlayers)
 			lv_obj_clear_flag(m_slotCards[i], LV_OBJ_FLAG_HIDDEN);
 		else
@@ -280,16 +286,20 @@ void TetrisRoomApp::buildUi()
 
 void TetrisRoomApp::refreshSlotStatus()
 {
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MAX_PLAYERS; i++)
+	{
 		auto* ctx = BleGamepad::instance().getDevice(i);
 		bool connected = ctx && ctx->connected;
-		if (connected) {
+		if (connected)
+		{
 			char buf[56];
 			snprintf(buf, sizeof(buf), "%s", ctx->name);
 			lv_label_set_text(m_slotStatus[i], buf);
 			lv_obj_set_style_text_color(m_slotStatus[i], lv_color_hex(SUCCESS), 0);
 			lv_obj_set_style_bg_color(m_slotActivity[i], lv_color_hex(SUCCESS), 0);
-		} else {
+		}
+		else
+		{
 			lv_label_set_text(m_slotStatus[i], "等待手柄连接/触摸控制");
 			lv_obj_set_style_text_color(m_slotStatus[i], lv_color_hex(SUBTLE), 0);
 			lv_obj_set_style_bg_color(m_slotActivity[i], lv_color_hex(WARN), 0);
@@ -300,9 +310,11 @@ void TetrisRoomApp::refreshSlotStatus()
 void TetrisRoomApp::updateActivity()
 {
 	TickType_t now = xTaskGetTickCount();
-	for (int i = 0; i < MAX_PLAYERS; i++) {
+	for (int i = 0; i < MAX_PLAYERS; i++)
+	{
 		bool active = (now - m_lastActivity[i] < ACTIVITY_TIMEOUT);
-		if (active != m_lastActivityState[i]) {
+		if (active != m_lastActivityState[i])
+		{
 			m_lastActivityState[i] = active;
 			lv_obj_set_style_bg_opa(m_slotActivity[i],
 				active ? LV_OPA_COVER : LV_OPA_30, 0);
@@ -317,8 +329,10 @@ void TetrisRoomApp::updateActivity()
 void TetrisRoomApp::applyFocus()
 {
 	auto guard = display->lockGuard();
-	auto clear = [](lv_obj_t* obj) { if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
-	auto focus = [](lv_obj_t* obj) { if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
+	auto clear = [](lv_obj_t* obj)
+		{ if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
+	auto focus = [](lv_obj_t* obj)
+		{ if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
 
 	clear(m_backBtn);
 	clear(m_btn1P);
@@ -327,18 +341,23 @@ void TetrisRoomApp::applyFocus()
 	clear(m_btnSettings);
 	clear(m_btnStart);
 
-	switch (m_focusGroup) {
+	switch (m_focusGroup)
+	{
 	case FOCUS_BACK:
 		focus(m_backBtn);
 		break;
-	case FOCUS_PLAYERS: {
-		lv_obj_t* btns[] = { m_btn1P, m_btn2P, m_btn3P };
+	case FOCUS_PLAYERS:
+	{
+		lv_obj_t* btns[] =
+		{ m_btn1P, m_btn2P, m_btn3P };
 		if (m_focusPlayersIdx >= 0 && m_focusPlayersIdx < 3)
 			focus(btns[m_focusPlayersIdx]);
 		break;
 	}
-	case FOCUS_BOTTOM: {
-		lv_obj_t* btns[] = { m_btnSettings, m_btnStart };
+	case FOCUS_BOTTOM:
+	{
+		lv_obj_t* btns[] =
+		{ m_btnSettings, m_btnStart };
 		if (m_focusBottomIdx >= 0 && m_focusBottomIdx < 2)
 			focus(btns[m_focusBottomIdx]);
 		break;
@@ -349,18 +368,23 @@ void TetrisRoomApp::applyFocus()
 void TetrisRoomApp::activateFocus()
 {
 	auto guard = display->lockGuard();
-	switch (m_focusGroup) {
+	switch (m_focusGroup)
+	{
 	case FOCUS_BACK:
 		lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr);
 		break;
-	case FOCUS_PLAYERS: {
-		lv_obj_t* btns[] = { m_btn1P, m_btn2P, m_btn3P };
+	case FOCUS_PLAYERS:
+	{
+		lv_obj_t* btns[] =
+		{ m_btn1P, m_btn2P, m_btn3P };
 		if (m_focusPlayersIdx >= 0 && m_focusPlayersIdx < 3)
 			lv_obj_send_event(btns[m_focusPlayersIdx], LV_EVENT_CLICKED, nullptr);
 		break;
 	}
-	case FOCUS_BOTTOM: {
-		lv_obj_t* btns[] = { m_btnSettings, m_btnStart };
+	case FOCUS_BOTTOM:
+	{
+		lv_obj_t* btns[] =
+		{ m_btnSettings, m_btnStart };
 		if (m_focusBottomIdx >= 0 && m_focusBottomIdx < 2)
 			lv_obj_send_event(btns[m_focusBottomIdx], LV_EVENT_CLICKED, nullptr);
 		break;
@@ -374,9 +398,17 @@ void TetrisRoomApp::activateFocus()
 
 void TetrisRoomApp::startGame()
 {
+	if (xTaskGetTickCount() < m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	m_nextActionTime = xTaskGetTickCount() + 500;
+
 	ESP_LOGI(TAG, "开始游戏: %d 人", m_selectedPlayers);
 
-	if (!m_manager) {
+	if (!m_manager)
+	{
 		ESP_LOGE(TAG, "startGame: no manager");
 		return;
 	}
@@ -392,7 +424,8 @@ void TetrisRoomApp::startGame()
 void TetrisRoomApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
 	// 记录活动
-	if (playerId < MAX_PLAYERS) {
+	if (playerId < MAX_PLAYERS)
+	{
 		m_lastActivity[playerId] = xTaskGetTickCount();
 		{
 			auto guard = display->lockGuard();
@@ -403,43 +436,48 @@ void TetrisRoomApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	constexpr uint8_t deadZone = 50;
 	constexpr uint8_t center = 128;
 
-	bool lxLeft  = (state.lx < center - deadZone);
+	bool lxLeft = (state.lx < center - deadZone);
 	bool lxRight = (state.lx > center + deadZone);
-	bool lyUp    = (state.ly < center - deadZone);
-	bool lyDown  = (state.ly > center + deadZone);
+	bool lyUp = (state.ly < center - deadZone);
+	bool lyDown = (state.ly > center + deadZone);
 
 	uint16_t newPress = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;
 
 	// B → 返回
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)) {
-		Task::addTask([](void* param) -> TickType_t {
-			auto* room = static_cast<TetrisRoomApp*>(param);
-			if (room->getManager()) room->popApp();
-			return Task::infinityTime;
-		}, "tetrisRoomBack", this, 0, Task::Affinity::None);
+	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+	{
+		Task::addTask([](void* param) -> TickType_t
+			{
+				auto* room = static_cast<TetrisRoomApp*>(param);
+				if (room->getManager()) room->popApp();
+				return Task::infinityTime;
+			}, "tetrisRoomBack", this, 0, Task::Affinity::None);
 		return;
 	}
 
 	// A / L3 → 激活聚焦
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
-		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3))) {
+		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
+	{
 		activateFocus();
 		return;
 	}
 
 	// 摇杆归位
-	if (!lxLeft && !lxRight && !lyUp && !lyDown) {
-		for (auto& t : m_nextMoveTime) t = 0;
+	if (!lxLeft && !lxRight && !lyUp && !lyDown)
+	{
+		m_nextMoveTime[playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[playerId] > xTaskGetTickCount()) return;
 
 	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
 	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
 
 	// ── 二维焦点组导航 ──
-	switch (m_focusGroup) {
+	switch (m_focusGroup)
+	{
 	case FOCUS_BACK:
 		if (lyDown) m_focusGroup = FOCUS_PLAYERS;
 		break;
@@ -468,11 +506,12 @@ void TetrisRoomApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 void TetrisRoomApp::onBackBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<TetrisRoomApp*>(lv_event_get_user_data(e));
-	Task::addTask([](void* param) -> TickType_t {
-		auto* room = static_cast<TetrisRoomApp*>(param);
-		if (room->getManager()) room->popApp();
-		return Task::infinityTime;
-	}, "tetrisRoomBack", self, 0, Task::Affinity::None);
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* room = static_cast<TetrisRoomApp*>(param);
+			if (room->getManager()) room->popApp();
+			return Task::infinityTime;
+		}, "tetrisRoomBack", self, 0, Task::Affinity::None);
 }
 
 void TetrisRoomApp::onPlayerBtnCb(lv_event_t* e)
@@ -487,10 +526,14 @@ void TetrisRoomApp::onPlayerBtnCb(lv_event_t* e)
 	ESP_LOGI(TAG, "选择人数: %d", self->m_selectedPlayers);
 
 	// 动态显示/隐藏玩家槽位
-	for (int i = 0; i < MAX_PLAYERS; i++) {
-		if (i < self->m_selectedPlayers) {
+	for (int i = 0; i < MAX_PLAYERS; i++)
+	{
+		if (i < self->m_selectedPlayers)
+		{
 			lv_obj_clear_flag(self->m_slotCards[i], LV_OBJ_FLAG_HIDDEN);
-		} else {
+		}
+		else
+		{
 			lv_obj_add_flag(self->m_slotCards[i], LV_OBJ_FLAG_HIDDEN);
 		}
 	}
@@ -504,20 +547,30 @@ void TetrisRoomApp::onPlayerBtnCb(lv_event_t* e)
 void TetrisRoomApp::onSettingsBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<TetrisRoomApp*>(lv_event_get_user_data(e));
-	Task::addTask([](void* param) -> TickType_t {
-		auto* room = static_cast<TetrisRoomApp*>(param);
-		if (room->getManager())
-			room->getManager()->push(new BleSettingsApp(room->getDisplay()));
-		return Task::infinityTime;
-	}, "tetrisRoomSettings", self, 0, Task::Affinity::None);
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* room = static_cast<TetrisRoomApp*>(param);
+			if (room->getManager())
+				room->getManager()->push(new BleSettingsApp(room->getDisplay()));
+			return Task::infinityTime;
+		}, "tetrisRoomSettings", self, 0, Task::Affinity::None);
 }
 
 void TetrisRoomApp::onStartBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<TetrisRoomApp*>(lv_event_get_user_data(e));
-	Task::addTask([](void* param) -> TickType_t {
-		auto* room = static_cast<TetrisRoomApp*>(param);
-		room->startGame();
-		return Task::infinityTime;
-	}, "tetrisRoomStart", self, 0, Task::Affinity::None);
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* room = static_cast<TetrisRoomApp*>(param);
+			room->startGame();
+			return Task::infinityTime;
+		}, "tetrisRoomStart", self, 0, Task::Affinity::None);
 }
