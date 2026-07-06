@@ -704,31 +704,53 @@ void TimeSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 
 void TimeSettingsApp::onBackBtnCb(lv_event_t* e)
 {
-	auto* s = static_cast<TimeSettingsApp*>(lv_event_get_user_data(e));
+	auto* self = static_cast<TimeSettingsApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
 	Task::addTask([](void* p) -> TickType_t
 		{
 			static_cast<TimeSettingsApp*>(p)->popApp();
 			return Task::infinityTime;
-		}, "popTime", s, 0, Task::Affinity::NotAssigned);
+		}, "popTime", self, 0, Task::Affinity::NotAssigned);
 }
 
 void TimeSettingsApp::onHourDownCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustHour(-1); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustHour(-1);
+}
 
 void TimeSettingsApp::onHourUpCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustHour(1); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustHour(1);
+}
 
 void TimeSettingsApp::onMinDownCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustMinute(-1); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustMinute(-1);
+}
 
 void TimeSettingsApp::onMinUpCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustMinute(1); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->adjustMinute(1);
+}
 
 void TimeSettingsApp::onSecResetCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->resetSeconds(); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->resetSeconds();
+}
 
 void TimeSettingsApp::onAutoSyncCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->toggleAutoSync(); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->toggleAutoSync();
+}
 
 void TimeSettingsApp::onSyncNowCb(lv_event_t* e)
-{ static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->doSyncNow(); }
+{
+	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->doSyncNow();
+}

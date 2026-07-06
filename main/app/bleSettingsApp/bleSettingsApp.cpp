@@ -605,7 +605,7 @@ void BleSettingsApp::updateConnectedList()
 			uint8_t batteryLevel = ctx->batteryLevel;
 			char infoBuffer[32]{};
 
-			char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
+			const char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
 
 			uint8_t iconIndex = batteryLevel == 255 ? 0 : std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0]));
 
@@ -1012,11 +1012,8 @@ void BleSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	// ── 激活 ──
 	if (state.isPressed(GamepadButton::BTN_A) || state.isPressed(GamepadButton::BTN_L3))
 	{
-		if (m_nextActionTime < xTaskGetTickCount())
-		{
-			m_nextActionTime = xTaskGetTickCount() + 500;
-			activateFocus();
-		}
+		// 按钮有按钮重复检测，这里不再检测，否则导致判定永远失败。
+		activateFocus();
 	}
 
 	// ── 摇杆归位判断 ──
@@ -1259,6 +1256,12 @@ void BleSettingsApp::onBackBtnCb(lv_event_t* e)
 
 	self->m_focusGroup = FOCUS_TITLE;
 	self->m_focusTitleIdx = 0;
+
+	if (xTaskGetTickCount() < self->m_nextActionTime) {
+		ESP_LOGI(TAG, "多次点击，已过滤");
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
 
 	// LVGL 事件回调中持锁，栈操作须延后
 	Task::addTask([](void* param) -> TickType_t

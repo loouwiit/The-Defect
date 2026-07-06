@@ -616,7 +616,7 @@ void SnakeGame::activateFocus()
 	switch (m_focusIdx)
 	{
 	case 0: lv_obj_send_event(m_restartBtn, LV_EVENT_CLICKED, nullptr); break;
-	case 1: lv_obj_send_event(m_backBtn,   LV_EVENT_CLICKED, nullptr); break;
+	case 1: lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr); break;
 	}
 }
 
@@ -638,6 +638,14 @@ void SnakeGame::onForeground()
 void SnakeGame::btnRestartCb(lv_event_t* e)
 {
 	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
+
 	// 栈操作不能在 LVGL 事件中执行，延后处理
 	Task::addTask([](void* p) -> TickType_t {
 		auto* game = static_cast<SnakeGame*>(p);
@@ -649,6 +657,13 @@ void SnakeGame::btnRestartCb(lv_event_t* e)
 void SnakeGame::btnBackCb(lv_event_t* e)
 {
 	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime) {
+		ESP_LOGI(TAG, "多次点击，已过滤");
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
+
 	// 栈操作不能在 LVGL 事件中执行，延后处理
 	Task::addTask([](void* p) -> TickType_t {
 		static_cast<SnakeGame*>(p)->popApp();
@@ -661,6 +676,12 @@ void SnakeGame::setDirAndStart(SnakeGame* self, int player, SnakeGameLogic::Dire
 	// GameOver 时按方向键也重启（栈操作，延后处理）
 	if (self->m_logic.getState() == SnakeGameLogic::State::GameOver)
 	{
+		if (xTaskGetTickCount() < self->m_nextActionTime) {
+			ESP_LOGI(TAG, "多次点击，已过滤");
+			return;
+		}
+		self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
+
 		Task::addTask([](void* p) -> TickType_t {
 			auto* game = static_cast<SnakeGame*>(p);
 			game->replaceWith(new SnakeGame(game->display, game->m_playerCount));
@@ -750,6 +771,12 @@ void SnakeGame::btnPauseCb(lv_event_t* e)
 		self->m_logic.setState(SnakeGameLogic::State::Playing);
 	else if (state == SnakeGameLogic::State::GameOver)
 	{
+		if (xTaskGetTickCount() < self->m_nextActionTime) {
+			ESP_LOGI(TAG, "多次点击，已过滤");
+			return;
+		}
+		self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
+
 		// 栈操作，延后处理
 		Task::addTask([](void* p) -> TickType_t {
 			auto* game = static_cast<SnakeGame*>(p);
@@ -852,10 +879,16 @@ void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	{
 		if (gameState == SnakeGameLogic::State::GameOver)
 		{
+			if (xTaskGetTickCount() < m_nextActionTime) {
+				ESP_LOGI(TAG, "多次点击，已过滤");
+				return;
+			}
+			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
+
 			Task::addTask([](void* p) -> TickType_t {
 				static_cast<SnakeGame*>(p)->popApp();
 				return Task::infinityTime;
-			}, "backToRoom", this, 0, Task::Affinity::None);
+				}, "backToRoom", this, 0, Task::Affinity::None);
 			return;
 		}
 	}
@@ -864,20 +897,16 @@ void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
-		if (m_nextActionTime < xTaskGetTickCount())
+		if (gameState == SnakeGameLogic::State::GameOver)
 		{
-			m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
-			if (gameState == SnakeGameLogic::State::GameOver)
-			{
-				if (auto guard = display->lockGuard())
-					activateFocus();
-				return;
-			}
-			else if (gameState == SnakeGameLogic::State::Paused)
-				m_logic.setState(SnakeGameLogic::State::Playing);
-			else if (gameState == SnakeGameLogic::State::Playing)
-				m_logic.setState(SnakeGameLogic::State::Paused);
+			// 各个按钮有按钮重复检测，这里不再检测，否则导致判定永远失败。
+			if (auto guard = display->lockGuard())
+				activateFocus();
 		}
+		else if (gameState == SnakeGameLogic::State::Paused)
+			m_logic.setState(SnakeGameLogic::State::Playing);
+		else if (gameState == SnakeGameLogic::State::Playing)
+			m_logic.setState(SnakeGameLogic::State::Paused);
 	}
 
 	// ── 摇杆归位判断 ──

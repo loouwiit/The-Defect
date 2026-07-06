@@ -347,7 +347,7 @@ void WifiSettingsApp::doScan()
 		return;
 	}
 
-	if (!wifiStationIsStarted()||!wifiApIsStarted()||!wifiNatIsStarted())
+	if (!wifiStationIsStarted() || !wifiApIsStarted() || !wifiNatIsStarted())
 	{
 		ESP_LOGW(TAG, "未启动,自动启动");
 		wifiStationStart();
@@ -895,12 +895,7 @@ void WifiSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
-		if (m_nextActionTime < xTaskGetTickCount())
-		{
-			m_nextActionTime = xTaskGetTickCount() + 500;
 			activateFocus();
-		}
-		return;
 	}
 
 	// ── 摇杆归位判断 ──
@@ -1025,6 +1020,13 @@ void WifiSettingsApp::onBackBtnCb(lv_event_t* e)
 	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_TITLE;
 	self->m_focusTitleIdx = 0;
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
 
 	// LVGL 事件回调中持锁，栈操作须延后
 	Task::addTask([](void* param) -> TickType_t

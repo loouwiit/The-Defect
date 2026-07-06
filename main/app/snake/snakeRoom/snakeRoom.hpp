@@ -44,9 +44,11 @@ private:
 	// 焦点导航
 	int8_t m_focusIdx = 0;
 	TickType_t m_nextMoveTime = 0;
+	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons = 0;  // 上一帧按钮状态（边沿检测）
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);
 	static constexpr TickType_t MOVE_DELAY = pdMS_TO_TICKS(150);
+	static constexpr TickType_t ACTION_COOLDOWN = pdMS_TO_TICKS(500);
 
 	void applyFocus();
 	void activateFocus();

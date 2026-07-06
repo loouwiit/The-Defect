@@ -547,13 +547,13 @@ void PowerManagementApp::applyFocus()
 	if (!guard) return;
 
 	auto clearFocus = [](lv_obj_t* obj)
-	{
-		if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED);
-	};
+		{
+			if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED);
+		};
 	auto focus = [](lv_obj_t* obj)
-	{
-		if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED);
-	};
+		{
+			if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED);
+		};
 
 	clearFocus(m_backBtn);
 	clearFocus(m_shutdownBtn);
@@ -712,6 +712,13 @@ void PowerManagementApp::onBackBtnCb(lv_event_t* e)
 	auto* self = static_cast<PowerManagementApp*>(lv_event_get_user_data(e));
 
 	self->m_focusGroup = FOCUS_TITLE;
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
 
 	Task::addTask([](void* param) -> TickType_t
 		{
