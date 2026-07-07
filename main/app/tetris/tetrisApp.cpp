@@ -167,8 +167,8 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		lyDown = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
 	}
 
-	uint16_t newPress = state.buttons & ~m_prevBtnsAll;
-	m_prevBtnsAll = state.buttons;
+	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
+	m_prevButtons[playerId] = state.buttons;
 
 	// ── 路由：Game Over 界面 ──
 	if (m_allDead) {

@@ -78,7 +78,6 @@ private:
     bool      m_allDead = false;
     int8_t    m_focusGameOverIdx = 0;
     TickType_t m_nextMoveTime = 0;
-    uint16_t  m_prevBtnsAll = 0;
 
 	TickType_t m_nextActionTime{};
 
