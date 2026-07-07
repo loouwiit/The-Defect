@@ -6,6 +6,7 @@
 static constexpr char TAG[] = "FruitNinjaRenderer";
 
 constexpr FruitNinjaRenderer::FruitColors FruitNinjaRenderer::COLORS[];
+constexpr const char* FruitNinjaRenderer::IMAGE_PATHS[];
 
 // ============================================================
 // 创建对象池
@@ -13,19 +14,20 @@ constexpr FruitNinjaRenderer::FruitColors FruitNinjaRenderer::COLORS[];
 
 void FruitNinjaRenderer::create(lv_obj_t* parent)
 {
-	// ── 水果圆形对象池 ──
+	// ── 水果图片对象池 ──
 	for (int i = 0; i < MAX_FRUITS; i++)
 	{
-		m_fruitCircles[i] = lv_obj_create(parent);
-		lv_obj_set_size(m_fruitCircles[i], 80, 80);
-		lv_obj_set_style_radius(m_fruitCircles[i], 40, 0);
-		lv_obj_set_style_border_width(m_fruitCircles[i], 0, 0);
-		lv_obj_set_style_bg_opa(m_fruitCircles[i], LV_OPA_COVER, 0);
-		lv_obj_set_style_bg_color(m_fruitCircles[i], lv_color_hex(0xffff00ff), 0);
-		lv_obj_set_style_shadow_width(m_fruitCircles[i], 8, 0);
-		lv_obj_set_style_shadow_opa(m_fruitCircles[i], LV_OPA_30, 0);
-		lv_obj_remove_flag(m_fruitCircles[i], LV_OBJ_FLAG_CLICKABLE);
-		lv_obj_add_flag(m_fruitCircles[i], LV_OBJ_FLAG_HIDDEN);
+		// lv_image 作为主渲染，支持 JPEG/PNG，bg_color 作回退
+		m_fruitImages[i] = lv_image_create(parent);
+		lv_obj_set_size(m_fruitImages[i], 80, 80);
+		lv_obj_set_style_radius(m_fruitImages[i], 40, 0);
+		lv_obj_set_style_border_width(m_fruitImages[i], 0, 0);
+		lv_obj_set_style_bg_opa(m_fruitImages[i], LV_OPA_COVER, 0);
+		lv_obj_set_style_bg_color(m_fruitImages[i], lv_color_hex(0xffff00ff), 0);
+		lv_obj_set_style_shadow_width(m_fruitImages[i], 8, 0);
+		lv_obj_set_style_shadow_opa(m_fruitImages[i], LV_OPA_30, 0);
+		lv_obj_remove_flag(m_fruitImages[i], LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_add_flag(m_fruitImages[i], LV_OBJ_FLAG_HIDDEN);
 
 		// 提示标签
 		m_fruitLabels[i] = lv_label_create(parent);
@@ -149,27 +151,34 @@ void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 			int posX = static_cast<int>(f.x - r);
 			int posY = static_cast<int>(f.y - r);
 
-			// ── 水果圆形 ──
-			auto* circle = m_fruitCircles[i];
-			lv_obj_set_size(circle, diam, diam);
-			lv_obj_set_pos(circle, posX, posY);
-			lv_obj_set_style_radius(circle, static_cast<int32_t>(r), 0);
+			// ── 水果图片 ──
+			auto* img = m_fruitImages[i];
+			lv_obj_set_size(img, diam, diam);
+			lv_obj_set_pos(img, posX, posY);
+			lv_obj_set_style_radius(img, static_cast<int32_t>(r), 0);
 
-			uint32_t color = COLORS[static_cast<int>(f.type)].fill;
-			lv_obj_set_style_bg_color(circle, lv_color_hex(color), 0);
-			lv_obj_set_style_shadow_color(circle, lv_color_hex(color), 0);
+			// 设置图片源（不存在时图片透明，下方 bg_color 显示）
+			int typeIdx = static_cast<int>(f.type);
+			if (typeIdx >= 0 && typeIdx < 5) {
+				lv_image_set_src(img, IMAGE_PATHS[typeIdx]);
+			}
+
+			// 回退颜色（图片不存在时显示为纯色圆）
+			uint32_t color = COLORS[typeIdx].fill;
+			lv_obj_set_style_bg_color(img, lv_color_hex(color), 0);
+			lv_obj_set_style_shadow_color(img, lv_color_hex(color), 0);
 
 			if (f.sliced)
 			{
 				// 已切片：淡出
-				lv_obj_set_style_opa(circle, f.opacity, 0);
-				lv_obj_set_size(circle, diam / 2, diam / 2); // 缩小
+				lv_obj_set_style_opa(img, f.opacity, 0);
+				lv_obj_set_size(img, diam / 2, diam / 2);
 			}
 			else
 			{
-				lv_obj_set_style_opa(circle, LV_OPA_COVER, 0);
+				lv_obj_set_style_opa(img, LV_OPA_COVER, 0);
 			}
-			lv_obj_clear_flag(circle, LV_OBJ_FLAG_HIDDEN);
+			lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
 
 			// ── 提示标签 ──
 			auto* label = m_fruitLabels[i];
@@ -192,7 +201,7 @@ void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 		}
 		else
 		{
-			lv_obj_add_flag(m_fruitCircles[i], LV_OBJ_FLAG_HIDDEN);
+			lv_obj_add_flag(m_fruitImages[i], LV_OBJ_FLAG_HIDDEN);
 			lv_obj_add_flag(m_fruitLabels[i], LV_OBJ_FLAG_HIDDEN);
 		}
 	}
