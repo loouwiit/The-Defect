@@ -306,15 +306,16 @@ void SnakeRoom::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	}
 
 	// ── 摇杆归位判断 ──
+	assert(playerId < MaxPlayerCount);
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime = 0;
+		m_nextMoveTime[playerId] = 0;
 		return;
 	}
-	if (xTaskGetTickCount() < m_nextMoveTime) return;
+	if (xTaskGetTickCount() < m_nextMoveTime[playerId]) return;
 
-	TickType_t delay = (m_nextMoveTime == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
 
 	// ── 上下导航 ──
 	if (lyUp && m_focusIdx > 0)   m_focusIdx--;

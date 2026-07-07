@@ -229,16 +229,18 @@ void ChineseChessRoom::onGamepadInput(uint8_t playerId, const GamepadState& stat
 		return;
 	}
 
+	if (playerId > MaxPlayerCount) return;
+	
 	// 摇杆归位判断
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime = 0;
+		m_nextMoveTime[playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
 
 	// 上下导航（3 项）
 	if (lyUp && m_focusIdx > 0)   m_focusIdx--;
