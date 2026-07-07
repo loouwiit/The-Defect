@@ -2516,6 +2516,24 @@ CONFIG_WS_BUFFER_SIZE=1024
 # end of TCP Transport
 
 #
+# Ultra Low Power (ULP) Co-processor
+#
+CONFIG_ULP_COPROC_ENABLED=y
+CONFIG_ULP_COPROC_TYPE_LP_CORE=y
+CONFIG_ULP_COPROC_RESERVE_MEM=4096
+CONFIG_ULP_SHARED_MEM=0x10
+CONFIG_ULP_ROM_PRINT_ENABLE=y
+
+#
+# ULP Debugging Options
+#
+CONFIG_ULP_PANIC_OUTPUT_ENABLE=y
+# CONFIG_ULP_HP_UART_CONSOLE_PRINT is not set
+CONFIG_ULP_NORESET_UNDER_DEBUG=y
+# end of ULP Debugging Options
+# end of Ultra Low Power (ULP) Co-processor
+
+#
 # Virtual file system
 #
 CONFIG_VFS_SUPPORT_IO=y

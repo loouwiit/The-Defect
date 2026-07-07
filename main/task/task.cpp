@@ -15,7 +15,7 @@ void Task::init(size_t deamonThreadCount)
 	::deamonThreadCount = deamonThreadCount;
 	deamonThread = new Thread[deamonThreadCount]{};
 	for (size_t i = 0; i < deamonThreadCount; i++)
-		deamonThread[i] = { daemonMain, "taskDaemon", (void*)i, Task::Priority::Deamon, 4096 };
+		deamonThread[i] = { daemonMain, "taskDaemon", (void*)i, Task::Priority::Deamon, 10240 };
 
 	auto atLeastOneStarted = false;
 	for (size_t i = 0; i < deamonThreadCount; i++)

@@ -35,9 +35,17 @@ idf_component_register(SRCS "main.cpp"
                             "app/chineseChess/chessLogic.cpp"
                             "app/chineseChess/chessAI.cpp"
                             "battery/batteryManager.cpp"
+                            "power/powerManager.cpp"
                        INCLUDE_DIRS "."
                        "../managed_components/espressif__esp_lvgl_adapter/src/display"
                        "../managed_components/espressif__esp_lvgl_adapter/src/adapter"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display/ports"
-                       REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip mdns
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt json)
+                       REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip mdns esp_driver_i2s esp_driver_gpio esp_driver_i2c esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt json ulp)
+
+# LP Core 固件 — LP ADC 触控唤醒检测
+# 编译 main/ulp/main.c 为 LP Core 可执行文件并嵌入主程序
+# 第三个参数列出依赖生成头文件的 HP 源文件（保证 ulp.h 先于它们编译）
+set(ULP_APP_NAME   "ulp")
+set(ULP_S_SOURCES  "ulp/main.c")
+set(ULP_S_ALGORITHM "RAM")
+ulp_embed_binary(${ULP_APP_NAME} "${ULP_S_SOURCES}" "power/powerManager.cpp")

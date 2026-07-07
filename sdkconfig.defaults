@@ -78,10 +78,17 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 # 编译器 — Debug 阶段使用 -Og
 # ============================================================
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
-CONFIG_COMPILER_HIDE_PATHS_MACROS=y
-CONFIG_COMPILER_STACK_CHECK_MODE_NORM=y
-CONFIG_COMPILER_STACK_CHECK=y
-CONFIG_COMPILER_DISABLE_DEFAULT_ERRORS=y
+
+# ============================================================
+# ULP LP Core — LP ADC 触控唤醒
+# ============================================================
+CONFIG_ULP_COPROC_ENABLED=y
+CONFIG_ULP_COPROC_TYPE_LP_CORE=y
+CONFIG_ULP_COPROC_RESERVE_MEM=4096
+CONFIG_ULP_SHARED_MEM=0x10
+CONFIG_ULP_ROM_PRINT_ENABLE=y
+CONFIG_ULP_PANIC_OUTPUT_ENABLE=y
+CONFIG_ULP_NORESET_UNDER_DEBUG=y
 
 # ============================================================
 # ESP System — 主栈 32K, 双控制台, 看门狗

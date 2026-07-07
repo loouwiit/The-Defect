@@ -38,6 +38,10 @@ public:
 	void saveBrightnessToNvs();
 	void loadBrightnessFromNvs();
 
+	// ── 显示睡眠/唤醒（用于 Deep-sleep 关机） ──
+	void sendSleepCmd();
+	void sendWakeCmd();
+
 private:
 	esp_ldo_channel_handle_t ldo_phy{};
 	int m_brightness{ 100 };

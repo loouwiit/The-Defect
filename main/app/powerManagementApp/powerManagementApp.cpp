@@ -2,12 +2,12 @@
 #include "gui/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "display/font.hpp"
+#include "display/ili9881c.hpp"
 #include "task/task.hpp"
 #include "bleGamepad/bleGamepad.hpp"
 #include "battery/batteryManager.hpp"
+#include "power/powerManager.hpp"
 #include "esp_log.h"
-#include "esp_sleep.h"
-#include "esp_pm.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -69,11 +69,6 @@ void PowerManagementApp::deinit()
 	{
 		lv_timer_del(m_activityTimer);
 		m_activityTimer = nullptr;
-	}
-	if (m_restoreTimer)
-	{
-		lv_timer_del(m_restoreTimer);
-		m_restoreTimer = nullptr;
 	}
 
 	App::deinit();
@@ -309,10 +304,9 @@ void PowerManagementApp::buildUi()
 	lv_obj_set_style_pad_bottom(btn_section, 24, 0);
 	lv_obj_set_style_border_width(btn_section, 0, 0);
 	lv_obj_set_style_bg_opa(btn_section, LV_OPA_TRANSP, 0);
-	lv_obj_set_style_pad_column(btn_section, 16, 0);
 
-	// 关机按钮
-	m_shutdownBtn = GUI::createButton(btn_section, "", lv_pct(50), 52);
+	// 关机按钮（居中显示）
+	m_shutdownBtn = GUI::createButton(btn_section, "", lv_pct(60), 60);
 	lv_obj_set_style_bg_color(m_shutdownBtn, LV_COLOR_MAKE(0x60, 0x20, 0x20), 0);
 	lv_obj_set_style_radius(m_shutdownBtn, 12, 0);
 	lv_obj_set_style_border_width(m_shutdownBtn, 3, LV_STATE_FOCUSED);
@@ -320,16 +314,6 @@ void PowerManagementApp::buildUi()
 	lv_obj_add_event_cb(m_shutdownBtn, onShutdownBtnCb, LV_EVENT_CLICKED, this);
 	m_shutdownBtnLabel = lv_obj_get_child(m_shutdownBtn, 0);
 	lv_label_set_text(m_shutdownBtnLabel, LV_SYMBOL_POWER " 关机");
-
-	// 低功耗模式按钮
-	m_lowPowerBtn = GUI::createButton(btn_section, "", lv_pct(50), 52);
-	lv_obj_set_style_bg_color(m_lowPowerBtn, LV_COLOR_MAKE(0x30, 0x40, 0x60), 0);
-	lv_obj_set_style_radius(m_lowPowerBtn, 12, 0);
-	lv_obj_set_style_border_width(m_lowPowerBtn, 3, LV_STATE_FOCUSED);
-	lv_obj_set_style_border_color(m_lowPowerBtn, lv_color_white(), LV_STATE_FOCUSED);
-	lv_obj_add_event_cb(m_lowPowerBtn, onLowPowerBtnCb, LV_EVENT_CLICKED, this);
-	m_lowPowerBtnLabel = lv_obj_get_child(m_lowPowerBtn, 0);
-	lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 低功耗");
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -466,76 +450,23 @@ void PowerManagementApp::refreshActivityIndicators()
 
 void PowerManagementApp::doShutdown()
 {
-	ESP_LOGW(TAG, "执行关机（Deep-sleep）");
+	ESP_LOGW(TAG, "执行关机（Deep-sleep，LP Core 触控唤醒）");
 
-	// 使用 LVGL 异步删除所有对象后再进入睡眠
-	// 实际使用时应确保所有外设已停止
+	// 停止 BLE 扫描（节省关机前的电量）
 	BleGamepad::instance().stopScan();
 
-	// 配置唤醒源：默认定时器 60 秒后唤醒（便于调试）
-	esp_sleep_enable_timer_wakeup(60 * 1000000ULL);
-	// 也可使用外部 GPIO 唤醒（根据实际硬件配置）
-	// esp_sleep_enable_ext1_wakeup_io(BIT_NUM(GPIO_NUM_XX), ESP_EXT1_WAKEUP_ANY_HIGH);
+	// ILI9881c 睡眠（背光关闭 + MIPI DSI sleep）
+	ILI9881c::getInstance().sendSleepCmd();
 
-	esp_deep_sleep_start();
+	// PowerManager 准备关机（加载/启动 LP Core + 使能 ULP 唤醒）
+	PowerManager::instance().prepareShutdown(
+		display->getLvglDisplay(), screen
+	);
+
+	// 进入 Deep-sleep（不会返回）
+	PowerManager::instance().shutdown();
 }
 
-void PowerManagementApp::doToggleLowPower()
-{
-	mLowPowerActive = !mLowPowerActive;
-
-	if (mLowPowerActive)
-	{
-		ESP_LOGI(TAG, "启用低功耗模式（Light-sleep）");
-
-		// 配置电源管理策略
-		esp_pm_config_t pm_config = {
-			.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.light_sleep_enable = true,
-		};
-		esp_err_t ret = esp_pm_configure(&pm_config);
-		if (ret != ESP_OK)
-		{
-			ESP_LOGE(TAG, "低功耗模式配置失败: %s", esp_err_to_name(ret));
-			mLowPowerActive = false;
-
-			auto guard = display->lockGuard();
-			if (guard)
-			{
-				lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 低功耗");
-			}
-			return;
-		}
-
-		auto guard = display->lockGuard();
-		if (guard)
-		{
-			// 由于 LVGL 无唤醒符号，复用充电符号
-			lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 正常模式");
-			lv_obj_set_style_bg_color(m_lowPowerBtn, LV_COLOR_MAKE(0x20, 0x50, 0x30), 0);
-		}
-	}
-	else
-	{
-		ESP_LOGI(TAG, "关闭低功耗模式");
-
-		// 关闭 light-sleep
-		esp_pm_config_t pm_config = {
-			.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.light_sleep_enable = false,
-		};
-		esp_pm_configure(&pm_config);
-
-		auto guard = display->lockGuard();
-		if (guard)
-		{
-			lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 低功耗");
-			lv_obj_set_style_bg_color(m_lowPowerBtn, LV_COLOR_MAKE(0x30, 0x40, 0x60), 0);
-		}
-	}
-}
 
 // ════════════════════════════════════════════════════════════════
 // 焦点导航
@@ -557,7 +488,6 @@ void PowerManagementApp::applyFocus()
 
 	clearFocus(m_backBtn);
 	clearFocus(m_shutdownBtn);
-	clearFocus(m_lowPowerBtn);
 	for (auto* card : m_slotCards) clearFocus(card);
 
 	switch (m_focusGroup)
@@ -570,7 +500,7 @@ void PowerManagementApp::applyFocus()
 			focus(m_slotCards[m_focusSlotsIdx]);
 		break;
 	case FOCUS_BUTTONS:
-		focus(m_focusBtnIdx == 0 ? m_shutdownBtn : m_lowPowerBtn);
+		focus(m_shutdownBtn);
 		break;
 	}
 }
@@ -589,10 +519,7 @@ void PowerManagementApp::activateFocus()
 		// 槽位仅显示信息，点击无操作
 		break;
 	case FOCUS_BUTTONS:
-		if (m_focusBtnIdx == 0)
-			lv_obj_send_event(m_shutdownBtn, LV_EVENT_CLICKED, nullptr);
-		else
-			lv_obj_send_event(m_lowPowerBtn, LV_EVENT_CLICKED, nullptr);
+		lv_obj_send_event(m_shutdownBtn, LV_EVENT_CLICKED, nullptr);
 		break;
 	}
 }
@@ -683,16 +610,6 @@ void PowerManagementApp::onGamepadInput(uint8_t playerId, const GamepadState& st
 		break;
 
 	case FOCUS_BUTTONS:
-		if (lxLeft && m_focusBtnIdx > 0)
-		{
-			m_focusBtnIdx = 0;
-			applyFocus();
-		}
-		if (lxRight && m_focusBtnIdx < 1)
-		{
-			m_focusBtnIdx = 1;
-			applyFocus();
-		}
 		if (lyUp)
 		{
 			m_focusGroup = FOCUS_SLOTS;
@@ -741,16 +658,4 @@ void PowerManagementApp::onShutdownBtnCb(lv_event_t* e)
 			self->doShutdown();
 			return Task::infinityTime;
 		}, "powerMgrShutdown", self, 500, Task::Affinity::None);
-}
-
-void PowerManagementApp::onLowPowerBtnCb(lv_event_t* e)
-{
-	auto* self = static_cast<PowerManagementApp*>(lv_event_get_user_data(e));
-
-	Task::addTask([](void* param) -> TickType_t
-		{
-			auto* self = static_cast<PowerManagementApp*>(param);
-			self->doToggleLowPower();
-			return Task::infinityTime;
-		}, "powerMgrLowPower", self, 0, Task::Affinity::None);
 }

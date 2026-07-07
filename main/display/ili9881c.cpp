@@ -256,6 +256,40 @@ bool ILI9881c::init(int h_res, int v_res, uint8_t num_fbs)
 	return true;
 }
 
+void ILI9881c::sendSleepCmd()
+{
+	if (!panel) {
+		ESP_LOGW(TAG, "面板未初始化，跳过睡眠命令");
+		return;
+	}
+
+	// 1. 关闭背光
+	ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
+	ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+
+	// 2. 送 MIPI DSI sleep in 命令
+	esp_lcd_panel_disp_sleep(panel, true);
+
+	ESP_LOGI(TAG, "显示已进入睡眠");
+}
+
+void ILI9881c::sendWakeCmd()
+{
+	if (!panel) {
+		ESP_LOGW(TAG, "面板未初始化，跳过唤醒命令");
+		return;
+	}
+
+	// 送 MIPI DSI sleep out 命令
+	esp_lcd_panel_disp_sleep(panel, false);
+	vTaskDelay(pdMS_TO_TICKS(120));  // ILI9881C 唤醒需要时间
+
+	// 恢复背光
+	loadBrightnessFromNvs();
+
+	ESP_LOGI(TAG, "显示已唤醒");
+}
+
 void ILI9881c::deinit()
 {
 	if (panel)

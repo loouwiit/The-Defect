@@ -34,11 +34,16 @@
 #include "bleGamepad/bleGamepad.hpp"
 #include "monitor/cpuMonitor.hpp"
 #include "battery/batteryManager.hpp"
+#include "power/powerManager.hpp"
 
 static constexpr char TAG[] = "main";
 
 extern "C" void app_main(void)
 {
+	// ── Deep-sleep 唤醒检测（最先执行，早于所有初始化） ──
+	// PowerManager 构造时自动检测并缓存唤醒原因
+	auto& powerMgr = PowerManager::instance();
+
 	Task::init(2);
 
 	Task::addTask([](void*)->TickType_t { srand(esp_random()); return 60 * 1000; }, "srand");
@@ -91,12 +96,12 @@ extern "C" void app_main(void)
 	if (iic.detect(Touch::Address))
 	{
 		ESP_LOGI(TAG, "Touch controller found at address 0x%02X", Touch::Address);
-		touch = { iic, {GPIO_NUM_46}, {GPIO_NUM_47}, Touch::Address };
+		touch = { iic, {GPIO_NUM_46}, {GPIO_NUM_21}, Touch::Address };
 	}
 	else if (iic.detect(Touch::AddressAlternative))
 	{
 		ESP_LOGI(TAG, "Touch controller found at alternative address 0x%02X", Touch::AddressAlternative);
-		touch = { iic, {GPIO_NUM_46}, {GPIO_NUM_47}, Touch::AddressAlternative };
+		touch = { iic, {GPIO_NUM_46}, {GPIO_NUM_21}, Touch::AddressAlternative };
 	}
 	else
 		ESP_LOGE(TAG, "Touch controller not found");
@@ -190,6 +195,12 @@ extern "C" void app_main(void)
 
 	// 初始化主机电池 ADC（全局一次性）
 	BatteryManager::instance().init();
+
+	// 加载 LP Core 固件（仅在冷启动时，非 ULP 唤醒）
+	// LP Core 在关机时由 PowerManager 启动，用于 LP ADC 采样触控唤醒
+	if (!powerMgr.isWakeupBoot()) {
+		powerMgr.initLpCore();
+	}
 
 	// 启动 AppStackManager — 多栈导航系统
 	AppStackManager stackManager(&display);
