@@ -1,6 +1,7 @@
 #include "desktopApp.hpp"
 #include "gui/gui.hpp"
 #include "app/appStackManager.hpp"
+#include "app/fruitNinja/fruitNinjaRoom.hpp"
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "app/wifiSettingsApp/wifiSettingsApp.hpp"
@@ -526,7 +527,8 @@ void DesktopApp::startGame()
 		break;
 
 	case 1:
-		m_manager->pushToNewStack(new TestApp(display, esp_random()));
+		// 水果忍者
+		m_manager->pushToNewStack(new FruitNinjaRoom(display));
 		break;
 
 	case 2:
