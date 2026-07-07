@@ -100,6 +100,8 @@ void PowerManagementApp::onForeground()
 		lv_timer_resume(m_activityTimer);
 	}
 
+	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
+
 	ESP_LOGI(TAG, "前台，定时器已启动");
 }
 
