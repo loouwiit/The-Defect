@@ -83,33 +83,33 @@ void ChineseChessRoom::createMenu(lv_obj_t* parent)
 
 	// 按钮工厂
 	auto mkBtn = [&](lv_obj_t*& btn, const char* text, const char* desc, uint32_t color, lv_event_cb_t cb, int yOff)
-	{
-		btn = lv_button_create(parent);
-		lv_obj_set_size(btn, 300, 80);
-		lv_obj_set_style_radius(btn, 20, 0);
-		lv_obj_set_style_bg_color(btn, lv_color_hex(color), 0);
-		lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-		lv_obj_set_style_shadow_width(btn, 16, 0);
-		lv_obj_set_style_shadow_color(btn, lv_color_hex(color), 0);
-		lv_obj_set_style_shadow_opa(btn, LV_OPA_40, 0);
-		lv_obj_set_style_border_width(btn, 0, 0);
-		lv_obj_set_style_outline_width(btn, 4, LV_STATE_FOCUSED);
-		lv_obj_set_style_outline_color(btn, lv_color_hex(0xFFFFFFFF), LV_STATE_FOCUSED);
-		lv_obj_set_style_outline_opa(btn, LV_OPA_60, LV_STATE_FOCUSED);
-		lv_obj_set_style_outline_pad(btn, 3, LV_STATE_FOCUSED);
-		lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, yOff);
+		{
+			btn = lv_button_create(parent);
+			lv_obj_set_size(btn, 300, 80);
+			lv_obj_set_style_radius(btn, 20, 0);
+			lv_obj_set_style_bg_color(btn, lv_color_hex(color), 0);
+			lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+			lv_obj_set_style_shadow_width(btn, 16, 0);
+			lv_obj_set_style_shadow_color(btn, lv_color_hex(color), 0);
+			lv_obj_set_style_shadow_opa(btn, LV_OPA_40, 0);
+			lv_obj_set_style_border_width(btn, 0, 0);
+			lv_obj_set_style_outline_width(btn, 4, LV_STATE_FOCUSED);
+			lv_obj_set_style_outline_color(btn, lv_color_hex(0xFFFFFFFF), LV_STATE_FOCUSED);
+			lv_obj_set_style_outline_opa(btn, LV_OPA_60, LV_STATE_FOCUSED);
+			lv_obj_set_style_outline_pad(btn, 3, LV_STATE_FOCUSED);
+			lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, yOff);
 
-		auto lbl = lv_label_create(btn);
-		lv_label_set_text(lbl, text);
-		lv_obj_set_style_text_color(lbl, lv_color_hex(0x000000), 0);
-		lv_obj_set_style_text_font(lbl, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
-		lv_obj_center(lbl);
+			auto lbl = lv_label_create(btn);
+			lv_label_set_text(lbl, text);
+			lv_obj_set_style_text_color(lbl, lv_color_hex(0x000000), 0);
+			lv_obj_set_style_text_font(lbl, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
+			lv_obj_center(lbl);
 
-		lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
-	};
+			lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
+		};
 
-	mkBtn(m_btnAI, "人机对战",  "挑战电脑", BTN_AI, btnAICb, 220);
-	mkBtn(m_btn2P, "双人对战",  "好友对弈", BTN_2P, btn2PCb, 330);
+	mkBtn(m_btnAI, "人机对战", "挑战电脑", BTN_AI, btnAICb, 220);
+	mkBtn(m_btn2P, "双人对战", "好友对弈", BTN_2P, btn2PCb, 330);
 
 	// 底部提示
 	auto hint = lv_label_create(parent);
@@ -181,8 +181,8 @@ void ChineseChessRoom::activateFocus()
 	switch (m_focusIdx)
 	{
 	case 0: lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr); break;
-	case 1: lv_obj_send_event(m_btnAI,   LV_EVENT_CLICKED, nullptr); break;
-	case 2: lv_obj_send_event(m_btn2P,   LV_EVENT_CLICKED, nullptr); break;
+	case 1: lv_obj_send_event(m_btnAI, LV_EVENT_CLICKED, nullptr); break;
+	case 2: lv_obj_send_event(m_btn2P, LV_EVENT_CLICKED, nullptr); break;
 	}
 }
 
@@ -218,6 +218,13 @@ void ChineseChessRoom::onGamepadInput(uint8_t playerId, const GamepadState& stat
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
+		if (xTaskGetTickCount() < m_nextActionTime)
+		{
+			ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", m_nextActionTime - xTaskGetTickCount());
+			return;
+		}
+		m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
+
 		activateFocus();
 		return;
 	}
@@ -245,4 +252,5 @@ void ChineseChessRoom::onForeground()
 {
 	m_prevButtons = 0xFFFF;
 	applyFocus();
+	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 }

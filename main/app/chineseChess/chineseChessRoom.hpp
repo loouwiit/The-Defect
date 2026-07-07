@@ -37,8 +37,10 @@ private:
 	int8_t m_focusIdx = 0;
 	TickType_t m_nextMoveTime = 0;
 	uint16_t m_prevButtons = 0;
+	TickType_t m_nextActionTime{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);
 	static constexpr TickType_t MOVE_DELAY = pdMS_TO_TICKS(150);
+	static constexpr TickType_t ACTION_DELAY = 500;
 
 	void applyFocus();
 	void activateFocus();
