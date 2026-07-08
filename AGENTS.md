@@ -84,6 +84,7 @@ reserces/
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
 | **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
+| | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
 | | CPU Monitor | `main/monitor/` | FreeRTOS 任务利用率差分采样，串口输出 |
 | **GUI** | GUI | `main/gui/` | 色板（8 色）+ 14 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) |
@@ -811,6 +812,20 @@ struct GamepadState {
 | BTN_L3 | bit 13 | 左摇杆按下 |
 | BTN_START | bit 11 | 开始 |
 | BTN_SELECT | bit 10 | 选择 |
+
+#### 手柄固件
+
+BLE 手柄使用独立的 ESP32-C6 固件项目，通过 Git Submodule 挂载在 `gamepad/`：
+
+> **[esp32c6HidJoystick](https://codeberg.org/loouwiit/esp32c6HidJoystick)** — ESP32-C6 BLE HID Gamepad 固件
+
+```bash
+git clone --recurse-submodules https://<本仓库地址>
+# 或已克隆后补拉子模块：
+git submodule update --init --recursive
+```
+
+手柄固件与主机通过 NimBLE GATT 协议通信，定义 `GamepadButton` 位图（见 `gamepadState.hpp`）和输入事件队列。双方需保持协议同步。
 
 #### 特性
 

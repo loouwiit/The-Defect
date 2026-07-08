@@ -1,0 +1,3 @@
+[submodule "gamepad"]
+	path = gamepad
+	url = https://codeberg.org/loouwiit/esp32c6HidJoystick

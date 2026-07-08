@@ -2,6 +2,8 @@
 
 ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网派对游戏场景。
 
+> 📡 **手柄固件**：[esp32c6HidJoystick](https://codeberg.org/loouwiit/esp32c6HidJoystick) — 自研 ESP32-C6 BLE HID 手柄，与本机配对使用。
+
 ---
 
 ## 特色亮点
@@ -242,9 +244,28 @@ reserces/
 │   ├── virtualIndev/         ← 虚拟触摸注入
 │   ├── wifi/                 ← WiFi / mDNS / TCP Socket
 │   └── wsServer/             ← WebSocket 服务器
+├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
 ├── patches/                  ← managed_components 补丁
 ├── reserces/                 ← FAT 分区资源文件
 │   ├── server/               ← HTTP 静态资源
 │   └── system/               ← 系统文件
 ├── AGENTS.md                 ← 完整架构文档 (AI Agent 指南)
 └── partitions.csv            ← 分区表
+
+---
+
+## 相关项目
+
+| 项目 | 仓库 | 路径 | 说明 |
+|------|------|------|------|
+| **esp32c6HidJoystick** | [codeberg.org/loouwiit/esp32c6HidJoystick](https://codeberg.org/loouwiit/esp32c6HidJoystick) | `gamepad/` (submodule) | ESP32-C6 BLE HID 无线手柄固件，与本机通过 NimBLE 配对通信 |
+
+### 克隆完整项目
+
+```bash
+git clone --recurse-submodules https://<本仓库地址>
+# 或如果已克隆但未拉子模块：
+git submodule update --init --recursive
+```
+
+手柄固件位于 `gamepad/` 目录，独立构建（ESP-IDF + esp32c6 target）。
