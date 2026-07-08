@@ -1,343 +1,206 @@
-# 目标
-* P4驱动的多人游戏机
-* C6驱动的手柄
+# The-Defect — ESP32-P4 多人游戏主机
 
-# 功能
-
-* 打游戏
-* 多人联机
-* * 创建加入
-* * 碰一碰联机（可选）
-* HID设备（可选）
-
-## 打游戏
-* 俄罗斯方块：手柄输入
-* 贪吃蛇：手柄输入
-* 水果忍者：触屏输入
-* 中国象棋：手柄、触屏输入
-* 斗地主/麻将（可选）：手柄、触屏输入
-* 平衡球（可选）：重力
-
-## 多人联机
-实现：将输入抽象。一个输入对于一个inputer。
-
-同步：游戏行为由事件驱动，仅由主机发送事件。或者每次发送全部游戏帧。
-
-写app代码的时候一定一定要遵循抽象设计。
-
-## HID设备（可选）
-
-## 小功能
-* 电池电量
-* 手柄拆卸
-* 时间
-* 投屏（没必要）
-
-# 硬件选型
-
-|	硬件	|	单个成本	|	数量	|
-|:-:|:-:|:-:|
-|	P4C6	|	60	|	1	|
-|	C6	|	20	|	2	|
-|	720p屏幕	|	100	|	1	|
-|	碰一碰（有待考虑）	|	60	|	1	|
-|	电池充电模块	|	2	|	3	|
-|	电池放电模块	|	8	|	3	|
-|	电池包	|	10	|	3	|
-|	按钮	|	2.5	|	9	|
-|	遥杆	|	2	|	2	|
-|	外壳	|	？？？	|	3	|
-|	扬声器	|	20	|	3	|
-
-## 屏幕
-* 接口：MIPI 2line（ESP）
-* 分辨率：720p
-* 尺寸：6寸
-
-# 通信架构
-
-|通信设备|通信设备|协议|
-|:-:|:-:|:-:|
-|p4|c6|ESP HOST|
-|p4|c6|滑轨内UART|
-|c6|按钮|GPIO|
-|c6|摇杆|ADC|
-|p4|p4|esp-now|
-|p4|电源|ADC/IIC|
-|p4|屏幕|2line MIPI|
-|p4|扬声器|IIS|
-
-# 软件架构
-
-## 要求
-支持触摸（clickAble，内部有三个指针）
-
-支持方向键（做绑定，focusAble，内部有四个指针）
-
-支持返回键
-
-支持音效播放
-
-## AppStack — 多栈导航系统
-
-**模块路径**: `main/app/`
-
-- `app.hpp` / `app.cpp` — `App` 基类
-- `appStack.hpp` / `appStack.cpp` — `AppStack` 单栈
-- `appStackManager.hpp` / `appStackManager.cpp` — `AppStackManager` 多栈管理器
-
-### 架构
-
-```
-AppStackManager          ← 顶层，持有所有栈
-├── Stack 0 [Desktop]    ← 根栈（桌面，常驻）
-├── Stack 1 [Game, ...]  ← 游戏独立栈（pushToNewStack 创建）
-└── activeStack          ← 当前前台栈
-```
-
-### App 生命周期
-
-| 方法 | 触发 | 用途 |
-|------|------|------|
-| `init()` | app 首次入栈 | 创建 LVGL 对象 |
-| `deinit()` | app 被弹出 | 停止后台线程 |
-| `onForeground()` | app 成为栈顶 | 启动定时器 / 传感器 |
-| `onBackground()` | app 被覆盖 | 暂停耗时任务 |
-
-### 栈操作时序
-
-```
-push(newApp):      oldTop→onBg → newApp→init → applyApp → newApp→onFg
-pop(有上层):       oldTop→onBg → applyApp(prev) → prev→onFg → scheduleDeletion(oldTop)
-pop(栈空-非根):    oldTop→onBg → return orphan → Manager switchToStack(0) → scheduleDeletion(orphan)
-replace(newApp):   oldTop→(不调onBg) → newApp→init → applyApp → newApp→onFg → scheduleDeletion(oldTop)
-pushToNewStack:    oldStack→top→onBg → 创建新栈 → push → 新栈 active
-```
-
-### LVGL 锁注意事项
-
-| 调用上下文 | 能否执行栈操作 | 原因 |
-|-----------|---------------|------|
-| BLE 手柄回调 | ✅ 直接调用 | BLE task 不持 LVGL 锁 |
-| 普通 Task | ✅ 直接调用 | 独立 task，不持 LVGL 锁 |
-| LVGL 事件回调 | ⚠️ 部分情况须 `Task::addTask` 延后 | LVGL task 内部分操作会导致 LVGL 异常 |
-
-# 屏幕串流架构
-
-## 概述
-
-MJPEG 屏幕串流，通过 HTTP 实时投屏。
-
-**模块路径**: `main/screenStream/`
-
-**核心文件**:
-- `screenStream.hpp` — `ScreenStream` 单例类
-- `screenStream.cpp` — 回调 + JPEG 编码实现
-
-## 设计原理
-
-### 问题
-
-LVGL 的 `lv_snapshot_take_to_draw_buf()` 会**完整重绘整个 UI 对象树**到新的 draw buffer。对于 720×1280 分辨率，每次截图都要遍历所有控件并重新渲染，开销极大，不适合高帧率串流。
-
-### 方案
-
-`esp_lvgl_adapter` 的 bridge 层内部维护了累积的完整帧缓冲（`disp_fb` / `draw_fb`），可直接读取。
-
-我们在 bridge 抽象接口中新增了 `on_frame_ready` 回调，每帧 flush 完成后触发，提供 front buffer 指针。`ScreenStream` 在其回调中缓存指针，`captureJpeg()` 直接送硬件 JPEG 编码器。
-
-### 数据流
-
-```
-  LVGL 渲染
-     ↓
-  bridge flush (逐个 dirty tile)
-     ↓
-  copy_unrendered → cache sync → blit to panel → swap disp_fb/draw_fb
-     ↓
-  on_frame_ready(disp, disp_fb, size, ctx)    ← 每帧 1 次
-     ↓
-  ScreenStream::frameReadyCallback: 缓存 fb 指针
-     ↓ (定时器或 HTTP 请求触发)
-  ScreenStream::captureJpeg:
-    → jpeg_enc_process(hw, disp_fb, size, out_buf, &out_sz)
-    → 返回 JPEG 数据
-```
-
-## Bridge 补丁
-
-ScreenStream 依赖 `0001` 补丁修改的 4 个 `esp_lvgl_adapter` 文件：
-
-| 文件 | 改动 |
-|------|------|
-| `src/display/ports/display_bridge.h` | 抽象接口末尾加 `on_frame_ready` + `frame_ready_user_ctx` |
-| `src/display/bridge/v9/lvgl_bridge_v9.c` | 7 个 flush 函数的帧完成点插入回调调用 |
-| `src/display/display_manager.h` | 新增 `display_manager_set_frame_ready_callback()` 声明 |
-| `src/display/display_manager.c` | 实现注册函数 |
-
-补丁整体管理见下方 [补丁管理] 章节。
-
-## 性能影响
-
-| 场景 | 开销 |
-|------|------|
-| 串流关闭 | bridge 中 1 次 null 指针检查/帧（≈ 2-3 周期） |
-| 串流开启 | 回调中 2 次指针赋值 + JPEG 编码时间（硬件加速，与 UI 复杂度无关） |
-| 对比 `lv_snapshot` | 消除全部重新渲染开销，帧率提升显著 |
-
-## mDNS 服务发现
-
-基于 ESP-IDF mdns 组件，实现 mDNS 服务发现。
-
-**模块路径**: `main/wifi/mdns.cpp`
-
-**核心文件**:
-- `mdns.hpp` — 接口声明
-- `mdns.cpp` — 实现
-
-### 功能
-
-设备在网络上广播主机名和服务，支持 mdns 客户端通过 `esp32p4.local` 发现设备，无需记忆 IP 地址。
-
-### 使用方法
-
-```cpp
-mdnsInit();                                          // 1. 初始化
-mdnsStart("esp32p4", "ESP32P4 Game Console");       // 2. 设置主机名和实例名
-mdnsServiceAdd("ESP32P4 HTTP", "_http", "_tcp", 80); // 3. 添加 HTTP 服务
-mdnsServiceAdd("ESP32P4 WS", "_ws", "_tcp", 8080);   // 4. 添加 WebSocket 服务
-```
-
-### 可发现的服务
-
-| 实例名 | 服务类型 | 协议 | 端口 |
-|--------|----------|------|------|
-| ESP32P4 HTTP | _http | _tcp | 80 |
-| ESP32P4 WS | _ws | _tcp | 8080 |
-
-## FontLoader — 字体加载
-
-**模块路径**: `main/display/font.cpp`
-
-### 概述
-
-`FontLoader` 是一个无状态的纯工具类，负责从 VFS 路径加载 FreeType 字体，并提供全局默认字体。
-
-### 设计
-
-```cpp
-class FontLoader {
-public:
-    // 加载字体文件，返回 lv_font_t*
-    // 生命周期由 esp_lv_adapter_deinit() 统一管理
-    static const lv_font_t* load(const char* vfsPath);
-
-    // 全局默认字体（供所有对象使用）
-    static const lv_font_t* getDefault();
-    static void setDefault(const lv_font_t* font);
-
-private:
-    FontLoader() = delete;
-    ~FontLoader() = delete;
-
-    static const lv_font_t* s_defaultFont;
-};
-```
-
-### VFS 驱动器 'F'
-
-FontLoader 在内部注册 LVGL VFS 驱动器 `'F'`，将 `"F:..."` 路径映射到 `/root/`：
-
-```
-FreeType "F:system/NotoSC.ttf"
-    → LVGL VFS driver 'F'
-    → convert_path: 去掉 "F:" 前缀，拼接到 "/root/"
-    → fopen("/root/system/NotoSC.ttf")
-    → VFS → FAT flash
-```
-
-### 使用方式
-
-```cpp
-// main.cpp — 初始化时加载并设为默认
-FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf"));
-
-// App 构造函数 — 自动继承字体到所有子对象
-lv_obj_set_style_text_font(screen, FontLoader::getDefault(), 0);
-
-// desktopApp — 直接使用默认字体，无需每次指定路径
-lv_obj_set_style_text_font(label, FontLoader::getDefault(), 0);
-```
-
-### 关键特性
-
-- **无状态**: FontLoader 不存储字体实例，每次 load() 返回新句柄
-- **全局默认字体**: 通过 `setDefault()` / `getDefault()` 提供共享字体
-- **样式继承**: App 基类在 screen 上设置默认字体，所有子对象自动继承
-- **生命周期**: 字体由 `esp_lv_adapter_deinit()` 统一释放，无法单独 deinit
-
-## 资源文件
-
-`reserces/` 目录下的文件会被上传到 ESP32-P4 内置 FLASH 的 FAT 分区，挂载路径为 `/root/`。
-
-**编译烧录后**，需要通过 HTTP 上传资源文件到设备：
-
-1. 访问 `http://esp32p4.local/file` 或 `http://<设备IP>/file`
-2. 进入对应目录，上传以下文件：
-
-### 目录结构
-
-| 路径 | 说明 |
-|------|------|
-| `/root/system/NotoSC.ttf` | 思源黑体字体文件（FontLoader 所需） |
-| `/root/server/` | Web 服务器静态资源目录 |
-
-### 资源说明
-
-| 资源 | 必需 | 说明 |
-|------|------|------|
-| `system/NotoSC.ttf` | **必需** | 思源黑体 Regular，FontLoader 按字号加载 |
-| `server/` | 可选 | 网页静态资源，用于 HTTP 服务器 |
-
-### 上传示例
-
-```bash
-# 通过 curl 上传字体文件
-curl -X PUT -T system/NotoSC.ttf http://esp32p4.local/file/system/NotoSC.ttf
-```
-
-⚠ 上传资源后需要重启设备以重新加载字体。
+ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网派对游戏场景。
 
 ---
 
-## 性能优化
+## 硬件架构
 
-### LVGL 渲染性能
+```
+ESP32-P4 (主机)
+├── MIPI DSI — ILI9881C 6寸 720×1280 屏幕
+├── I²C      — GT911 触摸 (GPIO7/8)
+├── SDIO     — ESP32-C6 (esp-hosted, WiFi + BLE 协处理器)
+├── I²S      — ES8311 音频编解码器 + 扬声器
+├── ADC      — 电池电量检测 (ADC1_CH6)
+├── GPIO23   — 充电检测 (低电平=充电中)
+└── GPIO     — 功放使能 (GPIO53)
 
-| 优化项 | 效果 | 说明 |
-|--------|------|------|
-| 禁用 `CONFIG_ESP_LVGL_ADAPTER_PARTIAL_AUX_IMG_CACHE` | 8→15fps | 该选项每帧调用 `lv_image_cache_drop(NULL)` 清空整个图片缓存，导致所有图片每帧重新解码 |
-| 启用图片缓存 `CONFIG_LV_CACHE_DEF_SIZE=1048576` | 配合上方 | 图片只解码一次，后续帧从缓存直接 blit |
-
-### PPA 加速注意事项
-
-- `CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT` **必须为 1**（默认情况下 PPA 要求），>1 会导致不可预知的渲染错误（黑线、白线、混叠）
-- PPA fill/blend 的 `max_pending_trans_num` 在多线程运行时需 ≥2，默认值1会导致 `exceed maximum pending transactions` 崩溃
-
-## 补丁管理
-
-`patches/apply.sh` 会自动应用所有补丁到 `managed_components/espressif__esp_lvgl_adapter/`。
-
-```bash
-bash patches/apply.sh           # 打补丁
-bash patches/apply.sh --revert  # 还原
-bash patches/apply.sh --check   # 检查状态
+ESP32-C6 (协处理器)
+├── SDIO     — ESP32-P4 通信 (esp_hosted)
+├── BLE      — 手柄连接 (NimBLE controller)
+├── WiFi     — STA/AP 双模 (通过 esp_hosted 转发)
+└── 2.4GHz   — 蓝牙 + WiFi 共用天线
 ```
 
-⚠ `idf.py reconfigure` 后 `managed_components` 会重置，需要重新 `bash patches/apply.sh`。
+---
 
-| 补丁 | 说明 |
+## 功能
+
+### 游戏
+| 游戏 | 输入 | 联机 |
+|------|------|------|
+| 🧱 俄罗斯方块 | BLE 手柄 | 主机 3 人对战（1 本地 + 2 WebSocket） |
+| 🐍 贪吃蛇 | BLE 手柄 | 房间系统 |
+| 🍉 水果忍者 | 触屏 / Web | 房间系统 |
+| ♟️ 中国象棋 | BLE 手柄 / 触屏 | 双人 + AI 引擎 |
+| 🎮 桌面启动器 | 手柄 / 触屏 | — |
+
+### 设置
+- **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
+- **WiFi 配置** — AP 扫描、密码输入、连接状态
+- **时间设置** — 手动调时 / SNTP 自动同步
+- **电源管理** — 电量显示、关机 Deep-sleep
+
+### 系统
+- **屏幕串流** — MJPEG HTTP 实时投屏（硬件 JPEG 编码，零拷贝）
+- **Web 触控注入** — 通过浏览器远程触摸操作
+- **音频播放** — 多流混音，MP3/AAC/FLAC/WAV 解码
+- **CPU 监控** — 串口实时任务利用率采样
+- **mDNS** — `esp32p4.local` 自动发现
+- **WiFi AP** — 断开时自动切换到热点模式
+
+---
+
+## 软件架构
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                     App 层 (12 Apps)                      │
+│  DesktopApp │ Tetris │ FruitNinja │ Snake │ ChineseChess  │
+│  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt    │
+├───────────────────────┬──────────────────────────────────┤
+│     AppStackManager   │         网络服务                  │
+│  ├─ Stack 0 (桌面)    │  ├─ HTTP Server (port 80)        │
+│  ├─ Stack 1..N (游戏) │  ├─ WS Server  (port 8080)       │
+│  └─ 异步删除 + 去重   │  ├─ ScreenStream (MJPEG)         │
+│                       │  └─ mDNS (_http, _ws)            │
+├──────────┬────────────┴────────────┬─────────────────────┤
+│ 显示/输入 │     WiFi / BLE         │      存储            │
+│ Display  │  ├─ STA/AP 双模 + NAT  │ FAT (16MB)          │
+│ ILI9881C │  ├─ C6 Slave (SDIO)    │ memFS (6MB)         │
+│ GT911    │  ├─ BLE Gamepad (4P)   │ SD Card             │
+│ FontLoader│ └─ mDNS               │                     │
+├──────────┴─────────────────────────┴─────────────────────┤
+│                   基础设施层                               │
+│  Task(协程) │ Mutex(RAII) │ GPIO │ IIC │ GUI(色板+工厂)  │
+│  CPU Monitor │ Battery(ADC) │ Audio(ES8311+AudioHandle) │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 技术栈
+
+| 技术 | 用途 |
 |------|------|
-| `0001-esp_lvgl_adapter-frame-ready-callback.patch` | ScreenStream 帧回调（修改 4 个文件） |
-| `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` | PPA fill/blend `max_pending_trans_num=8` |
-- `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` — PPA fill/blend `max_pending_trans_num=8`
+| ESP32-P4 | 主 SoC（双核 HP + LP Core） |
+| ESP32-C6 | 协处理器（WiFi/BLE） |
+| ESP-IDF 5.x | 固件框架 |
+| LVGL 9.4 | GUI 框架 |
+| ILI9881C | 6" 720×1280 MIPI DSI 面板 |
+| GT911 | 5 点电容触摸 |
+| ES8311 | 音频编解码器 |
+| NimBLE | BLE 协议栈（P4 host + C6 controller） |
+| esp_hosted | P4↔C6 SDIO 通信 |
+| FreeType | 字体渲染（NotoSC） |
+| esp_audio_render | 多流混音音频渲染 |
+| PPA | 2D 硬件加速（fill/blend/SRM） |
+| 硬件 JPEG | ESP32-P4 内置 JPEG 编码器 |
+
+### 模块一览
+
+详见 `AGENTS.md` 的完整架构文档。核心模块摘要：
+
+| 层次 | 模块 | 路径 |
+|------|------|------|
+| 基础设施 | Task / Mutex / GPIO / IIC | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` |
+| 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
+| 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
+| 应用 | 12 个 App | `main/app/*/` |
+| 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS | `main/wifi/` `main/server/` `main/wsServer/` |
+| 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
+| 外设 | BLE Gamepad / Battery / CPU Monitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
+| GUI | 色板 + 工厂方法 | `main/gui/` |
+| 存储 | FAT / memFS / SD | `main/storage/` |
+
+---
+
+## 构建与烧录
+
+### 前提
+
+- ESP-IDF 5.x（含 esp32p4 和 esp32c6 支持）
+- ESP-IDF 扩展（VS Code）
+
+### 构建
+
+```bash
+idf.py build
+```
+
+### 补丁
+
+项目依赖 3 个对 managed_components 的补丁：
+
+```bash
+bash patches/apply.sh
+```
+
+> ⚠ `idf.py reconfigure` 后需重新打补丁。
+
+### 烧录
+
+```bash
+idf.py -p /dev/ttyACM0 flash monitor
+```
+
+### 分区表
+
+| 分区 | 大小 | 用途 |
+|------|------|------|
+| nvs | 16KB | 配置持久化 |
+| otadata | 8KB | OTA 数据 |
+| phy_init | 4KB | 射频校准 |
+| ota_0 | 6MB | 应用固件 |
+| fat | 16MB | 数据分区 (/root/) |
+
+### 资源上传
+
+`reserces/` 目录需上传到 FAT 分区：
+
+```
+reserces/
+├── server/       ← HTTP 网页资源
+└── system/       ← 系统文件 (字体等)
+```
+
+---
+
+## 网络服务
+
+| 服务 | 端口 | 协议 | 说明 |
+|------|------|------|------|
+| HTTP | 80 | TCP | 网页服务 + 屏幕串流 |
+| WebSocket | 8080 | TCP | 游戏通信 + 触控注入 |
+| mDNS | 5353 | UDP | 服务发现 (`esp32p4.local`) |
+
+---
+
+## 项目结构
+
+```
+├── main/
+│   ├── main.cpp              ← 启动入口
+│   ├── app/                  ← 应用层 (12 Apps)
+│   ├── audio/                ← ES8311 + Audio 管理器
+│   ├── battery/              ← 电池管理
+│   ├── bleGamepad/           ← BLE 手柄 (NimBLE + esp_hosted)
+│   ├── display/              ← LVGL 适配 + ILI9881c + 字体
+│   ├── gpio/                 ← GPIO 封装
+│   ├── gui/                  ← GUI 辅助类
+│   ├── iic/                  ← I²C 总线
+│   ├── monitor/              ← CPU 监视器
+│   ├── mutex/                ← RAII 互斥锁
+│   ├── screenStream/         ← 屏幕串流
+│   ├── server/               ← HTTP 服务器
+│   ├── storage/              ← FAT / memFS / SD
+│   ├── task/                 ← 协程调度器
+│   ├── touch/                ← GT911 触摸
+│   ├── virtualIndev/         ← 虚拟触摸注入
+│   ├── wifi/                 ← WiFi / mDNS / TCP Socket
+│   └── wsServer/             ← WebSocket 服务器
+├── patches/                  ← managed_components 补丁
+├── reserces/                 ← FAT 分区资源文件
+│   ├── server/               ← HTTP 静态资源
+│   └── system/               ← 系统文件
+├── AGENTS.md                 ← 完整架构文档 (AI Agent 指南)
+└── partitions.csv            ← 分区表
