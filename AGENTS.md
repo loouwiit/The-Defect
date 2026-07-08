@@ -827,6 +827,8 @@ git submodule update --init --recursive
 
 手柄固件与主机通过 NimBLE GATT 协议通信，定义 `GamepadButton` 位图（见 `gamepadState.hpp`）和输入事件队列。双方需保持协议同步。
 
+> 📖 手柄固件完整文档见 [`gamepad/readme.md`](../gamepad/readme.md)。
+
 #### 特性
 
 - **上限 4 玩家** (`MaxPlayers = 4`)
