@@ -44,6 +44,14 @@ extern "C" void app_main(void)
 	// PowerManager 构造时自动检测并缓存唤醒原因
 	auto& powerMgr = PowerManager::instance();
 
+	// ── 如果是定时器轮询唤醒但无触摸，立即重新入睡 ──
+	if (powerMgr.shouldReEnterSleep()) {
+		ESP_LOGI(TAG, "触摸轮询: 无触摸，重新入睡");
+		powerMgr.reEnterDeepSleep();
+		assert(false && "应该重新入睡！");
+		// 不会执行到这里
+	}
+
 	Task::init(2);
 
 	Task::addTask([](void*)->TickType_t { srand(esp_random()); return 60 * 1000; }, "srand");

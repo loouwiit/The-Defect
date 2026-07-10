@@ -37,6 +37,7 @@ PowerManager& PowerManager::instance()
 }
 
 PowerManager::PowerManager()
+    : m_shouldReSleep(false)
 {
     detectWakeupCause();
 }
@@ -54,29 +55,47 @@ void PowerManager::detectWakeupCause()
         ESP_LOGI(TAG, "唤醒原因: LP Core (触控唤醒)");
     }
     else if (m_wakeupCauses & BIT(ESP_SLEEP_WAKEUP_TIMER)) {
-        m_wakeupBoot = true;
-        ESP_LOGI(TAG, "唤醒原因: 定时器 (5s 超时)");
+        /* ── 检查 LP Core 的触摸标志 ── */
+        bool touchDetected = (ulp_lp_touch_detected != 0);
+
+        if (touchDetected) {
+            m_wakeupBoot = true;
+            ESP_LOGI(TAG, "唤醒原因: LP Core 触控检测 (定时器轮询)");
+            ulp_lp_touch_detected = 0;  // 清零
+        }
+        else {
+            /* 定时器到期但无触摸 — 检查是否在关机休眠中 */
+            if (s_rtcData->magic == RTC_MAGIC && s_rtcData->shutdownReason != 0) {
+                m_shouldReSleep = true;
+                ESP_LOGI(TAG, "触摸轮询: 无触摸 (ADC min=%lu)，重新入睡",
+                    (unsigned long)ulp_lp_min_adc);
+            }
+            else {
+                m_wakeupBoot = true;
+                ESP_LOGI(TAG, "唤醒原因: 定时器");
+            }
+        }
 
         /* ── 读取 LP Core 的调试数据 ── */
         ESP_LOGI(TAG, "LP Core 调试数据:");
         ESP_LOGI(TAG, "  运行次数: %lu", (unsigned long)ulp_lp_debug_counter);
-        ESP_LOGI(TAG, "  最后 ADC: %lu", (unsigned long)ulp_lp_last_adc_raw);
-        ESP_LOGI(TAG, "  最小 ADC: %lu", (unsigned long)ulp_lp_min_adc_raw);
-        ESP_LOGI(TAG, "  最大 ADC: %lu", (unsigned long)ulp_lp_max_adc_raw);
+        ESP_LOGI(TAG, "  最后 ADC: %lu", (unsigned long)ulp_lp_last_adc);
+        ESP_LOGI(TAG, "  最小 ADC: %lu", (unsigned long)ulp_lp_min_adc);
+        ESP_LOGI(TAG, "  最大 ADC: %lu", (unsigned long)ulp_lp_max_adc);
         ESP_LOGI(TAG, "  唤醒计数: %lu", (unsigned long)ulp_lp_wakeup_count);
 
         if (ulp_lp_debug_counter == 0) {
             ESP_LOGE(TAG, "→ LP Core 从未运行！固件可能未正确加载或 ULP 配置缺失");
         }
-        else if (ulp_lp_last_adc_raw == 0xDEAD) {
+        else if (ulp_lp_last_adc == 0xDEAD) {
             ESP_LOGE(TAG, "→ LP ADC 读取失败！GPIO21 可能未配置为 ADC 功能");
         }
         else {
-            ESP_LOGI(TAG, "→ ADC 范围 %lu~%lu，阈值 800",
-                (unsigned long)ulp_lp_min_adc_raw,
-                (unsigned long)ulp_lp_max_adc_raw);
-            if (ulp_lp_min_adc_raw > 800) {
-                ESP_LOGW(TAG, "→ 建议: ADC 从未低于阈值！GT911 INT 是否连接到 GPIO21？");
+            ESP_LOGI(TAG, "→ ADC raw 范围 %lu~%lu",
+                (unsigned long)ulp_lp_min_adc,
+                (unsigned long)ulp_lp_max_adc);
+            if (!touchDetected) {
+                ESP_LOGW(TAG, "→ 未检测到触摸事件");
             }
         }
     }
@@ -90,8 +109,10 @@ const char* PowerManager::getWakeupReasonStr() const
 {
     if (m_wakeupCauses & BIT(ESP_SLEEP_WAKEUP_ULP))
         return "触控唤醒";
+    if (m_shouldReSleep)
+        return "定时器轮询 (无触摸)";
     if (m_wakeupCauses & BIT(ESP_SLEEP_WAKEUP_TIMER))
-        return "定时器唤醒";
+        return "触控唤醒 (定时器轮询)";
     return "冷启动";
 }
 
@@ -134,6 +155,19 @@ bool PowerManager::initLpCore()
     m_lpCoreLoaded = true;
     ESP_LOGI(TAG, "LP Core 固件已加载到 LP SRAM");
     return true;
+}
+
+// ════════════════════════════════════════════════════════════════
+// 快速重新入睡（触摸轮询）
+// ════════════════════════════════════════════════════════════════
+
+void PowerManager::reEnterDeepSleep()
+{
+    // LP Core 已在运行（保留在 LP SRAM 中）
+    // 重新使能定时器唤醒后入睡
+    ESP_LOGI(TAG, "resleep");
+    esp_sleep_enable_timer_wakeup(TouchPollIntervalUs);
+    esp_deep_sleep_start();
 }
 
 /**
@@ -184,6 +218,13 @@ void PowerManager::prepareShutdown(lv_display_t* lvgl_disp, lv_obj_t* screen)
     initRtcData();
     s_rtcData->shutdownReason = 1;
 
+    ulp_lp_debug_counter = 0;
+    ulp_lp_last_adc = 0;
+    ulp_lp_min_adc = 0;
+    ulp_lp_max_adc = 0;
+    ulp_lp_wakeup_count = 0;
+    ulp_lp_touch_detected = 0;
+
     // ── 确保 LP Core 已加载并运行 ──
     if (!m_lpCoreLoaded) {
         initLpCore();
@@ -203,25 +244,24 @@ void PowerManager::prepareShutdown(lv_display_t* lvgl_disp, lv_obj_t* screen)
         ESP_LOGI(TAG, "LP Core 已启动 (10ms 周期)，等待触控唤醒");
     }
 
-    // ── 使能 ULP 唤醒源（LP Core 可唤醒 HP CPU） ──
-    esp_sleep_enable_ulp_wakeup();
-
-    // ── 回退：RTC 定时器 5 秒后自动唤醒（调试用 + 兜底） ──
-    // 正常情况触控会立即唤醒，此定时器确保即使 LP Core 有问题也能醒来
-    esp_sleep_enable_timer_wakeup(5 * 1000000ULL);
+    // ── RTC 定时器轮询：定期唤醒 HP CPU 检查 LP Core 的触摸标志 ──
+    // ULP 唤醒（ulp_lp_core_wakeup_main_processor）在部分芯片上不可靠，
+    // 因此使用短周期定时器作为主要唤醒方式。
+    esp_sleep_enable_timer_wakeup(TouchPollIntervalUs);
 }
 
 void PowerManager::shutdown()
 {
-    ESP_LOGW(TAG, "进入 Deep-sleep (LP Core 触控唤醒 + 5s 定时器回退)");
+    ESP_LOGW(TAG, "进入 Deep-sleep (LP Core 触控检测 + %llums 定时器轮询)",
+             (unsigned long long)(TouchPollIntervalUs / 1000));
 
     // 等待串口日志 flush
     vTaskDelay(pdMS_TO_TICKS(20));
 
     // 进入 Deep-sleep
     // LP Core 持续运行，LP ADC 每隔 10ms 采样一次 GPIO21
-    // 检测到触控 → LP Core 唤醒 HP CPU
-    // 回退：5 秒后 RTC 定时器也会唤醒
+    // 检测到触控 → 设置 lp_touch_detected 标志
+    // HP CPU 每 200ms 被定时器唤醒检查此标志
     esp_deep_sleep_start();
 
     // 不会执行到这里

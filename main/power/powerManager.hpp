@@ -58,6 +58,27 @@ public:
      */
     const char* getWakeupReasonStr() const;
 
+    /**
+     * @brief 是否是短周期定时器醒来但无触摸（应重新入睡）
+     */
+    bool shouldReEnterSleep() const { return m_shouldReSleep; }
+
+    /**
+     * @brief 重新进入 Deep-sleep（触摸轮询）
+     *
+     * 在 shouldReEnterSleep() 返回 true 时调用，
+     * 不会执行完整的关机流程，仅重新配置定时器后入睡。
+     */
+    void reEnterDeepSleep();
+
+    /**
+     * @brief 触摸轮询间隔（微秒）
+     *
+     * HP CPU 以此周期从 Deep-sleep 醒来检查 LP Core 的触摸标志。
+     * 低于 50ms 会导致过多时间花在启动上。
+     */
+    static constexpr uint64_t TouchPollIntervalUs = 2000 * 1000; // 2000ms
+
 private:
     PowerManager();
     ~PowerManager() = default;
@@ -73,11 +94,12 @@ private:
     };
     static RtcData* s_rtcData;
 
-    static constexpr uint32_t RTC_MAGIC     = 0x504D5044;
+    static constexpr uint32_t RTC_MAGIC = 0x504D5044;
     static constexpr uint32_t RTC_DATA_OFFS = 0;
 
     // ── 状态 ──
     bool m_wakeupBoot{};
+    bool m_shouldReSleep{};
     uint32_t m_wakeupCauses{};
     bool m_lpCoreLoaded{};
 
