@@ -203,17 +203,17 @@ void PowerManager::prepareShutdown(lv_display_t* lvgl_disp, lv_obj_t* screen)
         ESP_LOGI(TAG, "LP Core 已启动 (10ms 周期)，等待触控唤醒");
     }
 
-    // ── 使能 ULP 唤醒源 ──
+    // ── 使能 ULP 唤醒源（LP Core 可唤醒 HP CPU） ──
     esp_sleep_enable_ulp_wakeup();
 
-    // ── 调试：暂时移除定时器回退，测试 ULP 唤醒是否单独有效 ──
-    // 如果触屏不能唤醒，说明 esp_sleep_enable_ulp_wakeup() 没生效
-    // 如果 30 秒后还未唤醒，说明 ULP 唤醒有问题，按下 RST 重启看日志
+    // ── 回退：RTC 定时器 5 秒后自动唤醒（调试用 + 兜底） ──
+    // 正常情况触控会立即唤醒，此定时器确保即使 LP Core 有问题也能醒来
+    esp_sleep_enable_timer_wakeup(5 * 1000000ULL);
 }
 
 void PowerManager::shutdown()
 {
-    ESP_LOGW(TAG, "进入 Deep-sleep (仅 LP Core 触控唤醒，无定时器回退)");
+    ESP_LOGW(TAG, "进入 Deep-sleep (LP Core 触控唤醒 + 5s 定时器回退)");
 
     // 等待串口日志 flush
     vTaskDelay(pdMS_TO_TICKS(20));
