@@ -117,6 +117,8 @@ void PowerManagementApp::onBackground()
 	}
 
 	ESP_LOGI(TAG, "后台，定时器已暂停");
+
+	BatteryManager::stopChargingAnim(m_hostIconLabel);
 }
 
 void PowerManagementApp::onGamepadConnected(uint8_t playerId)
@@ -394,6 +396,9 @@ void PowerManagementApp::refreshBatteryUi()
 
 void PowerManagementApp::refreshSlotUi()
 {
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
 	for (int i = 0; i < MaxPlayers; i++)
 	{
 		auto* ctx = BleGamepad::instance().getDevice(i);
