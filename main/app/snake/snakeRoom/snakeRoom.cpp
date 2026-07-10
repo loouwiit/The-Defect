@@ -266,7 +266,7 @@ void SnakeRoom::activateFocus()
 
 void SnakeRoom::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-	constexpr uint8_t deadZone = 50;
+	constexpr uint8_t deadZone = 13;
 	constexpr uint8_t center = 128;
 
 	bool lxLeft = (state.lx < center - deadZone);
