@@ -5,6 +5,7 @@
 #include "task/task.hpp"
 #include "bleGamepad/bleGamepad.hpp"
 #include "battery/batteryManager.hpp"
+#include "power/powerManager.hpp"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_pm.h"
@@ -475,16 +476,12 @@ void PowerManagementApp::doShutdown()
 {
 	ESP_LOGW(TAG, "执行关机（Deep-sleep）");
 
-	// 使用 LVGL 异步删除所有对象后再进入睡眠
-	// 实际使用时应确保所有外设已停止
+	// 停止外设
 	BleGamepad::instance().stopScan();
 
-	// 配置唤醒源：默认定时器 60 秒后唤醒（便于调试）
-	esp_sleep_enable_timer_wakeup(60 * 1000000ULL);
-	// 也可使用外部 GPIO 唤醒（根据实际硬件配置）
-	// esp_sleep_enable_ext1_wakeup_io(BIT_NUM(GPIO_NUM_XX), ESP_EXT1_WAKEUP_ANY_HIGH);
-
-	esp_deep_sleep_start();
+	// 通过 PowerManager 进入 Deep-sleep（无唤醒源，硬件复位开机）
+	PowerManager::instance().prepareShutdown(display->getLvglDisplay(), screen);
+	PowerManager::instance().shutdown();
 }
 
 void PowerManagementApp::doToggleLowPower()
