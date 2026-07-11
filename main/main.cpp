@@ -47,6 +47,17 @@ extern "C" void app_main(void)
 	CpuMonitor::instance().setBrief(true);
 	CpuMonitor::instance().start();
 
+	Task::addTask([](void*)->TickType_t
+		{
+			auto dump = Task::dumpTask();
+			for (auto i = dump; (*i)[0] != '\0'; i++)
+			{
+				ESP_LOGI("task dump", "\t%s", *i);
+				vTaskDelay(0);
+			}
+			return 1000;
+		}, "task dump", nullptr, Task::infinityTime, Task::Affinity::None);
+
 	ESP_LOGI(TAG, "esp_event_loop_create_default");
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
 

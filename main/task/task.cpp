@@ -44,13 +44,13 @@ const char* const* Task::dumpTask()
 	char** ret = new char* [count + 2]; // for nowTime and \0
 
 	ret[0] = new char[32];
-	sprintf(ret[0], "now time = %lu\n", xTaskGetTickCount());
+	sprintf(ret[0], "now time = %lu", xTaskGetTickCount());
 
 	auto i = 1;
 	for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
 	{
 		ret[i] = new char[64];
-		sprintf(ret[i], "[%lu]: task %s(%p)\n", nowTask->nextCallTick, nowTask->name, nowTask->param);
+		sprintf(ret[i], "[%lu]: task %s(%p)", nowTask->nextCallTick, nowTask->name, nowTask->param);
 		i++;
 	}
 	ret[i] = new char[1] {'\0'};
