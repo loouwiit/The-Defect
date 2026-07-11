@@ -178,14 +178,7 @@ void SnakeGame::init()
 void SnakeGame::deinit()
 {
 	running = false;
-	// TODO: 远程导航 — 后续参考 tetris 分支的 WS 架构重新实现
-	// wsServerUnregisterGameCallback();
-	vTaskDelay(pdMS_TO_TICKS(200));
-	m_thread = {};
-
-	// LVGL 对象由屏幕销毁时自动回收，无需显式释放
-
-	deletable = true;
+	// deleteable 在gameLoop中设置
 }
 
 // ============================================================
@@ -194,6 +187,13 @@ void SnakeGame::deinit()
 
 void SnakeGame::createObjectPool(lv_obj_t* parent)
 {
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGE(TAG, "无法锁定显示");
+		return;
+	}
+
 	// 计算网格尺寸（基于实际分辨率）
 	int canvasW = lv_display_get_horizontal_resolution(display->getLvglDisplay());
 	int canvasH = lv_display_get_vertical_resolution(display->getLvglDisplay());
@@ -335,6 +335,13 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	constexpr int W = S * 3 + G * 2 + PAD * 2;
 	constexpr int H = S * 3 + G * 2 + PAD * 2;
 
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGE(TAG, "无法锁定显示");
+		return;
+	}
+
 	// 辅助：创建圆形玻璃按�?
 	auto mkBtn = [&](lv_obj_t* pad, lv_obj_t*& btn, int x, int y, const char* txt,
 		lv_event_cb_t cb, uint32_t bgColor)
@@ -447,6 +454,13 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 void SnakeGame::updateScene()
 {
 	const int CS = m_cellSize;
+
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGE(TAG, "无法锁定显示");
+		return;
+	}
 
 	// ============================================================
 	// 1. 蛇身段 — 更新位置 + 显隐
@@ -598,6 +612,13 @@ void SnakeGame::updateScene()
 
 void SnakeGame::applyFocus()
 {
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGE(TAG, "无法锁定显示");
+		return;
+	}
+
 	auto clear = [](lv_obj_t* obj) { if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
 	auto focus = [](lv_obj_t* obj) { if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
 
@@ -613,6 +634,13 @@ void SnakeGame::applyFocus()
 
 void SnakeGame::activateFocus()
 {
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGE(TAG, "无法锁定显示");
+		return;
+	}
+
 	switch (m_focusIdx)
 	{
 	case 0: lv_obj_send_event(m_restartBtn, LV_EVENT_CLICKED, nullptr); break;
@@ -668,7 +696,7 @@ void SnakeGame::btnBackCb(lv_event_t* e)
 	Task::addTask([](void* p) -> TickType_t {
 		static_cast<SnakeGame*>(p)->popApp();
 		return Task::infinityTime;
-		}, "backToRoom", self, 0, Task::Affinity::None);
+		}, "backToRoom", self, 100, Task::Affinity::None);
 }
 
 void SnakeGame::setDirAndStart(SnakeGame* self, int player, SnakeGameLogic::Direction dir)
@@ -855,7 +883,7 @@ void SnakeGame::gameLoop(void* param)
 	self.deletable = true;
 
 	while (true)
-		vTaskDelay(5000); // 等待delete的时候删除
+		vTaskDelay(5000); // RAII析构的时候会自动删除自己
 }
 
 void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
@@ -888,7 +916,7 @@ void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			Task::addTask([](void* p) -> TickType_t {
 				static_cast<SnakeGame*>(p)->popApp();
 				return Task::infinityTime;
-				}, "backToRoom", this, 0, Task::Affinity::None);
+				}, "backToRoom", this, 100, Task::Affinity::None);
 			return;
 		}
 	}
