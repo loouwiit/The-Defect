@@ -243,6 +243,13 @@ void FruitNinjaRoom::applyFocus()
 
 void FruitNinjaRoom::activateFocus()
 {
+	auto guard = display->lockGuard();
+	if (!guard)
+	{
+		ESP_LOGE(TAG, "get display lock failed");
+		return;
+	}
+
 	switch (m_focusIdx)
 	{
 	case 0: lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr);    break;
