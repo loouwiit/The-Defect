@@ -107,6 +107,27 @@ TetrisRenderer::TetrisRenderer(Display* display, lv_obj_t* parent, lv_coord_t pl
     lv_obj_set_style_pad_left(sidePanel, 16, 0);
     lv_obj_set_scrollbar_mode(sidePanel, LV_SCROLLBAR_MODE_OFF);
 
+    // ── 退出按钮（侧栏顶部） ──
+    m_btnExit = lv_btn_create(sidePanel);
+    lv_obj_set_size(m_btnExit, LV_SIZE_CONTENT, 32);
+    lv_obj_set_style_radius(m_btnExit, 6, 0);
+    lv_obj_set_style_bg_color(m_btnExit, lv_color_hex(0xAA3333), 0);
+    lv_obj_set_style_bg_opa(m_btnExit, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(m_btnExit, 0, 0);
+    lv_obj_set_style_pad_left(m_btnExit, 12, 0);
+    lv_obj_set_style_pad_right(m_btnExit, 12, 0);
+    lv_obj_set_style_margin_top(m_btnExit, 8, 0);
+    lv_obj_set_style_margin_bottom(m_btnExit, 8, 0);
+    auto exitLbl = lv_label_create(m_btnExit);
+    lv_label_set_text(exitLbl, "退出");
+    lv_obj_center(exitLbl);
+    lv_obj_set_style_text_color(exitLbl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(exitLbl, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+    lv_obj_add_event_cb(m_btnExit, [](lv_event_t* e) {
+        auto* self = static_cast<TetrisRenderer*>(lv_event_get_user_data(e));
+        if (self->m_onExit) self->m_onExit();
+    }, LV_EVENT_CLICKED, this);
+
     createNextPreview(sidePanel);
     createInfoLabels(sidePanel);
 

@@ -69,7 +69,13 @@ void TetrisApp::init()
 			} while (attempts < m_playerCount &&
 				(next == i || m_players[next].gameOver));
 			m_players[i].setAttackTarget(next == i ? -1 : next);
-			});
+		});
+		m_renderers[i]->setOnExit([this]() {
+			Task::addTask([](void* p) -> TickType_t {
+				static_cast<TetrisApp*>(p)->popApp();
+				return Task::infinityTime;
+			}, "tetrisExit", this, 0, Task::Affinity::None);
+		});
 	}
 
 	// 初始化共享出块队列 + 游戏状态

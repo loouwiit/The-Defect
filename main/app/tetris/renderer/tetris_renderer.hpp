@@ -46,6 +46,9 @@ public:
     /// 设置攻击目标切换回调（触屏点击攻击标签时调用）
     void setOnCycleTarget(std::function<void()> cb) { m_onCycleTarget = cb; }
 
+    /// 设置退出游戏回调
+    void setOnExit(std::function<void()> cb) { m_onExit = cb; }
+
     // ============================================================
     //  渲染主入口
     // ============================================================
@@ -99,6 +102,7 @@ private:
 
     // 攻击目标切换回调
     std::function<void()> m_onCycleTarget;
+    std::function<void()> m_onExit;
 
     // ── 触屏按钮 ──
     lv_obj_t* m_btnLeft{};
@@ -108,6 +112,7 @@ private:
     lv_obj_t* m_btnSoft{};
     lv_obj_t* m_btnHard{};
     lv_obj_t* m_btnHold{};
+    lv_obj_t* m_btnExit{};
 
     void createTouchButtons(lv_obj_t* parent);
     static void onBtnPressed(lv_event_t* e);
