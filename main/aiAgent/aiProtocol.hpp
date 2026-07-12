@@ -33,12 +33,9 @@ enum class AiActionType : uint8_t {
     ShowNotification,   // 显示通知. params: text, type(info/success/error)
     PowerOff,           // 关机（需确认）
 
-    // ── App 自定义操作 ──
-    AppCustom,          // → 路由到前台 App::executeAiAction()
-
     // ── 内部用 ──
     ParseError,         // JSON 解析失败
-    UnknownAction,      // 未识别的 action 字符串
+    UnknownAction,      // 未识别的 action 字符串 → 透传给前台 App
 };
 
 // ============================================================

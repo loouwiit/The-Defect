@@ -53,26 +53,6 @@ public:
             App* activeApp = display ? display->getActiveApp() : nullptr;
 
             switch (action.type) {
-                case AiActionType::AppCustom:
-                    // → 路由到前台 App
-                    if (activeApp) {
-                        handled = activeApp->executeAiAction(action);
-                    }
-                    if (!handled) {
-                        ESP_LOGW(TAG, "AppCustom 未处理: command=%s", action.command.c_str());
-                    }
-                    break;
-
-                case AiActionType::UnknownAction:
-                    // 先尝试透传前台 App
-                    if (activeApp) {
-                        handled = activeApp->executeAiAction(action);
-                    }
-                    if (!handled) {
-                        ESP_LOGW(TAG, "未知动作，已跳过: %s", action.text.c_str());
-                    }
-                    break;
-
                 case AiActionType::RespondText:
                 case AiActionType::ShowNotification:
                     // 这类动作由 UI 层处理，executor 仅记录
@@ -149,6 +129,16 @@ public:
                 case AiActionType::ParseError:
                     // 解析错误不需要执行
                     handled = true;
+                    break;
+
+                default:
+                    // UnknownAction 或未匹配的系统操作 → 透传给前台 App
+                    if (activeApp) {
+                        handled = activeApp->executeAiAction(action);
+                    }
+                    if (!handled) {
+                        ESP_LOGW(TAG, "App 未处理: action=%s", action.text.c_str());
+                    }
                     break;
             }
 

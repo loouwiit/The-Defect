@@ -234,7 +234,6 @@ private:
         if (s == "system_info")       return AiActionType::SystemInfo;
         if (s == "show_notification") return AiActionType::ShowNotification;
         if (s == "power_off")         return AiActionType::PowerOff;
-        if (s == "app_custom")        return AiActionType::AppCustom;
         return AiActionType::UnknownAction;
     }
 

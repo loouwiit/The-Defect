@@ -20,13 +20,11 @@
 - show_notification: 显示通知. 参数: text, params.type (info/success/error)
 - power_off: 关机（会弹确认）
 
-App 专用操作通过 app_custom 路由：
-{"action":"app_custom","command":"xxx","params":{...}}
-
 注意：
 1. 如果只需要回复用户文字，使用 respond_text
 2. 如果需要执行多个操作，全部放入 actions 数组，按顺序执行
 3. 如果用户要求打开某个应用，使用 open_app
 4. 返回的 JSON 必须合法，不能包含多余文字
+5. 若有app自定义操作也请按照相应规范遵循
 
 {app_context}
