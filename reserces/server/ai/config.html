@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<link rel="stylesheet" type="text/css" href="/index.css" />
+	<title>AI 配置</title>
+	<style>
+		body { max-width: 600px; margin: 20px auto; padding: 0 16px; }
+		label { display: block; margin-top: 16px; font-size: 14px; color: #888; }
+		input[type="text"], input[type="password"] {
+			width: 100%; padding: 10px; margin-top: 4px;
+			border: 1px solid #444; border-radius: 8px;
+			background: #1a1a2e; color: #fff; font-size: 16px;
+			box-sizing: border-box;
+		}
+		button {
+			margin-top: 20px; padding: 12px 32px;
+			border: none; border-radius: 8px;
+			background: #0088ff; color: #fff;
+			font-size: 16px; cursor: pointer;
+		}
+		button:hover { background: #0066cc; }
+		.status { margin-top: 12px; padding: 8px; border-radius: 6px; display: none; }
+		.status.ok { display: block; background: #00c85333; color: #00c853; }
+		.status.err { display: block; background: #ff3b3033; color: #ff3b30; }
+		.hint { font-size: 12px; color: #666; margin-top: 4px; }
+	</style>
+</head>
+
+<body>
+	<h2>AI 助手配置</h2>
+
+	<div>
+		<label for="apiUrl">API 地址</label>
+		<input type="text" id="apiUrl" placeholder="https://api.openai.com" />
+		<div class="hint">支持 OpenAI / Ollama / DeepSeek 等兼容服务</div>
+
+		<label for="apiKey">API Key</label>
+		<input type="password" id="apiKey" placeholder="sk-..." />
+		<div class="hint">仅存储在设备 NVS，不会明文暴露</div>
+
+		<label for="model">模型名称</label>
+		<input type="text" id="model" placeholder="gpt-4o-mini" />
+		<div class="hint">如 gpt-4o-mini / deepseek-chat / qwen2.5</div>
+	</div>
+
+	<button id="saveBtn">保存配置</button>
+	<div id="status" class="status"></div>
+
+	<hr style="margin-top: 32px;" />
+	<h3>测试连接</h3>
+	<button id="testBtn">发送测试请求</button>
+	<div id="testResult" class="status"></div>
+
+	<script>
+	const STATUS = document.getElementById('status');
+	const TEST_RESULT = document.getElementById('testResult');
+
+	function showStatus(el, text, ok) {
+		el.textContent = text;
+		el.className = 'status ' + (ok ? 'ok' : 'err');
+	}
+
+	// ── 加载当前配置 ──
+	fetch('/api/aiConfig')
+		.then(r => r.json())
+		.then(cfg => {
+			document.getElementById('apiUrl').value = cfg.api_url || '';
+			document.getElementById('apiKey').value = '';
+			document.getElementById('model').value = cfg.model || '';
+		})
+		.catch(() => {});
+
+	// ── 保存 ──
+	document.getElementById('saveBtn').onclick = () => {
+		const body = JSON.stringify({
+			api_url: document.getElementById('apiUrl').value,
+			api_key: document.getElementById('apiKey').value,
+			model:   document.getElementById('model').value,
+		});
+		fetch('/api/aiConfig', { method: 'POST', body })
+			.then(r => r.text())
+			.then(t => showStatus(STATUS, '✅ 保存成功: ' + t, true))
+			.catch(e => showStatus(STATUS, '❌ 保存失败: ' + e, false));
+	};
+
+	// ── 测试 ──
+	document.getElementById('testBtn').onclick = () => {
+		showStatus(TEST_RESULT, '⏳ 发送请求中...', true);
+		fetch('/api/aiTest')
+			.then(r => r.text())
+			.then(t => showStatus(TEST_RESULT, t, !t.startsWith('❌')))
+			.catch(e => showStatus(TEST_RESULT, '❌ ' + e, false));
+	};
+	</script>
+</body>
+
+</html>

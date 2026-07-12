@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/app.hpp"
+#include "aiAgent/aiProtocol.hpp"
 #include <cstdint>
 
 class DesktopApp final : public App
@@ -17,9 +18,13 @@ public:
 	void onBackground() override;
 	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
 
+	// ── AI 能力 ──
+	std::string getAiContext() override;
+	bool executeAiAction(const AiAction& action) override;
+
 private:
 	// ── 游戏数据 ──
-	static constexpr int GAME_COUNT = 5;
+	static constexpr int GAME_COUNT = 6;
 	static const char* GAME_NAMES[GAME_COUNT];
 	static const char* GAME_DESCS[GAME_COUNT];
 	static const char* GAME_ICONS[GAME_COUNT];

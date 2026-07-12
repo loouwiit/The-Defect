@@ -12,6 +12,9 @@
 
 #include "buildinHtml/file.hpp"
 #include "storage/fat.hpp"
+#include "aiAgent/aiConfig.hpp"
+#include "aiAgent/aiClient.hpp"
+#include "aiAgent/aiParser.hpp"
 
 #include "task/task.hpp"
 
@@ -365,6 +368,49 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 {
 	const char* uri = (!(request.getPath()[0] == '/' && request.getPath()[1] == '\0')) ? (request.getPath()) : ("/index.html");
 
+	// ── API: 读取 AI 配置 ──
+	if (stringCompare((char*)uri, strlen(uri), "/api/aiConfig", 13))
+	{
+		AiConfig cfg = aiConfigLoad();
+		char body[512];
+		int n = snprintf(body, sizeof(body),
+			"{\"api_url\":\"%s\",\"model\":\"%s\",\"has_key\":%s}",
+			cfg.apiUrl.c_str(), cfg.model.c_str(),
+			cfg.valid ? "true" : "false");
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+		respond.setBody(body);
+		respond.setBodyLenght(n);
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		return;
+	}
+
+	// ── API: AI 连接测试 ──
+	if (stringCompare((char*)uri, strlen(uri), "/api/aiTest", 11))
+	{
+		AiConfig cfg = aiConfigLoad();
+		if (!cfg.valid) {
+			HttpRespond respond;
+			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+			respond.setBody((void*)"❌ API Key 未配置");
+			respond.setBodyLenght(21);
+			respond.send(socketStream);
+			return;
+		}
+		HttpClient::send(cfg, "Respond with exactly: OK", "test",
+			[](bool ok, const std::string& resp, const std::string& err) {
+				// 异步，无法同步返回结果
+			});
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+		respond.setBody((void*)"⏳ 测试请求已发送，请检查设备日志");
+		respond.setBodyLenght(49);
+		respond.send(socketStream);
+		return;
+	}
+
 	HttpContentType contentType = getContentTypeFromPath(uri);
 	HttpRespond respond;
 
@@ -595,6 +641,62 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		printf("system restart at 1s\n");
 		vTaskDelay(1000);
 		esp_restart();
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/aiConfig", 13))
+	{
+		// 读取 POST body（JSON）
+		size_t bodyLen = request.getBodyLenght();
+		char* body = new char[bodyLen + 1];
+		socketStream.read(body, bodyLen + 1);
+		body[bodyLen] = '\0';
+
+		cJSON* root = cJSON_Parse(body);
+		delete[] body;
+
+		if (!root) {
+			sendBadRequest(socketStream);
+			return;
+		}
+
+		// 保存 ai_config.json
+		{
+			auto readStr = [&](const char* key) -> const char* {
+				cJSON* v = cJSON_GetObjectItem(root, key);
+				return (v && cJSON_IsString(v) && v->valuestring) ? v->valuestring : "";
+			};
+
+			const char* apiUrl = readStr("api_url");
+			const char* model  = readStr("model");
+			const char* apiKey = readStr("api_key");
+
+			// 写 AI config 到 FAT
+			char jsonBuf[512];
+			int n = snprintf(jsonBuf, sizeof(jsonBuf),
+				"{\n"
+				"  \"api_url\": \"%s\",\n"
+				"  \"model\": \"%s\",\n"
+				"  \"temperature\": 0.7,\n"
+				"  \"max_tokens\": 1024,\n"
+				"  \"timeout_ms\": 30000\n"
+				"}\n",
+				apiUrl[0] ? apiUrl : "https://api.openai.com",
+				model[0]  ? model  : "gpt-4o-mini");
+
+			OFile file;
+			if (file.open("/root/system/ai_config.json")) {
+				file.write(jsonBuf, n);
+				file.close();
+			}
+
+			// 写 API Key 到 NVS
+			if (apiKey[0]) {
+				aiConfigSaveApiKey(apiKey);
+			}
+
+			sendOk(socketStream);
+		}
+
+		cJSON_Delete(root);
 	}
 	else
 	{

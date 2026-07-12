@@ -10,6 +10,8 @@
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
+#include "app/aiAgentApp/aiAgentApp.hpp"
+#include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
@@ -30,6 +32,7 @@ const char* DesktopApp::GAME_NAMES[] =
 	"俄罗斯方块",
 	"斗地主",
 	"中国象棋",
+	"AI 助手",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
@@ -39,6 +42,7 @@ const char* DesktopApp::GAME_DESCS[] =
 	"经典俄罗斯方块，消除行数得分！",
 	"三人斗地主，比拼牌技！",
 	"中国象棋，楚河汉界对弈！",
+	"AI 助手 — 用自然语言操控设备",
 };
 
 const char* DesktopApp::GAME_ICONS[] =
@@ -48,6 +52,7 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/tetris.jpg",
 	"F:system/desktop/douDiZhu.jpg",
 	"F:system/desktop/chess.jpg",
+	"",  // AI 助手无图片
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -541,11 +546,41 @@ void DesktopApp::startGame()
 		m_manager->pushToNewStack(new ChineseChessRoom(display));
 		break;
 
+	case 5:
+		// AI 助手
+		m_manager->pushToNewStack(new AiAgentApp(display));
+		break;
+
 	default:
 		// 其他游戏 — TestApp 占位
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
 		break;
 	}
+}
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string DesktopApp::getAiContext()
+{
+	return "当前在桌面。可打开的应用："
+	       "tetris(俄罗斯方块), snake(贪吃蛇), "
+	       "fruitNinja(水果忍者), chineseChess(中国象棋)。\n"
+	       "无 app_custom 命令。";
+}
+
+bool DesktopApp::executeAiAction(const AiAction& action)
+{
+	// 桌面只处理 open_app
+	if (action.type == AiActionType::OpenApp && !action.appName.empty()) {
+		App* app = AppFactory::create(action.appName, display);
+		if (app) {
+			m_manager->pushToNewStack(app);
+			return true;
+		}
+	}
+	return false;  // 交系统执行器兜底
 }
 
 // ════════════════════════════════════════════════════════════════

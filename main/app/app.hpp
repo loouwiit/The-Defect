@@ -2,9 +2,11 @@
 
 #include "esp_lv_adapter_display.h"
 #include "bleGamepad/gamepadState.hpp"
+#include <string>
 #include <esp_log.h>
 class Display;
 class AppStackManager;
+struct AiAction;   // 前向声明，完整定义在 aiAgent/aiProtocol.hpp
 
 /**
  * @brief Base application class
@@ -29,6 +31,12 @@ public:
 	virtual void onGamepadInput(uint8_t playerId, const GamepadState& state) {}
 	virtual void onGamepadConnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d connected", playerId); }
 	virtual void onGamepadDisconnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d disconnected", playerId); }
+
+	// ── AI 能力（可选覆盖，默认空实现） ──
+	/** @brief 返回本 App 的上下文描述，拼入 AI system prompt 的 {app_context} */
+	virtual std::string getAiContext() { return ""; }
+	/** @brief 执行 AI 发来的 app_custom 动作，true=已处理，false=交系统执行器兜底 */
+	virtual bool executeAiAction(const AiAction& action) { (void)action; return false; }
 
 	// ── 栈生命周期钩子（由 AppStackManager 调用） ──
 	/** @brief App 成为前台活跃（已 visible） */
