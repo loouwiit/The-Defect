@@ -147,7 +147,6 @@ private:
             // 重新挂载
             cJSON* newRoot = cJSON_CreateObject();
             cJSON_AddItemToObject(newRoot, "actions", actionsArr);
-            cJSON_AddItemToObject(newRoot, "temp", root);  // root 被移入
             root = newRoot;
             actionsArr = cJSON_GetObjectItem(root, "actions");
         }

@@ -3,6 +3,7 @@
 #include <functional>
 #include <string>
 #include <esp_http_client.h>
+#include <esp_crt_bundle.h>
 #include <esp_log.h>
 #include <cJSON.h>
 #include "aiProtocol.hpp"
@@ -100,49 +101,6 @@ private:
         cJSON_AddStringToObject(userMsg, "content", ctx.userInput.c_str());
         cJSON_AddItemToArray(messages, userMsg);
 
-        // response_format — json_schema 约束
-        cJSON* respFmt = cJSON_CreateObject();
-        cJSON* jsonSchema = cJSON_CreateObject();
-        cJSON_AddStringToObject(jsonSchema, "name", "actions");
-        cJSON_AddBoolToObject(jsonSchema, "strict", false);
-
-        cJSON* schema = cJSON_CreateObject();
-        cJSON_AddStringToObject(schema, "type", "object");
-        cJSON* props = cJSON_AddObjectToObject(schema, "properties");
-        cJSON* actionsArr = cJSON_CreateObject();
-        cJSON_AddStringToObject(actionsArr, "type", "array");
-        cJSON* items = cJSON_AddObjectToObject(actionsArr, "items");
-        cJSON_AddStringToObject(items, "type", "object");
-        cJSON* itemProps = cJSON_AddObjectToObject(items, "properties");
-        auto addStrProp = [&](const char* name) {
-            cJSON* p = cJSON_CreateObject();
-            cJSON_AddStringToObject(p, "type", "string");
-            cJSON_AddItemToObject(itemProps, name, p);
-        };
-        addStrProp("action");
-        addStrProp("text");
-        addStrProp("app");
-        addStrProp("command");
-        cJSON* valProp = cJSON_CreateObject();
-        cJSON_AddStringToObject(valProp, "type", "integer");
-        cJSON_AddItemToObject(itemProps, "value", valProp);
-        cJSON* paramsProp = cJSON_CreateObject();
-        cJSON_AddStringToObject(paramsProp, "type", "object");
-        cJSON_AddItemToObject(itemProps, "params", paramsProp);
-
-        cJSON* required = cJSON_CreateArray();
-        cJSON_AddItemToArray(required, cJSON_CreateString("action"));
-        cJSON_AddItemToObject(items, "required", required);
-
-        cJSON_AddItemToObject(props, "actions", actionsArr);
-        cJSON* rootRequired = cJSON_CreateArray();
-        cJSON_AddItemToArray(rootRequired, cJSON_CreateString("actions"));
-        cJSON_AddItemToObject(schema, "required", rootRequired);
-        cJSON_AddItemToObject(jsonSchema, "schema", schema);
-        cJSON_AddItemToObject(respFmt, "json_schema", jsonSchema);
-        cJSON_AddStringToObject(respFmt, "type", "json_schema");
-        cJSON_AddItemToObject(root, "response_format", respFmt);
-
         cJSON_AddNumberToObject(root, "temperature", ctx.config.temperature);
         cJSON_AddNumberToObject(root, "max_tokens", ctx.config.maxTokens);
 
@@ -172,6 +130,7 @@ private:
             cfg.timeout_ms = ctx.config.timeoutMs;
             cfg.buffer_size = 8192;
             cfg.buffer_size_tx = 1024;
+            cfg.crt_bundle_attach = esp_crt_bundle_attach;
             client = esp_http_client_init(&cfg);
         }
 
