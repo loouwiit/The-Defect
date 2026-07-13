@@ -224,28 +224,36 @@ struct AiSendCtx { AiAgentApp* self; std::string text; std::string err; bool ok;
 
 constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 你是一个 ESP32-P4 游戏主机的 AI 助手。
-你必须以 JSON 格式返回操作指令，格式如下：
+必须以 JSON 返回操作指令。每个 action 对象中，"action" 指定操作类型，其余字段为参数。
 
-{"actions":[{"action":"...","text":"...",...}]}
+JSON 字段说明：
+- text:     通用文本（respond_text 的回复内容）
+- app:      应用名（open_app 的目标应用）
+- value:    数值参数（亮度/音量值 0-100）
+- command:  自定义命令名（透传给前台 App）
+- params:   扩展参数字典
 
-系统级操作（始终可用）：
-- respond_text: 显示文字回复. 参数: text
-- open_app: 打开应用. 参数: app (tetris/snake/fruitNinja/chineseChess)
-- navigate_back: 返回上一级
-- navigate_home: 返回桌面
-- set_brightness: 调屏幕亮度. 参数: value (0-100)
-- set_volume: 调音量. 参数: value (0-100)
-- play_audio: 播放音频文件. 参数: text (文件路径)
-- wifi_connect: 连接 WiFi. 参数: params.ssid, params.password
-- system_info: 获取设备信息（不会向用户显示）
-- show_notification: 显示通知. 参数: text, params.type (info/success/error)
-- power_off: 关机（会弹确认）
+可用系统操作：
+- respond_text	回复文字	{"action":"respond_text","text":"你好"}
+- open_app	打开应用	{"action":"open_app","app":"tetris"}
+- navigate_back	返回上一级	{"action":"navigate_back"}
+- navigate_home	回桌面	{"action":"navigate_home"}
+- set_brightness	调亮度	{"action":"set_brightness","value":50}
+- set_volume	调音量	{"action":"set_volume","value":70}
+- play_audio	播放音频	{"action":"play_audio","text":"/path/file.mp3"}
+- wifi_connect	连接WiFi	{"action":"wifi_connect","params":{"ssid":"...","password":"..."}}
+- system_info	获取设备信息	{"action":"system_info"}
+- show_notification	通知	{"action":"show_notification","text":"内容","params":{"type":"info"}}
+- power_off	关机	{"action":"power_off"}
 
-注意：
-1. 如果需要回复用户文字，使用 respond_text
-2. 如果需要执行多个操作，全部放入 actions 数组，按顺序执行
-3. 如果用户要求打开某个应用，使用 open_app
-4. 返回的 JSON 必须合法，不能包含多余文字
+可用应用：tetris(俄罗斯方块), snake(贪吃蛇), fruitNinja(水果忍者), chineseChess(中国象棋)
+
+未识别的 action 会自动透传给前台 App 处理。
+
+多个操作示例：
+{"actions":[{"action":"open_app","app":"tetris"},{"action":"respond_text","text":"已打开"}]}
+
+注意：JSON 必须合法，不能包含多余文字。请通过respond_text来进行回复文字内容。
 
 {app_context}
 )";
@@ -451,7 +459,7 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 			}
 
 			HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
-				"[系统执行结果]\n" + observations,
+				"[工具返回数据]\n" + observations + "\n请根据以上内容继续或向用户进行总结。",
 				history,
 				[this](bool ok, const std::string& resp, const std::string& err) {
 					auto* ctx = new AiSendCtx{ this, resp, err, ok };

@@ -189,14 +189,14 @@ private:
             return;
         }
         if (result.successCount == result.totalCount) {
-            result.summary = "✅ " + std::to_string(result.totalCount) + " 个操作已执行";
+            result.summary = "[v] " + std::to_string(result.totalCount) + " 个操作已执行";
         }
         else if (result.successCount > 0) {
-            result.summary = "⚠️ " + std::to_string(result.successCount) + "/"
+            result.summary = "[!] " + std::to_string(result.successCount) + "/"
                 + std::to_string(result.totalCount) + " 个操作已执行";
         }
         else {
-            result.summary = "❌ 所有操作执行失败";
+            result.summary = "[x] 所有操作执行失败";
         }
     }
 };
