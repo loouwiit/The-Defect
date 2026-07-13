@@ -90,11 +90,11 @@ void AiAgentApp::buildUi()
 	lv_obj_set_style_pad_right(topBar, 16, 0);
 	lv_obj_set_style_pad_top(topBar, 8, 0);
 
-	m_backBtn = GUI::createButton(topBar, "\u2190 \u8fd4\u56de", 100, 44);
+	m_backBtn = GUI::createButton(topBar, "← 返回", 100, 44);
 	lv_obj_set_style_bg_color(m_backBtn, LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
 	lv_obj_add_event_cb(m_backBtn, onBackBtnCb, LV_EVENT_CLICKED, this);
 
-	auto title = GUI::createLabel(topBar, "AI \u52a9\u624b");
+	auto title = GUI::createLabel(topBar, "AI 助手");
 	lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
 	lv_obj_set_flex_grow(title, 1);
 	lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -143,14 +143,16 @@ void AiAgentApp::buildUi()
 	m_inputField = lv_textarea_create(inputRow);
 	lv_obj_set_flex_grow(m_inputField, 1);
 	lv_obj_set_height(m_inputField, 48);
-	lv_textarea_set_placeholder_text(m_inputField, "\u8bf4\u4e00\u53e5\u8bdd\uff0c\u8ba9 AI \u5e2e\u4f60\u64cd\u4f5c\u8bbe\u5907...");
+	lv_textarea_set_one_line(m_inputField, true);
+	lv_obj_set_scrollbar_mode(m_inputField, LV_SCROLLBAR_MODE_OFF);
+	lv_textarea_set_placeholder_text(m_inputField, "说一句话，让 AI 帮你操作设备...");
 	lv_obj_set_style_radius(m_inputField, 8, 0);
 	lv_obj_set_style_bg_color(m_inputField, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
 	lv_obj_set_style_bg_opa(m_inputField, LV_OPA_COVER, 0);
 	lv_obj_set_style_border_width(m_inputField, 1, 0);
 	lv_obj_set_style_border_color(m_inputField, LV_COLOR_MAKE(0x44, 0x44, 0x55), 0);
 
-	m_sendBtn = GUI::createButton(inputRow, "\u25b6", 56, 48);
+	m_sendBtn = GUI::createButton(inputRow, "▶", 56, 48);
 	lv_obj_set_style_radius(m_sendBtn, 8, 0);
 	lv_obj_set_style_bg_color(m_sendBtn, GUI::Color::PRIMARY, 0);
 	lv_obj_add_event_cb(m_sendBtn, onSendBtnCb, LV_EVENT_CLICKED, this);
@@ -186,7 +188,7 @@ void AiAgentApp::setLoading(bool loading)
 {
 	m_isWaiting = loading;
 	if (loading) {
-		lv_label_set_text(m_loadingLabel, "[ \u601d\u8003\u4e2d... ]");
+		lv_label_set_text(m_loadingLabel, "[ 思考中... ]");
 		lv_obj_clear_flag(m_loadingLabel, LV_OBJ_FLAG_HIDDEN);
 	}
 	else {

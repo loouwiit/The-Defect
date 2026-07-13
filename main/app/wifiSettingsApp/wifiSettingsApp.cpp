@@ -684,6 +684,8 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	m_passwordTa = lv_textarea_create(card);
 	lv_obj_set_width(m_passwordTa, lv_pct(90));
 	lv_obj_set_height(m_passwordTa, 60);
+	lv_textarea_set_one_line(m_passwordTa, true);
+	lv_obj_set_scrollbar_mode(m_passwordTa, LV_SCROLLBAR_MODE_OFF);
 	lv_textarea_set_password_mode(m_passwordTa, true);
 	lv_textarea_set_placeholder_text(m_passwordTa, "请输入密码");
 	lv_obj_set_style_text_align(m_passwordTa, LV_TEXT_ALIGN_LEFT, 0);
