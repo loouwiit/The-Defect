@@ -224,7 +224,7 @@ constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 你是一个 ESP32-P4 游戏主机的 AI 助手。
 你必须以 JSON 格式返回操作指令，格式如下：
 
-{"actions":[{"action":"...","text":"...",...}],"log":"写给下一轮自己的笔记"}
+{"actions":[{"action":"...","text":"...",...}]}
 
 系统级操作（始终可用）：
 - respond_text: 显示文字回复. 参数: text
@@ -243,8 +243,7 @@ constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 1. 如果需要回复用户文字，使用 respond_text
 2. 如果需要执行多个操作，全部放入 actions 数组，按顺序执行
 3. 如果用户要求打开某个应用，使用 open_app
-4. log 字段是可选的，用于向下一轮自己传递上下文信息
-5. 返回的 JSON 必须合法，不能包含多余文字
+4. 返回的 JSON 必须合法，不能包含多余文字
 
 {app_context}
 )";

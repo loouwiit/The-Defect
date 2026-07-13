@@ -66,7 +66,6 @@ struct AiAction {
 struct AiResponse {
     bool success = false;                           // 整体是否成功
     std::vector<AiAction> actions;                  // 解析出的动作列表
-    std::string log;                                // AI 写给下一轮的上下文（scratchpad）
     std::string errorMsg;                           // 错误描述（success=false 时）
     std::string rawContent;                         // AI 原始回复文本（调试用）
 };
