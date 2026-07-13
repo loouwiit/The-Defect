@@ -428,8 +428,7 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 
 			std::string followUpInput =
 				"[系统执行结果]\n" + observations +
-				"\n[用户原始问题]\n" + m_lastUserInput +
-				"\n请结合原始问题，使用 respond_text 描述以上系统状态。";
+				"\n[用户原始问题]\n" + m_lastUserInput;
 
 			HttpClient::send(m_config, m_lastSystemPrompt, followUpInput,
 				[this](bool ok, const std::string& resp, const std::string& err) {
