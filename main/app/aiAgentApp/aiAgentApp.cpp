@@ -58,7 +58,8 @@ void AiAgentApp::init()
 	// 如果配置有效，显示就绪提示
 	if (m_config.valid) {
 		addChatEntry("system", "AI 助手已就绪，请输入指令");
-	} else {
+	}
+	else {
 		addChatEntry("system",
 			"⚠️ AI 未配置\n"
 			"请将 API Key 写入 NVS (ai_agent/ai_api_key)\n"
@@ -187,7 +188,8 @@ void AiAgentApp::setLoading(bool loading)
 	if (loading) {
 		lv_label_set_text(m_loadingLabel, "[ \u601d\u8003\u4e2d... ]");
 		lv_obj_clear_flag(m_loadingLabel, LV_OBJ_FLAG_HIDDEN);
-	} else {
+	}
+	else {
 		lv_label_set_text(m_loadingLabel, "");
 		lv_obj_add_flag(m_loadingLabel, LV_OBJ_FLAG_HIDDEN);
 	}
@@ -222,7 +224,7 @@ constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 你是一个 ESP32-P4 游戏主机的 AI 助手。
 你必须以 JSON 格式返回操作指令，格式如下：
 
-{"actions":[{"action":"...","text":"...",...}]}
+{"actions":[{"action":"...","text":"...",...}],"log":"写给下一轮自己的笔记"}
 
 系统级操作（始终可用）：
 - respond_text: 显示文字回复. 参数: text
@@ -237,14 +239,12 @@ constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 - show_notification: 显示通知. 参数: text, params.type (info/success/error)
 - power_off: 关机（会弹确认）
 
-App 专用操作通过 app_custom 路由：
-{"action":"app_custom","command":"xxx","params":{...}}
-
 注意：
-1. 如果只需要回复用户文字，使用 respond_text
+1. 如果需要回复用户文字，使用 respond_text
 2. 如果需要执行多个操作，全部放入 actions 数组，按顺序执行
 3. 如果用户要求打开某个应用，使用 open_app
-4. 返回的 JSON 必须合法，不能包含多余文字
+4. log 字段是可选的，用于向下一轮自己传递上下文信息
+5. 返回的 JSON 必须合法，不能包含多余文字
 
 {app_context}
 )";
@@ -329,7 +329,8 @@ void AiAgentApp::onSend()
 		size_t pos = systemPrompt.find("{app_context}");
 		if (pos != std::string::npos) {
 			systemPrompt.replace(pos, 13, appContext.empty() ? "当前 App 无自定义操作" : appContext);
-		} else if (!appContext.empty()) {
+		}
+		else if (!appContext.empty()) {
 			systemPrompt += "\n\n当前应用上下文：\n" + appContext;
 		}
 	}
@@ -347,7 +348,7 @@ void AiAgentApp::onSend()
 				c->self->onAiResponse(c->ok, c->text, c->err);
 				delete c;
 				return Task::infinityTime;
-			}, "aiRsp", ctx, 0, Task::Affinity::None);
+				}, "aiRsp", ctx, 0, Task::Affinity::None);
 		});
 }
 
@@ -390,7 +391,8 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 		if (action.type == AiActionType::RespondText && !action.text.empty()) {
 			if (!replyText.empty()) replyText += "\n";
 			replyText += action.text;
-		} else if (action.type == AiActionType::ParseError) {
+		}
+		else if (action.type == AiActionType::ParseError) {
 			if (!replyText.empty()) replyText += "\n";
 			replyText += "[!] " + action.text;
 		}
@@ -426,9 +428,14 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
 			setLoading(true);
 
-			std::string followUpInput =
-				"[系统执行结果]\n" + observations +
-				"\n[用户原始问题]\n" + m_lastUserInput;
+			// 拼接 follow-up 输入：系统数据 + AI 自己写的日志 + 原始问题
+			std::string followUpInput = "[用户原始问题]\n" + m_lastUserInput;
+			if (!response.log.empty()) {
+				followUpInput += "[AI 笔记]\n" + response.log + "\n";
+			}
+			if (!observations.empty()) {
+				followUpInput += "[系统执行结果]\n" + observations + "\n";
+			}
 
 			HttpClient::send(m_config, m_lastSystemPrompt, followUpInput,
 				[this](bool ok, const std::string& resp, const std::string& err) {
@@ -438,7 +445,7 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 						c->self->onAiResponse(c->ok, c->text, c->err);
 						delete c;
 						return Task::infinityTime;
-					}, "aiFup", ctx, 0, Task::Affinity::None);
+						}, "aiFup", ctx, 0, Task::Affinity::None);
 				});
 			return;
 		}
@@ -467,7 +474,8 @@ static std::string collectSystemInfo()
 		snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
 		info += "- IP 地址: " + std::string(ipStr) + "\n";
 		info += "- WiFi: 已连接\n";
-	} else {
+	}
+	else {
 		info += "- WiFi: 未连接\n";
 	}
 	info += "- 屏幕分辨率: 720×1280\n";
@@ -492,7 +500,7 @@ void AiAgentApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 			auto* self = static_cast<AiAgentApp*>(param);
 			if (self->m_manager) self->m_manager->pop();
 			return Task::infinityTime;
-		}, "aiBack", this, 0, Task::Affinity::None);
+			}, "aiBack", this, 0, Task::Affinity::None);
 		return;
 	}
 
@@ -514,7 +522,7 @@ void AiAgentApp::onBackBtnCb(lv_event_t* e)
 		auto* app = static_cast<AiAgentApp*>(param);
 		if (app->m_manager) app->m_manager->pop();
 		return Task::infinityTime;
-	}, "aiBack", self, 0, Task::Affinity::None);
+		}, "aiBack", self, 0, Task::Affinity::None);
 }
 
 void AiAgentApp::onSendBtnCb(lv_event_t* e)

@@ -138,7 +138,15 @@ private:
             return result;
         }
 
-        // 4. 提取 actions 数组
+        // 4. 提取 AI log（写给下一轮的上下文）
+        {
+            cJSON* logItem = cJSON_GetObjectItem(root, "log");
+            if (cJSON_IsString(logItem) && logItem->valuestring) {
+                result.log = logItem->valuestring;
+            }
+        }
+
+        // 5. 提取 actions 数组
         cJSON* actionsArr = cJSON_GetObjectItem(root, "actions");
         if (!actionsArr) {
             // 尝试将顶层视为单个 action 对象
