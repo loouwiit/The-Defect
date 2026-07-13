@@ -10,7 +10,7 @@
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
-#include "app/aiAgentApp/aiAgentOverlay.hpp"
+
 #include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
@@ -32,7 +32,6 @@ const char* DesktopApp::GAME_NAMES[] =
 	"俄罗斯方块",
 	"斗地主",
 	"中国象棋",
-	"AI 助手",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
@@ -42,7 +41,6 @@ const char* DesktopApp::GAME_DESCS[] =
 	"经典俄罗斯方块，消除行数得分！",
 	"三人斗地主，比拼牌技！",
 	"中国象棋，楚河汉界对弈！",
-	"AI 助手 — 用自然语言操控设备",
 };
 
 const char* DesktopApp::GAME_ICONS[] =
@@ -52,7 +50,6 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/tetris.jpg",
 	"F:system/desktop/douDiZhu.jpg",
 	"F:system/desktop/chess.jpg",
-	"",  // AI 助手无图片
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -546,15 +543,11 @@ void DesktopApp::startGame()
 		m_manager->pushToNewStack(new ChineseChessRoom(display));
 		break;
 
-	case 5:
-		// AI 助手 — 唤起浮动 Overlay（不占 App 栈，确保 getActiveApp 指向底层 App）
-		AiAgentOverlay::instance().requestToggle();
-		break;
-
 	default:
-		// 其他游戏 — TestApp 占位
+		// 未实现的游戏 — TestApp 占位
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
 		break;
+
 	}
 }
 

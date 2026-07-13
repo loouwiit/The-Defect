@@ -63,14 +63,14 @@ reserces/
 | | AppStack | `main/app/appStack.hpp` | 单栈导航（push/pop/replace + 异步删除） |
 | | AppStackManager | `main/app/appStackManager.hpp` | 多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
 | **AI Agent** | AiClient / AiParser / AiExecutor | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行 |
-| | AiAgentApp | `main/app/aiAgentApp/` | 触屏 AI 助手界面（键盘输入 + Agent 循环） |
-| | App (基类) | `main/app/app.hpp` | 新增 `getAiContext()` / `executeAiAction()` |
+| | AiAgentOverlay | `main/app/aiAgentApp/` | 系统层浮动窗（`lv_layer_sys`），不占 AppStack |
+| | App (基类) | `main/app/app.hpp` | `getAiContext()` / `executeAiAction()` |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 AI 助手），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
 | | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
 | | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
 | | ChineseChess | `main/app/chineseChess/` | 中国象棋（含 AI 引擎） |
-| | AiAgentApp | `main/app/aiAgentApp/` | AI 助手（触屏键盘 + Agent 循环） |
+| | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
 | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
@@ -512,7 +512,7 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **AiAgentApp** | `main/app/aiAgentApp/` | AI 助手界面。触屏键盘输入 → HTTPS 调用 LLM → JSON 解析 → 动作执行 + Agent 循环 |
+| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，`getActiveApp()` 始终返回底层真实 App → `getAiContext()` 正常。可拖拽，顶部下滑/桌面卡片唤起 |
 
 **模块路径**: `main/aiAgent/`
 

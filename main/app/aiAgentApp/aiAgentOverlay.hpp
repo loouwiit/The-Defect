@@ -41,6 +41,9 @@ public:
     void toggle();
     bool isVisible() const { return m_visible; }
 
+    /** @brief 显示/隐藏键盘（隐藏时聊天区获得更多空间） */
+    void setKeyboardVisible(bool visible);
+
     /** @brief 线程安全入口 */
     void requestShow();
     void requestToggle();

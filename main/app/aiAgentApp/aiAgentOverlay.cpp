@@ -213,7 +213,7 @@ void AiAgentOverlay::buildUi()
 
 	// 标题文字
 	auto* title = lv_label_create(m_titleBar);
-	lv_label_set_text(title, "AI \u52a9\u624b");
+	lv_label_set_text(title, "AI 助手");
 	lv_obj_set_style_text_font(title, medFont, 0);
 	lv_obj_set_style_text_color(title, GUI::Color::TEXT, 0);
 	lv_obj_set_flex_grow(title, 1);
@@ -242,6 +242,14 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_text_color(m_chatLog, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(m_chatLog, smlFont, 0);
 
+	// 点击聊天区收起键盘，获得更大消息显示区域
+	lv_obj_add_event_cb(chatWrapper, [](lv_event_t* e) {
+		auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+		if (!lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN)) {
+			self->setKeyboardVisible(false);
+		}
+	}, LV_EVENT_CLICKED, this);
+
 	// ── 输入行 ──
 	auto* inputRow = lv_obj_create(m_container);
 	lv_obj_set_size(inputRow, lv_pct(100), 56);
@@ -259,8 +267,16 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_height(m_inputField, 46);
 	lv_textarea_set_one_line(m_inputField, true);
 	lv_obj_set_scrollbar_mode(m_inputField, LV_SCROLLBAR_MODE_OFF);
-	lv_textarea_set_placeholder_text(m_inputField, "\u8bf4\u4e00\u53e5\u8bdd\u2026");
+	lv_obj_clear_flag(m_inputField, LV_OBJ_FLAG_SCROLLABLE);
+	lv_textarea_set_placeholder_text(m_inputField, "说一句话…");
 	lv_obj_set_style_radius(m_inputField, 8, 0);
+	// 点击输入框展开键盘
+	lv_obj_add_event_cb(m_inputField, [](lv_event_t* e) {
+		auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+		if (lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN)) {
+			self->setKeyboardVisible(true);
+		}
+	}, LV_EVENT_CLICKED, this);
 	lv_obj_set_style_bg_color(m_inputField, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
 	lv_obj_set_style_bg_opa(m_inputField, LV_OPA_COVER, 0);
 	lv_obj_set_style_border_width(m_inputField, 1, 0);
@@ -275,7 +291,7 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_bg_color(m_sendBtn, GUI::Color::PRIMARY, 0);
 	lv_obj_add_event_cb(m_sendBtn, onSendBtnCb, LV_EVENT_CLICKED, this);
 	auto* sendLabel = lv_label_create(m_sendBtn);
-	lv_label_set_text(sendLabel, "\u25b6");
+	lv_label_set_text(sendLabel, "▶");
 	lv_obj_set_style_text_font(sendLabel, smlFont, 0);
 	lv_obj_center(sendLabel);
 
@@ -358,6 +374,20 @@ void AiAgentOverlay::requestToggle()
 		}
 		return Task::infinityTime;
 	}, "ovToggle", this, 10, Task::Affinity::None);
+}
+
+void AiAgentOverlay::setKeyboardVisible(bool visible)
+{
+	if (visible) {
+		lv_obj_clear_flag(m_keyboard, LV_OBJ_FLAG_IGNORE_LAYOUT);
+		lv_obj_clear_flag(m_keyboard, LV_OBJ_FLAG_HIDDEN);
+		lv_keyboard_set_textarea(m_keyboard, m_inputField);
+	}
+	else {
+		lv_keyboard_set_textarea(m_keyboard, nullptr);
+		lv_obj_add_flag(m_keyboard, LV_OBJ_FLAG_IGNORE_LAYOUT);
+		lv_obj_add_flag(m_keyboard, LV_OBJ_FLAG_HIDDEN);
+	}
 }
 
 // ============================================================
@@ -640,13 +670,6 @@ void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
 	// ── 有触摸按下 ──
 	lv_point_t pt;
 	lv_indev_get_point(activeIndev, &pt);
-
-	// 每 500ms 打印日志
-	static int logCnt = 0;
-	if (++logCnt % 17 == 0) {
-		ESP_LOGI(TAG, "[手势] indev=%p pt=(%d,%d) tracking=%d",
-			 (void*)activeIndev, pt.x, pt.y, (int)self->m_gestureTracking);
-	}
 
 	if (!self->m_gestureTracking) {
 		// 只跟踪顶部区域（Y < 30）的触摸
