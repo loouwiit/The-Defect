@@ -10,7 +10,7 @@
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
-#include "app/aiAgentApp/aiAgentApp.hpp"
+#include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
@@ -547,8 +547,8 @@ void DesktopApp::startGame()
 		break;
 
 	case 5:
-		// AI 助手
-		m_manager->pushToNewStack(new AiAgentApp(display));
+		// AI 助手 — 唤起浮动 Overlay（不占 App 栈，确保 getActiveApp 指向底层 App）
+		AiAgentOverlay::instance().requestToggle();
 		break;
 
 	default:

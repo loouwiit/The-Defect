@@ -32,6 +32,7 @@
 #include "audio/Audio.hpp"
 
 #include "bleGamepad/bleGamepad.hpp"
+#include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "monitor/cpuMonitor.hpp"
 #include "battery/batteryManager.hpp"
 
@@ -215,6 +216,11 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "BleGamepad start");
 	BleGamepad::instance().start(&display);
 	ESP_LOGI(TAG, "BleGamepad start done");
+
+	// 启动 AI 助手浮动 Overlay（驻留在 lv_layer_sys 上，不影响 AppStack）
+	AiAgentOverlay::instance().start(&display);
+
+	// 手势检测由 AiAgentOverlay 内部通过 LVGL 事件完成（无需后台 Task）
 
 	// wifi
 	wifiInit(true);

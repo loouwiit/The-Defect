@@ -6,6 +6,7 @@
 #include "aiProtocol.hpp"
 #include "display/display.hpp"
 #include "app/app.hpp"
+#include "app/appStackManager.hpp"
 #include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "battery/batteryManager.hpp"

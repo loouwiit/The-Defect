@@ -29,7 +29,7 @@ struct AiConfig {
 
 namespace {
 
-constexpr char TAG[] = "AiConfig";
+static constexpr char CFG_TAG[] = "AiConfig";
 constexpr char CONFIG_PATH[] = "/root/system/ai_config.json";
 constexpr char NVS_KEY[] = "ai_api_key";
 constexpr char NVS_NAMESPACE[] = "ai_agent";
@@ -38,7 +38,7 @@ constexpr char NVS_NAMESPACE[] = "ai_agent";
 static bool loadConfigFromFile(AiConfig& cfg) {
     FILE* f = fopen(CONFIG_PATH, "r");
     if (!f) {
-        ESP_LOGW(TAG, "配置文件 %s 不存在，使用默认值", CONFIG_PATH);
+        ESP_LOGW(CFG_TAG, "配置文件 %s 不存在，使用默认值", CONFIG_PATH);
         return false;
     }
 
@@ -59,7 +59,7 @@ static bool loadConfigFromFile(AiConfig& cfg) {
     // 解析 JSON
     cJSON* root = cJSON_Parse(buf);
     if (!root) {
-        ESP_LOGE(TAG, "配置文件 JSON 解析失败");
+        ESP_LOGE(CFG_TAG, "配置文件 JSON 解析失败");
         delete[] buf;
         return false;
     }
@@ -97,7 +97,7 @@ static bool loadApiKeyFromNvs(AiConfig& cfg) {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS 命名空间 %s 不存在", NVS_NAMESPACE);
+        ESP_LOGW(CFG_TAG, "NVS 命名空间 %s 不存在", NVS_NAMESPACE);
         return false;
     }
 
