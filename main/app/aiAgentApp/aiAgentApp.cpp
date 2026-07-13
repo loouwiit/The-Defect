@@ -402,6 +402,9 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 		addChatEntry("AI", replyText);
 	}
 
+	// 保存 AI 回复内容（Agent follow-up 传递上下文用）
+	m_lastAiContent = response.rawContent;
+
 	// ── 2. 执行系统动作 ──
 	auto* mgr = display->getStackManager();
 	auto execResult = AiExecutor::execute(response.actions, display, mgr);
@@ -423,21 +426,32 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 
 		if (!observations.empty()) {
 			m_followUpCount++;
-			ESP_LOGI(TAG, "Agent 第 %d 轮: observations=%s",
-				m_followUpCount, observations.c_str());
+			ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
 			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
 			setLoading(true);
 
-			// 拼接 follow-up 输入：系统数据 + AI 自己写的日志 + 原始问题
-			std::string followUpInput = "[用户原始问题]\n" + m_lastUserInput;
-			if (!response.log.empty()) {
-				followUpInput += "[AI 笔记]\n" + response.log + "\n";
-			}
-			if (!observations.empty()) {
-				followUpInput += "[系统执行结果]\n" + observations + "\n";
+			// 构建带历史的消息：让 AI 看到自己上一轮的请求
+			std::vector<std::pair<std::string, std::string>> history;
+			history.push_back({"user", m_lastUserInput});
+			// rawContent 是完整的 OpenAI 响应 JSON，从中提取 AI 的 content
+			{
+				cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
+				if (root) {
+					cJSON* choices = cJSON_GetObjectItem(root, "choices");
+					if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
+						cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
+						cJSON* content = cJSON_GetObjectItem(msg, "content");
+						if (cJSON_IsString(content) && content->valuestring) {
+							history.push_back({"assistant", content->valuestring});
+						}
+					}
+					cJSON_Delete(root);
+				}
 			}
 
-			HttpClient::send(m_config, m_lastSystemPrompt, followUpInput,
+			HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
+				"[系统执行结果]\n" + observations,
+				history,
 				[this](bool ok, const std::string& resp, const std::string& err) {
 					auto* ctx = new AiSendCtx{ this, resp, err, ok };
 					Task::addTask([](void* p) -> TickType_t {
@@ -445,7 +459,7 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 						c->self->onAiResponse(c->ok, c->text, c->err);
 						delete c;
 						return Task::infinityTime;
-						}, "aiFup", ctx, 0, Task::Affinity::None);
+					}, "aiFup", ctx, 0, Task::Affinity::None);
 				});
 			return;
 		}

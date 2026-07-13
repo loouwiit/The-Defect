@@ -54,8 +54,9 @@ private:
 	bool m_isWaiting = false;
 	int m_followUpCount = 0;
 	static constexpr int MAX_FOLLOW_UP = 3;
-	std::string m_lastUserInput;    // 上一轮用户输入
-	std::string m_lastSystemPrompt; // 上一轮 system prompt（含 app_context）
+	std::string m_lastUserInput;
+	std::string m_lastAiContent;    // AI 上一轮的回复文本（Agent 循环用）
+	std::string m_lastSystemPrompt;
 	std::vector<std::string> m_chatHistory;
 	AiConfig m_config;
 	TickType_t m_nextActionTime{};

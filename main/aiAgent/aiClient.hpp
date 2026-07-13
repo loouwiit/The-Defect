@@ -8,13 +8,15 @@
 #include "aiProtocol.hpp"
 #include "aiConfig.hpp"
 #include "task/task.hpp"
+#include <vector>
+#include <utility>
 
 /**
  * @file aiClient.hpp
  * @brief AI HTTP 客户端
  *
  * 封装与 OpenAI 兼容 API 的 HTTPS 通信。
- * 使用 ESP-IDF 内置 esp_http_client，HttpClient::send 返回 AI 的原始回复文本。
+ * 使用 ESP-IDF 内置 esp_http_client。
  */
 
 // ============================================================
@@ -31,22 +33,23 @@ class HttpClient {
 public:
     constexpr static char TAG[] = "AiClient";
 
-    /**
-     * @brief 发送 Chat Completion 请求（后台 Task 执行）
-     *
-     * @param config     AI 配置
-     * @param systemPrompt  系统提示文本
-     * @param userInput     用户输入文本
-     * @param callback      完成后回调（在 Task 上下文中执行）
-     * @return true 请求已发起
-     */
+    /** @brief 简单发送：system + user 两条消息 */
     static bool send(const AiConfig& config,
                      const std::string& systemPrompt,
                      const std::string& userInput,
                      AiClientCallback callback)
     {
-        // 在后台 Task 中执行 HTTP 请求，不阻塞 LVGL
-        auto* ctx = new SendContext{ config, systemPrompt, userInput, std::move(callback) };
+        return sendWithHistory(config, systemPrompt, userInput, {}, std::move(callback));
+    }
+
+    /** @brief 带历史消息的发送：system + history + user */
+    static bool sendWithHistory(const AiConfig& config,
+                                const std::string& systemPrompt,
+                                const std::string& userInput,
+                                const std::vector<std::pair<std::string, std::string>>& history,
+                                AiClientCallback callback)
+    {
+        auto* ctx = new SendContext{ config, systemPrompt, userInput, history, std::move(callback) };
         Task::addTask([](void* param) -> TickType_t {
             auto* ctx = static_cast<SendContext*>(param);
             executeRequest(*ctx);
@@ -61,6 +64,7 @@ private:
         AiConfig config;
         std::string systemPrompt;
         std::string userInput;
+        std::vector<std::pair<std::string, std::string>> history;
         AiClientCallback callback;
     };
 
@@ -76,11 +80,21 @@ private:
         // messages
         cJSON* messages = cJSON_AddArrayToObject(root, "messages");
 
+        // system
         cJSON* sysMsg = cJSON_CreateObject();
         cJSON_AddStringToObject(sysMsg, "role", "system");
         cJSON_AddStringToObject(sysMsg, "content", ctx.systemPrompt.c_str());
         cJSON_AddItemToArray(messages, sysMsg);
 
+        // history (user/assistant 交替)
+        for (const auto& [role, content] : ctx.history) {
+            cJSON* msg = cJSON_CreateObject();
+            cJSON_AddStringToObject(msg, "role", role.c_str());
+            cJSON_AddStringToObject(msg, "content", content.c_str());
+            cJSON_AddItemToArray(messages, msg);
+        }
+
+        // current user input
         cJSON* userMsg = cJSON_CreateObject();
         cJSON_AddStringToObject(userMsg, "role", "user");
         cJSON_AddStringToObject(userMsg, "content", ctx.userInput.c_str());
