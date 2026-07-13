@@ -223,31 +223,24 @@ void AiAgentOverlay::buildUi()
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICK_FOCUSABLE);
 
-	// ── 对话记录 ──
-	m_chatLog = lv_textarea_create(m_container);
+	// ── 对话记录（lv_label + 滚动容器，无光标 → 无自动滚动） ──
+	auto* chatWrapper = lv_obj_create(m_container);
+	lv_obj_set_width(chatWrapper, lv_pct(100));
+	lv_obj_set_flex_grow(chatWrapper, 1);
+	lv_obj_set_style_border_width(chatWrapper, 0, 0);
+	lv_obj_set_style_bg_color(chatWrapper, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
+	lv_obj_set_style_bg_opa(chatWrapper, LV_OPA_30, 0);
+	lv_obj_set_style_pad_all(chatWrapper, PAD, 0);
+	lv_obj_set_style_radius(chatWrapper, 0, 0);
+	lv_obj_set_scrollbar_mode(chatWrapper, LV_SCROLLBAR_MODE_OFF);
+	lv_obj_add_flag(chatWrapper, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_add_flag(chatWrapper, LV_OBJ_FLAG_SCROLL_ELASTIC);
+
+	m_chatLog = lv_label_create(chatWrapper);
 	lv_obj_set_width(m_chatLog, lv_pct(100));
-	lv_obj_set_flex_grow(m_chatLog, 1);
-	lv_textarea_set_text(m_chatLog, "");
-	lv_obj_set_style_border_width(m_chatLog, 0, 0);
-	lv_obj_set_style_bg_color(m_chatLog, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
-	lv_obj_set_style_bg_opa(m_chatLog, LV_OPA_30, 0);
-	lv_obj_set_style_pad_all(m_chatLog, PAD, 0);
+	lv_label_set_text(m_chatLog, "");
 	lv_obj_set_style_text_color(m_chatLog, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(m_chatLog, smlFont, 0);
-	lv_textarea_set_cursor_click_pos(m_chatLog, false);
-	lv_obj_add_flag(m_chatLog, LV_OBJ_FLAG_SCROLLABLE);
-	lv_obj_add_flag(m_chatLog, LV_OBJ_FLAG_SCROLL_ELASTIC);
-	// 移除 CLICK_FOCUSABLE → 对话区无法获得焦点 → 光标自动隐藏
-
-	// ── Loading 标签 ──
-	m_loading = lv_label_create(m_container);
-	lv_obj_set_width(m_loading, lv_pct(100));
-	lv_label_set_text(m_loading, "");
-	lv_obj_set_style_text_align(m_loading, LV_TEXT_ALIGN_CENTER, 0);
-	lv_obj_set_style_text_color(m_loading, GUI::Color::SUBTLE, 0);
-	lv_obj_set_style_text_font(m_loading, smlFont, 0);
-	lv_obj_set_style_pad_top(m_loading, 4, 0);
-	lv_obj_set_style_pad_bottom(m_loading, 4, 0);
 
 	// ── 输入行 ──
 	auto* inputRow = lv_obj_create(m_container);
@@ -373,27 +366,31 @@ void AiAgentOverlay::requestToggle()
 
 void AiAgentOverlay::addChatEntry(const std::string& role, const std::string& text)
 {
-	m_chatHistory.push_back("[" + role + "] " + text);
+	std::string entry = "[" + role + "] " + text + "\n";
+	m_chatHistory.push_back(entry);
 
+	// 只追加新条目，不重建全文（lv_label_set_text 每次会更新整个文本）
+	// 但为了保持 m_chatHistory 的完整性，仍从 history 重建
 	std::string full;
 	for (const auto& line : m_chatHistory) {
-		full += line + "\n";
+		full += line;
 	}
-	lv_textarea_set_text(m_chatLog, full.c_str());
-	// 不自动滚动到底部——保留用户当前的滚动位置，手动查看新内容
+	lv_label_set_text(m_chatLog, full.c_str());
+	// lv_label 无光标，不会自动滚动
 }
 
 void AiAgentOverlay::setLoading(bool loading)
 {
 	m_isWaiting = loading;
+	// 从历史重建文本，追加/移除 "[思考中...]" 到末尾，随消息列表一起滚动
+	std::string full;
+	for (const auto& line : m_chatHistory) {
+		full += line;
+	}
 	if (loading) {
-		lv_label_set_text(m_loading, "[ \u601d\u8003\u4e2d... ]");
-		lv_obj_clear_flag(m_loading, LV_OBJ_FLAG_HIDDEN);
+		full += "[ 思考中... ]\n";
 	}
-	else {
-		lv_label_set_text(m_loading, "");
-		lv_obj_add_flag(m_loading, LV_OBJ_FLAG_HIDDEN);
-	}
+	lv_label_set_text(m_chatLog, full.c_str());
 }
 
 void AiAgentOverlay::updateContextHint()
