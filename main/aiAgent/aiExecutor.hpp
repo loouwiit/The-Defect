@@ -39,8 +39,8 @@ public:
      * @return 执行结果
      */
     static Result execute(const std::vector<AiAction>& actions,
-                          Display* display,
-                          AppStackManager* manager)
+        Display* display,
+        AppStackManager* manager)
     {
         Result result;
         result.totalCount = actions.size();
@@ -53,93 +53,94 @@ public:
             App* activeApp = display ? display->getActiveApp() : nullptr;
 
             switch (action.type) {
-                case AiActionType::RespondText:
-                case AiActionType::ShowNotification:
-                    // 这类动作由 UI 层处理，executor 仅记录
+            case AiActionType::RespondText:
+            case AiActionType::ShowNotification:
+                // 这类动作由 UI 层处理，executor 仅记录
+                handled = true;
+                break;
+
+            case AiActionType::OpenApp:
+                handled = executeOpenApp(action, manager);
+                break;
+
+            case AiActionType::NavigateBack:
+                if (manager) {
+                    manager->pop();
                     handled = true;
-                    break;
-
-                case AiActionType::OpenApp:
-                    handled = executeOpenApp(action, manager);
-                    break;
-
-                case AiActionType::NavigateBack:
-                    if (manager) {
-                        manager->pop();
-                        handled = true;
-                    }
-                    break;
-
-                case AiActionType::NavigateHome:
-                    if (manager) {
-                        // 切回根栈（stack 0），只保留桌面
-                        manager->switchToStack(static_cast<size_t>(0));
-                        auto* root = manager->activeStack();
-                        while (root && root->depth() > 1) {
-                            manager->pop();
-                        }
-                        handled = true;
-                    }
-                    break;
-
-                case AiActionType::SetBrightness:
-                    if (display) {
-                        int brightness = action.intValue;
-                        if (brightness < 0) brightness = 0;
-                        if (brightness > 100) brightness = 100;
-                        display->setBrightness(static_cast<uint8_t>(brightness));
-                        display->saveBrightness();
-                        handled = true;
-                    }
-                    break;
-
-                case AiActionType::SetVolume:
-                    Audio::setMasterVolume(action.intValue);
-                    handled = true;
-                    break;
-
-                case AiActionType::PlayAudio:
-                    if (!action.text.empty()) {
-                        Audio::play(action.text.c_str()).detach();
-                        handled = true;
-                    }
-                    break;
-
-                case AiActionType::WifiConnect: {
-                    auto ssidIt = action.params.find("ssid");
-                    auto passIt = action.params.find("password");
-                    if (ssidIt != action.params.end()) {
-                        wifiConnect(ssidIt->second.c_str(),
-                                    passIt != action.params.end() ? passIt->second.c_str() : "");
-                        handled = true;
-                    }
-                    break;
                 }
+                break;
 
-                case AiActionType::SystemInfo:
-                    // 由 UI 层处理，executor 仅标记
-                    handled = true;
-                    break;
-
-                case AiActionType::PowerOff:
-                    // 由 UI 层弹确认框，executor 仅标记
-                    handled = true;
-                    break;
-
-                case AiActionType::ParseError:
-                    // 解析错误不需要执行
-                    handled = true;
-                    break;
-
-                default:
-                    // UnknownAction 或未匹配的系统操作 → 透传给前台 App
-                    if (activeApp) {
-                        handled = activeApp->executeAiAction(action);
+            case AiActionType::NavigateHome:
+                if (manager) {
+                    // 切回根栈（stack 0），只保留桌面
+                    manager->switchToStack(static_cast<size_t>(0));
+                    auto* root = manager->activeStack();
+                    while (root && root->depth() > 1) {
+                        manager->pop();
                     }
-                    if (!handled) {
-                        ESP_LOGW(TAG, "App 未处理: action=%s", action.text.c_str());
-                    }
-                    break;
+                    handled = true;
+                }
+                break;
+
+            case AiActionType::SetBrightness:
+                if (display) {
+                    int brightness = action.intValue;
+                    if (brightness < 0) brightness = 0;
+                    if (brightness > 100) brightness = 100;
+                    display->setBrightness(static_cast<uint8_t>(brightness));
+                    display->saveBrightness();
+                    handled = true;
+                }
+                break;
+
+            case AiActionType::SetVolume:
+                Audio::setMasterVolume(action.intValue);
+                handled = true;
+                break;
+
+            case AiActionType::PlayAudio:
+                if (!action.text.empty()) {
+                    Audio::play(action.text.c_str()).detach();
+                    handled = true;
+                }
+                break;
+
+            case AiActionType::WifiConnect:
+            {
+                auto ssidIt = action.params.find("ssid");
+                auto passIt = action.params.find("password");
+                if (ssidIt != action.params.end()) {
+                    wifiConnect(ssidIt->second.c_str(),
+                        passIt != action.params.end() ? passIt->second.c_str() : "");
+                    handled = true;
+                }
+                break;
+            }
+
+            case AiActionType::SystemInfo:
+                // 由 UI 层处理，executor 仅标记
+                handled = true;
+                break;
+
+            case AiActionType::PowerOff:
+                // 由 UI 层弹确认框，executor 仅标记
+                handled = true;
+                break;
+
+            case AiActionType::ParseError:
+                // 解析错误不需要执行
+                handled = true;
+                break;
+
+            default:
+                // UnknownAction 或未匹配的系统操作 → 透传给前台 App
+                if (activeApp) {
+                    handled = activeApp->executeAiAction(action);
+                }
+                if (!handled) {
+                    ESP_LOGW(TAG, "App 未处理: action=%s", action.text.c_str());
+                }
+                break;
             }
 
             if (handled) {
@@ -154,7 +155,8 @@ public:
 
 private:
     /// 执行 open_app 操作
-    static bool executeOpenApp(const AiAction& action, AppStackManager* manager) {
+    static bool executeOpenApp(const AiAction& action, AppStackManager* manager)
+    {
         if (!manager || action.appName.empty()) return false;
 
         // 通过 activeStack 的 top app 获取 Display
@@ -168,22 +170,32 @@ private:
             return false;
         }
 
-        manager->pushToNewStack(app);
+        struct param_t{ AppStackManager* stack; App* app; };
+        Task::addTask([](void* param)->TickType_t
+            {
+                auto [manager, app] = *(param_t*)param;
+                manager->push(app);
+                delete (param_t*)param;
+                return Task::infinityTime;
+            }, "open app", new param_t{manager, app}, 100);
         return true;
     }
 
     /// 生成执行概述
-    static void buildSummary(Result& result) {
+    static void buildSummary(Result& result)
+    {
         if (result.totalCount == 0) {
             result.summary = "无操作";
             return;
         }
         if (result.successCount == result.totalCount) {
             result.summary = "✅ " + std::to_string(result.totalCount) + " 个操作已执行";
-        } else if (result.successCount > 0) {
+        }
+        else if (result.successCount > 0) {
             result.summary = "⚠️ " + std::to_string(result.successCount) + "/"
-                           + std::to_string(result.totalCount) + " 个操作已执行";
-        } else {
+                + std::to_string(result.totalCount) + " 个操作已执行";
+        }
+        else {
             result.summary = "❌ 所有操作执行失败";
         }
     }
