@@ -286,12 +286,14 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_text_font(sendLabel, smlFont, 0);
 	lv_obj_center(sendLabel);
 
-	// ── 键盘 ──
+	// ── 键盘（调大按键：增加高度 + 缩小间隙） ──
 	m_keyboard = lv_keyboard_create(m_container);
 	lv_obj_set_width(m_keyboard, lv_pct(100));
-	lv_obj_set_height(m_keyboard, 180);
+	lv_obj_set_height(m_keyboard, 220);
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x1a, 0x1a, 0x2e), 0);
+	lv_obj_set_style_pad_row(m_keyboard, 3, 0);
+	lv_obj_set_style_pad_column(m_keyboard, 3, 0);
 	lv_obj_add_event_cb(m_keyboard, onKeyboardReadyCb, LV_EVENT_READY, this);
 
 	// ── 初始隐藏 ──
