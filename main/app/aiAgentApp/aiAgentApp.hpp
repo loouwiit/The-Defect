@@ -67,6 +67,10 @@ private:
 	void onSend();
 	void onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg);
 
+	// ── 工具执行（Agent 模式） ──
+	/** 采集系统信息并二次调用 AI 生成自然语言描述 */
+	void handleSystemInfo();
+
 	// ── 回调 ──
 	static void onBackBtnCb(lv_event_t* e);
 	static void onSendBtnCb(lv_event_t* e);

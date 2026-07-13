@@ -7,6 +7,11 @@
 #include "aiAgent/aiParser.hpp"
 #include "aiAgent/aiExecutor.hpp"
 #include "storage/fat.hpp"
+#include "battery/batteryManager.hpp"
+
+// wifi 函数前向声明（避免直接包含 wifi.hpp 触发默认参数重定义）
+bool wifiIsConnect();
+esp_ip4_addr_t wifiStationGetIp();
 
 #include <esp_log.h>
 #include <cstring>
@@ -379,25 +384,8 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 				}
 				break;
 			case AiActionType::SystemInfo: {
-				// 收集设备信息
-				std::string info = "[ 设备信息 ]:\n";
-				int batPct = BatteryManager::instance().getPercent();
-				if (batPct >= 0) {
-					info += "电量: " + std::to_string(batPct) + "%";
-					info += BatteryManager::instance().isCharging() ? "(充电中)" : "";
-					info += "\n";
-				}
-				if (wifiIsConnect()) {
-					esp_ip4_addr_t ip = wifiStationGetIp();
-					char ipStr[16];
-					snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
-					info += "IP: " + std::string(ipStr) + "\n";
-				} else {
-					info += "WiFi: 未连接\n";
-				}
-				info += "屏幕: 720×1280";
-				if (!replyText.empty()) replyText += "\n";
-				replyText += info;
+				// Agent 模式：采集数据后二次调用 AI，由 AI 自然语言描述
+				hasSystemAction = true;
 				break;
 			}
 			case AiActionType::ShowNotification:
@@ -418,6 +406,12 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 		}
 	}
 
+	// 如果 AI 请求了 system_info，走 Agent 模式：采集数据 → 二次调用 AI
+	if (hasSystemAction) {
+		handleSystemInfo();
+		return;
+	}
+
 	// 显示 AI 文本回复
 	if (!replyText.empty()) {
 		addChatEntry("AI", replyText);
@@ -431,6 +425,76 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 	if (replyText.empty() && execResult.totalCount > 0) {
 		addChatEntry("AI", execResult.summary);
 	}
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Agent: system_info
+// ════════════════════════════════════════════════════════════════
+
+void AiAgentApp::handleSystemInfo()
+{
+	addChatEntry(">>", "(采集系统信息...)");
+
+	// 1. 采集数据
+	std::string data;
+	{
+		int batPct = BatteryManager::instance().getPercent();
+		if (batPct >= 0) {
+			data += "- 电池电量: " + std::to_string(batPct) + "%";
+			data += BatteryManager::instance().isCharging() ? " (充电中)" : "";
+			data += "\n";
+		}
+		if (wifiIsConnect()) {
+			esp_ip4_addr_t ip = wifiStationGetIp();
+			char ipStr[16];
+			snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
+			data += "- IP 地址: " + std::string(ipStr) + "\n";
+			data += "- WiFi: 已连接\n";
+		} else {
+			data += "- WiFi: 未连接\n";
+		}
+		data += "- 屏幕分辨率: 720×1280\n";
+		data += "- 型号: ESP32-P4\n";
+	}
+
+	setLoading(true);
+
+	// 2. 把数据喂给 AI，让它自然语言描述
+	HttpClient::send(m_config, R"(你是设备的系统状态报告员。
+请根据以下系统数据，用自然语言向用户描述设备的当前状态，语气友好。
+只返回 respond_text 动作，不要执行其他操作。)",
+		data,
+		[this](bool ok, const std::string& resp, const std::string& err) {
+			Task::addTask([](void* p) -> TickType_t {
+				auto* args = static_cast<std::tuple<AiAgentApp*, bool, std::string, std::string>*>(p);
+				auto* self = std::get<0>(*args);
+				bool ok2 = std::get<1>(*args);
+				auto& resp2 = std::get<2>(*args);
+				auto& err2 = std::get<3>(*args);
+
+				auto guard = self->display->lockGuard();
+				self->setLoading(false);
+				lv_keyboard_set_textarea(self->m_keyboard, self->m_inputField);
+
+				if (!ok2) {
+					self->addChatEntry("!", "采集信息失败: " + err2);
+				} else {
+					// 解析 AI 对系统信息的描述
+					auto response = AiParser::parse(resp2);
+					if (!response.success && response.actions.empty()) {
+						self->addChatEntry("!", "解析失败: " + response.errorMsg);
+					} else {
+						for (const auto& a : response.actions) {
+							if (a.type == AiActionType::RespondText && !a.text.empty()) {
+								self->addChatEntry("AI", a.text);
+							}
+						}
+					}
+				}
+				delete args;
+				return Task::infinityTime;
+			}, "aiSysInfo", new std::tuple(this, ok, resp, err), 0, Task::Affinity::None);
+		});
 }
 
 // ============================================================
