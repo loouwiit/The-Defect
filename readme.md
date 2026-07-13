@@ -16,6 +16,22 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 | **主机-房间架构** | 游戏 App 自带房间系统，自动创建/加入 |
 | **AI 对手** | 中国象棋内置 AI 引擎，单人也能玩 |
 
+### 🤖 AI Agent — 自然语言操控设备
+
+集成 OpenAI 兼容 API，用户通过触屏输入自然语言，AI 自主规划并执行操作：
+
+- **11 个系统级工具**：开关应用、调亮度/音量、WiFi 连接、设备信息等
+- **App 自定义工具**：各 App 通过 `getAiContext()` / `executeAiAction()` 暴露专属操作
+- **Agent 循环**：AI 调用工具 → 系统采集数据 → 自动下一轮 → AI 综合回复
+- **完整上下文**：带对话历史的 follow-up 调用，AI 理解完整语境
+- **多模型兼容**：OpenAI / Ollama / DeepSeek 等，配置即用
+
+```
+用户输入 → HTTPS → LLM → JSON actions → AiExecutor → 系统/App 操作
+                                          ↓ (如需数据)
+                                  采集结果 → 下一轮 LLM → 回复用户
+```
+
 ### 🖥️ 主机 + 协处理器分离架构
 
 ```
@@ -148,10 +164,11 @@ ESP32-C6 (协处理器)
 
 | 层次 | 模块 | 路径 |
 |------|------|------|
+| AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
 | 基础设施 | Task / Mutex / GPIO / IIC | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
-| 应用 | 12 个 App | `main/app/*/` |
+| 应用 | 13 个 App（+AI 助手） | `main/app/*/` |
 | 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS | `main/wifi/` `main/server/` `main/wsServer/` |
 | 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
 | 外设 | BLE Gamepad / Battery / CPU Monitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |

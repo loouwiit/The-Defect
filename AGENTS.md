@@ -62,12 +62,16 @@ reserces/
 | **导航** | App | `main/app/app.hpp` | 应用基类（生命周期、栈钩子、手柄输入） |
 | | AppStack | `main/app/appStack.hpp` | 单栈导航（push/pop/replace + 异步删除） |
 | | AppStackManager | `main/app/appStackManager.hpp` | 多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
-| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，5 游戏卡片，3 焦点组导航 |
+| **AI Agent** | AiClient / AiParser / AiExecutor | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行 |
+| | AiAgentApp | `main/app/aiAgentApp/` | 触屏 AI 助手界面（键盘输入 + Agent 循环） |
+| | App (基类) | `main/app/app.hpp` | 新增 `getAiContext()` / `executeAiAction()` |
+| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 AI 助手），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
 | | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
 | | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
 | | ChineseChess | `main/app/chineseChess/` | 中国象棋（含 AI 引擎） |
-| | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
+| | AiAgentApp | `main/app/aiAgentApp/` | AI 助手（触屏键盘 + Agent 循环） |
+| BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
@@ -503,6 +507,46 @@ static void on_click_cb(lv_event_t* e) {
 | **FruitNinjaApp** | `main/app/fruitNinja/` | 水果忍者。含房间系统（FruitNinjaRoom），多玩家 |
 | **Snake** | `main/app/snake/snakeGame/` | 贪吃蛇。snakeGame 逻辑 + snakeRoom 房间配对 |
 | **ChineseChess** | `main/app/chineseChess/` | 中国象棋。含 AI 引擎 (`chessAI.cpp`)，双人对战 |
+
+### AI Agent
+
+| App | 路径 | 说明 |
+|-----|------|------|
+| **AiAgentApp** | `main/app/aiAgentApp/` | AI 助手界面。触屏键盘输入 → HTTPS 调用 LLM → JSON 解析 → 动作执行 + Agent 循环 |
+
+**模块路径**: `main/aiAgent/`
+
+| 模块 | 说明 |
+|------|------|
+| `aiProtocol.hpp` | `AiActionType` / `AiAction` / `AiResponse` 数据结构 |
+| `aiConfig.hpp` | FAT 配置文件 + NVS API Key 加载 |
+| `aiClient.hpp` | `HttpClient::send()` / `sendWithHistory()` — `esp_http_client` HTTPS POST |
+| `aiParser.hpp` | cJSON 解析，鲁棒处理，`actions[]` 提取 |
+| `aiExecutor.hpp` | 动作顺序执行，系统操作 + `default:` 透传前台 App |
+
+**App 基类 AI 接口** (`main/app/app.hpp`)：
+
+```cpp
+class App {
+    // 可选覆盖，默认空实现
+    virtual std::string getAiContext();           // 返回本 App 的 AI 上下文描述
+    virtual bool executeAiAction(const AiAction& action);  // 执行 AI 发来的自定义动作
+};
+```
+
+**Agent 循环流程**：
+
+```
+用户输入 → HttpClient::send(systemPrompt, input)
+  ↓
+AiParser::parse(response) → AiExecutor::execute(actions)
+  ↓
+  如有 system_info 等需数据采集的 action
+  → collectSystemInfo() → 带对话历史再次调用 AI
+  → AI 综合回复 respond_text
+  ↓ (最多 3 轮)
+显示最终回复
+```
 
 ### 设置
 
