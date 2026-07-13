@@ -431,33 +431,6 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 	if (replyText.empty() && execResult.totalCount > 0) {
 		addChatEntry("AI", execResult.summary);
 	}
-
-	// 如果 AI 执行了导航操作，自动关闭
-	bool hasNavigation = false;
-	for (const auto& action : response.actions) {
-		if (action.type == AiActionType::OpenApp ||
-			action.type == AiActionType::NavigateBack ||
-			action.type == AiActionType::NavigateHome) {
-			hasNavigation = true;
-			break;
-		}
-	}
-
-	// 如果执行了导航，延迟一点后自动 pop
-	if (hasNavigation && m_manager) {
-		struct NavCtx { AiAgentApp* self; };
-		auto* ctx = new NavCtx{ this };
-		Task::addTask([](void* param) -> TickType_t {
-			auto* c = static_cast<NavCtx*>(param);
-			if (auto g = c->self->display->lockGuard()) {
-				if (c->self->m_manager) {
-					c->self->m_manager->pop();
-				}
-			}
-			delete c;
-			return Task::infinityTime;
-		}, "autoDismiss", ctx, 500, Task::Affinity::None);
-	}
 }
 
 // ============================================================
