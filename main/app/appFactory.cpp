@@ -1,5 +1,5 @@
 #include "appFactory.hpp"
-#include "app/tetris/tetrisApp.hpp"
+#include "app/tetris/tetrisRoomApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/fruitNinja/fruitNinjaRoom.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
@@ -10,7 +10,7 @@ static constexpr char TAG[] = "AppFactory";
 
 App* AppFactory::create(const std::string& name, Display* display) {
     if (name == "tetris") {
-        return new TetrisApp(display);
+        return new TetrisRoomApp(display);
     }
     if (name == "snake") {
         return new SnakeRoom(display);
