@@ -230,12 +230,12 @@ constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 - respond_text: 显示文字回复. 参数: text
 - open_app: 打开应用. 参数: app (tetris/snake/fruitNinja/chineseChess)
 - navigate_back: 返回上一级
-- navigate_home: 回桌面
+- navigate_home: 返回桌面
 - set_brightness: 调屏幕亮度. 参数: value (0-100)
 - set_volume: 调音量. 参数: value (0-100)
 - play_audio: 播放音频文件. 参数: text (文件路径)
 - wifi_connect: 连接 WiFi. 参数: params.ssid, params.password
-- system_info: 显示设备信息
+- system_info: 获取设备信息（不会向用户显示）
 - show_notification: 显示通知. 参数: text, params.type (info/success/error)
 - power_off: 关机（会弹确认）
 
