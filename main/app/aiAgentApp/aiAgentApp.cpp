@@ -17,6 +17,9 @@ esp_ip4_addr_t wifiStationGetIp();
 #include <cstring>
 #include <cstdio>
 
+// 前向声明
+static std::string collectSystemInfo();
+
 // ============================================================
 //  构造 / 析构
 // ============================================================
@@ -213,6 +216,8 @@ void AiAgentApp::updateContextHint()
 //  默认 System Prompt（文件不存在时的 fallback）
 // ============================================================
 
+struct AiSendCtx { AiAgentApp* self; std::string text; std::string err; bool ok; };
+
 constexpr const char* DEFAULT_SYSTEM_PROMPT = R"(
 你是一个 ESP32-P4 游戏主机的 AI 助手。
 你必须以 JSON 格式返回操作指令，格式如下：
@@ -276,6 +281,11 @@ void AiAgentApp::onSend()
 	// 加入对话记录
 	addChatEntry(">>", input);
 
+	// 保存用户输入
+	m_lastUserInput = input;
+
+	// 发送请求
+
 	// 检查配置
 	if (!m_config.valid) {
 		addChatEntry("!", "AI 未配置，请先设置 API Key");
@@ -324,8 +334,10 @@ void AiAgentApp::onSend()
 		}
 	}
 
+	// 保存构建完成的 system prompt（Agent follow-up 复用）
+	m_lastSystemPrompt = systemPrompt;
+
 	// 发送请求
-	struct AiSendCtx { AiAgentApp* self; std::string text; std::string err; bool ok; };
 	HttpClient::send(m_config, systemPrompt, input,
 		[this](bool success, const std::string& responseText, const std::string& errorMsg)
 		{
@@ -371,130 +383,97 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 		return;
 	}
 
-	// 收集需要 UI 处理的 action（respond_text 等）
+	// ── 1. 提取 respond_text 用于显示 ──
 	std::string replyText;
-	bool hasSystemAction = false;
 
 	for (const auto& action : response.actions) {
-		switch (action.type) {
-			case AiActionType::RespondText:
-				if (!action.text.empty()) {
-					if (!replyText.empty()) replyText += "\n";
-					replyText += action.text;
-				}
-				break;
-			case AiActionType::SystemInfo: {
-				// Agent 模式：采集数据后二次调用 AI，由 AI 自然语言描述
-				hasSystemAction = true;
-				break;
-			}
-			case AiActionType::ShowNotification:
-				hasSystemAction = true;
-				break;
-			case AiActionType::PowerOff:
-				hasSystemAction = true;
-				// TODO: 确认后 Deep-sleep
-				break;
-			case AiActionType::ParseError:
-				if (!action.text.empty()) {
-					if (!replyText.empty()) replyText += "\n";
-					replyText += "[!] " + action.text;
-				}
-				break;
-			default:
-				break;
+		if (action.type == AiActionType::RespondText && !action.text.empty()) {
+			if (!replyText.empty()) replyText += "\n";
+			replyText += action.text;
+		} else if (action.type == AiActionType::ParseError) {
+			if (!replyText.empty()) replyText += "\n";
+			replyText += "[!] " + action.text;
 		}
 	}
 
-	// 如果 AI 请求了 system_info，走 Agent 模式：采集数据 → 二次调用 AI
-	if (hasSystemAction) {
-		handleSystemInfo();
-		return;
-	}
-
-	// 显示 AI 文本回复
 	if (!replyText.empty()) {
 		addChatEntry("AI", replyText);
 	}
 
-	// 执行动作（除了已 UI 处理的）
+	// ── 2. 执行系统动作 ──
 	auto* mgr = display->getStackManager();
 	auto execResult = AiExecutor::execute(response.actions, display, mgr);
 
-	// 如果 AI 没有文本回复但有执行结果，显示摘要
 	if (replyText.empty() && execResult.totalCount > 0) {
 		addChatEntry("AI", execResult.summary);
 	}
+
+	// ── 3. Agent 循环：检查是否需要采集数据后继续 ──
+	// 如果 AI 请求了 system_info，采集数据后发起下一轮
+	if (m_followUpCount < MAX_FOLLOW_UP) {
+		std::string observations;
+
+		for (const auto& action : response.actions) {
+			if (action.type == AiActionType::SystemInfo) {
+				observations += collectSystemInfo();
+			}
+		}
+
+		if (!observations.empty()) {
+			m_followUpCount++;
+			ESP_LOGI(TAG, "Agent 第 %d 轮: observations=%s",
+				m_followUpCount, observations.c_str());
+			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
+			setLoading(true);
+
+			std::string followUpInput =
+				"[系统执行结果]\n" + observations +
+				"\n[用户原始问题]\n" + m_lastUserInput +
+				"\n请结合原始问题，使用 respond_text 描述以上系统状态。";
+
+			HttpClient::send(m_config, m_lastSystemPrompt, followUpInput,
+				[this](bool ok, const std::string& resp, const std::string& err) {
+					auto* ctx = new AiSendCtx{ this, resp, err, ok };
+					Task::addTask([](void* p) -> TickType_t {
+						auto* c = static_cast<AiSendCtx*>(p);
+						c->self->onAiResponse(c->ok, c->text, c->err);
+						delete c;
+						return Task::infinityTime;
+					}, "aiFup", ctx, 0, Task::Affinity::None);
+				});
+			return;
+		}
+	}
+
+	// 重置轮数
+	m_followUpCount = 0;
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Agent: system_info
+//  观测数据采集
 // ════════════════════════════════════════════════════════════════
 
-void AiAgentApp::handleSystemInfo()
+static std::string collectSystemInfo()
 {
-	addChatEntry(">>", "(采集系统信息...)");
-
-	// 1. 采集数据
-	std::string data;
-	{
-		int batPct = BatteryManager::instance().getPercent();
-		if (batPct >= 0) {
-			data += "- 电池电量: " + std::to_string(batPct) + "%";
-			data += BatteryManager::instance().isCharging() ? " (充电中)" : "";
-			data += "\n";
-		}
-		if (wifiIsConnect()) {
-			esp_ip4_addr_t ip = wifiStationGetIp();
-			char ipStr[16];
-			snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
-			data += "- IP 地址: " + std::string(ipStr) + "\n";
-			data += "- WiFi: 已连接\n";
-		} else {
-			data += "- WiFi: 未连接\n";
-		}
-		data += "- 屏幕分辨率: 720×1280\n";
-		data += "- 型号: ESP32-P4\n";
+	std::string info;
+	int batPct = BatteryManager::instance().getPercent();
+	if (batPct >= 0) {
+		info += "- 电池电量: " + std::to_string(batPct) + "%";
+		info += BatteryManager::instance().isCharging() ? " (充电中)" : "";
+		info += "\n";
 	}
-
-	setLoading(true);
-
-	// 2. 把数据喂给 AI，让它自然语言描述
-	HttpClient::send(m_config, R"(你是设备的系统状态报告员。
-请根据以下系统数据，用自然语言向用户描述设备的当前状态，语气友好。
-只返回 respond_text 动作，不要执行其他操作。)",
-		data,
-		[this](bool ok, const std::string& resp, const std::string& err) {
-			Task::addTask([](void* p) -> TickType_t {
-				auto* args = static_cast<std::tuple<AiAgentApp*, bool, std::string, std::string>*>(p);
-				auto* self = std::get<0>(*args);
-				bool ok2 = std::get<1>(*args);
-				auto& resp2 = std::get<2>(*args);
-				auto& err2 = std::get<3>(*args);
-
-				auto guard = self->display->lockGuard();
-				self->setLoading(false);
-				lv_keyboard_set_textarea(self->m_keyboard, self->m_inputField);
-
-				if (!ok2) {
-					self->addChatEntry("!", "采集信息失败: " + err2);
-				} else {
-					// 解析 AI 对系统信息的描述
-					auto response = AiParser::parse(resp2);
-					if (!response.success && response.actions.empty()) {
-						self->addChatEntry("!", "解析失败: " + response.errorMsg);
-					} else {
-						for (const auto& a : response.actions) {
-							if (a.type == AiActionType::RespondText && !a.text.empty()) {
-								self->addChatEntry("AI", a.text);
-							}
-						}
-					}
-				}
-				delete args;
-				return Task::infinityTime;
-			}, "aiSysInfo", new std::tuple(this, ok, resp, err), 0, Task::Affinity::None);
-		});
+	if (wifiIsConnect()) {
+		esp_ip4_addr_t ip = wifiStationGetIp();
+		char ipStr[16];
+		snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
+		info += "- IP 地址: " + std::string(ipStr) + "\n";
+		info += "- WiFi: 已连接\n";
+	} else {
+		info += "- WiFi: 未连接\n";
+	}
+	info += "- 屏幕分辨率: 720×1280\n";
+	info += "- 型号: ESP32-P4\n";
+	return info;
 }
 
 // ============================================================

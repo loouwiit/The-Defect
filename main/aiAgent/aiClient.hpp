@@ -138,7 +138,7 @@ private:
         cJSON_free(jsonStr);
 
         // ── 日志：请求体 ──
-        ESP_LOGI(TAG, "请求体(%zu 字节): %.300s", body.size(), body.c_str());
+        ESP_LOGI(TAG, "请求体(%zu 字节): %s", body.size(), body.c_str());
 
         // 2. 构建 URL
         std::string url = ctx.config.apiUrl;
@@ -201,7 +201,7 @@ private:
                 responseText.assign(respBuf, totalRead);
                 success = true;
                 ESP_LOGI(TAG, "读取 %d 字节", totalRead);
-                ESP_LOGI(TAG, "响应体: %.500s", respBuf);
+                ESP_LOGI(TAG, "响应体: %s", respBuf);
             } else {
                 errorMsg = (totalRead < 0) ? "读取响应失败" : "响应体为空";
                 ESP_LOGW(TAG, "%s (ret=%d)", errorMsg.c_str(), totalRead);

@@ -51,9 +51,13 @@ private:
 	lv_obj_t* m_contextHint{};      // 上下文提示标签（显示当前前台 App 信息）
 
 	// ── 状态 ──
-	bool m_isWaiting = false;       // 是否正在等待 AI 响应
-	std::vector<std::string> m_chatHistory;  // 对话记录
-	AiConfig m_config;              // 当前 AI 配置
+	bool m_isWaiting = false;
+	int m_followUpCount = 0;
+	static constexpr int MAX_FOLLOW_UP = 3;
+	std::string m_lastUserInput;    // 上一轮用户输入
+	std::string m_lastSystemPrompt; // 上一轮 system prompt（含 app_context）
+	std::vector<std::string> m_chatHistory;
+	AiConfig m_config;
 	TickType_t m_nextActionTime{};
 	static constexpr TickType_t ACTION_DELAY = 300;
 
@@ -66,10 +70,8 @@ private:
 	// ── 发送逻辑 ──
 	void onSend();
 	void onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg);
-
-	// ── 工具执行（Agent 模式） ──
-	/** 采集系统信息并二次调用 AI 生成自然语言描述 */
-	void handleSystemInfo();
+	/** 收集当前轮 action 产生的观测数据（如 system_info），非空则发起下一轮 */
+	void doFollowUp(const std::vector<AiAction>& actions, const std::string& userInput);
 
 	// ── 回调 ──
 	static void onBackBtnCb(lv_event_t* e);
