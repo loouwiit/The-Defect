@@ -380,22 +380,22 @@ void AiAgentApp::onAiResponse(bool success, const std::string& responseText, con
 				break;
 			case AiActionType::SystemInfo: {
 				// 收集设备信息
-				std::string info = "[ \u8bbe\u5907\u4fe1\u606f ]:\n";
+				std::string info = "[ 设备信息 ]:\n";
 				int batPct = BatteryManager::instance().getPercent();
 				if (batPct >= 0) {
-					info += "  \U0001f50b \u7535\u91cf: " + std::to_string(batPct) + "%";
-					info += BatteryManager::instance().isCharging() ? " (\u5145\u7535\u4e2d)" : "";
+					info += "电量: " + std::to_string(batPct) + "%";
+					info += BatteryManager::instance().isCharging() ? "(充电中)" : "";
 					info += "\n";
 				}
 				if (wifiIsConnect()) {
 					esp_ip4_addr_t ip = wifiStationGetIp();
 					char ipStr[16];
 					snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
-					info += "  \U0001f4f6 IP: " + std::string(ipStr) + "\n";
+					info += "IP: " + std::string(ipStr) + "\n";
 				} else {
-					info += "  \U0001f4f6 WiFi: \u672a\u8fde\u63a5\n";
+					info += "WiFi: 未连接\n";
 				}
-				info += "  \U0001f4c8 \u5c4f\u5e55: 720\u00d71280";
+				info += "屏幕: 720×1280";
 				if (!replyText.empty()) replyText += "\n";
 				replyText += info;
 				break;
