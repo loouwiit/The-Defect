@@ -557,10 +557,10 @@ void DesktopApp::startGame()
 
 std::string DesktopApp::getAiContext()
 {
-	return "当前在桌面。可打开的应用："
+	return "当前在桌面（主菜单）。可打开的应用："
 	       "tetris(俄罗斯方块), snake(贪吃蛇), "
 	       "fruitNinja(水果忍者), chineseChess(中国象棋)。\n"
-	       "无 app_custom 命令。";
+	       "桌面支持 open_app 命令打开以上应用。";
 }
 
 bool DesktopApp::executeAiAction(const AiAction& action)

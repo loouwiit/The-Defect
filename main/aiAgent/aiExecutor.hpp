@@ -53,95 +53,90 @@ public:
             // 获取当前前台 App
             App* activeApp = display ? display->getActiveApp() : nullptr;
 
-            switch (action.type) {
-            case AiActionType::RespondText:
-            case AiActionType::ShowNotification:
-                // 这类动作由 UI 层处理，executor 仅记录
-                handled = true;
-                break;
-
-            case AiActionType::OpenApp:
-                handled = executeOpenApp(action, manager);
-                break;
-
-            case AiActionType::NavigateBack:
-                if (manager) {
-                    manager->pop();
-                    handled = true;
-                }
-                break;
-
-            case AiActionType::NavigateHome:
-                if (manager) {
-                    // 切回根栈（stack 0），只保留桌面
-                    manager->switchToStack(static_cast<size_t>(0));
-                    auto* root = manager->activeStack();
-                    while (root && root->depth() > 1) {
-                        manager->pop();
-                    }
-                    handled = true;
-                }
-                break;
-
-            case AiActionType::SetBrightness:
-                if (display) {
-                    int brightness = action.intValue;
-                    if (brightness < 0) brightness = 0;
-                    if (brightness > 100) brightness = 100;
-                    display->setBrightness(static_cast<uint8_t>(brightness));
-                    display->saveBrightness();
-                    handled = true;
-                }
-                break;
-
-            case AiActionType::SetVolume:
-                Audio::setMasterVolume(action.intValue);
-                handled = true;
-                break;
-
-            case AiActionType::PlayAudio:
-                if (!action.text.empty()) {
-                    Audio::play(action.text.c_str()).detach();
-                    handled = true;
-                }
-                break;
-
-            case AiActionType::WifiConnect:
+            // ── 第 1 步：App 优先拦截（RespondText/ParseError 除外） ──
+            if (action.type != AiActionType::RespondText &&
+                action.type != AiActionType::ShowNotification &&
+                action.type != AiActionType::ParseError &&
+                activeApp)
             {
-                auto ssidIt = action.params.find("ssid");
-                auto passIt = action.params.find("password");
-                if (ssidIt != action.params.end()) {
-                    wifiConnect(ssidIt->second.c_str(),
-                        passIt != action.params.end() ? passIt->second.c_str() : "");
-                    handled = true;
-                }
-                break;
+                handled = activeApp->executeAiAction(action);
             }
 
-            case AiActionType::SystemInfo:
-                // 由 UI 层处理，executor 仅标记
-                handled = true;
-                break;
+            // ── 第 2 步：App 未处理 → 系统兜底 ──
+            if (!handled) {
+                switch (action.type) {
+                case AiActionType::RespondText:
+                case AiActionType::ShowNotification:
+                    handled = true;
+                    break;
 
-            case AiActionType::PowerOff:
-                // 由 UI 层弹确认框，executor 仅标记
-                handled = true;
-                break;
+                case AiActionType::OpenApp:
+                    handled = executeOpenApp(action, manager);
+                    break;
 
-            case AiActionType::ParseError:
-                // 解析错误不需要执行
-                handled = true;
-                break;
+                case AiActionType::NavigateBack:
+                    if (manager) {
+                        manager->pop();
+                        handled = true;
+                    }
+                    break;
 
-            default:
-                // UnknownAction 或未匹配的系统操作 → 透传给前台 App
-                if (activeApp) {
-                    handled = activeApp->executeAiAction(action);
+                case AiActionType::NavigateHome:
+                    if (manager) {
+                        manager->switchToStack(static_cast<size_t>(0));
+                        auto* root = manager->activeStack();
+                        while (root && root->depth() > 1) {
+                            manager->pop();
+                        }
+                        handled = true;
+                    }
+                    break;
+
+                case AiActionType::SetBrightness:
+                    if (display) {
+                        int brightness = action.intValue;
+                        if (brightness < 0) brightness = 0;
+                        if (brightness > 100) brightness = 100;
+                        display->setBrightness(static_cast<uint8_t>(brightness));
+                        display->saveBrightness();
+                        handled = true;
+                    }
+                    break;
+
+                case AiActionType::SetVolume:
+                    Audio::setMasterVolume(action.intValue);
+                    handled = true;
+                    break;
+
+                case AiActionType::PlayAudio:
+                    if (!action.text.empty()) {
+                        Audio::play(action.text.c_str()).detach();
+                        handled = true;
+                    }
+                    break;
+
+                case AiActionType::WifiConnect:
+                {
+                    auto ssidIt = action.params.find("ssid");
+                    auto passIt = action.params.find("password");
+                    if (ssidIt != action.params.end()) {
+                        wifiConnect(ssidIt->second.c_str(),
+                            passIt != action.params.end() ? passIt->second.c_str() : "");
+                        handled = true;
+                    }
+                    break;
                 }
-                if (!handled) {
-                    ESP_LOGW(TAG, "App 未处理: action=%s", action.text.c_str());
+
+                case AiActionType::SystemInfo:
+                case AiActionType::PowerOff:
+                case AiActionType::ParseError:
+                    handled = true;
+                    break;
+
+                default:
+                    ESP_LOGW(TAG, "App 和系统均未处理: action=%s", action.text.c_str());
+                    break;
                 }
-                break;
             }
 
             if (handled) {
@@ -175,7 +170,7 @@ private:
         Task::addTask([](void* param)->TickType_t
             {
                 auto [manager, app] = *(param_t*)param;
-                manager->push(app);
+                manager->pushToNewStack(app);
                 delete (param_t*)param;
                 return Task::infinityTime;
             }, "open app", new param_t{manager, app}, 100);
