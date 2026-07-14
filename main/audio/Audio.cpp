@@ -49,12 +49,13 @@ void AudioHandle::Impl::taskFunc(void* arg)
     self->taskLoop();
 
     // 任务结束：清理
-    if (self->stream) {
+    // pause 已关闭 stream 时不再重复关闭，但始终释放 stream ID
+    if (self->stream && !self->streamClosedByPause) {
         esp_audio_render_stream_close(self->stream);
-        if (self->manager) {
-            self->manager->freeStreamId(self->streamId);
-        }
-        self->stream = nullptr;
+    }
+    self->stream = nullptr;
+    if (self->manager) {
+        self->manager->freeStreamId(self->streamId);
     }
     if (self->dec) {
         esp_audio_dec_close(self->dec);
@@ -136,6 +137,25 @@ void AudioHandle::Impl::taskLoop()
 
     // ── 5. 主解码循环 ──
     while (!stopRequested.load()) {
+        // 暂停处理：关闭 stream → CLOSED → ES8311::close()
+        // 复用同一 stream handle，恢复时 reopen 即可
+        if (pauseRequested.load()) {
+            if (stream) {
+                esp_audio_render_stream_close(stream);
+                streamClosedByPause = true;
+            }
+            // 等待恢复或停止
+            while (pauseRequested.load() && !stopRequested.load()) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+            // 重新打开 stream → OPENED → ES8311::open()
+            if (!stopRequested.load() && stream) {
+                esp_audio_render_stream_open(stream, &inputInfo);
+                streamClosedByPause = false;  // 已重新打开
+            }
+            continue;
+        }
+
         // 5a. 如果缓冲区有剩余未消耗数据，移到前端
         if (raw.len > 0 && raw.buffer != encBuf) {
             memmove(encBuf, raw.buffer, raw.len);
@@ -306,6 +326,22 @@ void AudioHandle::play()
 
     impl->running.store(true);
     ESP_LOGI(TAG, "播放开始 stream=%u", impl->streamId);
+}
+
+void AudioHandle::pause()
+{
+    if (impl && impl->running.load()) {
+        impl->pauseRequested.store(true);
+        ESP_LOGI(TAG, "暂停 stream=%u", impl->streamId);
+    }
+}
+
+void AudioHandle::resume()
+{
+    if (impl) {
+        impl->pauseRequested.store(false);
+        ESP_LOGI(TAG, "恢复 stream=%u", impl->streamId);
+    }
 }
 
 void AudioHandle::stop()

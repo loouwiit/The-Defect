@@ -46,6 +46,12 @@ public:
     void stop();
     /** 解绑生命周期，自动 play()，handle 析构不影响播放 */
     void detach();
+    /** 暂停播放（解码任务暂停，流不关闭，ES8311 保持打开） */
+    void pause();
+    /** 恢复播放（从断点继续解码） */
+    void resume();
+    /** 是否处于暂停状态 */
+    bool isPaused() const { return impl && impl->pauseRequested.load(); }
 
     bool isPlaying() const { return impl && impl->running.load(); }
     explicit operator bool() const { return impl != nullptr; }
@@ -70,11 +76,13 @@ private:
 
         std::atomic<bool> running{false};
         std::atomic<bool> stopRequested{false};
+        std::atomic<bool> pauseRequested{false};
 
         std::atomic<float> volume{1.0f};
         bool  loop{false};
         bool  detached{false};
         bool  started{false};
+        bool  streamClosedByPause{false};
 
         static constexpr size_t EncBufSize = 8192;
         static constexpr size_t PcmBufSize = 16384;

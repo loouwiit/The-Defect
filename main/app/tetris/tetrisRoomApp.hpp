@@ -2,6 +2,7 @@
 
 #include "app/app.hpp"
 #include "bleGamepad/gamepadState.hpp"
+#include "audio/Audio.hpp"
 
 /**
  * @brief 俄罗斯方块房间 / 选人界面
@@ -80,4 +81,6 @@ private:
 	static void onPlayerBtnCb(lv_event_t* e);
 	static void onSettingsBtnCb(lv_event_t* e);
 	static void onStartBtnCb(lv_event_t* e);
+
+	AudioHandle bgm{};
 };

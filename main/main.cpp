@@ -165,9 +165,6 @@ extern "C" void app_main(void)
 	else
 		Audio::loadVolumeFromNvs();
 
-	auto bgm = Audio::play("/root/system/bgm/orchestra.mp3").setLoop(true);
-	bgm.play();
-
 	// 初始化主机电池 ADC（全局一次性）
 	BatteryManager::instance().init();
 
