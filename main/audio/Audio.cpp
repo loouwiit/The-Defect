@@ -49,12 +49,13 @@ void AudioHandle::Impl::taskFunc(void* arg)
     self->taskLoop();
 
     // 任务结束：清理
-    if (self->stream) {
+    // pause 已关闭 stream 时不再重复关闭，但始终释放 stream ID
+    if (self->stream && !self->streamClosedByPause) {
         esp_audio_render_stream_close(self->stream);
-        if (self->manager) {
-            self->manager->freeStreamId(self->streamId);
-        }
-        self->stream = nullptr;
+    }
+    self->stream = nullptr;
+    if (self->manager) {
+        self->manager->freeStreamId(self->streamId);
     }
     if (self->dec) {
         esp_audio_dec_close(self->dec);
@@ -136,6 +137,25 @@ void AudioHandle::Impl::taskLoop()
 
     // ── 5. 主解码循环 ──
     while (!stopRequested.load()) {
+        // 暂停处理：关闭 stream → CLOSED → ES8311::close()
+        // 复用同一 stream handle，恢复时 reopen 即可
+        if (pauseRequested.load()) {
+            if (stream) {
+                esp_audio_render_stream_close(stream);
+                streamClosedByPause = true;
+            }
+            // 等待恢复或停止
+            while (pauseRequested.load() && !stopRequested.load()) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+            // 重新打开 stream → OPENED → ES8311::open()
+            if (!stopRequested.load() && stream) {
+                esp_audio_render_stream_open(stream, &inputInfo);
+                streamClosedByPause = false;  // 已重新打开
+            }
+            continue;
+        }
+
         // 5a. 如果缓冲区有剩余未消耗数据，移到前端
         if (raw.len > 0 && raw.buffer != encBuf) {
             memmove(encBuf, raw.buffer, raw.len);
@@ -308,6 +328,22 @@ void AudioHandle::play()
     ESP_LOGI(TAG, "播放开始 stream=%u", impl->streamId);
 }
 
+void AudioHandle::pause()
+{
+    if (impl && impl->running.load()) {
+        impl->pauseRequested.store(true);
+        ESP_LOGI(TAG, "暂停 stream=%u", impl->streamId);
+    }
+}
+
+void AudioHandle::resume()
+{
+    if (impl) {
+        impl->pauseRequested.store(false);
+        ESP_LOGI(TAG, "恢复 stream=%u", impl->streamId);
+    }
+}
+
 void AudioHandle::stop()
 {
     if (!impl || !impl->running.load()) return;
@@ -341,8 +377,9 @@ Audio& Audio::instance()
 
 void Audio::setMasterVolume(int percent)
 {
-    auto* c = instance().codec;
-    if (c) c->setVolume(percent);
+    auto& self = instance();
+    self.m_volume = percent;
+    if (self.codec) self.codec->setVolume(percent);
 }
 
 int Audio::getMasterVolume()
@@ -458,6 +495,9 @@ bool Audio::init(ES8311& codec)
     }
     ESP_LOGI(TAG, "audio render 已创建 (max_stream=%u)", MaxStreamNum);
 
+    // 注册 render 事件回调：自动管理 ES8311 开/关
+    esp_audio_render_set_event_cb(render, onRenderEvent, this);
+
     initialized = true;
     return true;
 }
@@ -546,6 +586,29 @@ void Audio::freeStreamId(esp_audio_render_stream_id_t id)
     if (id < MaxStreamNum) {
         streamUsedMask &= ~(1 << id);
     }
+}
+
+int Audio::onRenderEvent(esp_audio_render_event_type_t event, void* ctx)
+{
+    auto* self = static_cast<Audio*>(ctx);
+    if (!self || !self->codec) return -1;
+
+    if (event == ESP_AUDIO_RENDER_EVENT_TYPE_OPENED) {
+        Lock lock(self->m_codecMutex);
+        esp_codec_dev_sample_info_t info = {
+            .bits_per_sample = 16,
+            .channel         = 2,
+            .sample_rate     = 48000,
+        };
+        if (self->codec->open(&info)) {
+            // 恢复音量（close/open 后编解码器可能丢失音量寄存器）
+            self->codec->setVolume(self->m_volume);
+        }
+    } else if (event == ESP_AUDIO_RENDER_EVENT_TYPE_CLOSED) {
+        Lock lock(self->m_codecMutex);
+        self->codec->close();
+    }
+    return 0;
 }
 
 int Audio::outWriter(uint8_t* pcm, uint32_t size, void* ctx)

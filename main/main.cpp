@@ -158,11 +158,6 @@ extern "C" void app_main(void)
 		}))
 	{
 		audio.setVolume(100);
-		esp_codec_dev_sample_info_t config{};
-		config.bits_per_sample = 16;
-		config.channel = 2;
-		config.sample_rate = 48000;
-		audio.open(&config);
 	}
 
 	// 初始化音频管理器
@@ -170,35 +165,6 @@ extern "C" void app_main(void)
 		ESP_LOGE(TAG, "音频管理器初始化失败");
 	else
 		Audio::loadVolumeFromNvs();
-
-	if constexpr (false) {
-		// BGM1 — 循环，绑定生命周期
-		auto bgm1 = Audio::play("/root/sd/new/music/aac_32k/halcyon.aac").setLoop(true);
-		bgm1.setVolume(1.0f);
-		bgm1.play();              // 开始播放
-
-		// BGM2 — 不循环，手动控制生命周期
-		auto bgm2 = new AudioHandle{ Audio::play("/root/sd/new/music/aac_32k/To My Dear Friends.aac") };
-		bgm2->play();
-		Task::addTask([](void* param)->TickType_t
-			{
-				auto& bgm2 = *static_cast<AudioHandle*>(param);
-				if (!bgm2.isPlaying())
-				{
-					delete static_cast<AudioHandle*>(param);
-					return Task::infinityTime;
-				}
-				float volume = bgm2.getVolume() > 0.7f ? 0.1f : 1.0f;
-				ESP_LOGI(TAG, "BGM2 volume: %.2f", volume);
-				bgm2.setVolume(volume);
-				return 3000;
-			}, "bgm2", bgm2, 0, Task::Affinity::None);
-
-		// 解绑生命周期，自动 play()
-		Audio::play("/root/sd/new/music/aac_32k/清水準一 - Bloom of Youth (风华正茂).aac").setVolume(1.0f).detach();
-
-		vTaskDelay(10 * 1000);
-	}
 
 	// 初始化主机电池 ADC（全局一次性）
 	BatteryManager::instance().init();

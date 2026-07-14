@@ -64,10 +64,18 @@ private:
     Thread* m_gameThread = nullptr;
 
     // ============================================================
+    //  渲染 Task（独立于游戏逻辑，避免 LVGL 锁争用）
+    // ============================================================
+    Task* m_renderTask = nullptr;
+    static TickType_t renderTaskFn(void* param);
+    void renderTick();
+
+    // ============================================================
     //  手柄输入状态
     // ============================================================
     uint16_t m_prevButtons[MAX_PLAYERS] = {};
     bool     m_lastLyUp[MAX_PLAYERS] = {};
+    TickType_t m_hardDropCooldown[MAX_PLAYERS] = {};
 
     // ============================================================
     //  全局 Game Over
@@ -78,7 +86,6 @@ private:
     bool      m_allDead = false;
     int8_t    m_focusGameOverIdx = 0;
     TickType_t m_nextMoveTime = 0;
-    uint16_t  m_prevBtnsAll = 0;
 
 	TickType_t m_nextActionTime{};
 

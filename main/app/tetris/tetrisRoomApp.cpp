@@ -53,6 +53,9 @@ void TetrisRoomApp::init()
 	m_focusGroup = FOCUS_PLAYERS;
 	m_focusPlayersIdx = 1;  // 默认 2P
 	applyFocus();
+
+	bgm = Audio::play("/root/sd/system/tetris/bgm.aac").setLoop(true);
+	bgm.play();
 }
 
 void TetrisRoomApp::onForeground()

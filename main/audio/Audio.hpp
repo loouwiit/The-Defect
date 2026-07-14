@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "mutex/mutex.hpp"
 #include "storage/fat.hpp"
 
 class ES8311;
@@ -45,6 +46,12 @@ public:
     void stop();
     /** 解绑生命周期，自动 play()，handle 析构不影响播放 */
     void detach();
+    /** 暂停播放（解码任务暂停，流不关闭，ES8311 保持打开） */
+    void pause();
+    /** 恢复播放（从断点继续解码） */
+    void resume();
+    /** 是否处于暂停状态 */
+    bool isPaused() const { return impl && impl->pauseRequested.load(); }
 
     bool isPlaying() const { return impl && impl->running.load(); }
     explicit operator bool() const { return impl != nullptr; }
@@ -69,11 +76,13 @@ private:
 
         std::atomic<bool> running{false};
         std::atomic<bool> stopRequested{false};
+        std::atomic<bool> pauseRequested{false};
 
         std::atomic<float> volume{1.0f};
         bool  loop{false};
         bool  detached{false};
         bool  started{false};
+        bool  streamClosedByPause{false};
 
         static constexpr size_t EncBufSize = 8192;
         static constexpr size_t PcmBufSize = 16384;
@@ -123,6 +132,8 @@ private:
     Audio& operator=(const Audio&) = delete;
 
     static int outWriter(uint8_t* pcm, uint32_t size, void* ctx);
+    /** Render 事件回调：首个流 open → ES8311::open()，末个流 close → ES8311::close() */
+    static int onRenderEvent(esp_audio_render_event_type_t event, void* ctx);
 
     static esp_audio_type_t detectFormat(const char* path);
 
@@ -130,6 +141,8 @@ private:
     esp_gmf_pool_handle_t     pool{};
     ES8311*                   codec{};
     bool                      initialized{};
+    int                       m_volume{100};  // 当前主音量（OPENED 时恢复）
+    Mutex                     m_codecMutex{}; // 保护 codec->open/close 并发
 
     uint8_t streamUsedMask{};   // 流分配位图，bit n = stream n 已分配
 

@@ -304,9 +304,6 @@ void PlayerState::processInput()
                 }
             }
         }
-    } else {
-        dasTimer = 0;
-        arrTimer = 0;
     }
 
     // Right DAS (复用 dasTimer — 左右不同时按)
@@ -325,9 +322,12 @@ void PlayerState::processInput()
                 }
             }
         }
-    } else if (!keyLeft) {
-        // 只有在左右都没按时才重置（避免右按重置左 DAS）
-        // 实际上上面 left 已经处理了 dasTimer，这里留给 right 单独处理
+    }
+
+    // 左右都没按时重置 DAS/ARR 定时器
+    if (!keyLeft && !keyRight) {
+        dasTimer = 0;
+        arrTimer = 0;
     }
 
     // --- 网络请求（防吞：即使 keyLeft/keyRight 已被网络延迟的清零消息覆盖，
