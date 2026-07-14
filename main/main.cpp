@@ -157,11 +157,6 @@ extern "C" void app_main(void)
 		}))
 	{
 		audio.setVolume(100);
-		esp_codec_dev_sample_info_t config{};
-		config.bits_per_sample = 16;
-		config.channel = 2;
-		config.sample_rate = 48000;
-		audio.open(&config);
 	}
 
 	// 初始化音频管理器

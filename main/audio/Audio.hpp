@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "mutex/mutex.hpp"
 #include "storage/fat.hpp"
 
 class ES8311;
@@ -123,6 +124,8 @@ private:
     Audio& operator=(const Audio&) = delete;
 
     static int outWriter(uint8_t* pcm, uint32_t size, void* ctx);
+    /** Render 事件回调：首个流 open → ES8311::open()，末个流 close → ES8311::close() */
+    static int onRenderEvent(esp_audio_render_event_type_t event, void* ctx);
 
     static esp_audio_type_t detectFormat(const char* path);
 
@@ -130,6 +133,8 @@ private:
     esp_gmf_pool_handle_t     pool{};
     ES8311*                   codec{};
     bool                      initialized{};
+    int                       m_volume{100};  // 当前主音量（OPENED 时恢复）
+    Mutex                     m_codecMutex{}; // 保护 codec->open/close 并发
 
     uint8_t streamUsedMask{};   // 流分配位图，bit n = stream n 已分配
 

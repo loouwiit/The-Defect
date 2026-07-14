@@ -341,8 +341,9 @@ Audio& Audio::instance()
 
 void Audio::setMasterVolume(int percent)
 {
-    auto* c = instance().codec;
-    if (c) c->setVolume(percent);
+    auto& self = instance();
+    self.m_volume = percent;
+    if (self.codec) self.codec->setVolume(percent);
 }
 
 int Audio::getMasterVolume()
@@ -458,6 +459,9 @@ bool Audio::init(ES8311& codec)
     }
     ESP_LOGI(TAG, "audio render 已创建 (max_stream=%u)", MaxStreamNum);
 
+    // 注册 render 事件回调：自动管理 ES8311 开/关
+    esp_audio_render_set_event_cb(render, onRenderEvent, this);
+
     initialized = true;
     return true;
 }
@@ -546,6 +550,29 @@ void Audio::freeStreamId(esp_audio_render_stream_id_t id)
     if (id < MaxStreamNum) {
         streamUsedMask &= ~(1 << id);
     }
+}
+
+int Audio::onRenderEvent(esp_audio_render_event_type_t event, void* ctx)
+{
+    auto* self = static_cast<Audio*>(ctx);
+    if (!self || !self->codec) return -1;
+
+    if (event == ESP_AUDIO_RENDER_EVENT_TYPE_OPENED) {
+        Lock lock(self->m_codecMutex);
+        esp_codec_dev_sample_info_t info = {
+            .bits_per_sample = 16,
+            .channel         = 2,
+            .sample_rate     = 48000,
+        };
+        if (self->codec->open(&info)) {
+            // 恢复音量（close/open 后编解码器可能丢失音量寄存器）
+            self->codec->setVolume(self->m_volume);
+        }
+    } else if (event == ESP_AUDIO_RENDER_EVENT_TYPE_CLOSED) {
+        Lock lock(self->m_codecMutex);
+        self->codec->close();
+    }
+    return 0;
 }
 
 int Audio::outWriter(uint8_t* pcm, uint32_t size, void* ctx)
