@@ -182,8 +182,8 @@ private:
             return action;
         }
 
-        std::string actionStr = act->valuestring;
-        action.type = strToActionType(actionStr);
+        action.actionStr = act->valuestring;
+        action.type = strToActionType(action.actionStr);
 
         // 读取通用字段
         auto readStr = [&](const char* key) -> std::string {

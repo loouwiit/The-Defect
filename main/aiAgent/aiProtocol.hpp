@@ -45,6 +45,9 @@ enum class AiActionType : uint8_t {
 struct AiAction {
     AiActionType type{ AiActionType::UnknownAction };
 
+    // 原始 action 字符串（AI 回复中的 "action" 字段原文）
+    std::string actionStr;
+
     // 通用字段
     std::string text;                               // respond_text / notification 内容
 

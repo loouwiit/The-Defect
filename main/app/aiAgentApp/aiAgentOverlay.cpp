@@ -47,7 +47,7 @@ JSON 字段说明：
 - show_notification	通知	{"action":"show_notification","text":"内容","params":{"type":"info"}}
 - power_off	关机	{"action":"power_off"}
 
-可用应用：tetris(俄罗斯方块), snake(贪吃蛇), fruitNinja(水果忍者), chineseChess(中国象棋)
+当前应用的自定义操作由 {app_context} 提供。
 
 未识别的 action 会自动透传给前台 App 处理。
 

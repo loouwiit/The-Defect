@@ -557,22 +557,69 @@ void DesktopApp::startGame()
 
 std::string DesktopApp::getAiContext()
 {
-	return "当前在桌面（主菜单）。可打开的应用："
-	       "tetris(俄罗斯方块), snake(贪吃蛇), "
-	       "fruitNinja(水果忍者), chineseChess(中国象棋)。\n"
-	       "桌面支持 open_app 命令打开以上应用。";
+	std::string ctx = "当前在桌面（主菜单）。\n"
+		"可用 open_app 打开的应用：\n"
+		"- snake(index = 0)\n"
+		"- fruitNinja(index = 1)\n"
+		"- tetris(index = 2)\n"
+		"- doudizhu(斗地主, index = 3)\n"
+		"- chineseChess(index = 4)\n"
+		"- timeSettings\n"
+		"- wifiSettings\n"
+		"- bleSettings\n"
+		"- powerManagement\n\n"
+		"桌面自定义命令：\n"
+		"- select_card	选中游戏卡片, value: 卡片id(0-4)	{\"action\":\"select_card\",\"value\":2}\n"
+		"- launch: 启动当前选中的游戏\n";
+
+	ctx += "当前卡片位置:" + std::to_string(m_focusCardsIdx);
+
+	return ctx;
 }
 
 bool DesktopApp::executeAiAction(const AiAction& action)
 {
-	// 桌面只处理 open_app
+	// ── open_app: 打开游戏或设置 ──
 	if (action.type == AiActionType::OpenApp && !action.appName.empty()) {
 		App* app = AppFactory::create(action.appName, display);
 		if (app) {
 			m_manager->pushToNewStack(app);
 			return true;
 		}
+		return true;  // 已消费（即便名称无效也阻止系统兜底）
 	}
+
+	// ── desktop_action: 桌面自定义命令 ──
+	bool isSelectCard = (action.command == "select_card") || (action.actionStr == "select_card");
+	if (action.type == AiActionType::UnknownAction && isSelectCard) {
+		// AI 有时把 value 放顶层 intValue，有时放 params 字典里
+		int idx = action.intValue;
+		auto it = action.params.find("value");
+		if (it != action.params.end())
+			idx = std::atoi(it->second.c_str());
+		if (idx >= 0 && idx < GAME_COUNT) {
+			auto guard = display->lockGuard();
+			m_focusGroup = FOCUS_CARDS;
+			m_focusCardsIdx = static_cast<int8_t>(idx);
+			updateSelectionLabels();
+			applyFocus();
+			ESP_LOGI(TAG, "AI 选中卡片 %d: %s", idx, GAME_NAMES[idx]);
+			return true;
+		}
+		return false;
+	}
+
+	bool isLaunch = (action.command == "launch") || (action.actionStr == "launch");
+	if (action.type == AiActionType::UnknownAction && isLaunch) {
+		Task::addTask([](void* param) -> TickType_t {
+			auto* self = static_cast<DesktopApp*>(param);
+			self->m_focusGroup = FOCUS_BOTTOM;
+			self->startGame();
+			return Task::infinityTime;
+			}, "aiLaunch", this, 0, Task::Affinity::None);
+		return true;
+	}
+
 	return false;  // 交系统执行器兜底
 }
 
