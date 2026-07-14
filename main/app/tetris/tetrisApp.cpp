@@ -124,11 +124,22 @@ void TetrisApp::init()
 	// 启动游戏线程
 	m_gameThread = new Thread(gameLoopTask, "tetrisGame", this,
 		Thread::Priority::Normal, 4096);
+
+	// 启动渲染 Task（daemon 线程 30fps，不阻塞游戏逻辑）
+	m_renderTask = Task::addTask(renderTaskFn, "tetrisRender",
+		this, 33, Task::Affinity::None);
 }
 
 void TetrisApp::deinit()
 {
 	tetrisNetDeinit();
+
+	// 先停渲染 Task（它访问 m_renderers[] 和 m_gameStates[]）
+	if (m_renderTask) {
+		Task::removeTask(m_renderTask);
+		m_renderTask = nullptr;
+		vTaskDelay(100);
+	}
 
 	if (m_gameThread) {
 		if (m_gameThread->isRunning()) {
@@ -173,8 +184,8 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		lyDown = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
 	}
 
-	uint16_t newPress = state.buttons & ~m_prevBtnsAll;
-	m_prevBtnsAll = state.buttons;
+	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
+	m_prevButtons[playerId] = state.buttons;
 
 	// ── 路由：Game Over 界面 ──
 	if (m_allDead) {
@@ -242,9 +253,12 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_X))
 		p.keyHold = true;
 
-	// Y → 硬降
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_Y))
+	// Y → 硬降（带 300ms 冷却）
+	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_Y)) &&
+		xTaskGetTickCount() - m_hardDropCooldown[playerId] >= pdMS_TO_TICKS(300)) {
 		p.keyHard = true;
+		m_hardDropCooldown[playerId] = xTaskGetTickCount();
+	}
 }
 
 // ============================================================
@@ -387,25 +401,14 @@ void TetrisApp::gameLoop()
 			}
 		}
 
-		// ── 4. 导出 GameState + 渲染（含预览，基于每玩家游标）──
+		// ── 4. 导出 GameState（纯数据，无 LVGL 操作）──
 		for (int i = 0; i < m_playerCount; i++) {
-			// 填充预览（基于该玩家游标位置，考虑 Hold 槽）
-			bool prevChanged = false;
-			for (int s = 0; s < 4; s++) {
-				PieceType p = m_players[i].peekPreview(s);
-				if (p != m_gameStates[i].nextPieces[s]) prevChanged = true;
-				m_gameStates[i].nextPieces[s] = p;
-			}
+			// 填充预览
+			for (int s = 0; s < 4; s++)
+				m_gameStates[i].nextPieces[s] = m_players[i].peekPreview(s);
 
-			DirtyFlags flags = m_players[i].consumeDirty();
-			if (flags) {
-				m_players[i].exportState(m_gameStates[i]);
-			}
-
-			if (flags || prevChanged || m_gameStates[i].gameOver != m_players[i].gameOver) {
-				if (auto guard = display->lockGuard())
-					m_renderers[i]->syncState();
-			}
+			m_players[i].exportState(m_gameStates[i]);
+			m_players[i].consumeDirty();  // 重置 dirty 标志
 		}
 
 		// ── 5. 发送 snapshot 给远程客户端（20fps） ──
@@ -417,16 +420,12 @@ void TetrisApp::gameLoop()
 			snapTick = now;
 		}
 
-		// ── 6. 全局 Game Over 检测 ──
+		// ── 6. 全局 Game Over 检测（仅逻辑标志，LVGL 操作在渲染 Task 中）──
 		bool allDead = true;
 		for (int i = 0; i < m_playerCount; i++) {
 			if (!m_players[i].gameOver) { allDead = false; break; }
 		}
-		if (allDead && !m_allDead) {
-			m_allDead = true;
-			if (auto guard = display->lockGuard())
-				lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
-		}
+		m_allDead = allDead;
 
 		// ── 7. 保持 60fps ──
 		TickType_t elapsed = now - lastTick;
@@ -437,6 +436,32 @@ void TetrisApp::gameLoop()
 	}
 
 	ESP_LOGI(TAG, "game loop exit");
+}
+
+// ============================================================
+//  渲染 Task（独立于游戏循环，避免 LVGL 锁争用）
+// ============================================================
+
+TickType_t TetrisApp::renderTaskFn(void* param)
+{
+	auto* app = static_cast<TetrisApp*>(param);
+	app->renderTick();
+	return 33;  // ~30fps
+}
+
+void TetrisApp::renderTick()
+{
+	if (auto guard = display->lockGuard()) {
+		// 渲染每个玩家
+		for (int i = 0; i < m_playerCount; i++)
+			m_renderers[i]->syncState();
+
+		// Game Over 覆盖层显隐
+		if (m_allDead)
+			lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
+		else
+			lv_obj_add_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
+	}
 }
 
 
