@@ -561,6 +561,8 @@ void TimeSettingsApp::doSyncNow()
 
 void TimeSettingsApp::applyFocus()
 {
+	auto guard = display->lockGuard();
+
 	auto clr = [](lv_obj_t* o) { if (o) lv_obj_clear_state(o, LV_STATE_FOCUSED); };
 	auto foc = [](lv_obj_t* o) { if (o) lv_obj_add_state(o, LV_STATE_FOCUSED); };
 
@@ -635,12 +637,13 @@ void TimeSettingsApp::activateFocus()
 
 void TimeSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 {
-	constexpr uint8_t dz = 50, ct = 128;
+	constexpr uint8_t deadZone = 13;
+	constexpr uint8_t center = 128;
 
-	bool lxL = state.lx < ct - dz;
-	bool lxR = state.lx > ct + dz;
-	bool lyU = state.ly < ct - dz;
-	bool lyD = state.ly > ct + dz;
+	bool lxLeft = (state.lx < center - deadZone);
+	bool lxRight = (state.lx > center + deadZone);
+	bool lyUp = (state.ly < center - deadZone);
+	bool lyDown = (state.ly > center + deadZone);
 
 	uint16_t np = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;
@@ -669,7 +672,7 @@ void TimeSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 		}
 	}
 
-	if (!lxL && !lxR && !lyU && !lyD) { m_nextMoveTime[playerId] = 0; return; }
+	if (!lxLeft && !lxRight && !lyUp && !lyDown) { m_nextMoveTime[playerId] = 0; return; }
 	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
 
 	TickType_t d = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
@@ -678,22 +681,22 @@ void TimeSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 	switch (m_focusGroup)
 	{
 	case FOCUS_TITLE:
-		if (lxR) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
-		if (lyD) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
+		if (lxRight) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
+		if (lyDown) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
 		break;
 
 	case FOCUS_ADJUST:
-		if (lxL && m_focusAdjustIdx > 0) { m_focusAdjustIdx--; applyFocus(); }
-		if (lxR && m_focusAdjustIdx < 4) { m_focusAdjustIdx++; applyFocus(); }
-		if (lyU) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
-		if (lyD) { m_focusGroup = FOCUS_SYNC; m_focusSyncIdx = 0; applyFocus(); }
+		if (lxLeft && m_focusAdjustIdx > 0) { m_focusAdjustIdx--; applyFocus(); }
+		if (lxRight && m_focusAdjustIdx < 4) { m_focusAdjustIdx++; applyFocus(); }
+		if (lyUp) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
+		if (lyDown) { m_focusGroup = FOCUS_SYNC; m_focusSyncIdx = 0; applyFocus(); }
 		break;
 
 	case FOCUS_SYNC:
-		if (lxL && m_focusSyncIdx > 0) { m_focusSyncIdx--; applyFocus(); }
-		if (lxR && m_focusSyncIdx < 1) { m_focusSyncIdx++; applyFocus(); }
-		if (lyU) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
-		if (lyD) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
+		if (lxLeft && m_focusSyncIdx > 0) { m_focusSyncIdx--; applyFocus(); }
+		if (lxRight && m_focusSyncIdx < 1) { m_focusSyncIdx++; applyFocus(); }
+		if (lyUp) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
+		if (lyDown) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
 		break;
 	}
 }
