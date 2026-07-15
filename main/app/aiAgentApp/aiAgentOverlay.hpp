@@ -81,6 +81,7 @@ private:
     lv_obj_t* m_titleBar{};     // 标题栏（含关闭按钮）
     lv_obj_t* m_closeBtn{};     // 关闭按钮 ✕
     lv_obj_t* m_chatLog{};      // 对话记录 lv_label
+    lv_obj_t* m_chatWrapper{};  // 聊天区滚动容器
     lv_obj_t* m_inputField{};   // 输入框
     lv_obj_t* m_sendBtn{};      // 发送按钮
     lv_obj_t* m_keyboard{};     // LVGL 键盘

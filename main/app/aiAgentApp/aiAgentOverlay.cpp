@@ -238,26 +238,26 @@ void AiAgentOverlay::buildUi()
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICK_FOCUSABLE);
 
 	// ── 对话记录（lv_label + 滚动容器，无光标 → 无自动滚动） ──
-	auto* chatWrapper = lv_obj_create(m_container);
-	lv_obj_set_width(chatWrapper, lv_pct(100));
-	lv_obj_set_flex_grow(chatWrapper, 1);
-	lv_obj_set_style_border_width(chatWrapper, 0, 0);
-	lv_obj_set_style_bg_color(chatWrapper, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
-	lv_obj_set_style_bg_opa(chatWrapper, LV_OPA_30, 0);
-	lv_obj_set_style_pad_all(chatWrapper, PAD, 0);
-	lv_obj_set_style_radius(chatWrapper, 0, 0);
-	lv_obj_set_scrollbar_mode(chatWrapper, LV_SCROLLBAR_MODE_OFF);
-	lv_obj_add_flag(chatWrapper, LV_OBJ_FLAG_SCROLLABLE);
-	lv_obj_add_flag(chatWrapper, LV_OBJ_FLAG_SCROLL_ELASTIC);
+	m_chatWrapper = lv_obj_create(m_container);
+	lv_obj_set_width(m_chatWrapper, lv_pct(100));
+	lv_obj_set_flex_grow(m_chatWrapper, 1);
+	lv_obj_set_style_border_width(m_chatWrapper, 0, 0);
+	lv_obj_set_style_bg_color(m_chatWrapper, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
+	lv_obj_set_style_bg_opa(m_chatWrapper, LV_OPA_30, 0);
+	lv_obj_set_style_pad_all(m_chatWrapper, PAD, 0);
+	lv_obj_set_style_radius(m_chatWrapper, 0, 0);
+	lv_obj_set_scrollbar_mode(m_chatWrapper, LV_SCROLLBAR_MODE_OFF);
+	lv_obj_add_flag(m_chatWrapper, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_add_flag(m_chatWrapper, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-	m_chatLog = lv_label_create(chatWrapper);
+	m_chatLog = lv_label_create(m_chatWrapper);
 	lv_obj_set_width(m_chatLog, lv_pct(100));
 	lv_label_set_text(m_chatLog, "");
 	lv_obj_set_style_text_color(m_chatLog, GUI::Color::TEXT, 0);
 	lv_obj_set_style_text_font(m_chatLog, smlFont, 0);
 
 	// 点击聊天区收起键盘，获得更大消息显示区域
-	lv_obj_add_event_cb(chatWrapper, [](lv_event_t* e) {
+	lv_obj_add_event_cb(m_chatWrapper, [](lv_event_t* e) {
 		auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
 		if (!lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN)) {
 			self->setKeyboardVisible(false);
@@ -710,10 +710,56 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 	uint16_t edge = pressed & ~prev;  // 仅刚按下的键
 	self->m_prevButtons[gsPlayer] = pressed;
 
-	// 映射方向键
+	// ── 按钮（仅边沿触发，优先于方向映射，键盘隐藏时也能响应） ──
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_X)) {
+		// X 键切换键盘
+		Task::addTask([](void* p) -> TickType_t {
+			auto* s = static_cast<AiAgentOverlay*>(p);
+			if (auto g = s->m_display->lockGuard()) {
+				s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
+			}
+			return Task::infinityTime;
+		}, "gpKbd", self, 0, Task::Affinity::None);
+		return;
+	}
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
+		data->key = LV_KEY_ESC;
+		data->state = LV_INDEV_STATE_PRESSED;
+		return;
+	}
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
+		edge & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
+		data->key = LV_KEY_ENTER;
+		data->state = LV_INDEV_STATE_PRESSED;
+		return;
+	}
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_Y)) {
+		// Y 发送消息
+		Task::addTask([](void* p) -> TickType_t {
+			static_cast<AiAgentOverlay*>(p)->onSend();
+			return Task::infinityTime;
+		}, "gpSend", self, 0, Task::Affinity::None);
+		return;
+	}
+
+	// ── 方向键映射 ──
 	{
+		bool kbdHidden = lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN);
 		constexpr uint8_t deadZone = 13;
 		constexpr uint8_t center = 128;
+
+		if (kbdHidden) {
+			// 键盘隐藏 → 摇杆上下滚动聊天区
+			if (gs->ly < center - deadZone) {
+				lv_obj_scroll_by_bounded(self->m_chatWrapper, 0, +20, LV_ANIM_OFF);
+			}
+			else if (gs->ly > center + deadZone) {
+				lv_obj_scroll_by_bounded(self->m_chatWrapper, 0, -20, LV_ANIM_OFF);
+			}
+			return;
+		}
+
+		// 键盘显示 → 摇杆导航键盘按键
 		if (gs->lx < center - deadZone) {
 			data->key = LV_KEY_LEFT;
 			data->state = LV_INDEV_STATE_PRESSED;
@@ -734,27 +780,6 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			data->state = LV_INDEV_STATE_PRESSED;
 			return;
 		}
-	}
-
-	// ── 按钮（仅边沿触发） ──
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
-		edge & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
-		data->key = LV_KEY_ENTER;
-		data->state = LV_INDEV_STATE_PRESSED;
-		return;
-	}
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
-		data->key = LV_KEY_ESC;
-		data->state = LV_INDEV_STATE_PRESSED;
-		return;
-	}
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_Y)) {
-		// Y 发送消息，委托到 Task 中执行 onSend，避免在 indev 回调中直接调用 LVGL 操作
-		Task::addTask([](void* p) -> TickType_t {
-			static_cast<AiAgentOverlay*>(p)->onSend();
-			return Task::infinityTime;
-			}, "gpSend", self, 0, Task::Affinity::None);
-		return;
 	}
 }
 
