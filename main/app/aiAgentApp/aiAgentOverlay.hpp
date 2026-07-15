@@ -62,6 +62,13 @@ private:
     static constexpr int32_t SWIPE_THRESHOLD = 50;  // px
     static void gestureTimerCb(lv_timer_t* timer);
 
+    // ── 手柄摇杆输入（LVGL keypad indev） ──
+    lv_indev_t* m_gamepadIndev{};
+    lv_group_t* m_gamepadGroup{};
+    // 上一帧各玩家按键状态，用于边沿检测
+    uint16_t m_prevButtons[4]{};
+    static void gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data);
+
     // ── 依赖 ──
     Display* m_display{};
 

@@ -9,6 +9,7 @@
 // ESP HOSTED
 #include "esp_hosted.h"
 #include "wifi/slave.hpp"
+#include "app/aiAgentApp/aiAgentOverlay.hpp"
 
 // NimBLE
 #include "nimble/nimble_port.h"
@@ -535,8 +536,8 @@ void BleGamepad::processTask(void* arg)
 						evt.state.rx, evt.state.ry,
 						evt.state.dpad);
 				}
-				// 路由到当前活跃 App
-				if (self.m_display) {
+				// 路由到当前活跃 App（overlay 显示时独占手柄输入）
+				if (self.m_display && !AiAgentOverlay::instance().isVisible()) {
 					auto* app = self.m_display->getActiveApp();
 					if (app) app->onGamepadInput(evt.playerId, evt.state);
 				}

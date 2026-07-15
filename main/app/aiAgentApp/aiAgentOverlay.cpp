@@ -142,6 +142,16 @@ void AiAgentOverlay::buildUi()
 	// ── 启动 LVGL 定时器手势检测（每 30ms，不拦截触摸事件） ──
 	m_gestureTimer = lv_timer_create(gestureTimerCb, 30, this);
 
+	// ── 创建手柄摇杆输入设备（LV_INDEV_TYPE_KEYPAD） ──
+	m_gamepadIndev = lv_indev_create();
+	lv_indev_set_type(m_gamepadIndev, LV_INDEV_TYPE_KEYPAD);
+	lv_indev_set_read_cb(m_gamepadIndev, gamepadReadCb);
+	lv_indev_set_user_data(m_gamepadIndev, this);
+	m_gamepadGroup = lv_group_create();
+	lv_indev_set_group(m_gamepadIndev, m_gamepadGroup);
+	// 初始清空上一帧按键状态
+	for (auto& b : m_prevButtons) b = 0;
+
 	// ── 浮动窗口容器（建在 lv_layer_sys 上） ──
 	m_container = lv_obj_create(sysLayer);
 	lv_obj_set_size(m_container, W, H);
@@ -164,13 +174,15 @@ void AiAgentOverlay::buildUi()
 		static lv_point_t startPos;
 		static lv_point_t startPt;
 		switch (lv_event_get_code(e)) {
-		case LV_EVENT_PRESSED: {
+		case LV_EVENT_PRESSED:
+		{
 			startPos.x = lv_obj_get_x(self->m_container);
 			startPos.y = lv_obj_get_y(self->m_container);
 			lv_indev_get_point(lv_indev_active(), &startPt);
 			break;
 		}
-		case LV_EVENT_PRESSING: {
+		case LV_EVENT_PRESSING:
+		{
 			lv_point_t curPt;
 			lv_indev_get_point(lv_indev_active(), &curPt);
 			int32_t dx = curPt.x - startPt.x;
@@ -183,7 +195,7 @@ void AiAgentOverlay::buildUi()
 		default:
 			break;
 		}
-	}, LV_EVENT_ALL, this);
+		}, LV_EVENT_ALL, this);
 	lv_obj_add_event_cb(m_container, onDragEndCb, LV_EVENT_RELEASED, this);
 
 	// ── 标题栏 ──
@@ -206,6 +218,8 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_bg_color(m_closeBtn, LV_COLOR_MAKE(0x44, 0x22, 0x22), 0);
 	lv_obj_set_style_radius(m_closeBtn, 18, 0);
 	lv_obj_add_event_cb(m_closeBtn, onCloseBtnCb, LV_EVENT_CLICKED, this);
+	// 关闭按钮不从游戏手柄导航（关闭用 B 键）
+	lv_group_remove_obj(m_closeBtn);
 	lv_obj_t* closeLabel = lv_label_create(m_closeBtn);
 	lv_label_set_text(closeLabel, LV_SYMBOL_CLOSE);
 	lv_obj_set_style_text_font(closeLabel, smlFont, 0);
@@ -248,7 +262,7 @@ void AiAgentOverlay::buildUi()
 		if (!lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN)) {
 			self->setKeyboardVisible(false);
 		}
-	}, LV_EVENT_CLICKED, this);
+		}, LV_EVENT_CLICKED, this);
 
 	// ── 输入行 ──
 	auto* inputRow = lv_obj_create(m_container);
@@ -269,6 +283,8 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_scrollbar_mode(m_inputField, LV_SCROLLBAR_MODE_OFF);
 	lv_obj_clear_flag(m_inputField, LV_OBJ_FLAG_SCROLLABLE);
 	lv_textarea_set_placeholder_text(m_inputField, "说一句话…");
+	// 输入框不从游戏手柄导航（内容通过键盘按键输入）
+	lv_group_remove_obj(m_inputField);
 	lv_obj_set_style_radius(m_inputField, 8, 0);
 	// 点击输入框展开键盘
 	lv_obj_add_event_cb(m_inputField, [](lv_event_t* e) {
@@ -276,7 +292,7 @@ void AiAgentOverlay::buildUi()
 		if (lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN)) {
 			self->setKeyboardVisible(true);
 		}
-	}, LV_EVENT_CLICKED, this);
+		}, LV_EVENT_CLICKED, this);
 	lv_obj_set_style_bg_color(m_inputField, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
 	lv_obj_set_style_bg_opa(m_inputField, LV_OPA_COVER, 0);
 	lv_obj_set_style_border_width(m_inputField, 1, 0);
@@ -290,6 +306,8 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_radius(m_sendBtn, 8, 0);
 	lv_obj_set_style_bg_color(m_sendBtn, GUI::Color::PRIMARY, 0);
 	lv_obj_add_event_cb(m_sendBtn, onSendBtnCb, LV_EVENT_CLICKED, this);
+	// 发送按钮不从游戏手柄导航（发送用 START 键）
+	lv_group_remove_obj(m_sendBtn);
 	auto* sendLabel = lv_label_create(m_sendBtn);
 	lv_label_set_text(sendLabel, "▶");
 	lv_obj_set_style_text_font(sendLabel, smlFont, 0);
@@ -303,7 +321,18 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x1a, 0x1a, 0x2e), 0);
 	lv_obj_set_style_pad_row(m_keyboard, 3, 0);
 	lv_obj_set_style_pad_column(m_keyboard, 3, 0);
+	lv_group_add_obj(m_gamepadGroup, m_keyboard);
+	// 键盘按键焦点高亮（btnmatrix 按键是 LV_PART_ITEMS，不是主部件）
+	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_text_color(m_keyboard, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
+	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_keyboard, onKeyboardReadyCb, LV_EVENT_READY, this);
+	// 设键盘为默认焦点
+	lv_group_focus_obj(m_keyboard);
+	// 调试：输出键盘状态确认焦点是否生效
+	ESP_LOGI(TAG, "键盘焦点已设置，group=%p obj=%p", (void*)m_gamepadGroup, (void*)m_keyboard);
 
 	// ── 初始隐藏 ──
 	lv_obj_add_flag(m_container, LV_OBJ_FLAG_HIDDEN);
@@ -362,7 +391,7 @@ void AiAgentOverlay::requestShow()
 			self->show();
 		}
 		return Task::infinityTime;
-	}, "ovShow", this, 10, Task::Affinity::None);
+		}, "ovShow", this, 10, Task::Affinity::None);
 }
 
 void AiAgentOverlay::requestToggle()
@@ -373,7 +402,7 @@ void AiAgentOverlay::requestToggle()
 			self->toggle();
 		}
 		return Task::infinityTime;
-	}, "ovToggle", this, 10, Task::Affinity::None);
+		}, "ovToggle", this, 10, Task::Affinity::None);
 }
 
 void AiAgentOverlay::setKeyboardVisible(bool visible)
@@ -405,6 +434,7 @@ void AiAgentOverlay::addChatEntry(const std::string& role, const std::string& te
 	for (const auto& line : m_chatHistory) {
 		full += line;
 	}
+	auto guard = m_display->lockGuard();
 	lv_label_set_text(m_chatLog, full.c_str());
 	// lv_label 无光标，不会自动滚动
 }
@@ -420,6 +450,7 @@ void AiAgentOverlay::setLoading(bool loading)
 	if (loading) {
 		full += "[ 思考中... ]\n";
 	}
+	auto guard = m_display->lockGuard();
 	lv_label_set_text(m_chatLog, full.c_str());
 }
 
@@ -445,16 +476,23 @@ void AiAgentOverlay::onSend()
 	m_nextActionTime = xTaskGetTickCount() + ACTION_COOLDOWN;
 
 	// 获取输入
-	const char* inputPtr = lv_textarea_get_text(m_inputField);
+	const char* inputPtr{};
+	{
+		auto guard = m_display->lockGuard();
+		inputPtr = lv_textarea_get_text(m_inputField);
+	}
 	if (!inputPtr || inputPtr[0] == '\0') return;
 	std::string input(inputPtr);
 
 	ESP_LOGI(TAG, "用户输入: %s", input.c_str());
 
 	// 断开键盘 → 清空输入框 → 移除焦点
-	lv_keyboard_set_textarea(m_keyboard, nullptr);
-	lv_textarea_set_text(m_inputField, "");
-	lv_obj_clear_state(m_inputField, LV_STATE_FOCUSED);
+	{
+		auto guard = m_display->lockGuard();
+		lv_keyboard_set_textarea(m_keyboard, nullptr);
+		lv_textarea_set_text(m_inputField, "");
+		lv_obj_clear_state(m_inputField, LV_STATE_FOCUSED);
+	}
 
 	// 加入对话记录
 	addChatEntry(">>", input);
@@ -521,7 +559,7 @@ void AiAgentOverlay::onSend()
 				c->self->onAiResponse(c->ok, c->text, c->err);
 				delete c;
 				return Task::infinityTime;
-			}, "aiRsp", ctx, 0, Task::Affinity::None);
+				}, "aiRsp", ctx, 0, Task::Affinity::None);
 		});
 }
 
@@ -600,7 +638,7 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 			setLoading(true);
 
 			std::vector<std::pair<std::string, std::string>> history;
-			history.push_back({"user", m_lastUserInput});
+			history.push_back({ "user", m_lastUserInput });
 			{
 				cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
 				if (root) {
@@ -609,7 +647,7 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 						cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
 						cJSON* content = cJSON_GetObjectItem(msg, "content");
 						if (cJSON_IsString(content) && content->valuestring) {
-							history.push_back({"assistant", content->valuestring});
+							history.push_back({ "assistant", content->valuestring });
 						}
 					}
 					cJSON_Delete(root);
@@ -626,7 +664,7 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 						c->self->onAiResponse(c->ok, c->text, c->err);
 						delete c;
 						return Task::infinityTime;
-					}, "aiFup", ctx, 0, Task::Affinity::None);
+						}, "aiFup", ctx, 0, Task::Affinity::None);
 				});
 			return;
 		}
@@ -637,6 +675,89 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 
 // ============================================================
 //  LVGL 定时器手势检测（在 LVGL 工作线程内运行，不拦截触摸事件）
+// ============================================================
+//  手柄摇杆输入回调（LV_INDEV_TYPE_KEYPAD）
+// ============================================================
+
+void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
+{
+	auto* self = static_cast<AiAgentOverlay*>(lv_indev_get_user_data(indev));
+	if (!self || !self->m_started) {
+		data->key = 0;
+		data->state = LV_INDEV_STATE_RELEASED;
+		return;
+	}
+
+	// 默认无按键
+	data->key = 0;
+	data->state = LV_INDEV_STATE_RELEASED;
+
+	// 找到第一个已连接的手柄
+	const GamepadState* gs = nullptr;
+	uint8_t gsPlayer = 0;
+	for (uint8_t p = 0; p < MaxPlayers; p++) {
+		const auto* dev = BleGamepad::instance().getDevice(p);
+		if (dev && dev->connected) {
+			gs = &dev->state;
+			gsPlayer = p;
+			break;
+		}
+	}
+	if (!gs) return;
+
+	uint16_t pressed = gs->buttons;
+	uint16_t prev = self->m_prevButtons[gsPlayer];
+	uint16_t edge = pressed & ~prev;  // 仅刚按下的键
+	self->m_prevButtons[gsPlayer] = pressed;
+
+	// 映射方向键
+	{
+		constexpr uint8_t deadZone = 13;
+		constexpr uint8_t center = 128;
+		if (gs->lx < center - deadZone) {
+			data->key = LV_KEY_LEFT;
+			data->state = LV_INDEV_STATE_PRESSED;
+			return;
+		}
+		if (gs->lx > center + deadZone) {
+			data->key = LV_KEY_RIGHT;
+			data->state = LV_INDEV_STATE_PRESSED;
+			return;
+		}
+		if (gs->ly < center - deadZone) {
+			data->key = LV_KEY_UP;
+			data->state = LV_INDEV_STATE_PRESSED;
+			return;
+		}
+		if (gs->ly > center + deadZone) {
+			data->key = LV_KEY_DOWN;
+			data->state = LV_INDEV_STATE_PRESSED;
+			return;
+		}
+	}
+
+	// ── 按钮（仅边沿触发） ──
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
+		edge & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
+		data->key = LV_KEY_ENTER;
+		data->state = LV_INDEV_STATE_PRESSED;
+		return;
+	}
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
+		data->key = LV_KEY_ESC;
+		data->state = LV_INDEV_STATE_PRESSED;
+		return;
+	}
+	if (edge & static_cast<uint16_t>(GamepadButton::BTN_Y)) {
+		// Y 发送消息，委托到 Task 中执行 onSend，避免在 indev 回调中直接调用 LVGL 操作
+		Task::addTask([](void* p) -> TickType_t {
+			static_cast<AiAgentOverlay*>(p)->onSend();
+			return Task::infinityTime;
+			}, "gpSend", self, 0, Task::Affinity::None);
+		return;
+	}
+}
+
 // ============================================================
 
 void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
