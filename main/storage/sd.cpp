@@ -2,6 +2,8 @@
 #include "driver/sdmmc_host.h"
 
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "vfs.hpp"
 #include "fat.hpp"
@@ -50,7 +52,6 @@ bool mountSd()
 
 	sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-	slot_config.width = 4;
 
 	esp_vfs_fat_sdmmc_mount_config_t mount_config{};
 
@@ -58,8 +59,22 @@ bool mountSd()
 	mount_config.max_files = 5;
 	mount_config.allocation_unit_size = 16 * 1024;
 
-	ESP_LOGI(TAG, "Mounting SD card");
+	// ── 第一次尝试: 4-bit ──
+	slot_config.width = 4;
+	ESP_LOGI(TAG, "Mounting SD card (4-bit)");
 	auto ret = esp_vfs_fat_sdmmc_mount(PrefixSd, &host, &slot_config, &mount_config, &card);
+
+	if (ret != ESP_OK)
+	{
+		ESP_LOGW(TAG, "4-bit init failed (%s), retrying with 1-bit", esp_err_to_name(ret));
+
+		// esp_vfs_fat_sdmmc_mount 失败时内部已清理 host 和 card，可安全重新调用
+		vTaskDelay(pdMS_TO_TICKS(100));
+
+		// ── 第二次尝试: 1-bit fallback ──
+		slot_config.width = 1;
+		ret = esp_vfs_fat_sdmmc_mount(PrefixSd, &host, &slot_config, &mount_config, &card);
+	}
 
 	if (ret != ESP_OK)
 	{
@@ -76,7 +91,11 @@ bool mountSd()
 		}
 		return false;
 	}
-	ESP_LOGI(TAG, "Filesystem mounted");
+
+	if (slot_config.width == 1)
+		ESP_LOGI(TAG, "Filesystem mounted (1-bit fallback)");
+	else
+		ESP_LOGI(TAG, "Filesystem mounted (4-bit)");
 
 	sdmmc_card_print_info(stdout, card);
 	return true;
