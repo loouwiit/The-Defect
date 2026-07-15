@@ -692,93 +692,80 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 	data->key = 0;
 	data->state = LV_INDEV_STATE_RELEASED;
 
-	// 找到第一个已连接的手柄
-	const GamepadState* gs = nullptr;
-	uint8_t gsPlayer = 0;
-	for (uint8_t p = 0; p < MaxPlayers; p++) {
+	// ── 遍历所有已连接手柄，合并输入 ──
+	//     按键（边沿）任一手柄触发即生效；方向取第一个有输入的
+	constexpr uint8_t deadZone = 13;
+	constexpr uint8_t center = 128;
+	bool kbdHidden = lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN);
+	bool handled = false;
+
+	for (uint8_t p = 0; p < MaxPlayers && !handled; p++) {
 		const auto* dev = BleGamepad::instance().getDevice(p);
-		if (dev && dev->connected) {
-			gs = &dev->state;
-			gsPlayer = p;
-			break;
+		if (!dev || !dev->connected) continue;
+
+		const auto& gs = dev->state;
+		uint16_t pressed = gs.buttons;
+		uint16_t prev = self->m_prevButtons[p];
+		uint16_t edge = pressed & ~prev;
+		self->m_prevButtons[p] = pressed;
+
+		// ── 按钮（边沿触发，优先于方向） ──
+		if (edge & static_cast<uint16_t>(GamepadButton::BTN_X)) {
+			Task::addTask([](void* arg) -> TickType_t {
+				auto* s = static_cast<AiAgentOverlay*>(arg);
+				if (auto g = s->m_display->lockGuard())
+					s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
+				return Task::infinityTime;
+			}, "gpKbd", self, 0, Task::Affinity::None);
+			return;
 		}
-	}
-	if (!gs) return;
+		if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
+			data->key = LV_KEY_ESC;
+			data->state = LV_INDEV_STATE_PRESSED;
+			return;
+		}
+		if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
+			edge & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
+			data->key = LV_KEY_ENTER;
+			data->state = LV_INDEV_STATE_PRESSED;
+			return;
+		}
+		if (edge & static_cast<uint16_t>(GamepadButton::BTN_Y)) {
+			Task::addTask([](void* arg) -> TickType_t {
+				static_cast<AiAgentOverlay*>(arg)->onSend();
+				return Task::infinityTime;
+			}, "gpSend", self, 0, Task::Affinity::None);
+			return;
+		}
 
-	uint16_t pressed = gs->buttons;
-	uint16_t prev = self->m_prevButtons[gsPlayer];
-	uint16_t edge = pressed & ~prev;  // 仅刚按下的键
-	self->m_prevButtons[gsPlayer] = pressed;
-
-	// ── 按钮（仅边沿触发，优先于方向映射，键盘隐藏时也能响应） ──
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_X)) {
-		// X 键切换键盘
-		Task::addTask([](void* p) -> TickType_t {
-			auto* s = static_cast<AiAgentOverlay*>(p);
-			if (auto g = s->m_display->lockGuard()) {
-				s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
-			}
-			return Task::infinityTime;
-		}, "gpKbd", self, 0, Task::Affinity::None);
-		return;
-	}
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
-		data->key = LV_KEY_ESC;
-		data->state = LV_INDEV_STATE_PRESSED;
-		return;
-	}
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
-		edge & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
-		data->key = LV_KEY_ENTER;
-		data->state = LV_INDEV_STATE_PRESSED;
-		return;
-	}
-	if (edge & static_cast<uint16_t>(GamepadButton::BTN_Y)) {
-		// Y 发送消息
-		Task::addTask([](void* p) -> TickType_t {
-			static_cast<AiAgentOverlay*>(p)->onSend();
-			return Task::infinityTime;
-		}, "gpSend", self, 0, Task::Affinity::None);
-		return;
-	}
-
-	// ── 方向键映射 ──
-	{
-		bool kbdHidden = lv_obj_has_flag(self->m_keyboard, LV_OBJ_FLAG_HIDDEN);
-		constexpr uint8_t deadZone = 13;
-		constexpr uint8_t center = 128;
-
+		// ── 方向键 ──
 		if (kbdHidden) {
-			// 键盘隐藏 → 摇杆上下滚动聊天区
-			if (gs->ly < center - deadZone) {
+			if (gs.ly < center - deadZone) {
 				lv_obj_scroll_by_bounded(self->m_chatWrapper, 0, +20, LV_ANIM_OFF);
+				handled = true;
 			}
-			else if (gs->ly > center + deadZone) {
+			else if (gs.ly > center + deadZone) {
 				lv_obj_scroll_by_bounded(self->m_chatWrapper, 0, -20, LV_ANIM_OFF);
+				handled = true;
 			}
-			return;
 		}
-
-		// 键盘显示 → 摇杆导航键盘按键
-		if (gs->lx < center - deadZone) {
-			data->key = LV_KEY_LEFT;
-			data->state = LV_INDEV_STATE_PRESSED;
-			return;
-		}
-		if (gs->lx > center + deadZone) {
-			data->key = LV_KEY_RIGHT;
-			data->state = LV_INDEV_STATE_PRESSED;
-			return;
-		}
-		if (gs->ly < center - deadZone) {
-			data->key = LV_KEY_UP;
-			data->state = LV_INDEV_STATE_PRESSED;
-			return;
-		}
-		if (gs->ly > center + deadZone) {
-			data->key = LV_KEY_DOWN;
-			data->state = LV_INDEV_STATE_PRESSED;
-			return;
+		else {
+			if (gs.lx < center - deadZone) {
+				data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
+				handled = true;
+			}
+			else if (gs.lx > center + deadZone) {
+				data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
+				handled = true;
+			}
+			else if (gs.ly < center - deadZone) {
+				data->key = LV_KEY_UP;    data->state = LV_INDEV_STATE_PRESSED;
+				handled = true;
+			}
+			else if (gs.ly > center + deadZone) {
+				data->key = LV_KEY_DOWN;  data->state = LV_INDEV_STATE_PRESSED;
+				handled = true;
+			}
 		}
 	}
 }
