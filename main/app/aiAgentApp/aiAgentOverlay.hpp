@@ -54,10 +54,11 @@ private:
     AiAgentOverlay(const AiAgentOverlay&) = delete;
     AiAgentOverlay& operator=(const AiAgentOverlay&) = delete;
 
-    // ── LVGL 定时器（手势检测，不拦截触摸事件） ──
+    // ── LVGL 定时器（手势 + 手柄组合键检测，不拦截触摸事件） ──
     lv_timer_t* m_gestureTimer{};
     lv_point_t m_gestureStart{};    // 触摸起始点
     bool m_gestureTracking{};       // 是否正在跟踪
+    bool m_gamepadComboPrev{};      // 手柄组合键边沿检测
     static constexpr int32_t SWIPE_THRESHOLD = 50;  // px
     static void gestureTimerCb(lv_timer_t* timer);
 

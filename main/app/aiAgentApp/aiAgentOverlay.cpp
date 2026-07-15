@@ -644,11 +644,33 @@ void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
 	auto* self = static_cast<AiAgentOverlay*>(lv_timer_get_user_data(timer));
 	if (!self || !self->m_started) return;
 
-	// overlay 显示时不检测
+	// ── 1. 手柄组合键检测 ──
+	//     （放在最前面，overlay 显示时也能触发关闭）
+	{
+		bool comboNow = false;
+		for (uint8_t p = 0; p < MaxPlayers; p++) {
+			const auto* dev = BleGamepad::instance().getDevice(p);
+			if (dev && dev->connected &&
+				dev->state.isPressed(BTN_Y) &&
+				dev->state.isPressed(BTN_X) &&
+				dev->state.isPressed(BTN_B)) {
+				comboNow = true;
+				break;
+			}
+		}
+		// 边沿检测：只有从 false→true 才触发，防止按住时重复触发
+		if (comboNow && !self->m_gamepadComboPrev) {
+			ESP_LOGI(TAG, "组合键触发 overlay");
+			self->requestToggle();
+		}
+		self->m_gamepadComboPrev = comboNow;
+	}
+
+	// ── 2. 下滑手势检测 ──
+	//     overlay 显示时不检测触摸（防遮挡干扰）
 	if (self->m_visible) return;
 
-	// ── 扫描所有 indev，找到第一个处于 PRESSED 状态的 POINTER ──
-	// 不缓存 indev 指针，因为可能存在多个 POINTER indev（触摸 + VirtualIndev）
+	//     扫描所有 indev，找到第一个处于 PRESSED 状态的 POINTER
 	lv_indev_t* indev = nullptr;
 	lv_indev_t* activeIndev = nullptr;
 	while ((indev = lv_indev_get_next(indev))) {
