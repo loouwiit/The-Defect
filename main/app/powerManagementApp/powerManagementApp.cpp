@@ -8,7 +8,7 @@
 #include "power/powerManager.hpp"
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_pm.h"
+#include "esp_system.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -71,12 +71,6 @@ void PowerManagementApp::deinit()
 		lv_timer_del(m_activityTimer);
 		m_activityTimer = nullptr;
 	}
-	if (m_restoreTimer)
-	{
-		lv_timer_del(m_restoreTimer);
-		m_restoreTimer = nullptr;
-	}
-
 	App::deinit();
 	ESP_LOGI(TAG, "电源管理 App 已释放");
 }
@@ -326,15 +320,15 @@ void PowerManagementApp::buildUi()
 	m_shutdownBtnLabel = lv_obj_get_child(m_shutdownBtn, 0);
 	lv_label_set_text(m_shutdownBtnLabel, LV_SYMBOL_POWER " 关机");
 
-	// 低功耗模式按钮
-	m_lowPowerBtn = GUI::createButton(btn_section, "", lv_pct(50), 52);
-	lv_obj_set_style_bg_color(m_lowPowerBtn, LV_COLOR_MAKE(0x30, 0x40, 0x60), 0);
-	lv_obj_set_style_radius(m_lowPowerBtn, 12, 0);
-	lv_obj_set_style_border_width(m_lowPowerBtn, 3, LV_STATE_FOCUSED);
-	lv_obj_set_style_border_color(m_lowPowerBtn, lv_color_white(), LV_STATE_FOCUSED);
-	lv_obj_add_event_cb(m_lowPowerBtn, onLowPowerBtnCb, LV_EVENT_CLICKED, this);
-	m_lowPowerBtnLabel = lv_obj_get_child(m_lowPowerBtn, 0);
-	lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 低功耗");
+	// 重启按钮
+	m_restartBtn = GUI::createButton(btn_section, "", lv_pct(50), 52);
+	lv_obj_set_style_bg_color(m_restartBtn, LV_COLOR_MAKE(0x50, 0x40, 0x20), 0);
+	lv_obj_set_style_radius(m_restartBtn, 12, 0);
+	lv_obj_set_style_border_width(m_restartBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_color(m_restartBtn, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_add_event_cb(m_restartBtn, onRestartBtnCb, LV_EVENT_CLICKED, this);
+	m_restartBtnLabel = lv_obj_get_child(m_restartBtn, 0);
+	lv_label_set_text(m_restartBtnLabel, LV_SYMBOL_REFRESH " 重启");
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -484,61 +478,16 @@ void PowerManagementApp::doShutdown()
 	PowerManager::instance().shutdown();
 }
 
-void PowerManagementApp::doToggleLowPower()
+void PowerManagementApp::doRestart()
 {
-	mLowPowerActive = !mLowPowerActive;
+	ESP_LOGW(TAG, "执行重启");
 
-	if (mLowPowerActive)
-	{
-		ESP_LOGI(TAG, "启用低功耗模式（Light-sleep）");
+	// 延后等待 LVGL 刷新完成
+	vTaskDelay(pdMS_TO_TICKS(1000));
 
-		// 配置电源管理策略
-		esp_pm_config_t pm_config = {
-			.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.light_sleep_enable = true,
-		};
-		esp_err_t ret = esp_pm_configure(&pm_config);
-		if (ret != ESP_OK)
-		{
-			ESP_LOGE(TAG, "低功耗模式配置失败: %s", esp_err_to_name(ret));
-			mLowPowerActive = false;
+	esp_restart();
 
-			auto guard = display->lockGuard();
-			if (guard)
-			{
-				lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 低功耗");
-			}
-			return;
-		}
-
-		auto guard = display->lockGuard();
-		if (guard)
-		{
-			// 由于 LVGL 无唤醒符号，复用充电符号
-			lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 正常模式");
-			lv_obj_set_style_bg_color(m_lowPowerBtn, LV_COLOR_MAKE(0x20, 0x50, 0x30), 0);
-		}
-	}
-	else
-	{
-		ESP_LOGI(TAG, "关闭低功耗模式");
-
-		// 关闭 light-sleep
-		esp_pm_config_t pm_config = {
-			.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-			.light_sleep_enable = false,
-		};
-		esp_pm_configure(&pm_config);
-
-		auto guard = display->lockGuard();
-		if (guard)
-		{
-			lv_label_set_text(m_lowPowerBtnLabel, LV_SYMBOL_CHARGE " 低功耗");
-			lv_obj_set_style_bg_color(m_lowPowerBtn, LV_COLOR_MAKE(0x30, 0x40, 0x60), 0);
-		}
-	}
+	while (1) {}
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -561,7 +510,7 @@ void PowerManagementApp::applyFocus()
 
 	clearFocus(m_backBtn);
 	clearFocus(m_shutdownBtn);
-	clearFocus(m_lowPowerBtn);
+	clearFocus(m_restartBtn);
 	for (auto* card : m_slotCards) clearFocus(card);
 
 	switch (m_focusGroup)
@@ -574,7 +523,7 @@ void PowerManagementApp::applyFocus()
 			focus(m_slotCards[m_focusSlotsIdx]);
 		break;
 	case FOCUS_BUTTONS:
-		focus(m_focusBtnIdx == 0 ? m_shutdownBtn : m_lowPowerBtn);
+		focus(m_focusBtnIdx == 0 ? m_shutdownBtn : m_restartBtn);
 		break;
 	}
 }
@@ -596,7 +545,7 @@ void PowerManagementApp::activateFocus()
 		if (m_focusBtnIdx == 0)
 			lv_obj_send_event(m_shutdownBtn, LV_EVENT_CLICKED, nullptr);
 		else
-			lv_obj_send_event(m_lowPowerBtn, LV_EVENT_CLICKED, nullptr);
+			lv_obj_send_event(m_restartBtn, LV_EVENT_CLICKED, nullptr);
 		break;
 	}
 }
@@ -747,14 +696,21 @@ void PowerManagementApp::onShutdownBtnCb(lv_event_t* e)
 		}, "powerMgrShutdown", self, 500, Task::Affinity::None);
 }
 
-void PowerManagementApp::onLowPowerBtnCb(lv_event_t* e)
+void PowerManagementApp::onRestartBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<PowerManagementApp*>(lv_event_get_user_data(e));
+	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
+	auto* label = lv_obj_get_child(btn, 0);
 
+	// 视觉反馈
+	lv_label_set_text(label, "重启中...");
+	lv_obj_set_style_bg_color(btn, LV_COLOR_MAKE(0x70, 0x50, 0x10), 0);
+
+	// 延后执行以使 LVGL 有机会刷新
 	Task::addTask([](void* param) -> TickType_t
 		{
 			auto* self = static_cast<PowerManagementApp*>(param);
-			self->doToggleLowPower();
+			self->doRestart();
 			return Task::infinityTime;
-		}, "powerMgrLowPower", self, 0, Task::Affinity::None);
+		}, "powerMgrRestart", self, 500, Task::Affinity::None);
 }

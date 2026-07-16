@@ -9,7 +9,7 @@
  * @brief 电源管理 App
  *
  * 显示 ESP32-P4 主机电量及已连接手柄的电量，
- * 提供关机（Deep-sleep）和低功耗模式（Light-sleep）入口。
+ * 提供关机（Deep-sleep）和重启入口。
  *
  * 电量颜色规则：
  *   - >60% 绿色
@@ -66,8 +66,8 @@ private:
 	// 操作按钮
 	lv_obj_t* m_shutdownBtn{};
 	lv_obj_t* m_shutdownBtnLabel{};
-	lv_obj_t* m_lowPowerBtn{};
-	lv_obj_t* m_lowPowerBtnLabel{};
+	lv_obj_t* m_restartBtn{};
+	lv_obj_t* m_restartBtnLabel{};
 
 	// ── 数据 ──
 	int m_hostBatteryPercent{ 0 };     // 0~100
@@ -79,16 +79,15 @@ private:
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
 	lv_timer_t* m_activityTimer{};
-	lv_timer_t* m_restoreTimer{};      // 按钮文字恢复定时器
 
 	// ── 焦点导航 ──
 	enum FocusGroup : int8_t {
 		FOCUS_TITLE = 0,       // 左右: 返回
 		FOCUS_SLOTS,           // 左右: 4 个手柄槽位
-		FOCUS_BUTTONS,         // 左右: 关机 ↔ 低功耗
+		FOCUS_BUTTONS,         // 左右: 关机 ↔ 重启
 	};
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
-	int8_t m_focusBtnIdx{ 0 };       // 0=关机, 1=低功耗
+	int8_t m_focusBtnIdx{ 0 };       // 0=关机, 1=重启
 	int8_t m_focusSlotsIdx{ 0 };     // 0..3 槽位
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
@@ -97,9 +96,6 @@ private:
 	static constexpr TickType_t MOVE_DELAY = 120;
 	static constexpr TickType_t ACTION_DELAY = 500;
 
-	// ── 低功耗模式状态 ──
-	bool mLowPowerActive{ false };
-
 	// ── 内部方法 ──
 	void buildUi();
 	void refreshBatteryUi();
@@ -107,7 +103,7 @@ private:
 	void refreshActivityIndicators();
 
 	void doShutdown();
-	void doToggleLowPower();
+	void doRestart();
 	void applyFocus();
 	void activateFocus();
 
@@ -116,5 +112,5 @@ private:
 	static void activityTimerCb(lv_timer_t* t);
 	static void onBackBtnCb(lv_event_t* e);
 	static void onShutdownBtnCb(lv_event_t* e);
-	static void onLowPowerBtnCb(lv_event_t* e);
+	static void onRestartBtnCb(lv_event_t* e);
 };
