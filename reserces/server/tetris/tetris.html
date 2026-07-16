@@ -50,7 +50,6 @@ h1{font-size:20px;color:#fff;margin-bottom:2px}
 <div id="root">
 <h1>🎮 Tetris</h1>
 <div id="connBar">
-  <input id="ipInput" value="esp32p4.local" placeholder="ESP32 IP">
   <select id="playerSel" style="background:#16213e;border:1px solid #333;border-radius:8px;
          padding:8px 6px;color:#fff;font-size:14px;outline:none">
     <option value="0">P0</option>
@@ -229,9 +228,8 @@ function toggleConn(){
   if(connected)disconnect();else connect();
 }
 function connect(){
-  const ip=document.getElementById('ipInput').value.trim();
-  if(!ip)return;
-  try{ws=new WebSocket(`ws://${ip}:8080/ws/tetris`);}catch(e){return;}
+  const host=location.hostname;
+  try{ws=new WebSocket(`ws://${host}:8080/ws/tetris`);}catch(e){return;}
   ws.onopen=()=>{
     connected=true;
     resetGameState();
