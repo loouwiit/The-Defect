@@ -110,6 +110,7 @@ bool PlayerState::movePiece(int dx, int dy)
             lockTimer = 0;
         ghostPiece = calculateGhost(currentPiece, board);
         setDirty(DIRTY_PIECE | DIRTY_GHOST);
+        if (onPieceMoved) onPieceMoved();
         return true;
     }
     return false;
@@ -132,6 +133,7 @@ bool PlayerState::rotateCW()
             lockTimer = 0;
             ghostPiece = calculateGhost(currentPiece, board);
             setDirty(DIRTY_PIECE | DIRTY_GHOST);
+            if (onPieceMoved) onPieceMoved();
             return true;
         }
     }
@@ -155,6 +157,7 @@ bool PlayerState::rotateCCW()
             lockTimer = 0;
             ghostPiece = calculateGhost(currentPiece, board);
             setDirty(DIRTY_PIECE | DIRTY_GHOST);
+            if (onPieceMoved) onPieceMoved();
             return true;
         }
     }
@@ -223,6 +226,9 @@ void PlayerState::lockPiece()
 
     // 更新重力速度
     gravityInterval = calcGravityInterval();
+
+    // 音效：锁定
+    if (onPieceLocked) onPieceLocked();
 
     // 生成下一个方块（从共享队列按游标取）
     spawnPiece();
