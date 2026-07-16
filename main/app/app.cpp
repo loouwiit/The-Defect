@@ -20,7 +20,8 @@ App::~App()
 	while (!deletable)
 		vTaskDelay(10);
 
-	lv_obj_delete(screen);
+	if (auto guard = display->lockGuard())
+		lv_obj_delete(screen);
 }
 
 // ── 便利方法（委托给 AppStackManager） ──

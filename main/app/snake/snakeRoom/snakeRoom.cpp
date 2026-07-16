@@ -229,6 +229,8 @@ void SnakeRoom::btn4PCb(lv_event_t* e)
 
 void SnakeRoom::applyFocus()
 {
+	auto guard = display->lockGuard();
+
 	auto clear = [](lv_obj_t* obj) { if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
 	auto focus = [](lv_obj_t* obj) { if (obj) lv_obj_add_state(obj, LV_STATE_FOCUSED); };
 
