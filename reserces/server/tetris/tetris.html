@@ -27,7 +27,12 @@ h1{font-size:20px;color:#fff;margin-bottom:2px}
 #info .panel{background:#1a1a2e;border-radius:8px;padding:8px;text-align:center}
 #info .panel .title{font-size:11px;color:#888;margin-bottom:4px}
 #info .panel .val{font-size:18px;font-weight:700;color:#4fc3f7}
+#info .panel .val.danger{color:#ff3b30}
 #nextCanvas{display:block;margin:0 auto;background:#111;border-radius:4px}
+.garbageBadge{display:inline-block;background:#ff3b30;color:#fff;border-radius:10px;
+              padding:2px 8px;font-size:11px;font-weight:700;margin-left:6px}
+.garbageBadge.flash{animation:pulse .3s ease-in-out 3}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}
 #btnRow{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;width:100%;max-width:420px}
 .gBtn{background:#1a1a2e;border:1px solid #444;border-radius:10px;padding:14px 0;
       color:#e0e0e0;font-size:20px;font-weight:700;cursor:pointer;text-align:center;
@@ -50,6 +55,7 @@ h1{font-size:20px;color:#fff;margin-bottom:2px}
          padding:8px 6px;color:#fff;font-size:14px;outline:none">
     <option value="0">P0</option>
     <option value="1">P1</option>
+    <option value="2">P2</option>
   </select>
   <button id="connBtn" class="btnC" onclick="toggleConn()">连接</button>
   <div id="statusDot" class="off"></div>
@@ -63,9 +69,11 @@ h1{font-size:20px;color:#fff;margin-bottom:2px}
     <div class="panel"><div class="title">分数</div><div class="val" id="sScore">0</div></div>
     <div class="panel"><div class="title">等级</div><div class="val" id="sLevel">0</div></div>
     <div class="panel"><div class="title">消行</div><div class="val" id="sLines">0</div></div>
+    <div class="panel"><div class="title">Combo</div><div class="val" id="sCombo">-</div></div>
     <div class="panel"><div class="title">NEXT</div>
       <canvas id="nextCanvas" width="80" height="200"></canvas>
     </div>
+
   </div>
 </div>
 <div id="btnRow">
@@ -83,23 +91,60 @@ h1{font-size:20px;color:#fff;margin-bottom:2px}
 const CELL=30,COLS=10,ROWS=20;
 const COLORS=['','#00f0f0','#f0f000','#a000f0','#00f000','#f00000','#0000f0','#f0a000'];
 const PIECE_COLORS={I:1,O:2,T:3,S:4,Z:5,J:6,L:7};
+// SRS 形状 — 精确拷贝自 C++ SRS_SHAPES[7][4][4][4] (tetris_client.cpp)
+// row=0=形状顶, row=3=形状底, 1=方块存在
 const PIECE_SHAPES={
-  // 与 C++ SRS_SHAPES[7][4][4][4] 完全一致
-  I:[[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],[[0,0,1,0],[0,0,1,0],[0,0,1,0],[0,0,1,0]],[[0,0,0,0],[0,0,0,0],[1,1,1,1],[0,0,0,0]],[[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]]],
-  O:[[[0,0,0,0],[0,1,1,0],[0,1,1,0],[0,0,0,0]]],
-  T:[[[0,1,0,0],[1,1,1,0],[0,0,0,0],[0,0,0,0]],[[0,1,0,0],[0,1,1,0],[0,1,0,0],[0,0,0,0]],[[0,0,0,0],[1,1,1,0],[0,1,0,0],[0,0,0,0]],[[0,1,0,0],[1,1,0,0],[0,1,0,0],[0,0,0,0]]],
-  S:[[[0,1,1,0],[1,1,0,0],[0,0,0,0],[0,0,0,0]],[[0,1,0,0],[0,1,1,0],[0,0,1,0],[0,0,0,0]],[[0,0,0,0],[0,1,1,0],[1,1,0,0],[0,0,0,0]],[[1,0,0,0],[1,1,0,0],[0,1,0,0],[0,0,0,0]]],
-  Z:[[[1,1,0,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]],[[0,0,1,0],[0,1,1,0],[0,1,0,0],[0,0,0,0]],[[0,0,0,0],[1,1,0,0],[0,1,1,0],[0,0,0,0]],[[0,1,0,0],[1,1,0,0],[1,0,0,0],[0,0,0,0]]],
-  J:[[[1,0,0,0],[1,1,1,0],[0,0,0,0],[0,0,0,0]],[[0,1,1,0],[0,1,0,0],[0,1,0,0],[0,0,0,0]],[[0,0,0,0],[1,1,1,0],[0,0,1,0],[0,0,0,0]],[[0,1,0,0],[0,1,0,0],[1,1,0,0],[0,0,0,0]]],
-  L:[[[0,0,1,0],[1,1,1,0],[0,0,0,0],[0,0,0,0]],[[0,1,0,0],[0,1,0,0],[0,1,1,0],[0,0,0,0]],[[0,0,0,0],[1,1,1,0],[1,0,0,0],[0,0,0,0]],[[1,1,0,0],[0,1,0,0],[0,1,0,0],[0,0,0,0]]]
+  I:[
+    [[0,0,0,0],[0,0,0,0],[1,1,1,1],[0,0,0,0]],
+    [[0,0,1,0],[0,0,1,0],[0,0,1,0],[0,0,1,0]],
+    [[0,0,0,0],[0,0,0,0],[0,0,0,0],[1,1,1,1]],
+    [[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]]
+  ],
+  O:[
+    [[0,0,0,0],[1,1,0,0],[1,1,0,0],[0,0,0,0]],
+    [[0,0,0,0],[1,1,0,0],[1,1,0,0],[0,0,0,0]],
+    [[0,0,0,0],[1,1,0,0],[1,1,0,0],[0,0,0,0]],
+    [[0,0,0,0],[1,1,0,0],[1,1,0,0],[0,0,0,0]]
+  ],
+  T:[
+    [[0,0,0,0],[0,1,0,0],[1,1,1,0],[0,0,0,0]],
+    [[0,0,0,0],[0,1,0,0],[0,1,1,0],[0,1,0,0]],
+    [[0,0,0,0],[0,0,0,0],[1,1,1,0],[0,1,0,0]],
+    [[0,0,0,0],[0,1,0,0],[1,1,0,0],[0,1,0,0]]
+  ],
+  S:[
+    [[0,0,0,0],[0,1,1,0],[1,1,0,0],[0,0,0,0]],
+    [[0,0,0,0],[0,1,0,0],[0,1,1,0],[0,0,1,0]],
+    [[0,0,0,0],[0,0,0,0],[0,1,1,0],[1,1,0,0]],
+    [[0,0,0,0],[1,0,0,0],[1,1,0,0],[0,1,0,0]]
+  ],
+  Z:[
+    [[0,0,0,0],[1,1,0,0],[0,1,1,0],[0,0,0,0]],
+    [[0,0,0,0],[0,0,1,0],[0,1,1,0],[0,1,0,0]],
+    [[0,0,0,0],[0,0,0,0],[1,1,0,0],[0,1,1,0]],
+    [[0,0,0,0],[0,1,0,0],[1,1,0,0],[1,0,0,0]]
+  ],
+  J:[
+    [[0,0,0,0],[1,0,0,0],[1,1,1,0],[0,0,0,0]],
+    [[0,0,0,0],[0,1,1,0],[0,1,0,0],[0,1,0,0]],
+    [[0,0,0,0],[0,0,0,0],[1,1,1,0],[0,0,1,0]],
+    [[0,0,0,0],[0,1,0,0],[0,1,0,0],[1,1,0,0]]
+  ],
+  L:[
+    [[0,0,0,0],[0,0,1,0],[1,1,1,0],[0,0,0,0]],
+    [[0,0,0,0],[0,1,0,0],[0,1,0,0],[0,1,1,0]],
+    [[0,0,0,0],[0,0,0,0],[1,1,1,0],[1,0,0,0]],
+    [[0,0,0,0],[1,1,0,0],[0,1,0,0],[0,1,0,0]]
+  ]
 };
 
 // ============================================================
 //  State (来自服务器快照)
 // ============================================================
 let board=Array(ROWS).fill().map(()=>Array(COLS).fill(0));
-let cur=null,ghostY=0,nextList=[],holdType=null;
-let score=0,lines=0,level=0,gameOver=false;
+let cur=null,ghostX=0,ghostY=0,nextList=[];
+let score=0,lines=0,level=0,combo=-1,gameOver=false;
+let pendingGarbage=0,garbageFlash=0,attackTarget=-1;
 let connected=false,ws=null;
 
 const ctx=document.getElementById('board').getContext('2d');
@@ -121,7 +166,8 @@ function redraw(){
       document.getElementById('sScore').textContent='-';
       document.getElementById('sLevel').textContent='-';
       document.getElementById('sLines').textContent='-';
-      nctx.clearRect(0,0,80,80);
+      document.getElementById('sCombo').textContent='-';
+      nctx.clearRect(0,0,80,200);
       return;
     }
     // 棋盘格子 (只画有内容的格子, 覆盖网格线)
@@ -129,19 +175,21 @@ function redraw(){
       const v=board[r][c];
       if(v){ctx.fillStyle=COLORS[v]||'#555';ctx.fillRect(c*CELL+1,(19-r)*CELL+1,CELL-2,CELL-2);}
     }
-    // ghost + 当前块
+    // ghost (半透明) + 当前块
     if(cur&&cur.type&&PIECE_SHAPES[cur.type]){
       const shapes=PIECE_SHAPES[cur.type];
       const s=shapes[cur.r||0];
       if(s){
         const color=COLORS[PIECE_COLORS[cur.type]||1];
+        // Ghost
         ctx.globalAlpha=0.2;
         for(let r=0;r<4;r++)for(let c=0;c<4;c++){
           if(!s[r][c])continue;
           ctx.fillStyle=color;
-          ctx.fillRect((cur.x+c)*CELL+1,(19-(ghostY+(3-r)))*CELL+1,CELL-2,CELL-2);
+          ctx.fillRect((ghostX+c)*CELL+1,(19-(ghostY+(3-r)))*CELL+1,CELL-2,CELL-2);
         }
         ctx.globalAlpha=1;
+        // 当前块
         for(let r=0;r<4;r++)for(let c=0;c<4;c++){
           if(!s[r][c])continue;
           ctx.fillStyle=color;
@@ -153,6 +201,10 @@ function redraw(){
     document.getElementById('sScore').textContent=score;
     document.getElementById('sLevel').textContent=level;
     document.getElementById('sLines').textContent=lines;
+    // Combo: -1=无combo, 0+=combo计数
+    const comboEl=document.getElementById('sCombo');
+    if(combo<0){comboEl.textContent='-';comboEl.className='val';}
+    else{comboEl.textContent=combo;comboEl.className='val'+(combo>=3?' danger':'');}
     // NEXT (4 个预览, 每个 50px 槽位, cell=12px)
     nctx.clearRect(0,0,80,200);
     for(let i=0;i<Math.min(nextList.length,4);i++){
@@ -166,6 +218,7 @@ function redraw(){
         nctx.fillRect(c*12+16,(3-r)*12+1+i*50,11,11);
       }
     }
+
   }catch(e){console.error('render err:',e)}
 }
 
@@ -181,41 +234,85 @@ function connect(){
   try{ws=new WebSocket(`ws://${ip}:8080/ws/tetris`);}catch(e){return;}
   ws.onopen=()=>{
     connected=true;
+    resetGameState();
     document.getElementById('connBtn').textContent='断开';
     document.getElementById('connBtn').className='btnC on';
     document.getElementById('statusDot').className='on';
     let target=parseInt(document.getElementById('playerSel').value)||0;
     ws.send(JSON.stringify({type:'join',target}));
   };
+  // 重置所有状态 (新游戏/重连时)
+  function resetGameState(){
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)board[r][c]=0;
+    cur=null;ghostX=0;ghostY=0;nextList=[];
+    score=0;lines=0;level=0;combo=-1;gameOver=false;
+    pendingGarbage=0;garbageFlash=0;attackTarget=-1;
+  }
+
   ws.onmessage=(evt)=>{
     try{
       const msg=JSON.parse(evt.data);
-      if(msg.type==='board_full'){
-        const cells=msg.board;
-        if(!cells)console.warn('board_full: no board data');
+
+      // ── join_ack: 服务器确认加入 ──
+      if(msg.type==='join_ack'){
+        // 可选: 存储 playerId
+        return;
+      }
+
+      // ── snapshot: 完整游戏状态快照 ──
+      if(msg.type==='snapshot'){
+        // 棋盘: 服务端发送扁平数组 [y=0(底)~19(顶), x=0~9]
+        // board[0]=底行, board[19]=顶行, 渲染公式 (19-r)*CELL 自动翻转
+        const cells=msg.b;
         if(cells&&cells.length===COLS*ROWS){
-          for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)
-            board[y][x]=cells[y*COLS+x];
+          for(let sy=0;sy<ROWS;sy++){
+            for(let x=0;x<COLS;x++){
+              board[sy][x]=cells[sy*COLS+x];
+            }
+          }
         }
-        // 当前块（type="?" 表示无活动块）
-        cur=msg.piece&&msg.piece.type&&msg.piece.type!=='?'?msg.piece:null;
-        ghostY=msg.ghost_y||0;
-        score=msg.score||0;level=msg.level||0;lines=msg.lines||0;
-        // NEXT
-        nextList=msg.next||[];
-        holdType=msg.hold||null;
-      }else if(msg.type==='game_over'){
-        gameOver=true;
-      }else if(msg.type==='winner'){
-        alert(`Winner: Player ${msg.player_id}`);
+
+        // 当前方块 (pt=type, px=x, py=y, pr=rotation)
+        if(msg.pt){
+          cur={type:msg.pt, x:msg.px, y:msg.py, r:msg.pr||0};
+        }else{
+          cur=null;
+        }
+
+        // Ghost (服务端计算完毕, 直接使用)
+        ghostX=msg.gx||0;
+        ghostY=msg.gy||0;
+
+        // 预览队列
+        nextList=msg.n||[];
+
+        // 分数
+        score=msg.sc||0;
+        level=msg.lv||0;
+        lines=msg.ln||0;
+        combo=msg.cb!==undefined?msg.cb:-1;
+
+        // 对战
+        pendingGarbage=msg.g||0;
+        garbageFlash=msg.gf||0;
+        attackTarget=msg.at!==undefined?msg.at:-1;
+
+        // 状态
+        gameOver=!!msg.go;
+
+        return;
       }
     }catch(e){}
   };
   ws.onclose=()=>{
     connected=false;ws=null;
+    resetGameState();
     document.getElementById('connBtn').textContent='连接';
     document.getElementById('connBtn').className='btnC';
     document.getElementById('statusDot').className='off';
+  };
+  ws.onerror=()=>{
+    // onclose 会随后触发, 无需重复处理
   };
 }
 function disconnect(){if(ws){ws.close();ws=null;}}
