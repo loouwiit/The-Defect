@@ -65,7 +65,7 @@ extern "C" void app_main(void)
 	// 存储
 	mountFlash();
 	mountMem();
-	mountSd();
+	Task::addTask([] (void*)->TickType_t{ mountSd(); return Task::infinityTime; }, "mount sd", nullptr, 0);
 
 	// nvs
 	nvsInit();
