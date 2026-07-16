@@ -692,6 +692,9 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 	data->key = 0;
 	data->state = LV_INDEV_STATE_RELEASED;
 
+	// overlay 未显示时不处理任何手柄输入（防止干扰底层 App）
+	if (!self->m_visible) return;
+
 	// ── 遍历所有已连接手柄，合并输入 ──
 	//     按键（边沿）任一手柄触发即生效；方向取第一个有输入的
 	constexpr uint8_t deadZone = 13;
