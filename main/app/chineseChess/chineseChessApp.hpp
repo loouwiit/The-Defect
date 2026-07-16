@@ -95,6 +95,7 @@ private:
 	lv_obj_t* m_gameOverScoreLabel = nullptr;
 	lv_obj_t* m_restartBtn = nullptr;
 	lv_obj_t* m_backBtn = nullptr;
+	lv_obj_t* m_exitBtn{};
 
 	// 焦点导航（GameOver 时）
 	int8_t m_focusIdx = 0;
@@ -138,7 +139,6 @@ private:
 
 	/** @brief 获取当前回合对应的玩家 ID */
 	uint8_t getActivePlayerId() const;
-	void handleCancel();
 
 	// ── 焦点导航 ──
 	void applyFocus();

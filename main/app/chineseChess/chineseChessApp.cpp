@@ -270,19 +270,19 @@ void ChineseChessApp::createPieces(lv_obj_t* parent)
 
 void ChineseChessApp::createUI(lv_obj_t* parent)
 {
-	// ── 回合指示（顶部居中） ──
+	// ── 回合指示（右上角） ──
 	m_turnLabel = lv_label_create(parent);
 	lv_label_set_text(m_turnLabel, "红方走棋");
 	lv_obj_set_style_text_color(m_turnLabel, lv_color_hex(TEXT_COLOR), 0);
 	lv_obj_set_style_text_font(m_turnLabel, FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
-	lv_obj_align(m_turnLabel, LV_ALIGN_TOP_MID, 0, 16);
+	lv_obj_align(m_turnLabel, LV_ALIGN_TOP_RIGHT, -16, 16);
 
-	// ── 状态提示（回合下方） ──
+	// ── 状态提示（回合下方，右上角） ──
 	m_statusLabel = lv_label_create(parent);
 	lv_label_set_text(m_statusLabel, "");
 	lv_obj_set_style_text_color(m_statusLabel, lv_color_hex(SUBTLE), 0);
 	lv_obj_set_style_text_font(m_statusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-	lv_obj_align(m_statusLabel, LV_ALIGN_TOP_MID, 0, 55);
+	lv_obj_align(m_statusLabel, LV_ALIGN_TOP_RIGHT, -16, 55);
 
 	// ── 游戏结束标签 ──
 	m_gameOverLabel = lv_label_create(parent);
@@ -343,6 +343,20 @@ void ChineseChessApp::createUI(lv_obj_t* parent)
 	lv_obj_center(lblBack);
 	lv_obj_add_event_cb(m_backBtn, btnBackCb, LV_EVENT_CLICKED, this);
 	lv_obj_add_flag(m_backBtn, LV_OBJ_FLAG_HIDDEN);
+
+	// ── 退出按钮（游戏进行中始终可见，左上角） ──
+	m_exitBtn = lv_button_create(parent);
+	lv_obj_set_size(m_exitBtn, 100, 44);
+	lv_obj_set_style_radius(m_exitBtn, 12, 0);
+	lv_obj_set_style_bg_color(m_exitBtn, lv_color_hex(BTN_BACK), 0);
+	lv_obj_set_style_bg_opa(m_exitBtn, LV_OPA_COVER, 0);
+	lv_obj_set_style_border_width(m_exitBtn, 0, 0);
+	lv_obj_align(m_exitBtn, LV_ALIGN_TOP_LEFT, 8, 8);
+	auto lblExit = lv_label_create(m_exitBtn);
+	lv_label_set_text(lblExit, "← 退出");
+	lv_obj_set_style_text_color(lblExit, lv_color_hex(TEXT_COLOR), 0);
+	lv_obj_center(lblExit);
+	lv_obj_add_event_cb(m_exitBtn, btnBackCb, LV_EVENT_CLICKED, this);
 }
 
 // ============================================================
@@ -647,6 +661,15 @@ void ChineseChessApp::handleSelect(uint8_t playerId)
 
 	if (m_selected)
 	{
+		// ── 光标在已选中的棋子上 → toggle 取消选中 ──
+		if (cx == m_selX && cy == m_selY)
+		{
+			m_selected = false;
+			m_validMoves.clear();
+			m_dirty = true;
+			return;
+		}
+
 		// 检查光标位置是否在合法走法中
 		for (const auto& mv : m_validMoves)
 		{
@@ -689,16 +712,7 @@ void ChineseChessApp::handleSelect(uint8_t playerId)
 	}
 }
 
-void ChineseChessApp::handleCancel()
-{
-	if (m_selected)
-	{
-		// 取消选中
-		m_selected = false;
-		m_validMoves.clear();
-		m_dirty = true;
-	}
-}
+
 
 // ============================================================
 // 焦点导航（GameOver 按钮）
@@ -828,20 +842,20 @@ void ChineseChessApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 		m_nextMoveTime[playerId] = 0;
 	}
 
-	// ── 非活跃玩家的 A/B 键被忽略 ──
-	if (playerId != activeId)
-		return;
-
-	// ── B 键：取消选中 ──
+	// ── B 键：返回上级（任意玩家均可退出） ──
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 	{
-		if (m_selected)
-		{
-			auto guard = display->lockGuard();
-			handleCancel();
-		}
+		auto guard = display->lockGuard();
+		Task::addTask([](void* p) -> TickType_t {
+			static_cast<ChineseChessApp*>(p)->popApp();
+			return Task::infinityTime;
+		}, "chessBack", this, 0, Task::Affinity::None);
 		return;
 	}
+
+	// ── 非活跃玩家忽略 A 键 ──
+	if (playerId != activeId)
+		return;
 
 	// ── A 键 / L3：选中/确认 ──
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
