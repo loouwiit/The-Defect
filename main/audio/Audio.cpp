@@ -10,8 +10,10 @@
 #include "esp_gmf_ch_cvt.h"
 #include "esp_gmf_bit_cvt.h"
 #include "esp_gmf_rate_cvt.h"
+#include "esp_ae_rate_cvt.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "esp_timer.h"
 
 static constexpr char TAG[] = "Audio";
 
@@ -75,15 +77,82 @@ void AudioHandle::Impl::taskFunc(void* arg)
 
 void AudioHandle::Impl::taskLoop()
 {
-    // ── 1. 解码第一帧，获取音频信息 ──
+    // ── PCM buffer mode：直接从缓存流式输出，跳过文件 I/O 和解码 ──
+    if (pcmBuffer) {
+        inputInfo = {
+            .sample_rate    = pcmSampleRate,
+            .bits_per_sample = 16,
+            .channel        = pcmChannels,
+        };
+        if (esp_audio_render_stream_open(stream, &inputInfo) != ESP_AUDIO_RENDER_ERR_OK) {
+            ESP_LOGE(TAG, "stream_open 失败");
+            return;
+        }
+        const size_t frameBytes = sizeof(int16_t) * pcmChannels;
+        // ringbuffer ~11520 字节，每批不超过 4KB（~21ms @44100/16/2）避免超时丢数据
+        constexpr size_t MaxBatchBytes = 4096;
+        const size_t maxBatchFrames = MaxBatchBytes / frameBytes;
+        ESP_LOGI(TAG, "PCM start: %lu frames, %lu Hz, loop=%d",
+                 pcmTotalFrames, pcmSampleRate, loop);
+        m_batchTick = esp_timer_get_time();
+        int iter = 0;
+        while (!stopRequested.load()) {
+            if (pauseRequested.load()) {
+                ESP_LOGI(TAG, "PCM pause iter=%d", iter);
+                if (stream) {
+                    esp_audio_render_stream_close(stream);
+                    streamClosedByPause = true;
+                }
+                while (pauseRequested.load() && !stopRequested.load())
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                if (!stopRequested.load() && stream) {
+                    esp_audio_render_stream_open(stream, &inputInfo);
+                    streamClosedByPause = false;
+                }
+                continue;
+            }
+            size_t remain = pcmTotalFrames - pcmReadPos;
+            if (remain == 0) {
+                ESP_LOGI(TAG, "PCM done iter=%d", iter);
+                if (loop) { pcmReadPos = 0; continue; }
+                break;
+            }
+            size_t batch = std::min(remain, maxBatchFrames);
+            memcpy(pcmBuf, pcmBuffer + pcmReadPos * pcmChannels, batch * frameBytes);
+            pcmReadPos += batch;
+            applyVolume(reinterpret_cast<int16_t*>(pcmBuf), batch * pcmChannels, volume.load());
+            auto wrRet = esp_audio_render_stream_write(stream, pcmBuf, batch * frameBytes);
+            // 自适应限速
+            uint32_t paceMs = batch * 1000 / pcmSampleRate;
+            uint32_t elapsed = (esp_timer_get_time() - m_batchTick) / 1000;
+            if (paceMs > elapsed + 1) vTaskDelay(pdMS_TO_TICKS(paceMs - elapsed - 1));
+            m_batchTick = esp_timer_get_time();
+            iter++;
+            if ((iter % 10) == 0)
+                ESP_LOGI(TAG, "PCM progress iter=%d remain=%zu wrRet=%d", iter, remain - batch, wrRet);
+        }
+        ESP_LOGI(TAG, "PCM exit: stop=%d pause=%d iter=%d remain=%zu",
+                 stopRequested.load(), pauseRequested.load(), iter, pcmTotalFrames - pcmReadPos);
+        // 等待 ringbuffer 排空后再关闭流
+        if (!stopRequested.load()) {
+            vTaskDelay(pdMS_TO_TICKS(pcmBufSize * 1000 / (pcmSampleRate * frameBytes) + 30));
+        }
+        return;
+    }
+
+    // ── 1. 解码第一帧，获取音频信息（文件模式） ──
     size_t firstRead = file.read(encBuf, EncBufSize);
     if (firstRead == 0) {
         ESP_LOGE(TAG, "无法读取音频文件");
         return;
     }
 
-    esp_audio_dec_in_raw_t raw = { .buffer = encBuf, .len = firstRead };
-    esp_audio_dec_out_frame_t frame = { .buffer = pcmBuf, .len = pcmBufSize };
+    esp_audio_dec_in_raw_t raw{};
+    raw.buffer = encBuf;
+    raw.len    = firstRead;
+    esp_audio_dec_out_frame_t frame{};
+    frame.buffer = pcmBuf;
+    frame.len    = pcmBufSize;
 
     auto ret = esp_audio_dec_process(dec, &raw, &frame);
 
@@ -173,7 +242,9 @@ void AudioHandle::Impl::taskLoop()
             if (loop) {
                 file.setOffset(0, IFile::OffsetMode::Begin);
                 esp_audio_dec_reset(dec);
-                raw = { .buffer = encBuf, .len = 0 };
+                raw = {};
+                raw.buffer = encBuf;
+                raw.len    = 0;
                 continue;
             }
             break;
@@ -299,13 +370,19 @@ void AudioHandle::play()
         return;
     }
 
-    // 分配编码/解码缓冲区
-    impl->encBuf = new (std::nothrow) uint8_t[Impl::EncBufSize];
+    // PCM buffer mode：无需 encBuf（无需从文件读+解码）
+    if (!impl->pcmBuffer) {
+        impl->encBuf = new (std::nothrow) uint8_t[Impl::EncBufSize];
+        if (!impl->encBuf) {
+            ESP_LOGE(TAG, "分配编码缓冲区失败");
+            return;
+        }
+    }
     impl->pcmBuf = new (std::nothrow) uint8_t[Impl::PcmBufSize];
-    if (!impl->encBuf || !impl->pcmBuf) {
-        ESP_LOGE(TAG, "分配音频缓冲区失败");
-        delete[] impl->encBuf;
-        delete[] impl->pcmBuf;
+    impl->pcmBufSize = Impl::PcmBufSize;
+    if (!impl->pcmBuf) {
+        ESP_LOGE(TAG, "分配解码缓冲区失败");
+        delete[] impl->encBuf; impl->encBuf = nullptr;
         return;
     }
 
@@ -363,6 +440,216 @@ void AudioHandle::detach()
     if (!impl->started) {
         play();
     }
+}
+
+// ══════════════════════════════════════════════
+//  AudioSample
+// ══════════════════════════════════════════════
+
+void AudioSample::unload()
+{
+    delete[] m_data;
+    m_data = nullptr;
+    m_frames = 0;
+    m_sampleRate = 0;
+    m_channels = 0;
+}
+
+bool AudioSample::load(const char* path)
+{
+    unload();
+
+    IFile file;
+    if (!file.open(path)) {
+        ESP_LOGE(TAG, "无法打开: %s", path);
+        return false;
+    }
+
+    auto type = Audio::detectFormat(path);
+    if (type == ESP_AUDIO_TYPE_UNSUPPORT) {
+        ESP_LOGE(TAG, "不支持的格式: %s", path);
+        file.close();
+        return false;
+    }
+
+    esp_audio_dec_handle_t dec{};
+    esp_audio_dec_cfg_t decCfg{};
+    decCfg.type = type;
+    if (esp_audio_dec_open(&decCfg, &dec) != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(TAG, "解码器创建失败");
+        file.close();
+        return false;
+    }
+
+    // 分配临时编解码缓冲
+    constexpr size_t BufSize = 16384;
+    auto* encBuf = new uint8_t[8192];
+    auto* pcmBuf = new uint8_t[BufSize];
+    size_t pcmCapacity = 0;
+    uint8_t* pcmData = nullptr;
+    size_t pcmSize = 0;
+
+    // 第一帧
+    size_t firstRead = file.read(encBuf, 8192);
+    if (firstRead == 0) { goto cleanup; }
+
+    {
+        esp_audio_dec_in_raw_t raw{};
+        raw.buffer = encBuf;
+        raw.len    = firstRead;
+        esp_audio_dec_out_frame_t frame{};
+        frame.buffer = pcmBuf;
+        frame.len    = BufSize;
+        auto ret = esp_audio_dec_process(dec, &raw, &frame);
+
+        if (ret == ESP_AUDIO_ERR_BUFF_NOT_ENOUGH && frame.needed_size > BufSize) {
+            delete[] pcmBuf;
+            pcmBuf = new uint8_t[frame.needed_size];
+            frame.buffer = pcmBuf;
+            frame.len = frame.needed_size;
+            raw.buffer = encBuf;
+            raw.len = firstRead;
+            ret = esp_audio_dec_process(dec, &raw, &frame);
+        }
+        if (ret != ESP_AUDIO_ERR_OK) { goto cleanup; }
+
+        // 获取音频参数
+        esp_audio_dec_info_t info{};
+        if (esp_audio_dec_get_info(dec, &info) == ESP_AUDIO_ERR_OK) {
+            m_sampleRate = info.sample_rate;
+            m_channels   = info.channel;
+        } else {
+            m_sampleRate = 44100;
+            m_channels   = 2;
+        }
+
+        // 初始分配
+        pcmCapacity = frame.decoded_size * 4;
+        pcmData = new uint8_t[pcmCapacity];
+        memcpy(pcmData, frame.buffer, frame.decoded_size);
+        pcmSize = frame.decoded_size;
+
+        raw.buffer += raw.consumed;
+        raw.len    -= raw.consumed;
+
+        // 继续解码剩余数据（与 taskLoop 相同的缓冲区管理逻辑）
+        while (true) {
+            // 将未消耗数据移到缓冲区前端，避免碎片化
+            if (raw.len > 0 && raw.buffer != encBuf) {
+                memmove(encBuf, raw.buffer, raw.len);
+            }
+            raw.buffer = encBuf;
+
+            // 补充数据
+            if (raw.len < 8192) {
+                size_t br = file.read(encBuf + raw.len, 8192 - raw.len);
+                raw.len += br;
+            }
+
+            // 文件读完
+            if (raw.len == 0) break;
+
+            frame.buffer = pcmBuf;
+            frame.len    = BufSize;
+            ret = esp_audio_dec_process(dec, &raw, &frame);
+            if (ret == ESP_AUDIO_ERR_OK) {
+                if (pcmSize + frame.decoded_size > pcmCapacity) {
+                    pcmCapacity *= 2;
+                    auto* newData = new uint8_t[pcmCapacity];
+                    memcpy(newData, pcmData, pcmSize);
+                    delete[] pcmData;
+                    pcmData = newData;
+                }
+                memcpy(pcmData + pcmSize, frame.buffer, frame.decoded_size);
+                pcmSize += frame.decoded_size;
+                raw.buffer += raw.consumed;
+                raw.len    -= raw.consumed;
+            } else {
+                ESP_LOGW(TAG, "解码错误 %d, 跳过", ret);
+                raw.buffer += raw.consumed;
+                raw.len    -= raw.consumed;
+            }
+        }
+    }
+
+    m_data  = reinterpret_cast<int16_t*>(pcmData);
+    m_frames = pcmSize / (sizeof(int16_t) * m_channels);
+
+    // ── 重采样到 48000Hz（与 render 输出匹配，播放时 processor 直通零缓冲） ──
+    if (m_sampleRate != 48000) {
+        esp_ae_rate_cvt_cfg_t rsCfg = {
+            .src_rate       = m_sampleRate,
+            .dest_rate      = 48000,
+            .channel        = m_channels,
+            .bits_per_sample = 16,
+            .complexity     = 3,
+            .perf_type      = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,
+        };
+        esp_ae_rate_cvt_handle_t rsHd = nullptr;
+        if (esp_ae_rate_cvt_open(&rsCfg, &rsHd) == ESP_AE_ERR_OK) {
+            uint32_t maxOut = 0;
+            esp_ae_rate_cvt_get_max_out_sample_num(rsHd, 2048, &maxOut);
+            size_t maxDstFrames = m_frames * 48000 / m_sampleRate + 1024;
+            auto* dst = new int16_t[maxDstFrames * m_channels];
+            size_t dstPos = 0;
+            constexpr uint32_t Chunk = 2048;
+            auto* chunkBuf = new int16_t[Chunk * m_channels];
+            auto* outBuf   = new int16_t[maxOut * m_channels];
+            size_t srcPos = 0;
+            while (srcPos < m_frames) {
+                uint32_t nr = std::min(Chunk, (uint32_t)(m_frames - srcPos));
+                memcpy(chunkBuf, m_data + srcPos * m_channels, nr * sizeof(int16_t) * m_channels);
+                uint32_t outSamples = maxOut;
+                if (esp_ae_rate_cvt_process(rsHd, (esp_ae_sample_t)chunkBuf, nr,
+                                            (esp_ae_sample_t)outBuf, &outSamples) == ESP_AE_ERR_OK
+                    && outSamples > 0) {
+                    memcpy(dst + dstPos * m_channels, outBuf, outSamples * sizeof(int16_t) * m_channels);
+                    dstPos += outSamples;
+                }
+                srcPos += nr;
+            }
+            // 冲刷剩余
+            uint32_t outSamples = maxOut;
+            if (esp_ae_rate_cvt_process(rsHd, nullptr, 0, (esp_ae_sample_t)outBuf, &outSamples) == ESP_AE_ERR_OK
+                && outSamples > 0) {
+                memcpy(dst + dstPos * m_channels, outBuf, outSamples * sizeof(int16_t) * m_channels);
+                dstPos += outSamples;
+            }
+            esp_ae_rate_cvt_close(rsHd);
+            delete[] m_data;
+            delete[] chunkBuf;
+            delete[] outBuf;
+            m_data  = dst;
+            m_frames = dstPos;
+            m_sampleRate = 48000;
+            ESP_LOGI(TAG, "重采样: %lu→48000 Hz, %lu frames", rsCfg.src_rate, m_frames);
+        } else {
+            ESP_LOGW(TAG, "重采样失败, 保留原采样率 %lu Hz", m_sampleRate);
+        }
+    }
+
+    ESP_LOGI(TAG, "缓存已加载: %s (%lu frames, %lu Hz, %u ch, %zu KB)",
+             path, m_frames, m_sampleRate, m_channels, m_frames * sizeof(int16_t) * m_channels / 1024);
+
+    delete[] encBuf;
+    delete[] pcmBuf;
+    esp_audio_dec_close(dec);
+    file.close();
+    return true;
+
+cleanup:
+    ESP_LOGE(TAG, "加载失败: %s", path);
+    delete[] encBuf;
+    delete[] pcmBuf;
+    delete[] pcmData;
+    if (dec) esp_audio_dec_close(dec);
+    file.close();
+    return false;
+}
+
+AudioHandle AudioSample::play(bool loop)
+{
+    return Audio::play(*this, loop);
 }
 
 // ══════════════════════════════════════════════
@@ -474,18 +761,17 @@ bool Audio::init(ES8311& codec)
     }
 
     // 创建 audio render
-    esp_audio_render_cfg_t cfg = {
-        .max_stream_num = MaxStreamNum,
-        .out_writer     = outWriter,
-        .out_ctx        = this,
-        .out_sample_info = {
-            .sample_rate    = 48000,
-            .bits_per_sample = 16,
-            .channel        = 2,
-        },
-        .pool           = pool,
-        .process_period = 20,
+    esp_audio_render_cfg_t cfg{};
+    cfg.max_stream_num  = MaxStreamNum;
+    cfg.out_writer      = outWriter;
+    cfg.out_ctx         = this;
+    cfg.out_sample_info = {
+        .sample_rate    = 48000,
+        .bits_per_sample = 16,
+        .channel        = 2,
     };
+    cfg.pool           = pool;
+    cfg.process_period = 20;
 
     if (esp_audio_render_create(&cfg, &render) != ESP_AUDIO_RENDER_ERR_OK) {
         ESP_LOGE(TAG, "audio render 创建失败");
@@ -546,7 +832,8 @@ AudioHandle Audio::play(const char* path)
     }
 
     // 创建解码器
-    esp_audio_dec_cfg_t decCfg = { .type = type };
+    esp_audio_dec_cfg_t decCfg{};
+    decCfg.type = type;
     if (esp_audio_dec_open(&decCfg, &impl->dec) != ESP_AUDIO_ERR_OK) {
         ESP_LOGE(TAG, "解码器创建失败 type=%d", type);
         impl->file.close();
@@ -566,6 +853,38 @@ AudioHandle Audio::play(const char* path)
     ESP_LOGI(TAG, "play: %s (type=%d, stream=%u)", path, type, sid);
 
     return AudioHandle(std::move(impl));
+}
+
+AudioHandle Audio::play(const AudioSample& sample, bool loop)
+{
+    auto& self = instance();
+    if (!self.initialized || !sample.isValid()) {
+        ESP_LOGE(TAG, "Audio 未初始化或 AudioSample 无效");
+        return {};
+    }
+
+    auto impl = std::make_shared<AudioHandle::Impl>();
+    impl->manager       = &self;
+    impl->pcmBuffer     = sample.m_data;
+    impl->pcmTotalFrames = sample.m_frames;
+    impl->pcmSampleRate = sample.m_sampleRate;
+    impl->pcmChannels   = sample.m_channels;
+    impl->loop          = loop;
+
+    auto sid = self.allocStreamId();
+    if (sid == 0xFF) {
+        ESP_LOGE(TAG, "无空闲音频流");
+        return {};
+    }
+    impl->streamId = sid;
+
+    ESP_LOGI(TAG, "play sample: %lu frames, %lu Hz, %u ch, loop=%d",
+             sample.m_frames, sample.m_sampleRate, sample.m_channels, loop);
+
+    auto handle = AudioHandle(std::move(impl));
+    handle.play();
+    handle.detach();  // 防止 NRVO 未发生时局部析构误 stop task
+    return handle;
 }
 
 // ── 流分配 ──
@@ -595,11 +914,10 @@ int Audio::onRenderEvent(esp_audio_render_event_type_t event, void* ctx)
 
     if (event == ESP_AUDIO_RENDER_EVENT_TYPE_OPENED) {
         Lock lock(self->m_codecMutex);
-        esp_codec_dev_sample_info_t info = {
-            .bits_per_sample = 16,
-            .channel         = 2,
-            .sample_rate     = 48000,
-        };
+        esp_codec_dev_sample_info_t info{};
+        info.bits_per_sample = 16;
+        info.channel         = 2;
+        info.sample_rate     = 48000;
         if (self->codec->open(&info)) {
             // 恢复音量（close/open 后编解码器可能丢失音量寄存器）
             self->codec->setVolume(self->m_volume);

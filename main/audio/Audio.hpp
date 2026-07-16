@@ -16,7 +16,57 @@
 #include "storage/fat.hpp"
 
 class ES8311;
-class Audio;  // forward declaration for AudioHandle::Impl
+class Audio;      // forward declaration for AudioHandle::Impl
+class AudioHandle; // forward declaration for AudioSample::play()
+
+// ──────────────────────────────────────────────
+//  AudioSample — 预解码音频采样（缓存）
+//
+//  将音频文件预解码为 PCM 存入 PSRAM，播放时绕过
+//  SD 卡 I/O 和 AAC/MP3 解码，大幅降低延迟。
+// ──────────────────────────────────────────────
+class AudioSample
+{
+public:
+    AudioSample() = default;
+    ~AudioSample() { unload(); }
+    AudioSample(AudioSample&& other) noexcept
+        : m_data(other.m_data), m_frames(other.m_frames),
+          m_sampleRate(other.m_sampleRate), m_channels(other.m_channels)
+    {
+        other.m_data = nullptr;
+        other.m_frames = 0;
+    }
+    AudioSample& operator=(AudioSample&& other) noexcept
+    {
+        if (this != &other) {
+            unload();
+            m_data = other.m_data;       other.m_data = nullptr;
+            m_frames = other.m_frames;    other.m_frames = 0;
+            m_sampleRate = other.m_sampleRate;
+            m_channels = other.m_channels;
+        }
+        return *this;
+    }
+
+    /** 从文件解码到 PCM（可多次调用，自动替换） */
+    bool load(const char* path);
+    /** 释放 PCM 内存 */
+    void unload();
+
+    /** 从缓存播放（不读 SD、不解码，直接流式 PCM） */
+    AudioHandle play(bool loop = false);
+
+    bool isValid() const { return m_data != nullptr; }
+
+private:
+    int16_t*  m_data{};
+    uint32_t  m_frames{};      // 总帧数（每声道）
+    uint32_t  m_sampleRate{};
+    uint8_t   m_channels{};
+
+    friend class Audio;
+};
 
 // ──────────────────────────────────────────────
 //  AudioHandle — 音频播放句柄（值类型）
@@ -67,6 +117,13 @@ private:
         IFile                            file{};
         TaskHandle_t                     task{};
 
+        // PCM buffer mode（!= nullptr 时启用，绕过 file+decoder）
+        const int16_t*  pcmBuffer{};
+        size_t          pcmTotalFrames{};
+        size_t          pcmReadPos{};
+        uint32_t        pcmSampleRate{};
+        uint8_t         pcmChannels{};
+
         uint8_t* encBuf{};
         uint8_t* pcmBuf{};
         size_t   pcmBufSize{};
@@ -77,6 +134,7 @@ private:
         std::atomic<bool> running{false};
         std::atomic<bool> stopRequested{false};
         std::atomic<bool> pauseRequested{false};
+        int64_t m_batchTick{};  // 自适应限速时间戳
 
         std::atomic<float> volume{1.0f};
         bool  loop{false};
@@ -122,8 +180,13 @@ public:
     static void saveVolumeToNvs();
     static void loadVolumeFromNvs();
 
-    /** 创建一个音频播放句柄（不开流，不启动解码任务） */
+    /** 从文件路径播放 */
     static AudioHandle play(const char* path);
+    /** 从预解码缓存播放 */
+    static AudioHandle play(const AudioSample& sample, bool loop = false);
+
+    /** 检测文件格式 */
+    static esp_audio_type_t detectFormat(const char* path);
 
 private:
     Audio()  = default;
@@ -134,8 +197,6 @@ private:
     static int outWriter(uint8_t* pcm, uint32_t size, void* ctx);
     /** Render 事件回调：首个流 open → ES8311::open()，末个流 close → ES8311::close() */
     static int onRenderEvent(esp_audio_render_event_type_t event, void* ctx);
-
-    static esp_audio_type_t detectFormat(const char* path);
 
     esp_audio_render_handle_t render{};
     esp_gmf_pool_handle_t     pool{};
