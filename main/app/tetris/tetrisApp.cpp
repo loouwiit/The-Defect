@@ -510,12 +510,16 @@ TickType_t TetrisApp::renderTaskFn(void* param)
 
 void TetrisApp::renderTick()
 {
-	if (auto guard = display->lockGuard()) {
-		// 渲染每个玩家
-		for (int i = 0; i < m_playerCount; i++)
-			m_renderers[i]->syncState();
+	// 渲染每个玩家
+	for (int i = 0; i < m_playerCount; i++)
+	{
+		m_renderers[i]->syncState();
+		vTaskDelay(0);
+	}
 
-		// Game Over 覆盖层显隐
+	// Game Over 覆盖层显隐
+	if (auto guard = display->lockGuard())
+	{
 		if (m_allDead)
 			lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
 		else
