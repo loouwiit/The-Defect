@@ -288,12 +288,14 @@ void PlayerState::processInput()
     TickType_t now = xTaskGetTickCount();
 
     // --- 左右移动 (DAS/ARR) ---
+    // --- 左右移动 (DAS/ARR) + 网络单次请求 ---
     // Left DAS
     if (keyLeft) {
         if (dasTimer == 0) {
             movePiece(-1, 0);
             dasTimer = now;
             arrTimer = now;
+            if (netLeftReq > 0) netLeftReq--;  // DAS 已移，消耗网络计数
         } else {
             TickType_t elapsed = now - dasTimer;
             if (elapsed >= pdMS_TO_TICKS(DAS_DELAY_MS)) {
@@ -304,6 +306,10 @@ void PlayerState::processInput()
                 }
             }
         }
+    } else if (netLeftReq > 0) {
+        // 网络单次请求（keyLeft 已释放时保证移动不丢失，如快速点击）
+        movePiece(-1, 0);
+        netLeftReq--;
     }
 
     // Right DAS (复用 dasTimer — 左右不同时按)
@@ -312,6 +318,7 @@ void PlayerState::processInput()
             movePiece(+1, 0);
             dasTimer = now;
             arrTimer = now;
+            if (netRightReq > 0) netRightReq--;
         } else {
             TickType_t elapsed = now - dasTimer;
             if (elapsed >= pdMS_TO_TICKS(DAS_DELAY_MS)) {
@@ -322,6 +329,9 @@ void PlayerState::processInput()
                 }
             }
         }
+    } else if (netRightReq > 0) {
+        movePiece(+1, 0);
+        netRightReq--;
     }
 
     // 左右都没按时重置 DAS/ARR 定时器
@@ -329,11 +339,6 @@ void PlayerState::processInput()
         dasTimer = 0;
         arrTimer = 0;
     }
-
-    // --- 网络请求（防吞：即使 keyLeft/keyRight 已被网络延迟的清零消息覆盖，
-    //     这里的计数仍能确保移动执行）---
-    if (netLeftReq > 0) { movePiece(-1, 0); netLeftReq--; }
-    if (netRightReq > 0) { movePiece(+1, 0); netRightReq--; }
 
     // --- 旋转 ---
     if (keyCW) {
