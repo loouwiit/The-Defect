@@ -76,6 +76,10 @@ private:
     uint16_t m_prevButtons[MAX_PLAYERS] = {};
     bool     m_lastLyUp[MAX_PLAYERS] = {};
     TickType_t m_hardDropCooldown[MAX_PLAYERS] = {};
+    bool     m_exitBtnHeld[MAX_PLAYERS] = {};
+    TickType_t m_exitBtnTime[MAX_PLAYERS] = {};
+
+    static constexpr TickType_t EXIT_HOLD_MS = 500;
 
     // ============================================================
     //  全局 Game Over

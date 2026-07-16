@@ -82,6 +82,7 @@ h1{font-size:20px;color:#fff;margin-bottom:2px}
   <div class="gBtn" data-key="cw">↻</div>
   <div class="gBtn" data-key="ccw">↺</div>
   <div class="gBtn" data-key="hold">H</div>
+  <div class="gBtn" data-key="exit" style="background:#4a2a2a;border-color:#844">←</div>
 </div>
 </div>
 
@@ -331,12 +332,12 @@ function sendKey(key,down){
   if(ws&&connected)ws.send(JSON.stringify({type:'input',key,down}));
 }
 document.addEventListener('keydown',e=>{
-  const map={'ArrowLeft':'left','ArrowRight':'right','ArrowDown':'soft','ArrowUp':'cw','z':'ccw',' ':'hard','c':'hold'};
+  const map={'ArrowLeft':'left','ArrowRight':'right','ArrowDown':'soft','ArrowUp':'cw','z':'ccw',' ':'hard','c':'hold','Escape':'exit'};
   const k=map[e.key];
   if(k&&!keysDown[k]){keysDown[k]=true;sendKey(k,true);e.preventDefault();}
 });
 document.addEventListener('keyup',e=>{
-  const map={'ArrowLeft':'left','ArrowRight':'right','ArrowDown':'soft','ArrowUp':'cw','z':'ccw',' ':'hard','c':'hold'};
+  const map={'ArrowLeft':'left','ArrowRight':'right','ArrowDown':'soft','ArrowUp':'cw','z':'ccw',' ':'hard','c':'hold','Escape':'exit'};
   const k=map[e.key];
   if(k){keysDown[k]=false;sendKey(k,false);e.preventDefault();}
 });

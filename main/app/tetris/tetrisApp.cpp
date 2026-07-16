@@ -115,6 +115,14 @@ void TetrisApp::init()
 		else if (strcmp(key, "cw") == 0)    { if (down) p.keyCW = true; }
 		else if (strcmp(key, "ccw") == 0)   { if (down) p.keyCCW = true; }
 		else if (strcmp(key, "hold") == 0)  { if (down) p.keyHold = true; }
+		else if (strcmp(key, "exit") == 0) {
+            if (down) {
+                Task::addTask([](void* p) -> TickType_t {
+                    static_cast<TetrisApp*>(p)->popApp();
+                    return Task::infinityTime;
+                }, "tetrisExit", this, 0, Task::Affinity::None);
+            }
+        }
 		};
 	tetrisNetInit(true, hostCb, {});
 
@@ -187,8 +195,39 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
 	m_prevButtons[playerId] = state.buttons;
 
+	// ── L3 长按 500ms → 退出游戏（优先于游戏内操作） ──
+	constexpr uint16_t BTN_EXIT = static_cast<uint16_t>(GamepadButton::BTN_L3);
+	auto& held = m_exitBtnHeld[playerId];
+	auto& heldTime = m_exitBtnTime[playerId];
+	if (state.buttons & BTN_EXIT) {
+		if (!held) {
+			held = true;
+			heldTime = xTaskGetTickCount();
+		} else if (xTaskGetTickCount() - heldTime >= pdMS_TO_TICKS(EXIT_HOLD_MS)) {
+			held = false;
+			if (!m_allDead) {
+				// 仅游戏中需要 Task 延后，Game Over 界面可直接 pop
+				Task::addTask([](void* p) -> TickType_t {
+					static_cast<TetrisApp*>(p)->popApp();
+					return Task::infinityTime;
+				}, "tetrisExit", this, 0, Task::Affinity::None);
+			}
+		}
+	} else {
+		held = false;
+	}
+
 	// ── 路由：Game Over 界面 ──
 	if (m_allDead) {
+		// L3 长按 → 直接退出
+		if ((state.buttons & BTN_EXIT) &&
+			heldTime > 0 &&
+			xTaskGetTickCount() - heldTime >= pdMS_TO_TICKS(EXIT_HOLD_MS)) {
+			heldTime = 0;  // 防重入
+			popApp();
+			return;
+		}
+
 		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3))) {
 			auto guard = display->lockGuard();
