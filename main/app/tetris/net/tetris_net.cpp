@@ -300,7 +300,17 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
 
     if (s.isHost) {
         if (strcmp(tag, TetrisMsgTag::JOIN) == 0) {
-            // 清理同 fd 旧客户端（断线重连）
+            // 清理已断开的旧客户端（fd 已失效）
+            for (auto& c : s.clients) {
+                if (!c.active) continue;
+                auto info = httpd_ws_get_fd_info(req->handle, c.fd);
+                if (info != HTTPD_WS_CLIENT_WEBSOCKET) {
+                    ESP_LOGI(TAG, "cleanup stale client fd=%d", c.fd);
+                    c = {};
+                }
+            }
+
+            // 清理与新连接同 fd 的旧记录（极少数 fd 刚好被复用的情况）
             for (auto& c : s.clients) {
                 if (c.active && c.fd == fd) { c.active = false; break; }
             }
