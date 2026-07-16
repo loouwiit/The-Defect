@@ -226,12 +226,11 @@ function redraw(){
 function toggleConn(){
   if(connected)disconnect();else connect();
 }
-// ── 缩放适配：按视口宽度缩放 #root，禁止溢出 ──
+// ── 缩放适配：按视口宽高缩放 #root，禁止溢出 ──
 function fitRoot(){
   const root=document.getElementById('root');
-  const scale=Math.min(1,window.innerWidth/420);
+  const scale=Math.min(1,window.innerWidth/420,window.innerHeight/root.scrollHeight);
   root.style.transform=`scale(${scale})`;
-  root.style.height=scale<1?'':'auto';
 }
 window.addEventListener('resize',fitRoot);
 window.addEventListener('orientationchange',()=>setTimeout(fitRoot,100));
