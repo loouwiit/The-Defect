@@ -1,5 +1,6 @@
 #include "tetris_client.hpp"
 #include <esp_heap_caps.h>
+#include <esp_random.h>
 #include <cstring>
 
 // ============================================================
@@ -372,7 +373,10 @@ uint16_t Board::getColumnMask(int y) const
 //  PieceQueue 实现 (7-bag 动态链表，按索引自增长)
 // ============================================================
 
-static FastRng s_rng(12345678);
+static FastRng& getRng() {
+    static FastRng rng(esp_random());
+    return rng;
+}
 
 PieceQueue::PieceQueue()
 {
@@ -425,7 +429,7 @@ void PieceQueue::shuffleBag(PieceType* bag)
         bag[i] = static_cast<PieceType>(i);
 
     for (int i = 6; i > 0; i--) {
-        int j = s_rng.range(i + 1);
+        int j = getRng().range(i + 1);
         std::swap(bag[i], bag[j]);
     }
 }
