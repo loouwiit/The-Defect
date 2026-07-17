@@ -687,7 +687,7 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 
 **注册机制**: 各游戏模块自行注册 handler（如 Tetris: `/ws/tetris`），不修改 wsServer 代码
 
-**屏幕串流推送** (`/ws/stream`)：独立 `streamPushTask` (Daemon 优先级) 负责抓帧和推送。
+**屏幕串流推送** (`/ws/stream`)：双任务并行（编码 `streamEncodeTask` + 发送 `streamSendTask`，Daemon 优先级）负责抓帧和推送。
 推流任务通过 **`send()` 直连 socket** 发送 WebSocket 帧，不经过 httpd worker，
 避免大帧发送阻塞 touch 等小消息的及时处理。
 
