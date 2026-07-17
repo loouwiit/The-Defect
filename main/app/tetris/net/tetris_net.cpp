@@ -131,6 +131,8 @@ static bool gameStateFromJson(const cJSON* root, GameState& out)
             }
         }
     }
+    // JSON 反序列化后标记棋盘全部 dirty，供 Renderer 增量更新
+    out.board.markAllDirty();
 
     // current piece
     cJSON* pt = cJSON_GetObjectItem(root, "pt");

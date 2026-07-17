@@ -219,6 +219,7 @@ Board::Board()
 void Board::clear()
 {
     std::memset(m_cells, 0, sizeof(m_cells));
+    markAllDirty();
 }
 
 BoardCell Board::get(int col, int y) const
@@ -237,6 +238,7 @@ void Board::set(int col, int y, BoardCell val)
     if (col < 0 || col >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
         return;
     m_cells[yToRow(y) * BOARD_WIDTH + col] = val;
+    markRowDirty(y);
 }
 
 bool Board::collides(const Piece& piece) const
@@ -273,6 +275,7 @@ void Board::place(const Piece& piece, BoardCell val)
         int y = yCoords[i];
         if (c >= 0 && c < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
             m_cells[yToRow(y) * BOARD_WIDTH + c] = val;
+            markRowDirty(y);
         }
     }
 }
@@ -335,6 +338,8 @@ int Board::clearLines(int clearedY[4])
         writeRow--;
     }
 
+    markAllDirty();  // clearLines 移动了所有行内容，全部标记 dirty
+
     return count;
 }
 
@@ -355,6 +360,8 @@ void Board::addGarbage(int lines, int colHole)
             m_cells[r * BOARD_WIDTH + c] = (c == colHole) ? 0 : 8;  // 8 = 垃圾行标记
         }
     }
+
+    markAllDirty();  // 垃圾行插入移动了所有行内容
 }
 
 uint16_t Board::getColumnMask(int y) const

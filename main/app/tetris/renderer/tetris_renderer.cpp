@@ -482,26 +482,34 @@ void TetrisRenderer::syncState()
 
 	const GameState& cur = *m_gameState;
 
-	// ── 棋盘 diff ──
+	// ── 棋盘 diff（粘性 boardChanged + dirty row mask，空闲帧 0 开销）──
 
+	if (cur.boardChanged)
 	{
-		for (int y = 0; y < BOARD_HEIGHT; y++)
+		const_cast<GameState&>(cur).boardChanged = false;
+
+		// 优先使用 dirty row mask（部分行扫描），丢失时回退全量
+		uint32_t dirtyMask = const_cast<Board&>(cur.board).consumeDirtyRowMask();
+		if (dirtyMask == 0)
+			dirtyMask = (1u << BOARD_HEIGHT) - 1;
+
+		if (auto guard = m_display->lockGuard())
 		{
-			int lvglRow = boardYToLvglRow(y);
-			for (int col = 0; col < BOARD_WIDTH; col++)
+			for (int y = 0; y < BOARD_HEIGHT; y++)
 			{
-				BoardCell val = cur.board.get(col, y);
-				if (m_visualCache[lvglRow][col] != val)
+				if (!(dirtyMask & (1u << y))) continue;
+				int lvglRow = boardYToLvglRow(y);
+				for (int col = 0; col < BOARD_WIDTH; col++)
 				{
-					m_visualCache[lvglRow][col] = val;
-					if (auto guard = m_display->lockGuard())
+					BoardCell val = cur.board.get(col, y);
+					if (m_visualCache[lvglRow][col] != val)
 					{
+						m_visualCache[lvglRow][col] = val;
 						applyCellColor(lvglRow, col,
 							val ? pieceToColor(val) : emptyColorForRow(lvglRow));
 					}
 				}
 			}
-			vTaskDelay(0);
 		}
 	}
 

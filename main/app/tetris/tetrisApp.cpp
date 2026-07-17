@@ -467,7 +467,9 @@ void TetrisApp::gameLoop()
 				m_gameStates[i].nextPieces[s] = m_players[i].peekPreview(s);
 
 			m_players[i].exportState(m_gameStates[i]);
-			m_players[i].consumeDirty();  // 重置 dirty 标志
+			DirtyFlags flags = m_players[i].consumeDirty();
+			if (flags & DIRTY_BOARD)
+				m_gameStates[i].boardChanged = true;  // 粘性标志，渲染器消费后才会清除
 		}
 
 		// ── 5. 发送 snapshot 给远程客户端（20fps） ──

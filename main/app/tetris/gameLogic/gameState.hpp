@@ -45,4 +45,7 @@ struct GameState {
     // ── 状态 ──
     bool gameOver = false;
     bool active   = true;  // 玩家是否存活（淘汰后为 false）
+
+    // ── 渲染同步（粘性标志，游戏循环设置，渲染器消费后清除）──
+    bool boardChanged = true;  // 初始 true 确保首帧全量渲染
 };

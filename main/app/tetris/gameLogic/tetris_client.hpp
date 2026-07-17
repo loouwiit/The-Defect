@@ -165,9 +165,18 @@ public:
     // 检查给定行是否全部为空 (y: 0=底)
     bool isRowEmpty(int y) const;
 
+    // ── Dirty row tracking（增量渲染用，记录哪些行发生了变化）──
+    void markRowDirty(int y) { if (y >= 0 && y < BOARD_HEIGHT) m_dirtyRowMask |= (1u << y); }
+    void markAllDirty() { m_dirtyRowMask = (1u << BOARD_HEIGHT) - 1; }
+    uint32_t consumeDirtyRowMask() { uint32_t m = m_dirtyRowMask; m_dirtyRowMask = 0; return m; }
+    uint32_t getDirtyRowMask() const { return m_dirtyRowMask; }
+    void accumDirtyRowMask(uint32_t mask) { m_dirtyRowMask |= mask; }
+    void clearDirtyRowMask() { m_dirtyRowMask = 0; }
+
 private:
     // m_cells[row * BOARD_WIDTH + col], row=0=顶, row=21=底
     BoardCell m_cells[BOARD_HEIGHT * BOARD_WIDTH]{};
+    uint32_t m_dirtyRowMask = 0;
 };
 
 // ============================================================
