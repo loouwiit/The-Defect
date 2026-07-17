@@ -303,11 +303,11 @@
 	const touchDot = document.getElementById('touchDot');
 	let pointerActive = false;
 	let pending = null;
-	let rafScheduled = false;
 
-	// 仅去重, 不限速率 (WebSocket 开销极低)
+	// 30fps 节流 + 坐标去重
 	let lastSentX = -1;
 	let lastSentY = -1;
+	let timerActive = false;
 
 	function clientToDevice(clientX, clientY) {
 		const rect = streamContainer.getBoundingClientRect();
@@ -338,7 +338,7 @@
 	}
 
 	function sendPendingOnce() {
-		rafScheduled = false;
+		timerActive = false;
 		if (!pending) return;
 		const p = pending;
 		pending = null;
@@ -360,9 +360,9 @@
 
 	function scheduleSend(x, y, type) {
 		pending = { x, y, type };
-		if (!rafScheduled) {
-			rafScheduled = true;
-			requestAnimationFrame(sendPendingOnce);
+		if (!timerActive) {
+			timerActive = true;
+			setTimeout(sendPendingOnce, 16);
 		}
 	}
 
