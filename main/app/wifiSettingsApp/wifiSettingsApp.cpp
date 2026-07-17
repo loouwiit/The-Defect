@@ -176,7 +176,6 @@ void WifiSettingsApp::refreshUi()
 			}
 
 			updateScanList();
-			applyFocus();
 
 			// 检查超时
 			if (xTaskGetTickCount() - m_scanStartTick >= pdMS_TO_TICKS(ScanDuration))
@@ -185,23 +184,21 @@ void WifiSettingsApp::refreshUi()
 				esp_wifi_scan_stop();
 				m_scanActive = false;
 				lv_label_set_text(m_scanBtnLabel, "扫描");
+				// 扫描结束，重建列表更新提示文本（"正在搜索..." → "未发现" 或保留结果）
+				updateScanList();
 			}
 		}
-		else
-		{
-			// 冻结列表，只更新连接状态
-			updateScanList();
-			applyFocus();
-		}
+		// else: 非扫描状态 → 冻结列表，不重建不聚焦，避免对抗触摸滚动
 	}
 	else
 	{
-		// WiFi 关闭，不更新扫描列表
+		// WiFi 关闭，更新列表显示提示信息
 		if (m_scanActive)
 		{
 			m_scanActive = false;
 			esp_wifi_scan_stop();
 		}
+		updateScanList();
 	}
 
 	// ── 更新连接信息 ──
@@ -271,6 +268,30 @@ void WifiSettingsApp::buildUi()
 	lv_obj_set_layout(m_scanListContainer, LV_LAYOUT_FLEX);
 	lv_obj_set_flex_flow(m_scanListContainer, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_scrollbar_mode(m_scanListContainer, LV_SCROLLBAR_MODE_AUTO);
+
+	// 触摸滚动结束时同步焦点索引，使手柄导航从正确位置开始
+	lv_obj_add_event_cb(m_scanListContainer, [](lv_event_t* e) {
+		auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
+		if (self->m_scanRows.empty()) return;
+
+		// 找到第一个在可视区域内的行，更新焦点索引
+		lv_area_t cont_area;
+		lv_obj_get_coords(self->m_scanListContainer, &cont_area);
+
+		for (size_t i = 0; i < self->m_scanRows.size(); i++) {
+			lv_area_t row_area;
+			lv_obj_get_coords(self->m_scanRows[i], &row_area);
+			// 行顶部在可视区域内 → 设为新焦点索引
+			if (row_area.y1 >= cont_area.y1 && row_area.y1 <= cont_area.y2) {
+				if ((int8_t)i != self->m_focusListIdx) {
+					self->m_focusListIdx = (int8_t)i;
+					self->m_focusGroup = FOCUS_LIST;
+					// 不调用 applyFocus()，避免反向对抗触摸滚动
+				}
+				break;
+			}
+		}
+	}, LV_EVENT_SCROLL_END, this);
 
 	// 初始空状态提示
 	auto empty_hint = GUI::createLabel(m_scanListContainer, "点击“扫描”搜索附近的 WiFi");
