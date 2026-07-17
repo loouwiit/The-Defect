@@ -607,7 +607,7 @@ void BleSettingsApp::updateConnectedList()
 
 			const char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
 
-			uint8_t iconIndex = batteryLevel == 255 ? 0 : std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0]));
+			uint8_t iconIndex = batteryLevel == 255 ? 0 : std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0] - 1));
 
 			snprintf(infoBuffer, sizeof(infoBuffer), "%s %d%%", icons[iconIndex], batteryLevel);
 
