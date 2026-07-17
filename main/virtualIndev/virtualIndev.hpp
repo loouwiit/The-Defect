@@ -26,7 +26,7 @@ private:
     struct Sample {
         lv_indev_state_t state = LV_INDEV_STATE_REL;
         lv_point_t point{0, 0};
-        bool updated = false;
+        bool hasNewData = false;
     } sample;
 
     static VirtualIndev* s_instance;

@@ -58,7 +58,7 @@ reserces/
 | | ILI9881c | `main/display/ili9881c.cpp` | 面板驱动（MIPI DSI），背光亮度控制 |
 | | FontLoader | `main/display/font.cpp` | FreeType 字体加载，3 字号全局默认字体，VFS 驱动器 'F' |
 | | Touch | `main/touch/` | GT911 驱动 (I²C)，5 点触控 |
-| | VirtualIndev | `main/virtualIndev/` | 虚拟触摸输入设备（Web 触摸注入），Mutex 保护双缓冲 |
+| | VirtualIndev | `main/virtualIndev/` | 虚拟触摸输入设备（Web 触摸注入），无锁去重 + hasNewData/continue_reading |
 | **导航** | App | `main/app/app.hpp` | 应用基类（生命周期、栈钩子、手柄输入） |
 | | AppStack | `main/app/appStack.hpp` | 单栈导航（push/pop/replace + 异步删除） |
 | | AppStackManager | `main/app/appStackManager.hpp` | 多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
@@ -84,7 +84,7 @@ reserces/
 | | WS Server | `main/wsServer/` | WebSocket 端口 8080，动态 URI 注册/注销，广播 |
 | | mDNS | `main/wifi/mdns.hpp` | mDNS 服务发现（`_http` 80, `_ws` 8080） |
 | | HTTP | `main/wifi/http.hpp` | HTTP 协议解析（Method/Status/Header 等） |
-| **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + HTTP 流，直接读 bridge 帧缓冲 |
+| **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + WebSocket 流，直接读 bridge 帧缓冲 |
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
 | **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
@@ -314,8 +314,11 @@ class VirtualIndev {
 };
 ```
 
-- 内部通过 `Mutex` 保护 Sample 双缓冲（`state` + `point` + `updated` 标志）
-- `indevReadCb` 在 LVGL task 中消费缓冲数据
+- **无锁一写一读**：WebSocket handler 写 `sendTouch`，LVGL task 读 `indevReadCb`，单缓冲最新值覆盖
+- `sendTouch()` 内置**服务端去重**：坐标+状态都没变且上条尚未消费时直接跳过
+- `indevReadCb` 使用 **`hasNewData` + `continue_reading`**：
+  - 有新事件 → 清标志 + `continue_reading=true` 让 LVGL 立即重读
+  - 无新事件 → 维持当前按压状态 + `continue_reading=false` 空闲等待
 - 由 `wsServer` 的 handler 调用 `sendTouch()` 注入触摸坐标
 
 ---
@@ -683,6 +686,10 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 **配置**: `max_uri_handlers = 8`, `max_open_sockets = 8`, 单 worker task (RealTime 优先级)
 
 **注册机制**: 各游戏模块自行注册 handler（如 Tetris: `/ws/tetris`），不修改 wsServer 代码
+
+**屏幕串流推送** (`/ws/stream`)：独立 `streamPushTask` (Daemon 优先级) 负责抓帧和推送。
+推流任务通过 **`send()` 直连 socket** 发送 WebSocket 帧，不经过 httpd worker，
+避免大帧发送阻塞 touch 等小消息的及时处理。
 
 ### mDNS
 
