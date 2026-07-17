@@ -647,19 +647,28 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	const auto& ap = m_scanResults[scanIndex];
 	const char* apSsid = reinterpret_cast<const char*>(ap.ssid);
 
-	// 创建遮罩
-	// m_passwordDialog = lv_obj_create(screen);
-	// lv_obj_set_size(m_passwordDialog, lv_pct(100), lv_pct(100));
-	// lv_obj_set_style_bg_color(m_passwordDialog, lv_color_hex(0x000000), 0);
-	// lv_obj_set_style_bg_opa(m_passwordDialog, LV_OPA_60, 0);
-	// lv_obj_set_style_border_width(m_passwordDialog, 0, 0);
-	// lv_obj_set_style_pad_all(m_passwordDialog, 0, 0);
-	// lv_obj_clear_flag(m_passwordDialog, LV_OBJ_FLAG_SCROLLABLE);
-	// lv_obj_move_foreground(m_passwordDialog);
+	// ── 弹窗打开时激进暂停：停定时器 + 停扫描 ──
+	if (m_refreshTimer)
+		lv_timer_pause(m_refreshTimer);
+	if (m_scanActive)
+	{
+		m_scanActive = false;
+		esp_wifi_scan_stop();
+	}
 
-	// 居中卡片（从上到下排列，确保按钮可见）
-	auto card = lv_obj_create(screen);
-	lv_obj_set_size(card, lv_pct(100), lv_pct(100));
+	// ── 遮罩层（绝对像素） ──
+	auto overlay = lv_obj_create(lv_layer_top());
+	lv_obj_set_size(overlay, lv_disp_get_hor_res(NULL), lv_disp_get_ver_res(NULL));
+	lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), 0);
+	lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+	lv_obj_set_style_border_width(overlay, 0, 0);
+	lv_obj_set_style_pad_all(overlay, 0, 0);
+	lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_move_foreground(overlay);
+
+	// ── 卡片，在遮罩内居中 ──
+	auto card = lv_obj_create(overlay);
+	lv_obj_set_size(card, lv_pct(80), LV_SIZE_CONTENT);
 	lv_obj_center(card);
 	styleCard(card);
 	lv_obj_set_layout(card, LV_LAYOUT_FLEX);
@@ -667,6 +676,8 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	lv_obj_set_style_pad_all(card, 12, 0);
 	lv_obj_set_style_pad_top(card, 20, 0);
+
+	m_passwordDialog = overlay;
 
 	// 标题
 	auto title = GUI::createLabel(card, "输入 WiFi 密码");
@@ -689,6 +700,9 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	lv_textarea_set_password_mode(m_passwordTa, true);
 	lv_textarea_set_placeholder_text(m_passwordTa, "请输入密码");
 	lv_obj_set_style_text_align(m_passwordTa, LV_TEXT_ALIGN_LEFT, 0);
+	lv_obj_set_style_text_font(m_passwordTa, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	// 键盘"Enter"键 → LV_EVENT_READY → 执行连接
+	lv_obj_add_event_cb(m_passwordTa, onKeyboardReadyCb, LV_EVENT_READY, this);
 
 	// 键盘（固定高度，避免 flex 重算导致光标晃动）
 	m_keyboard = lv_keyboard_create(card);
@@ -696,6 +710,22 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	lv_obj_set_height(m_keyboard, 280);
 	lv_obj_set_flex_grow(m_keyboard, 0);
 	lv_keyboard_set_textarea(m_keyboard, m_passwordTa);
+	// 键盘按钮使用 NotoSC Small（fallback 到 lv_font_get_default 含符号字型）
+	lv_obj_set_style_text_font(m_keyboard, FontLoader::getDefault(FontLoader::FontSize::Small), LV_PART_ITEMS);
+	// 键盘按键焦点高亮（参考 aiAgentOverlay）
+	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_text_color(m_keyboard, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
+	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
+
+	// 创建 Group，使摇杆可通过 lv_group_send_data 向键盘发送按键事件
+	m_dialogGroup = lv_group_create();
+	lv_group_add_obj(m_dialogGroup, m_keyboard);
+	lv_group_focus_obj(m_keyboard);
+
+	// 重置摇杆定时器，防弹窗打开时误触发方向导航
+	for (auto& t : m_nextMoveTime) t = 0;
 
 	// 按钮行
 	auto btn_row = lv_obj_create(card);
@@ -712,19 +742,37 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	auto cancelBtn = GUI::createButton(btn_row, "取消", 120, 44);
 	lv_obj_set_style_bg_color(cancelBtn, LV_COLOR_MAKE(0x50, 0x50, 0x60), 0);
 	lv_obj_add_event_cb(cancelBtn, onPwdCancelCb, LV_EVENT_CLICKED, this);
+	// 设置按钮 label 字体（lv_layer_top 上无字体继承）
+	if (auto* l = lv_obj_get_child(cancelBtn, 0))
+		lv_obj_set_style_text_font(l, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 
 	auto confirmBtn = GUI::createButton(btn_row, "连接", 120, 44);
 	lv_obj_set_style_bg_color(confirmBtn, LV_COLOR_MAKE(0x00, 0x88, 0x00), 0);
 	lv_obj_add_event_cb(confirmBtn, onPwdConfirmCb, LV_EVENT_CLICKED, this);
+	if (auto* l = lv_obj_get_child(confirmBtn, 0))
+		lv_obj_set_style_text_font(l, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 }
 
 void WifiSettingsApp::hidePasswordDialog()
 {
 	if (!m_passwordDialog) return;
+
+	// LVGL 锁：可能从 BLE task（onGamepadInput）调用
+	auto guard = display->lockGuard();
+
+	if (m_dialogGroup) {
+		lv_group_del(m_dialogGroup);
+		m_dialogGroup = nullptr;
+	}
+
 	m_keyboard = nullptr;
 	m_passwordTa = nullptr;
 	lv_obj_del(m_passwordDialog);
 	m_passwordDialog = nullptr;
+
+	// ── 弹窗关闭时恢复刷新 ──
+	if (m_refreshTimer)
+		lv_timer_resume(m_refreshTimer);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -733,6 +781,9 @@ void WifiSettingsApp::hidePasswordDialog()
 
 void WifiSettingsApp::applyFocus()
 {
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
 	auto clearFocus = [](lv_obj_t* obj)
 		{ if (obj) lv_obj_clear_state(obj, LV_STATE_FOCUSED); };
 	auto focus = [](lv_obj_t* obj)
@@ -781,6 +832,7 @@ void WifiSettingsApp::activateFocus()
 	}
 	case FOCUS_LIST:
 	{
+		auto guard = display->lockGuard();
 		size_t idx = (size_t)m_focusListIdx;
 		if (idx < m_connectBtns.size() && m_connectBtns[idx])
 		{
@@ -865,14 +917,62 @@ void WifiSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 	uint16_t newPress = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;
 
-	// ── 密码弹窗中：B 键取消 ──
+	// ── 密码弹窗中 ──
 	if (m_passwordDialog)
 	{
+		// B 键取消
 		if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 		{
 			hidePasswordDialog();
 			if (auto guard = display->lockGuard())
 				applyFocus();
+			return;
+		}
+
+		// A / L3 / START → 按下当前选中的键盘按键
+		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_START)))
+		{
+			if (auto guard = display->lockGuard())
+			{
+				// btnmatrix 不处理 LV_EVENT_CLICKED，直接发送 VALUE_CHANGED
+				// 触发键盘处理当前选中按钮（输入字符/切换模式/删除等）
+				if (m_keyboard) {
+					uint16_t btn_id = lv_btnmatrix_get_selected_btn(m_keyboard);
+					if (btn_id != LV_BUTTONMATRIX_BUTTON_NONE) {
+						uint32_t id = btn_id;
+						lv_obj_send_event(m_keyboard, LV_EVENT_VALUE_CHANGED, &id);
+					}
+				}
+			}
+			return;
+		}
+
+		// 摇杆方向 → 键盘按键导航
+		{
+			if (!lxLeft && !lxRight && !lyUp && !lyDown)
+			{
+				m_nextMoveTime[playerId] = 0;
+				return;
+			}
+
+			if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+
+			TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+			m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+
+			uint32_t key = 0;
+			if (lxLeft)  key = LV_KEY_LEFT;
+			if (lxRight) key = LV_KEY_RIGHT;
+			if (lyUp)    key = LV_KEY_UP;
+			if (lyDown)  key = LV_KEY_DOWN;
+
+			if (auto guard = display->lockGuard())
+			{
+				if (m_dialogGroup)
+					lv_group_send_data(m_dialogGroup, key);
+			}
 		}
 		return;
 	}
@@ -1036,4 +1136,17 @@ void WifiSettingsApp::onBackBtnCb(lv_event_t* e)
 			static_cast<WifiSettingsApp*>(param)->popApp();
 			return Task::infinityTime;
 		}, "wifiBack", self, 0, Task::Affinity::None);
+}
+
+// ════════════════════════════════════════════════════════════════
+// 键盘确认回调
+// ════════════════════════════════════════════════════════════════
+
+void WifiSettingsApp::onKeyboardReadyCb(lv_event_t* e)
+{
+	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
+	if (!self->m_passwordTa) return;
+
+	const char* password = lv_textarea_get_text(self->m_passwordTa);
+	self->doConnect(self->m_pwdTargetIdx, password);
 }

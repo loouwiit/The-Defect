@@ -67,6 +67,7 @@ private:
 	lv_obj_t* m_passwordDialog{};
 	lv_obj_t* m_passwordTa{};
 	lv_obj_t* m_keyboard{};
+	lv_group_t* m_dialogGroup{};
 	size_t m_pwdTargetIdx{ 0 };
 
 	// ── 定时器 ──
@@ -114,4 +115,5 @@ private:
 	static void onPwdConfirmCb(lv_event_t* e);
 	static void onPwdCancelCb(lv_event_t* e);
 	static void onBackBtnCb(lv_event_t* e);
+	static void onKeyboardReadyCb(lv_event_t* e);
 };
