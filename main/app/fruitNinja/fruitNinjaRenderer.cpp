@@ -294,12 +294,12 @@ void FruitNinjaRenderer::updateHUD(lv_obj_t* parent, const FruitNinjaLogic& logi
 	{
 		if (pCount >= 2)
 		{
-			lv_label_set_text_fmt(m_livesLabel, "\u2764 P1:%d  P2:%d",
+			lv_label_set_text_fmt(m_livesLabel, "生命 P1:%d  P2:%d",
 				logic.getLives(0), logic.getLives(1));
 		}
 		else
 		{
-			lv_label_set_text_fmt(m_livesLabel, "\u2764 x%d", logic.getLives(0));
+			lv_label_set_text_fmt(m_livesLabel, "生命 x%d", logic.getLives(0));
 		}
 		lv_obj_align_to(m_livesLabel, m_scoreLabel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
 		lv_obj_clear_flag(m_livesLabel, LV_OBJ_FLAG_HIDDEN);
