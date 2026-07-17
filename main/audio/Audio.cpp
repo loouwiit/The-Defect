@@ -59,6 +59,10 @@ void AudioHandle::Impl::taskFunc(void* arg)
     if (self->manager) {
         self->manager->freeStreamId(self->streamId);
     }
+    if (self->sampleRef) {
+        self->sampleRef->_releaseInstance();
+        self->sampleRef = nullptr;
+    }
     if (self->dec) {
         esp_audio_dec_close(self->dec);
         self->dec = nullptr;
@@ -92,13 +96,9 @@ void AudioHandle::Impl::taskLoop()
         // ringbuffer ~11520 字节，每批不超过 4KB（~21ms @44100/16/2）避免超时丢数据
         constexpr size_t MaxBatchBytes = 4096;
         const size_t maxBatchFrames = MaxBatchBytes / frameBytes;
-        ESP_LOGI(TAG, "PCM start: %lu frames, %lu Hz, loop=%d",
-                 pcmTotalFrames, pcmSampleRate, loop);
         m_batchTick = esp_timer_get_time();
-        int iter = 0;
         while (!stopRequested.load()) {
             if (pauseRequested.load()) {
-                ESP_LOGI(TAG, "PCM pause iter=%d", iter);
                 if (stream) {
                     esp_audio_render_stream_close(stream);
                     streamClosedByPause = true;
@@ -113,7 +113,6 @@ void AudioHandle::Impl::taskLoop()
             }
             size_t remain = pcmTotalFrames - pcmReadPos;
             if (remain == 0) {
-                ESP_LOGI(TAG, "PCM done iter=%d", iter);
                 if (loop) { pcmReadPos = 0; continue; }
                 break;
             }
@@ -121,18 +120,13 @@ void AudioHandle::Impl::taskLoop()
             memcpy(pcmBuf, pcmBuffer + pcmReadPos * pcmChannels, batch * frameBytes);
             pcmReadPos += batch;
             applyVolume(reinterpret_cast<int16_t*>(pcmBuf), batch * pcmChannels, volume.load());
-            auto wrRet = esp_audio_render_stream_write(stream, pcmBuf, batch * frameBytes);
+            esp_audio_render_stream_write(stream, pcmBuf, batch * frameBytes);
             // 自适应限速
             uint32_t paceMs = batch * 1000 / pcmSampleRate;
             uint32_t elapsed = (esp_timer_get_time() - m_batchTick) / 1000;
             if (paceMs > elapsed + 1) vTaskDelay(pdMS_TO_TICKS(paceMs - elapsed - 1));
             m_batchTick = esp_timer_get_time();
-            iter++;
-            if ((iter % 10) == 0)
-                ESP_LOGI(TAG, "PCM progress iter=%d remain=%zu wrRet=%d", iter, remain - batch, wrRet);
         }
-        ESP_LOGI(TAG, "PCM exit: stop=%d pause=%d iter=%d remain=%zu",
-                 stopRequested.load(), pauseRequested.load(), iter, pcmTotalFrames - pcmReadPos);
         // 等待 ringbuffer 排空后再关闭流
         if (!stopRequested.load()) {
             vTaskDelay(pdMS_TO_TICKS(pcmBufSize * 1000 / (pcmSampleRate * frameBytes) + 30));
@@ -595,6 +589,7 @@ bool AudioSample::load(const char* path)
             constexpr uint32_t Chunk = 2048;
             auto* chunkBuf = new int16_t[Chunk * m_channels];
             auto* outBuf   = new int16_t[maxOut * m_channels];
+            // 重采样循环
             size_t srcPos = 0;
             while (srcPos < m_frames) {
                 uint32_t nr = std::min(Chunk, (uint32_t)(m_frames - srcPos));
@@ -607,13 +602,6 @@ bool AudioSample::load(const char* path)
                     dstPos += outSamples;
                 }
                 srcPos += nr;
-            }
-            // 冲刷剩余
-            uint32_t outSamples = maxOut;
-            if (esp_ae_rate_cvt_process(rsHd, nullptr, 0, (esp_ae_sample_t)outBuf, &outSamples) == ESP_AE_ERR_OK
-                && outSamples > 0) {
-                memcpy(dst + dstPos * m_channels, outBuf, outSamples * sizeof(int16_t) * m_channels);
-                dstPos += outSamples;
             }
             esp_ae_rate_cvt_close(rsHd);
             delete[] m_data;
@@ -870,6 +858,8 @@ AudioHandle Audio::play(const AudioSample& sample, bool loop)
     impl->pcmSampleRate = sample.m_sampleRate;
     impl->pcmChannels   = sample.m_channels;
     impl->loop          = loop;
+    impl->sampleRef     = const_cast<AudioSample*>(&sample);
+    sample.m_activeCount.fetch_add(1);
 
     auto sid = self.allocStreamId();
     if (sid == 0xFF) {
@@ -885,6 +875,14 @@ AudioHandle Audio::play(const AudioSample& sample, bool loop)
     handle.play();
     handle.detach();  // 防止 NRVO 未发生时局部析构误 stop task
     return handle;
+}
+
+int Audio::usedStreamCount()
+{
+    uint16_t mask = instance().streamUsedMask;
+    int cnt = 0;
+    while (mask) { cnt += mask & 1; mask >>= 1; }
+    return cnt;
 }
 
 // ── 流分配 ──

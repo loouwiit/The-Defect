@@ -803,6 +803,76 @@ File (FAT) → encBuf → [esp_audio_dec_process] → pcmBuf → [*volume] → s
 
 **主音量**: `Audio::setMasterVolume(int)` 委托到 ES8311 硬件，NVS 持久化。
 
+#### ES8311 电源管理
+
+通过 render 的 `OPENED`/`CLOSED` 事件回调自动管理 ES8311 开关：
+- 首个流打开 → `ES8311::open()`（DAC 上电）
+- 末个流关闭 → `ES8311::close()`（DAC 断电）
+- 使用 `Mutex` 保护 `open/close` 并发
+
+```cpp
+// main.cpp 不再需要手动 audio.open(&config)
+audio.init(iic, config);                 // 仅初始化 I2S + codec 接口
+audio.setVolume(100);
+Audio::instance().init(audio);           // render 通过 event_cb 自动开关
+```
+
+#### AudioSample — 预解码缓存
+
+将音频文件预解码为 PCM 存入 PSRAM，播放时**零 SD I/O、零解码**。
+
+```cpp
+class AudioSample {
+    bool load(const char* path);         // AAC/MP3 → PCM (PSRAM)
+    AudioHandle play(bool loop = false); // 从缓存播放
+    int  activeCount() const;            // 当前播放实例数（应用层限流）
+    void _releaseInstance();             // 内部：播放结束回调
+};
+```
+
+**重采样到 48000Hz**：`load()` 解码后自动用 `esp_ae_rate_cvt` 重采样到 48000Hz，播放时 render 的 per-stream rate_cvt 检测到 `src==dest` 进入 **bypass 零缓冲**模式，数据直通 ringbuffer。
+
+```cpp
+// 一次加载，多次播放（独立流，共享 PCM）
+static AudioSample s_sfx;
+if (!s_sfx.isValid()) s_sfx.load("/root/sd/sfx/click.aac");
+
+// 限流示例：限制 3 个实例
+if (s_sfx.activeCount() < 3)
+    s_sfx.play().detach();
+```
+
+#### 自适应限速
+
+PCM 缓存模式下 `memcpy` 极快（~0.01ms），远超 mixer 消费速度。按实时播放时长做自适应限速：
+
+```cpp
+uint32_t paceMs = batch * 1000 / pcmSampleRate;   // 这批应播时长
+uint32_t elapsed = (esp_timer_get_time() - tick) / 1000;
+if (paceMs > elapsed + 1)
+    vTaskDelay(pdMS_TO_TICKS(paceMs - elapsed - 1));
+```
+
+**注意**：render 的 ringbuffer `acquire_write` 有已知 bug（源码 TODO 注释），实际不阻塞。多流模式下必须靠上层限速。
+
+#### 流管理与限流
+
+| API | 返回值 | 用途 |
+|-----|--------|------|
+| `Audio::usedStreamCount()` | 总活跃流数（含 BGM） | 系统级限流 |
+| `sample.activeCount()` | 特定 AudioSample 实例数 | 采样级限流 |
+| `MaxStreamNum = 14` | 硬上限 | `uint16_t streamUsedMask` |
+
+`activeCount` 在 `play()` 时原子递增，task 退出时自动递减，线程安全。
+
+#### 已知坑
+
+| 问题 | 说明 |
+|------|------|
+| **render acquire_write 不阻塞** | `esp_audio_render.c` 中 `write_rb` 的 TODO 注释承认逻辑有误，多流模式下 ringbuffer 满时不阻塞，数据静默丢弃。PCM 模式需上层自适应限速 |
+| **NRVO 析构误 stop** | `Audio::play(AudioSample&)` 返回局部 handle，NRVO 未发生时拷贝构造返回值，局部 handle 析构触发 `stop()`。**修复**：`handle.detach()` 后再返回 |
+| **rate_cvt flush** | `esp_ae_rate_cvt_process(nullptr, 0)` 触发 `Invalid parameter` 错误，虽然不影响数据但日志难看。应省略 flush 步骤 |
+
 ### BLE Gamepad — 无线手柄
 
 **模块路径**: `main/bleGamepad/`

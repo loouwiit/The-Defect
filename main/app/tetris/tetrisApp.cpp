@@ -34,6 +34,9 @@ void TetrisApp::init()
 {
 	App::init();
 
+	if (!sfxBer.load("/root/sd/system/tetris/ber.aac"))
+		ESP_LOGE(TAG, "音效文件加载失败");
+
 	auto guard = display->lockGuard();
 	if (!guard) {
 		ESP_LOGE(TAG, "Failed to lock display");
@@ -69,13 +72,13 @@ void TetrisApp::init()
 			} while (attempts < m_playerCount &&
 				(next == i || m_players[next].gameOver));
 			m_players[i].setAttackTarget(next == i ? -1 : next);
-		});
+			});
 		m_renderers[i]->setOnExit([this]() {
 			Task::addTask([](void* p) -> TickType_t {
 				static_cast<TetrisApp*>(p)->popApp();
 				return Task::infinityTime;
-			}, "tetrisExit", this, 0, Task::Affinity::None);
-		});
+				}, "tetrisExit", this, 0, Task::Affinity::None);
+			});
 	}
 
 	// 初始化共享出块队列 + 游戏状态
@@ -89,6 +92,21 @@ void TetrisApp::init()
 		// 填充初始预览
 		for (int s = 0; s < 4; s++)
 			m_gameStates[i].nextPieces[s] = m_players[i].peekPreview(s);
+
+		// 音效回调
+		if (sfxBer.isValid())
+		{
+			m_players[i].onPieceMoved = [this]() {
+				if (sfxBer.activeCount() > 6)
+					return;
+				sfxBer.play().detach();
+				};
+			m_players[i].onPieceLocked = [this]() {
+				if (sfxBer.activeCount() > 8)
+					return;
+				sfxBer.play().detach();
+				};
+		}
 	}
 
 	// 初始化网络层（Host 模式）
@@ -116,13 +134,13 @@ void TetrisApp::init()
 		else if (strcmp(key, "ccw") == 0)   { if (down) p.keyCCW = true; }
 		else if (strcmp(key, "hold") == 0)  { if (down) p.keyHold = true; }
 		else if (strcmp(key, "exit") == 0) {
-            if (down) {
-                Task::addTask([](void* p) -> TickType_t {
-                    static_cast<TetrisApp*>(p)->popApp();
-                    return Task::infinityTime;
-                }, "tetrisExit", this, 0, Task::Affinity::None);
-            }
-        }
+			if (down) {
+				Task::addTask([](void* p) -> TickType_t {
+					static_cast<TetrisApp*>(p)->popApp();
+					return Task::infinityTime;
+					}, "tetrisExit", this, 0, Task::Affinity::None);
+			}
+		}
 		};
 	tetrisNetInit(true, hostCb, {});
 
@@ -203,17 +221,19 @@ void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 		if (!held) {
 			held = true;
 			heldTime = xTaskGetTickCount();
-		} else if (xTaskGetTickCount() - heldTime >= pdMS_TO_TICKS(EXIT_HOLD_MS)) {
+		}
+		else if (xTaskGetTickCount() - heldTime >= pdMS_TO_TICKS(EXIT_HOLD_MS)) {
 			held = false;
 			if (!m_allDead) {
 				// 仅游戏中需要 Task 延后，Game Over 界面可直接 pop
 				Task::addTask([](void* p) -> TickType_t {
 					static_cast<TetrisApp*>(p)->popApp();
 					return Task::infinityTime;
-				}, "tetrisExit", this, 0, Task::Affinity::None);
+					}, "tetrisExit", this, 0, Task::Affinity::None);
 			}
 		}
-	} else {
+	}
+	else {
 		held = false;
 	}
 
@@ -490,12 +510,16 @@ TickType_t TetrisApp::renderTaskFn(void* param)
 
 void TetrisApp::renderTick()
 {
-	if (auto guard = display->lockGuard()) {
-		// 渲染每个玩家
-		for (int i = 0; i < m_playerCount; i++)
-			m_renderers[i]->syncState();
+	// 渲染每个玩家
+	for (int i = 0; i < m_playerCount; i++)
+	{
+		m_renderers[i]->syncState();
+		vTaskDelay(0);
+	}
 
-		// Game Over 覆盖层显隐
+	// Game Over 覆盖层显隐
+	if (auto guard = display->lockGuard())
+	{
 		if (m_allDead)
 			lv_obj_clear_flag(m_gameOverOverlay, LV_OBJ_FLAG_HIDDEN);
 		else

@@ -57,6 +57,11 @@ public:
     /** 从缓存播放（不读 SD、不解码，直接流式 PCM） */
     AudioHandle play(bool loop = false);
 
+    /** 当前正在播放的实例数（用于应用层限流） */
+    int activeCount() const { return m_activeCount.load(); }
+    /** 内部：播放结束回调，递减 activeCount */
+    void _releaseInstance() { m_activeCount.fetch_sub(1); }
+
     bool isValid() const { return m_data != nullptr; }
 
 private:
@@ -64,6 +69,7 @@ private:
     uint32_t  m_frames{};      // 总帧数（每声道）
     uint32_t  m_sampleRate{};
     uint8_t   m_channels{};
+    mutable std::atomic<int> m_activeCount{0};
 
     friend class Audio;
 };
@@ -119,6 +125,7 @@ private:
 
         // PCM buffer mode（!= nullptr 时启用，绕过 file+decoder）
         const int16_t*  pcmBuffer{};
+        AudioSample* sampleRef{};  // 用于递减 activeCount
         size_t          pcmTotalFrames{};
         size_t          pcmReadPos{};
         uint32_t        pcmSampleRate{};
@@ -185,6 +192,9 @@ public:
     /** 从预解码缓存播放 */
     static AudioHandle play(const AudioSample& sample, bool loop = false);
 
+    /** 当前已分配的音频流数（应用层用于限流，避免超出 MaxStreamNum） */
+    static int usedStreamCount();
+
     /** 检测文件格式 */
     static esp_audio_type_t detectFormat(const char* path);
 
@@ -205,14 +215,14 @@ private:
     int                       m_volume{100};  // 当前主音量（OPENED 时恢复）
     Mutex                     m_codecMutex{}; // 保护 codec->open/close 并发
 
-    uint8_t streamUsedMask{};   // 流分配位图，bit n = stream n 已分配
+    uint16_t streamUsedMask{};  // 流分配位图，bit n = stream n 已分配
 
     /** 分配一个空闲的 stream ID，返回 0xFF 表示无空闲 */
     esp_audio_render_stream_id_t allocStreamId();
     /** 释放 stream ID */
     void freeStreamId(esp_audio_render_stream_id_t id);
 
-    static constexpr uint8_t MaxStreamNum = 8;
+    static constexpr uint8_t MaxStreamNum = 14;
     static constexpr size_t  TaskStackSize = 4096;
 
     friend class AudioHandle;

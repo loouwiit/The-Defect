@@ -7,6 +7,7 @@
 #include "app/tetris/renderer/tetris_renderer.hpp"
 #include "app/tetris/net/tetris_net.hpp"
 #include "task/task.hpp"
+#include "audio/Audio.hpp"
 
 /**
  * @brief 俄罗斯方块主游戏 App
@@ -103,4 +104,6 @@ private:
 
     static void gameLoopTask(void* param);
     void gameLoop();
+
+    AudioSample sfxBer{};
 };

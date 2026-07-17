@@ -4,6 +4,7 @@
 #include "gameState.hpp"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <functional>
 
 /// Dirty flags 指示哪些视觉状态发生了变化
 typedef uint8_t DirtyFlags;
@@ -74,6 +75,12 @@ public:
     // 网络输入请求计数器（解决 WS 延迟吞操作）
     int  netLeftReq  = 0;
     int  netRightReq = 0;
+
+    // ============================================================
+    //  音效回调（可选，由 App 层设置）
+    // ============================================================
+    std::function<void(void)> onPieceMoved;   ///< 方块成功移动/旋转
+    std::function<void(void)> onPieceLocked;  ///< 方块锁定/硬降
 
     // ============================================================
     //  共享队列 + 游标
