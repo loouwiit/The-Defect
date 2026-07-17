@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <vector>
 
 /**
  * @brief 贪吃蛇游戏核心逻辑（纯数据，无 LVGL 依赖）
@@ -106,6 +107,14 @@ public:
 	/** @brief 获取某个玩家的输入方向队列是否不为空 */
 	bool hasPendingDirection(int player) const;
 
+	/** @brief 矩形区域（禁止食物生成） */
+	struct Rect {
+		int8_t x1, y1, x2, y2;
+	};
+
+	/** @brief 添加食物禁止生成区域（如 D-pad 覆盖区） */
+	void addForbiddenZone(int8_t x1, int8_t y1, int8_t x2, int8_t y2);
+
 private:
 	static constexpr int MAX_PLAYERS = 4;
 
@@ -115,9 +124,11 @@ private:
 	Position m_food{};
 	State m_state = State::Waiting;
 	int m_stepCount = 0;
+	std::vector<Rect> m_forbiddenZones;
 
 	void spawnFood();
 	bool checkCollision(const Position& head, int player, bool excludeTail) const;
+	bool isInForbiddenZone(int x, int y) const;
 };
 
 /** @brief 方向工具函数 */

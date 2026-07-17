@@ -163,6 +163,63 @@ void SnakeGame::init()
 	m_logic.setState(SnakeGameLogic::State::Playing);
 	m_foodCount = 1;
 
+	// 注册 D-pad 禁止区域（食物不刷在 D-pad 下被遮挡）
+	{
+		constexpr int DPAD_SIZE = 200;   // S*3 + G*2 + PAD*2 = 56*3 + 4*2 + 12*2
+		constexpr int DPAD_OFFSET = 16;
+		constexpr int MARGIN = 1;         // 额外 1 格安全边距
+
+		int cs = m_cellSize;
+		int cw = lv_display_get_horizontal_resolution(display->getLvglDisplay());
+		int ch = lv_display_get_vertical_resolution(display->getLvglDisplay());
+
+		auto addZone = [&](lv_align_t align, int ox, int oy) {
+			int left, top_, right, bottom;
+			switch (align) {
+			case LV_ALIGN_BOTTOM_RIGHT:
+				left   = (cw - DPAD_SIZE - ox) / cs - MARGIN;
+				top_   = (ch - DPAD_SIZE - oy) / cs - MARGIN;
+				right  = (cw - ox) / cs + MARGIN;
+				bottom = (ch - oy) / cs + MARGIN;
+				break;
+			case LV_ALIGN_BOTTOM_LEFT:
+				left   = (ox) / cs - MARGIN;
+				top_   = (ch - DPAD_SIZE - oy) / cs - MARGIN;
+				right  = (ox + DPAD_SIZE) / cs + MARGIN;
+				bottom = (ch - oy) / cs + MARGIN;
+				break;
+			case LV_ALIGN_TOP_RIGHT:
+				left   = (cw - DPAD_SIZE - ox) / cs - MARGIN;
+				top_   = (oy) / cs - MARGIN;
+				right  = (cw - ox) / cs + MARGIN;
+				bottom = (oy + DPAD_SIZE) / cs + MARGIN;
+				break;
+			case LV_ALIGN_TOP_LEFT:
+				left   = (ox) / cs - MARGIN;
+				top_   = (oy) / cs - MARGIN;
+				right  = (ox + DPAD_SIZE) / cs + MARGIN;
+				bottom = (oy + DPAD_SIZE) / cs + MARGIN;
+				break;
+			default: return;
+			}
+			// 裁剪到网格边界
+			if (left  < 0) left = 0;
+			if (top_  < 0) top_ = 0;
+			if (right >= m_gridW) right = m_gridW - 1;
+			if (bottom >= m_gridH) bottom = m_gridH - 1;
+			if (left <= right && top_ <= bottom)
+				m_logic.addForbiddenZone(left, top_, right, bottom);
+		};
+
+		addZone(LV_ALIGN_BOTTOM_RIGHT, 16, 16);  // P1
+		if (m_playerCount >= 2)
+			addZone(LV_ALIGN_BOTTOM_LEFT, 16, 16);   // P2
+		if (m_playerCount >= 3)
+			addZone(LV_ALIGN_TOP_RIGHT, 16, 16);      // P3
+		if (m_playerCount >= 4)
+			addZone(LV_ALIGN_TOP_LEFT, 16, 16);       // P4
+	}
+
 	lv_label_set_text(m_statusLabel, "D-pad 控制方向");
 
 	ESP_LOGI(TAG, "Starting %dP game, grid: %dx%d", m_playerCount, m_gridW, m_gridH);

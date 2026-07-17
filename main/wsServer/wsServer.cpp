@@ -99,232 +99,219 @@ static esp_err_t wsTouchHandler(httpd_req_t* req)
 }
 
 /* ============================================================
- *  串流 — 专用推送任务 (避免阻塞 httpd 单一线程)
+ *  串流 — 双任务并行：编码任务 + 发送任务
+ *  编码任务占用 JPEG 硬件，发送任务直接 send() 发 socket，
+ *  两者通过队列传递 buffer，编码与发送真正并行。
  * ============================================================ */
 
- /* 串流客户端信息 */
-typedef struct {
-	httpd_handle_t hd;
-	int            fd;
-	volatile bool  active;
-	TaskHandle_t   task;
+/* 双缓冲 + 任务间通信 */
+EXT_RAM_BSS_ATTR static uint8_t* s_jpegBufs[2] = {};
 
-	/* 异步踢掉：握手阶段不阻塞 httpd，把新连接信息存为 pending，
-	 * 旧推流任务退出时（或下一次 binary 触发时）再接管。 */
-	httpd_handle_t pendingHd;
-	int            pendingFd;
-	volatile bool  hasPending;        // 是否有等待接管的新连接
+struct SendJob {
+	uint8_t* data;
+	size_t   size;
+};
 
-	/* 双缓冲 ping-pong */
-	uint8_t*       jpegBufs[2];
-	int            bufIdx;            // 下一个要写入的 buffer 下标 (0/1)
-} StreamClient;
+EXT_RAM_BSS_ATTR static TaskHandle_t s_encodeTask = nullptr;
+EXT_RAM_BSS_ATTR static TaskHandle_t s_sendTask = nullptr;
+EXT_RAM_BSS_ATTR static QueueHandle_t s_sendQueue = nullptr;
+EXT_RAM_BSS_ATTR static SemaphoreHandle_t s_freeSem = nullptr;
 
-EXT_RAM_BSS_ATTR static StreamClient s_streamClient = {};
+EXT_RAM_BSS_ATTR static int s_streamFd = -1;
+EXT_RAM_BSS_ATTR static httpd_handle_t s_streamHd = nullptr;
+EXT_RAM_BSS_ATTR static volatile bool s_streamActive = false;
 
-/* 直接踢掉当前串流客户端（推流任务自行检测 active=false 后退出）。 */
-static void kickOldStreamClientAsync()
+/* pending 连接（用于客户端切换） */
+EXT_RAM_BSS_ATTR static httpd_handle_t s_pendingHd = nullptr;
+EXT_RAM_BSS_ATTR static int s_pendingFd = -1;
+EXT_RAM_BSS_ATTR static volatile bool s_hasPending = false;
+
+/* 编码任务：捕获 JPEG → 入队 */
+static void streamEncodeTask(void* arg)
 {
-	if (!s_streamClient.active && !s_streamClient.task)
-		return;
+	ESP_LOGI(TAG, "encode task started");
 
-	ESP_LOGI(TAG, "kicking old stream client (fd=%d)", s_streamClient.fd);
-
-	/* 通知推流任务退出，旧任务退出时会自动接管 pending */
-	s_streamClient.active = false;
-}
-
-/* 接管 pending 连接：把暂存的新连接信息安装为当前活动客户端。
- * 在推流任务退出后调用。 */
-static void adoptPendingStreamClient()
-{
-	if (!s_streamClient.hasPending)
-		return;
-
-	s_streamClient.hd = s_streamClient.pendingHd;
-	s_streamClient.fd = s_streamClient.pendingFd;
-	s_streamClient.hasPending = false;
-	s_streamClient.active = true;
-	s_streamClient.task = nullptr;  // 重新创建
-	s_streamClient.bufIdx = 0;
-	ESP_LOGI(TAG, "adopted pending stream client (fd=%d)", s_streamClient.fd);
-}
-
-/* 专用推送任务：独立于 httpd 线程运行
- * 双缓冲 ping-pong，直接 send() 发送，不经过 httpd worker。
- *
- * 健壮性设计：
- * - 单次错误不退出，连续错误超过阈值才放弃
- * - 重试机制：等一帧再试 */
-static void streamPushTask(void* arg)
-{
-	StreamClient* cl = (StreamClient*)arg;
-	ESP_LOGI(TAG, "stream push task started (fd=%d)", cl->fd);
-
-	/* 分配两个对齐的 JPEG 缓冲区（双缓冲 ping-pong） */
-	const uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA;
-	cl->jpegBufs[0] = (uint8_t*)heap_caps_malloc(kJpegBufSize, caps);
-	cl->jpegBufs[1] = (uint8_t*)heap_caps_malloc(kJpegBufSize, caps);
-	if (!cl->jpegBufs[0] || !cl->jpegBufs[1])
+	while (s_streamActive && s_server)
 	{
-		ESP_LOGE(TAG, "jpegBufs alloc failed");
-		heap_caps_free(cl->jpegBufs[0]);
-		heap_caps_free(cl->jpegBufs[1]);
-		cl->jpegBufs[0] = cl->jpegBufs[1] = nullptr;
-		cl->active = false;
-		cl->task = nullptr;
-		vTaskDelete(nullptr);
-		return;
+		if (xSemaphoreTake(s_freeSem, pdMS_TO_TICKS(100)) != pdTRUE)
+			continue;
+		if (!s_streamActive || !s_server) { xSemaphoreGive(s_freeSem); break; }
+
+		static int encodeBufIdx = 0;
+		int idx = encodeBufIdx;
+		encodeBufIdx ^= 1;
+
+		size_t jpegSize = ScreenStream::instance().captureJpeg(
+			s_jpegBufs[idx], kJpegBufSize);
+		if (jpegSize == 0)
+		{
+			xSemaphoreGive(s_freeSem);
+			vTaskDelay(pdMS_TO_TICKS(33));
+			continue;
+		}
+
+		SendJob job = { s_jpegBufs[idx], jpegSize };
+		if (xQueueSend(s_sendQueue, &job, pdMS_TO_TICKS(100)) != pdTRUE)
+			xSemaphoreGive(s_freeSem);
 	}
 
-	cl->bufIdx = 0;
+	ESP_LOGI(TAG, "encode task ended");
+	vTaskDelete(nullptr);
+}
+
+/* 发送任务：出队 → 构造 WS 帧头 → send() */
+static void streamSendTask(void* arg)
+{
+	ESP_LOGI(TAG, "send task started");
 	int consecutiveErrors = 0;
 
-	while (cl->active && s_server)
+	while (s_streamActive && s_server)
 	{
-		/* 检测客户端是否还活着 */
-		if (httpd_ws_get_fd_info(cl->hd, cl->fd) != HTTPD_WS_CLIENT_WEBSOCKET)
+		SendJob job;
+		if (xQueueReceive(s_sendQueue, &job, pdMS_TO_TICKS(100)) != pdTRUE)
+			continue;
+		if (!s_streamActive || !s_server) { xSemaphoreGive(s_freeSem); break; }
+
+		if (httpd_ws_get_fd_info(s_streamHd, s_streamFd) != HTTPD_WS_CLIENT_WEBSOCKET)
 		{
 			ESP_LOGI(TAG, "stream client disconnected");
+			xSemaphoreGive(s_freeSem);
 			break;
 		}
 
-		uint8_t* curBuf = cl->jpegBufs[cl->bufIdx];
-
-		/* 抓取一帧 JPEG（curBuf 已对齐，JPEG 编码器 DMA 可直接写入） */
-		size_t jpegSize = ScreenStream::instance().captureJpeg(curBuf, kJpegBufSize);
-		if (jpegSize == 0)
-		{
-			consecutiveErrors++;
-			if (consecutiveErrors >= kMaxConsecutiveErrors)
-			{
-				ESP_LOGE(TAG, "too many consecutive errors (%d), giving up", consecutiveErrors);
-				break;
-			}
-			vTaskDelay(pdMS_TO_TICKS(33));
-			continue;
-		}
-		consecutiveErrors = 0;
-
-		/* 在栈上构造 WebSocket 二进制帧头（服务端→客户端，无 mask） */
 		uint8_t header[10];
-		header[0] = 0x82;  // FIN=1, opcode=binary
+		header[0] = 0x82;
 		size_t headerSize;
-		uint64_t payloadLen = jpegSize;
-		if (payloadLen < 126) {
-			header[1] = (uint8_t)payloadLen;
-			headerSize = 2;
-		} else if (payloadLen < 65536) {
+		uint64_t n = job.size;
+		if (n < 126) {
+			header[1] = (uint8_t)n; headerSize = 2;
+		} else if (n < 65536) {
 			header[1] = 126;
-			header[2] = (uint8_t)(payloadLen >> 8);
-			header[3] = (uint8_t)payloadLen;
+			header[2] = (uint8_t)(n >> 8); header[3] = (uint8_t)n;
 			headerSize = 4;
 		} else {
 			header[1] = 127;
-			header[2] = (uint8_t)(payloadLen >> 56);
-			header[3] = (uint8_t)(payloadLen >> 48);
-			header[4] = (uint8_t)(payloadLen >> 40);
-			header[5] = (uint8_t)(payloadLen >> 32);
-			header[6] = (uint8_t)(payloadLen >> 24);
-			header[7] = (uint8_t)(payloadLen >> 16);
-			header[8] = (uint8_t)(payloadLen >> 8);
-			header[9] = (uint8_t)payloadLen;
+			header[2] = (uint8_t)(n >> 56); header[3] = (uint8_t)(n >> 48);
+			header[4] = (uint8_t)(n >> 40); header[5] = (uint8_t)(n >> 32);
+			header[6] = (uint8_t)(n >> 24); header[7] = (uint8_t)(n >> 16);
+			header[8] = (uint8_t)(n >> 8);  header[9] = (uint8_t)n;
 			headerSize = 10;
 		}
 
-		/* 直接通过 socket 发送，绕过 httpd worker（避免阻塞 touch 处理）
-		 * 分两次 send：帧头（栈） + JPEG 数据（对齐缓冲区），TCP 流式传输安全 */
-		ssize_t sent = send(cl->fd, header, headerSize, 0);
+		ssize_t sent = send(s_streamFd, header, headerSize, 0);
 		if (sent <= 0 || (size_t)sent != headerSize) {
-			ESP_LOGW(TAG, "stream header send failed (sent=%d errno=%d)", sent, errno);
 			consecutiveErrors++;
 			if (consecutiveErrors >= kMaxConsecutiveErrors) {
-				ESP_LOGE(TAG, "too many send errors, giving up");
-				break;
+				xSemaphoreGive(s_freeSem); break;
 			}
+			xSemaphoreGive(s_freeSem);
 			vTaskDelay(pdMS_TO_TICKS(33));
 			continue;
 		}
-		sent = send(cl->fd, curBuf, jpegSize, 0);
-		if (sent <= 0 || (size_t)sent != jpegSize)
-		{
-			ESP_LOGW(TAG, "stream send failed (sent=%d errno=%d)", sent, errno);
+		sent = send(s_streamFd, job.data, job.size, 0);
+		if (sent <= 0 || (size_t)sent != job.size) {
 			consecutiveErrors++;
-			if (consecutiveErrors >= kMaxConsecutiveErrors)
-			{
-				ESP_LOGE(TAG, "too many send errors, giving up");
-				break;
+			if (consecutiveErrors >= kMaxConsecutiveErrors) {
+				xSemaphoreGive(s_freeSem); break;
 			}
+			xSemaphoreGive(s_freeSem);
 			vTaskDelay(pdMS_TO_TICKS(33));
 			continue;
 		}
 		consecutiveErrors = 0;
 
-		/* 切换到另一个 buffer（ping-pong） */
-		cl->bufIdx ^= 1;
-
-		/* 帧率控制 ~20fps */
-		vTaskDelay(pdMS_TO_TICKS(50));
+		xSemaphoreGive(s_freeSem);
 	}
 
-	cl->active = false;
-
-	/* 释放缓冲区 */
-	heap_caps_free(cl->jpegBufs[0]);
-	heap_caps_free(cl->jpegBufs[1]);
-	cl->jpegBufs[0] = cl->jpegBufs[1] = nullptr;
-	cl->task = nullptr;
-
-	/* 异步接管：若握手阶段有 pending 新连接，本任务退出时自动启动新的推流任务 */
-	if (cl->hasPending)
-	{
-		adoptPendingStreamClient();
-		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
-			8192, cl,
-			Task::Priority::Deamon, &cl->task);
-		if (ret != pdPASS)
-		{
-			cl->active = false;
-			ESP_LOGE(TAG, "adopted stream task create failed");
-		}
-	}
-
-	ESP_LOGI(TAG, "stream push task ended");
+	ESP_LOGI(TAG, "send task ended");
 	vTaskDelete(nullptr);
+}
+
+/* 启动双任务 */
+static bool startStreamTasks()
+{
+	const uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_DMA;
+	if (!s_jpegBufs[0]) s_jpegBufs[0] = (uint8_t*)heap_caps_malloc(kJpegBufSize, caps);
+	if (!s_jpegBufs[1]) s_jpegBufs[1] = (uint8_t*)heap_caps_malloc(kJpegBufSize, caps);
+	if (!s_jpegBufs[0] || !s_jpegBufs[1]) return false;
+
+	if (!s_freeSem)  s_freeSem  = xSemaphoreCreateCounting(2, 2);
+	if (!s_sendQueue) s_sendQueue = xQueueCreate(2, sizeof(SendJob));
+	if (!s_freeSem || !s_sendQueue) return false;
+
+	s_streamActive = true;
+
+	if (xTaskCreate(streamEncodeTask, "wsEnc", 4096, nullptr,
+			Task::Priority::Deamon, &s_encodeTask) != pdPASS)
+		{ s_streamActive = false; return false; }
+
+	if (xTaskCreate(streamSendTask, "wsSend", 4096, nullptr,
+			Task::Priority::Deamon, &s_sendTask) != pdPASS)
+		{ s_streamActive = false; return false; }
+
+	return true;
+}
+
+/* 停止串流 */
+static void stopStreamTasks()
+{
+	s_streamActive = false;
+	int wait = 150;
+	while ((s_encodeTask || s_sendTask) && --wait)
+		vTaskDelay(pdMS_TO_TICKS(10));
+	s_encodeTask = s_sendTask = nullptr;
+	/* 清空队列中残留的 job，归还 permit */
+	SendJob dummy;
+	while (s_sendQueue && xQueueReceive(s_sendQueue, &dummy, 0) == pdTRUE)
+		xSemaphoreGive(s_freeSem);
+}
+
+/* 异步踢掉当前串流客户端 */
+static void kickOldStreamClientAsync()
+{
+	if (!s_streamActive && !s_encodeTask && !s_sendTask)
+		return;
+	ESP_LOGI(TAG, "kicking old stream client (fd=%d)", s_streamFd);
+	s_streamActive = false;
+}
+
+/* 接管 pending 连接 */
+static void adoptPendingStreamClient()
+{
+	if (!s_hasPending) return;
+	s_streamHd = s_pendingHd;
+	s_streamFd = s_pendingFd;
+	s_hasPending = false;
+	s_streamActive = true;
+	ESP_LOGI(TAG, "adopted pending stream client (fd=%d)", s_streamFd);
 }
 
 /* ============================================================
  *  WebSocket handler — 屏幕串流
  *  工作流:
  *    1. 握手阶段保存连接信息
- *    2. 客户端发任意 binary 触发启动推送任务
+ *    2. 客户端发任意 binary 触发启动双任务
  *    3. handler 立即返回，httpd 线程不阻塞
- *    4. 推送任务独立运行，异步发帧
+ *    4. 编码+发送双任务并行运行
  * ============================================================ */
 static esp_err_t wsStreamHandler(httpd_req_t* req)
 {
 	if (req->method == HTTP_GET)
 	{
-		/* 握手：永不阻塞 httpd 线程。
-		 * 情况 A：当前空闲 → 直接安装连接信息。
-		 * 情况 B：当前有客户端 → 异步踢掉（旧任务退出时会自动接管 pending），
-		 *         本次握手把新连接存为 pending，等旧任务退出后接管。 */
-		if (s_streamClient.active || s_streamClient.task)
+		if (s_streamActive || s_encodeTask || s_sendTask)
 		{
 			ESP_LOGW(TAG, "old stream client present, queuing new as pending");
 			kickOldStreamClientAsync();
-			s_streamClient.pendingHd = req->handle;
-			s_streamClient.pendingFd = httpd_req_to_sockfd(req);
-			s_streamClient.hasPending = true;
+			s_pendingHd = req->handle;
+			s_pendingFd = httpd_req_to_sockfd(req);
+			s_hasPending = true;
 		}
 		else
 		{
-			s_streamClient.hd = req->handle;
-			s_streamClient.fd = httpd_req_to_sockfd(req);
-			s_streamClient.active = false;
-			s_streamClient.task = nullptr;
-			s_streamClient.bufIdx = 0;
-			s_streamClient.hasPending = false;
+			s_streamHd = req->handle;
+			s_streamFd = httpd_req_to_sockfd(req);
+			s_streamActive = false;
+			s_hasPending = false;
 		}
 		ESP_LOGI(TAG, "ws/stream handshake done (fd=%d)", httpd_req_to_sockfd(req));
 		return ESP_OK;
@@ -348,39 +335,16 @@ static esp_err_t wsStreamHandler(httpd_req_t* req)
 		}
 	}
 
-	/* 启动推送任务
-	 * 情况 A: 当前空闲（task==nullptr, 无 pending） → 立即启动
-	 * 情况 B: 有 pending 且 task 还在运行 → 等旧任务退出时接管
-	 * 情况 C: 有 pending 但 task 已退出（异常） → 直接接管并启动
-	 * 情况 D: task 正在运行 → 无需操作 */
-	if (s_streamClient.task == nullptr)
+	/* 启动双任务（空闲时启动，或 pending 接管后启动） */
+	if (!s_encodeTask && !s_sendTask)
 	{
-		if (s_streamClient.hasPending)
-		{
-			/* 异常恢复：task 已退但 pending 没被接管 */
-			ESP_LOGW(TAG, "adopting stale pending client (task died)");
-			adoptPendingStreamClient();
-		}
-		else
-		{
-			/* 正常启动 */
-		}
+		if (s_hasPending) adoptPendingStreamClient();
 
-		s_streamClient.active = true;
-		BaseType_t ret = xTaskCreate(streamPushTask, "wsStream",
-			8192, &s_streamClient,
-			Task::Priority::Deamon, &s_streamClient.task);
-		if (ret != pdPASS)
+		if (!startStreamTasks())
 		{
-			s_streamClient.active = false;
-			ESP_LOGE(TAG, "stream task create failed");
+			s_streamActive = false;
+			ESP_LOGE(TAG, "start stream tasks failed");
 		}
-	}
-	else if (s_streamClient.hasPending)
-	{
-		/* pending 已存在但旧任务还在退：本次 binary 触发只是确认旧客户端已断，
-		 * 不需要做任何事——adoptPendingStreamClient() 会在旧任务退出时执行。 */
-		ESP_LOGI(TAG, "trigger while pending, waiting for old task to exit");
 	}
 
 	return ESP_OK;
@@ -524,14 +488,8 @@ esp_err_t wsServerBroadcastText(const char* data, size_t len)
 
 void wsServerStop()
 {
-	if (s_streamClient.active || s_streamClient.task)
-	{
-		s_streamClient.active = false;
-		/* 等待推送任务退出 */
-		int wait = 150;
-		while (s_streamClient.task && --wait)
-			vTaskDelay(pdMS_TO_TICKS(10));
-	}
+	stopStreamTasks();
+
 	if (s_server)
 	{
 		httpd_stop(s_server);

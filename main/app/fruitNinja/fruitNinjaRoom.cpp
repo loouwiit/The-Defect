@@ -55,6 +55,9 @@ void FruitNinjaRoom::init()
 
 	m_focusIdx = 1;
 	applyFocus();
+
+	bgm = Audio::play("/root/system/music/fruitninja/bgm.aac").setLoop(true);
+	bgm.play();
 }
 
 // ============================================================

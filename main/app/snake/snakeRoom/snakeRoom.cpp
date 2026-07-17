@@ -38,6 +38,8 @@ void SnakeRoom::init()
 {
 	App::init();
 
+	m_bgm = Audio::play("/root/system/music/snake/bgm.aac").setLoop(true);
+
 	auto guard = display->lockGuard();
 	if (!guard)
 	{
@@ -329,6 +331,9 @@ void SnakeRoom::onGamepadInput(uint8_t playerId, const GamepadState& state)
 
 void SnakeRoom::onForeground()
 {
+	if (!m_bgm.isPlaying())
+		m_bgm.play();
+
 	// 全置按下：下一帧 newPress = state.buttons & ~0xFFFF = 0，自动跳过
 	m_prevButtons = 0xFFFF;
 	applyFocus();

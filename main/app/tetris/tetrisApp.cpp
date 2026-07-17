@@ -34,7 +34,7 @@ void TetrisApp::init()
 {
 	App::init();
 
-	if (!sfxBer.load("/root/sd/system/tetris/ber.aac"))
+	if (!sfxBer.load("/root/system/music/ber.aac"))
 		ESP_LOGE(TAG, "音效文件加载失败");
 
 	auto guard = display->lockGuard();

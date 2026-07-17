@@ -50,6 +50,21 @@ SnakeGameLogic::Direction DirUtils::counterClockwise(SnakeGameLogic::Direction d
 // SnakeGameLogic
 // ============================================================
 
+void SnakeGameLogic::addForbiddenZone(int8_t x1, int8_t y1, int8_t x2, int8_t y2)
+{
+	m_forbiddenZones.push_back({ x1, y1, x2, y2 });
+}
+
+bool SnakeGameLogic::isInForbiddenZone(int x, int y) const
+{
+	for (const auto& zone : m_forbiddenZones)
+	{
+		if (x >= zone.x1 && x <= zone.x2 && y >= zone.y1 && y <= zone.y2)
+			return true;
+	}
+	return false;
+}
+
 SnakeGameLogic::SnakeGameLogic(int playerCount, int gridW, int gridH)
 	: m_playerCount{ playerCount }
 	, m_gridW{ gridW }
@@ -124,14 +139,14 @@ void SnakeGameLogic::reset()
 
 void SnakeGameLogic::spawnFood()
 {
-	// 随机尝试找空格（不分配栈上大数组）
+	// 随机尝试找空格（不分配栈上大数组），且避开禁止区域
 	int attempts = 0;
-	const int maxAttempts = (m_gridW * m_gridH) * 2;
+	const int maxAttempts = (m_gridW * m_gridH) * 4;
 	while (attempts < maxAttempts)
 	{
 		int x = rand() % m_gridW;
 		int y = rand() % m_gridH;
-		if (getCell(x, y) == CELL_EMPTY)
+		if (getCell(x, y) == CELL_EMPTY && !isInForbiddenZone(x, y))
 		{
 			m_food.x = static_cast<int8_t>(x);
 			m_food.y = static_cast<int8_t>(y);
@@ -140,10 +155,10 @@ void SnakeGameLogic::spawnFood()
 		attempts++;
 	}
 
-	// 兜底：顺序扫描（棋盘几乎满时）
+	// 兜底：顺序扫描（棋盘几乎满时），仍避开禁止区域
 	for (int x = 0; x < m_gridW; x++)
 		for (int y = 0; y < m_gridH; y++)
-			if (getCell(x, y) == CELL_EMPTY)
+			if (getCell(x, y) == CELL_EMPTY && !isInForbiddenZone(x, y))
 			{
 				m_food.x = static_cast<int8_t>(x);
 				m_food.y = static_cast<int8_t>(y);

@@ -2,6 +2,7 @@
 
 #include "app/app.hpp"
 #include "bleGamepad/gamepadState.hpp"
+#include "audio/Audio.hpp"
 
 /**
  * @brief 水果忍者游戏大厅
@@ -55,4 +56,6 @@ private:
 	static void on1PCb(lv_event_t* e);
 	static void on2PCb(lv_event_t* e);
 	static void onStartCb(lv_event_t* e);
+
+	AudioHandle bgm{};
 };

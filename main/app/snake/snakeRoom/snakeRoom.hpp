@@ -2,6 +2,7 @@
 
 #include "app/app.hpp"
 #include "bleGamepad/gamepadState.hpp"
+#include "audio/Audio.hpp"
 
 /**
  * @brief 贪吃蛇游戏大厅
@@ -60,4 +61,6 @@ private:
 	static void btn2PCb(lv_event_t* e);
 	static void btn3PCb(lv_event_t* e);
 	static void btn4PCb(lv_event_t* e);
+
+	AudioHandle m_bgm{};
 };
