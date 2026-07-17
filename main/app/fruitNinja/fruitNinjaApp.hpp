@@ -58,6 +58,7 @@ private:
 	static void onTouchCb(lv_event_t* e);
 
 	static void btnRestartCb(lv_event_t* e);
+	static void btnExitCb(lv_event_t* e);
 	static void btnBackCb(lv_event_t* e);
 
 	void applyFocus();

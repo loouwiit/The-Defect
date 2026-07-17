@@ -119,6 +119,20 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 	lv_obj_remove_flag(m_gameOverScore, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_add_flag(m_gameOverScore, LV_OBJ_FLAG_HIDDEN);
 
+	// ── 退出按钮（游戏中可见，右上角） ──
+	m_exitBtn = lv_button_create(parent);
+	lv_obj_set_size(m_exitBtn, 100, 44);
+	lv_obj_set_style_radius(m_exitBtn, 12, 0);
+	lv_obj_set_style_bg_color(m_exitBtn, lv_color_hex(0xaa333355), 0);
+	lv_obj_set_style_bg_opa(m_exitBtn, LV_OPA_COVER, 0);
+	lv_obj_set_style_border_width(m_exitBtn, 0, 0);
+	lv_obj_align(m_exitBtn, LV_ALIGN_TOP_RIGHT, -16, 16);
+	lv_obj_add_flag(m_exitBtn, LV_OBJ_FLAG_HIDDEN);
+	auto exitLbl = lv_label_create(m_exitBtn);
+	lv_label_set_text(exitLbl, "退出");
+	lv_obj_set_style_text_color(exitLbl, lv_color_hex(0xffffffff), 0);
+	lv_obj_center(exitLbl);
+
 	ESP_LOGI(TAG, "对象池创建完成: %d fruits, %d particles", MAX_FRUITS, MAX_PARTICLES);
 }
 
@@ -232,6 +246,12 @@ void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 		}
 	}
 
+	// ── 退出按钮（游戏中显示，GameOver 时隐藏） ──
+	if (isPlaying)
+		lv_obj_clear_flag(m_exitBtn, LV_OBJ_FLAG_HIDDEN);
+	else
+		lv_obj_add_flag(m_exitBtn, LV_OBJ_FLAG_HIDDEN);
+
 	// ── HUD ──
 	updateHUD(lv_obj_get_parent(m_scoreLabel), logic);
 }
@@ -281,7 +301,7 @@ void FruitNinjaRenderer::updateHUD(lv_obj_t* parent, const FruitNinjaLogic& logi
 		{
 			lv_label_set_text_fmt(m_livesLabel, "\u2764 x%d", logic.getLives(0));
 		}
-		lv_obj_align(m_livesLabel, LV_ALIGN_TOP_RIGHT, -12, 8);
+		lv_obj_align_to(m_livesLabel, m_scoreLabel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
 		lv_obj_clear_flag(m_livesLabel, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_add_flag(m_timerLabel, LV_OBJ_FLAG_HIDDEN);
 	}
