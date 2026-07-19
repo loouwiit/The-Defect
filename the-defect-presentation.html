@@ -25,6 +25,7 @@
             --neon-cyan: #5EDCF4;
             --neon-pink: #F0A6CA;
             --neon-yellow: #F4D03F;
+            --neon-green: #00C853;
             --soft-lavender: #E2D5F2;
             --white: #FFFFFF;
             --text-body-dark: rgba(255, 255, 255, 0.7);
@@ -36,12 +37,12 @@
             --font-mono: 'Space Mono', monospace;
             --font-cjk: 'Noto Sans SC', sans-serif;
 
-            --title-size: 128px;
-            --display-size: 64px;
-            --headline-size: 45px;
-            --subhead-size: 24px;
-            --body-size: 18px;
-            --label-size: 12px;
+            --title-size: 148px;
+            --display-size: 78px;
+            --headline-size: 56px;
+            --subhead-size: 32px;
+            --body-size: 24px;
+            --label-size: 14px;
 
             /* --- Spacing (4px pixel unit) --- */
             --px: 4px;
@@ -418,7 +419,7 @@
         /* Stat Number */
         .stat-number {
             font-family: var(--font-display);
-            font-size: 56px;
+            font-size: 68px;
             font-weight: 900;
             line-height: 1;
             color: var(--neon-cyan);
@@ -610,12 +611,12 @@
         }
         .slide-title .subtitle {
             font-family: var(--font-mono);
-            font-size: 16px;
+            font-size: 20px;
             font-weight: 400;
             letter-spacing: 0.3em;
             text-transform: uppercase;
             color: var(--neon-pink);
-            margin-top: 24px;
+            margin-top: 28px;
         }
         .slide-title .subtitle.cjk {
             font-family: var(--font-cjk);
@@ -640,12 +641,12 @@
             display: inline-block;
             border: 2px solid var(--neon-yellow);
             color: var(--neon-yellow);
-            padding: 8px 16px;
+            padding: 10px 20px;
             font-family: var(--font-mono);
-            font-size: 11px;
+            font-size: 14px;
             letter-spacing: 0.1em;
             text-transform: uppercase;
-            margin: 0 6px;
+            margin: 0 8px;
         }
         .slide-title .hero-badge.cjk {
             font-family: var(--font-cjk);
@@ -705,7 +706,7 @@
         }
         .hw-card .hw-name {
             font-family: var(--font-display);
-            font-size: 20px;
+            font-size: 24px;
             font-weight: 700;
             color: var(--neon-cyan);
             line-height: 1.2;
@@ -717,9 +718,9 @@
         }
         .hw-card .hw-desc {
             font-family: var(--font-body);
-            font-size: 14px;
+            font-size: 17px;
             color: var(--text-body-dark);
-            margin-top: 8px;
+            margin-top: 10px;
             line-height: 1.6;
         }
         .hw-card .hw-desc.cjk {
@@ -746,12 +747,12 @@
         }
         .arch-layer .layer-label {
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 700;
             letter-spacing: 0.15em;
             text-transform: uppercase;
             color: var(--neon-yellow);
-            width: 140px;
+            width: 150px;
             flex-shrink: 0;
         }
         .arch-layer .layer-label.cjk {
@@ -762,7 +763,7 @@
         }
         .arch-layer .layer-items {
             font-family: var(--font-body);
-            font-size: 15px;
+            font-size: 18px;
             color: var(--white);
         }
         .arch-layer .layer-items.cjk {
@@ -830,7 +831,7 @@
         }
         .tech-highlights .highlight .hl-title {
             font-family: var(--font-display);
-            font-size: 16px;
+            font-size: 20px;
             font-weight: 700;
             color: var(--neon-yellow);
         }
@@ -841,9 +842,9 @@
         }
         .tech-highlights .highlight .hl-desc {
             font-family: var(--font-body);
-            font-size: 13px;
+            font-size: 16px;
             color: var(--text-body-dark);
-            margin-top: 6px;
+            margin-top: 8px;
             line-height: 1.6;
         }
         .tech-highlights .highlight .hl-desc.cjk {
@@ -851,6 +852,80 @@
             font-weight: 400;
             letter-spacing: 0;
             line-height: 1.7;
+        }
+
+        /* --- Slide 6: AI Agent --- */
+        .agent-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+        .agent-flow .af-step {
+            background: rgba(15, 27, 61, 0.6);
+            padding: 14px 18px;
+            border: 2px solid rgba(244, 208, 63, 0.25);
+            text-align: center;
+            min-width: 100px;
+        }
+        .agent-flow .af-step .af-icon {
+            font-size: 26px;
+            margin-bottom: 6px;
+        }
+        .agent-flow .af-step .af-text {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 400;
+            color: var(--neon-yellow);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .agent-flow .af-step .af-text.cjk {
+            font-family: var(--font-cjk);
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: none;
+            font-size: 11px;
+        }
+        .agent-flow .af-arrow {
+            font-size: 20px;
+            color: var(--neon-pink);
+        }
+        .agent-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 20px;
+        }
+        .agent-grid .ag-item {
+            padding: 14px 18px;
+            background: rgba(255, 255, 255, 0.08);
+            border-left: 4px solid var(--neon-cyan);
+        }
+        .agent-grid .ag-item .ag-title {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--neon-cyan);
+        }
+        .agent-grid .ag-item .ag-title.cjk {
+            font-family: var(--font-cjk);
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+        .agent-grid .ag-item .ag-desc {
+            font-family: var(--font-body);
+            font-size: 15px;
+            color: var(--text-body-dark);
+            margin-top: 6px;
+            line-height: 1.6;
+        }
+        .agent-grid .ag-item .ag-desc.cjk {
+            font-family: var(--font-cjk);
+            font-weight: 400;
+            letter-spacing: 0;
         }
 
         /* Feature matrix */
@@ -867,7 +942,7 @@
         }
         .feature-matrix .feat-item .feat-name {
             font-family: var(--font-display);
-            font-size: 18px;
+            font-size: 22px;
             font-weight: 700;
             color: var(--white);
         }
@@ -878,9 +953,9 @@
         }
         .feature-matrix .feat-item .feat-desc {
             font-family: var(--font-body);
-            font-size: 13px;
+            font-size: 16px;
             color: var(--text-body-dark);
-            margin-top: 4px;
+            margin-top: 6px;
         }
         .feature-matrix .feat-item .feat-desc.cjk {
             font-family: var(--font-cjk);
@@ -888,7 +963,7 @@
             letter-spacing: 0;
         }
 
-        /* --- Slide 7: Thank You --- */
+        /* --- Slide 8: Thank You --- */
         .slide-thanks {
             display: flex;
             align-items: center;
@@ -1082,19 +1157,25 @@
                 <div class="slide-content flex-center flex-col" style="justify-content:center;">
                     <div class="title-inner reveal" style="text-align:center;">
                         <span class="label-pill" style="margin-bottom:20px;">嵌入式游戏主机</span>
-                        <h1 class="pixel-hero cjk" style="font-size:100px;">
+                        <h1 class="pixel-hero cjk" style="font-size:120px;">
                             THE-DEFECT
                         </h1>
-                        <p class="subtitle" style="margin-top:12px; font-size:20px;">
+                        <p class="subtitle" style="margin-top:16px; font-size:24px;">
                             ESP32-P4 多人游戏主机 &nbsp;/&nbsp; ESP32-C6 无线手柄
                         </p>
-                        <div style="margin-top:24px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
-                            <span class="hero-badge">ESP32-P4 双核 400MHz</span>
+                        <div style="margin-top:28px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
+                            <span class="hero-badge">P4 双核 400MHz</span>
                             <span class="hero-badge">6" 720×1280 MIPI</span>
-                            <span class="hero-badge">LVGL 9.4 GUI</span>
+                            <span class="hero-badge">LVGL 9.4 + PPA</span>
+                            <span class="hero-badge" style="border-color:var(--neon-pink); color:var(--neon-pink);">AI Agent</span>
+                            <span class="hero-badge" style="border-color:var(--neon-green); color:var(--neon-green);">BLE 4P</span>
+                            <span class="hero-badge" style="border-color:var(--soft-lavender); color:var(--soft-lavender);">ESP-IDF 5.x</span>
                         </div>
-                        <p class="tagline body" style="margin-top:36px; font-size:16px; color:rgba(255,255,255,0.45);">
-                            2026 年 6 月
+                        <p class="tagline body" style="margin-top:24px; font-size:18px; color:rgba(255,255,255,0.5);">
+                            ESP32-P4 + ESP32-C6 协处理器架构 · 全链路自研 · 100% 开源
+                        </p>
+                        <p class="tagline body" style="margin-top:6px; font-size:16px; color:rgba(255,255,255,0.3);">
+                            2026 年 7 月
                         </p>
                     </div>
                 </div>
@@ -1110,10 +1191,10 @@
                     <h2 class="display cjk reveal" style="margin-top:12px;">
                         项目定位
                     </h2>
-                    <p class="body reveal" style="margin-top:20px; max-width:1200px; font-size:20px; line-height:1.8;">
-                        基于 <strong style="color:var(--neon-cyan);">ESP32-P4</strong> 的多人游戏主机，
-                        搭配 <strong style="color:var(--neon-pink);">ESP32-C6</strong> 无线手柄，
-                        6 英寸 720p MIPI 触摸屏，LVGL 9.4 GUI 框架。
+                    <p class="body reveal" style="margin-top:20px; max-width:1300px; font-size:24px; line-height:1.8;">
+                        基于 <strong style="color:var(--neon-cyan);">ESP32-P4</strong> + <strong style="color:var(--neon-pink);">ESP32-C6</strong> 协处理器架构的多人游戏主机。
+                        6 英寸 720p MIPI 触摸屏，LVGL 9.4 GUI 框架，PPA 硬件加速渲染。
+                        集成 <strong style="color:var(--neon-yellow);">AI Agent</strong> 自然语言操控、BLE 无线手柄、屏幕串流。
                         从硬件设计到软件架构，打造完整的嵌入式游戏生态。
                     </p>
 
@@ -1127,8 +1208,14 @@
                         <div class="stat-block">
                             <div class="corner-tl"></div>
                             <div class="corner-br"></div>
-                            <div class="stat-number">6"</div>
-                            <div class="stat-label">720×1280 MIPI 屏</div>
+                            <div class="stat-number">4</div>
+                            <div class="stat-label">BLE 手柄同时连接</div>
+                        </div>
+                        <div class="stat-block">
+                            <div class="corner-tl"></div>
+                            <div class="corner-br"></div>
+                            <div class="stat-number">5</div>
+                            <div class="stat-label">内置游戏 + AI 对手</div>
                         </div>
                         <div class="stat-block">
                             <div class="corner-tl"></div>
@@ -1139,8 +1226,14 @@
                         <div class="stat-block">
                             <div class="corner-tl"></div>
                             <div class="corner-br"></div>
-                            <div class="stat-number">5</div>
-                            <div class="stat-label">内置游戏</div>
+                            <div class="stat-number">14</div>
+                            <div class="stat-label">音频多流混音</div>
+                        </div>
+                        <div class="stat-block">
+                            <div class="corner-tl"></div>
+                            <div class="corner-br"></div>
+                            <div class="stat-number">22</div>
+                            <div class="stat-label">系统模块数量</div>
                         </div>
                     </div>
                 </div>
@@ -1162,14 +1255,14 @@
                             <div class="corner-br"></div>
                             <div class="hw-icon">🎮</div>
                             <div class="hw-name">ESP32-P4</div>
-                            <div class="hw-desc">主控 SoC · 双核 400MHz · PSRAM 主堆<br>MIPI DSI 2-lane · 硬件 JPEG 编码</div>
+                            <div class="hw-desc">主控 SoC · 双核 400MHz · PSRAM 主堆<br>MIPI DSI 2-lane · 硬件 JPEG 编码 · PPA</div>
                         </div>
                         <div class="hw-card">
                             <div class="corner-tl"></div>
                             <div class="corner-br"></div>
-                            <div class="hw-icon">🕹️</div>
-                            <div class="hw-name">ESP32-C6 ×2</div>
-                            <div class="hw-desc">无线手柄 · WiFi/蓝牙 · 按钮+摇杆<br>UART 有线回退 · 热插拔</div>
+                            <div class="hw-icon">🔄</div>
+                            <div class="hw-name">ESP32-C6（协处理器）</div>
+                            <div class="hw-desc">SDIO 通信 · WiFi STA/AP 双模<br>NimBLE Controller · 蓝牙射频</div>
                         </div>
                         <div class="hw-card">
                             <div class="corner-tl"></div>
@@ -1181,19 +1274,22 @@
                         <div class="hw-card">
                             <div class="corner-tl"></div>
                             <div class="corner-br"></div>
-                            <div class="hw-icon">🔗</div>
-                            <div class="hw-name">通信网络</div>
-                            <div class="hw-desc">WiFi STA/AP 双模 · NAT 转发<br>mDNS 自动发现 · WebSocket 实时</div>
+                            <div class="hw-icon">🔊</div>
+                            <div class="hw-name">音频 &amp; 外设</div>
+                            <div class="hw-desc">ES8311 编解码器 · I²S 输出<br>ADC 电池检测 · 充电检测 GPIO</div>
                         </div>
                     </div>
 
                     <!-- Communication diagram -->
-                    <div class="reveal" style="margin-top:24px; padding:16px 24px; background:rgba(15,27,61,0.5); border-left:4px solid var(--neon-yellow);">
-                        <p style="font-family:var(--font-mono); font-size:12px; color:var(--neon-yellow); letter-spacing:0.1em;">
-                            P4 ↔ C6:  ESP-NOW / UART (有线) / WiFi (无线)
+                    <div class="reveal" style="margin-top:24px; padding:18px 28px; background:rgba(15,27,61,0.5); border-left:4px solid var(--neon-yellow);">
+                        <p style="font-family:var(--font-mono); font-size:15px; color:var(--neon-yellow); letter-spacing:0.1em;">
+                            P4 ↔ C6: SDIO (esp_hosted)  |  P4 NimBLE Host ↔ C6 NimBLE Controller
                         </p>
-                        <p style="font-family:var(--font-mono); font-size:12px; color:var(--neon-pink); letter-spacing:0.1em; margin-top:4px;">
-                            P4 ↔ 显示: MIPI DSI 2-lane  |  P4 ↔ 触摸: I²C  |  P4 ↔ 网络: WiFi
+                        <p style="font-family:var(--font-mono); font-size:15px; color:var(--neon-pink); letter-spacing:0.1em; margin-top:6px;">
+                            P4 ↔ 显示: MIPI DSI 2-lane  |  P4 ↔ 触摸: I²C  |  P4 ↔ 音频: I²S + I²C
+                        </p>
+                        <p style="font-family:var(--font-mono); font-size:15px; color:var(--neon-green); letter-spacing:0.1em; margin-top:6px;">
+                            C6: WiFi STA/AP 双模 · BLE 蓝牙射频 · 2.4GHz 共用天线
                         </p>
                     </div>
                 </div>
@@ -1211,28 +1307,32 @@
 
                     <div class="arch-stack reveal">
                         <div class="arch-layer" style="border-left-color:var(--neon-yellow);">
-                            <span class="layer-label">应用层</span>
-                            <span class="layer-items">DesktopApp 游戏菜单 · TestApp · 游戏应用</span>
+                            <span class="layer-label">AI Agent</span>
+                            <span class="layer-items">AiClient · AiParser · AiExecutor · 浮动窗 (lv_layer_sys)</span>
                         </div>
                         <div class="arch-layer" style="border-left-color:var(--neon-pink);">
-                            <span class="layer-label">GUI 层</span>
-                            <span class="layer-items">LVGL 9.4 · 触摸驱动 · 虚拟输入 · 字体引擎</span>
+                            <span class="layer-label">应用层</span>
+                            <span class="layer-items">DesktopApp · Tetris · Snake · FruitNinja · ChineseChess · 设置 App ×4</span>
                         </div>
                         <div class="arch-layer" style="border-left-color:var(--neon-cyan);">
-                            <span class="layer-label">显示层</span>
-                            <span class="layer-items">ILI9881C 初始化 · 桥接适配 · ScreenStream 零拷贝串流</span>
+                            <span class="layer-label">导航层</span>
+                            <span class="layer-items">AppStack 多栈导航 · 根栈 + 游戏栈 · 异步删除 · 防重入</span>
                         </div>
                         <div class="arch-layer" style="border-left-color:var(--neon-yellow);">
-                            <span class="layer-label">网络层</span>
-                            <span class="layer-items">WiFi STA/AP · mDNS 服务发现 · HTTP 服务器 · WebSocket</span>
+                            <span class="layer-label">GUI 层</span>
+                            <span class="layer-items">LVGL 9.4 · PPA 硬件加速 · 字体引擎 · 色板 + 工厂方法</span>
                         </div>
                         <div class="arch-layer" style="border-left-color:var(--neon-pink);">
-                            <span class="layer-label">驱动层</span>
-                            <span class="layer-items">I²C 总线 · GPIO 封装 · UART 通信 · 协程调度器</span>
+                            <span class="layer-label">网络层</span>
+                            <span class="layer-items">WiFi STA/AP · SDIO · HTTP 服务器 · WebSocket · mDNS</span>
                         </div>
                         <div class="arch-layer" style="border-left-color:var(--neon-cyan);">
+                            <span class="layer-label">驱动层</span>
+                            <span class="layer-items">I²C 总线 · GPIO 封装 · 协程调度器 · RAII 互斥锁</span>
+                        </div>
+                        <div class="arch-layer" style="border-left-color:var(--neon-yellow);">
                             <span class="layer-label">系统层</span>
-                            <span class="layer-items">FreeRTOS 双核 · FAT 分区 16MB · PSRAM 主堆 · 互斥锁 RAII</span>
+                            <span class="layer-items">FreeRTOS 双核 · FAT 16MB · PSRAM 主堆 · NVS 持久化</span>
                         </div>
                     </div>
                 </div>
@@ -1248,7 +1348,7 @@
                         零拷贝屏幕串流
                     </h2>
                     <p class="body cjk reveal" style="margin-top:8px; max-width:1100px;">
-                        传统方案使用 <code style="color:var(--neon-pink);">lv_snapshot_take_to_draw_buf()</code> 会<strong style="color:var(--neon-yellow);">完整重绘 UI 对象树</strong>，
+                        传统方案使用 <code style="color:var(--neon-pink);">lv_snapshot</code> 会<strong style="color:var(--neon-yellow);">完整重绘 UI 对象树</strong>，
                         本项目改用直接读取 bridge 帧缓冲，完全消除多余渲染。
                     </p>
 
@@ -1311,7 +1411,74 @@
             </section>
 
             <!-- ===========================================
-                 SLIDE 6 — GAMES & FEATURES
+                 SLIDE 6 — AI AGENT SYSTEM
+                 =========================================== -->
+            <section class="slide grid-bg crt-vignette" data-label="AI Agent">
+                <div class="slide-content">
+                    <span class="label-pill reveal" style="background:var(--neon-pink); color:var(--deep-navy);">技术亮点</span>
+                    <h2 class="display cjk reveal" style="margin-top:12px;">
+                        AI Agent 自然语言操控
+                    </h2>
+                    <p class="body cjk reveal" style="margin-top:8px; max-width:1100px;">
+                        集成 <strong style="color:var(--neon-pink);">OpenAI 兼容 API</strong>，用户通过触屏输入自然语言，
+                        AI 自主规划并执行操作。<strong style="color:var(--neon-cyan);">系统层浮动窗</strong>驻留
+                        <code style="color:var(--neon-yellow);">lv_layer_sys</code>，不占用 App 栈。
+                    </p>
+
+                    <!-- Agent flow -->
+                    <div class="agent-flow reveal">
+                        <div class="af-step">
+                            <div class="af-icon">📝</div>
+                            <div class="af-text">用户输入</div>
+                        </div>
+                        <span class="af-arrow">→</span>
+                        <div class="af-step">
+                            <div class="af-icon">🌐</div>
+                            <div class="af-text">HTTPS → LLM</div>
+                        </div>
+                        <span class="af-arrow">→</span>
+                        <div class="af-step" style="border-color:var(--neon-yellow);">
+                            <div class="af-icon">⚙️</div>
+                            <div class="af-text" style="color:var(--neon-yellow);">JSON actions</div>
+                        </div>
+                        <span class="af-arrow">→</span>
+                        <div class="af-step">
+                            <div class="af-icon">🎯</div>
+                            <div class="af-text">AiExecutor</div>
+                        </div>
+                        <span class="af-arrow">→</span>
+                        <div class="af-step" style="border-color:var(--neon-pink);">
+                            <div class="af-icon">💬</div>
+                            <div class="af-text" style="color:var(--neon-pink);">回复用户</div>
+                        </div>
+                    </div>
+                    <p class="body cjk reveal" style="margin-top:8px; text-align:center; font-size:12px; color:rgba(255,255,255,0.4);">
+                        如需数据采集 → 自动下一轮 LLM 调用 → 综合回复（最多 3 轮）
+                    </p>
+
+                    <div class="agent-grid reveal">
+                        <div class="ag-item">
+                            <div class="ag-title">🪟 浮动窗设计</div>
+                            <div class="ag-desc">驻留 lv_layer_sys，不占 App 栈，可拖拽，顶部下滑唤出</div>
+                        </div>
+                        <div class="ag-item">
+                            <div class="ag-title">🔧 11 个系统工具</div>
+                            <div class="ag-desc">开关应用、调亮度/音量、WiFi 连接、设备信息等</div>
+                        </div>
+                        <div class="ag-item">
+                            <div class="ag-title">🧩 App 扩展工具</div>
+                            <div class="ag-desc">各 App 通过 getAiContext() / executeAiAction() 暴露专属操作</div>
+                        </div>
+                        <div class="ag-item">
+                            <div class="ag-title">🔄 多模型兼容</div>
+                            <div class="ag-desc">OpenAI / Ollama / DeepSeek 等，配置文件即用</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 7 — GAMES & FEATURES
                  =========================================== -->
             <section class="slide grid-bg-pink crt-vignette" data-label="功能展示" style="background-color:var(--neon-pink);">
                 <div class="slide-content">
@@ -1319,75 +1486,249 @@
                     <h2 class="display cjk reveal" style="margin-top:12px; color:var(--deep-navy);">
                         游戏 &amp; 特性
                     </h2>
+                    <p class="body cjk reveal" style="margin-top:8px; color:var(--deep-navy); font-size:15px; opacity:0.7;">
+                        主机-房间架构 · 自动创建/加入 · AI 对手
+                    </p>
 
-                    <div class="feature-matrix reveal" style="margin-top:20px;">
+                    <div class="feature-matrix reveal" style="margin-top:12px;">
                         <div class="feat-item" style="background:rgba(15,27,61,0.35);">
-                            <div class="feat-name">🎮 Tetris</div>
-                            <div class="feat-desc">摇杆/按钮控制 · 经典俄罗斯方块</div>
+                            <div class="feat-name">🧱 Tetris</div>
+                            <div class="feat-desc">3 人对战 · 7-bag · SRS · Host-authoritative</div>
                         </div>
                         <div class="feat-item" style="background:rgba(15,27,61,0.35);">
                             <div class="feat-name">🐍 Snake</div>
-                            <div class="feat-desc">摇杆控制 · 经典贪吃蛇</div>
+                            <div class="feat-desc">4 人对战 · 房间配对 · 经典蛇对战</div>
                         </div>
                         <div class="feat-item" style="background:rgba(15,27,61,0.35);">
                             <div class="feat-name">🍉 Fruit Ninja</div>
-                            <div class="feat-desc">触屏滑动 · 水果忍者</div>
+                            <div class="feat-desc">2 人对战 · 触屏滑动 · 含房间系统</div>
                         </div>
                         <div class="feat-item" style="background:rgba(15,27,61,0.35);">
                             <div class="feat-name">♟️ 中国象棋</div>
-                            <div class="feat-desc">按钮 + 触屏 · 残局/对战</div>
+                            <div class="feat-desc">双人对战 + 内置 AI 引擎 · 触屏/手柄</div>
                         </div>
                     </div>
 
-                    <div style="display:flex; gap:12px; margin-top:24px; flex-wrap:wrap;" class="reveal">
+                    <div style="display:flex; gap:12px; margin-top:20px; flex-wrap:wrap;" class="reveal">
                         <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
-                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">WiFi 多人联机</span>
+                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">4 人 BLE 手柄同时连接</span>
+                        </span>
+                        <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
+                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">NVS 自动重连</span>
                         </span>
                         <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
                             <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">mDNS: esp32p4.local</span>
                         </span>
                         <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
-                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">Web 文件管理器</span>
-                        </span>
-                        <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
-                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">WebSocket 远程控制</span>
+                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">AI Agent 语音/触控</span>
                         </span>
                         <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
                             <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">MJPEG 屏幕串流</span>
+                        </span>
+                        <span style="background:rgba(15,27,61,0.3); padding:10px 18px; border-left:4px solid var(--deep-navy);">
+                            <span style="font-family:var(--font-mono); font-size:12px; color:var(--deep-navy); letter-spacing:0.1em;">WebSocket 远程触控</span>
                         </span>
                     </div>
                 </div>
             </section>
 
             <!-- ===========================================
-                 SLIDE 7 — THANK YOU / CLOSING
+                 SLIDE 8 — AUDIO & BLE SUBSYSTEM
+                 =========================================== -->
+            <section class="slide grid-bg crt-vignette" data-label="音频与BLE">
+                <div class="slide-content">
+                    <span class="label-pill reveal">子系统</span>
+                    <h2 class="display cjk reveal" style="margin-top:8px;">
+                        音频 &amp; BLE 子系统
+                    </h2>
+                    <p class="body cjk reveal" style="margin-top:12px; max-width:1300px;">
+                        从音频编解码到无线手柄，构建完整的娱乐体验。
+                    </p>
+
+                    <!-- Audio section -->
+                    <div class="reveal" style="margin-top:20px; display:flex; gap:20px; flex-wrap:wrap;">
+                        <div class="hw-card" style="flex:1.2; min-width:350px;">
+                            <div class="corner-tl"></div>
+                            <div class="corner-br"></div>
+                            <div class="hw-icon">🔊</div>
+                            <div class="hw-name">ES8311 音频编解码器</div>
+                            <div class="hw-desc">
+                                I²C 控制 + I²S 音频数据 · 功放 GPIO53<br>
+                                Audio 管理器 — Meyer's Singleton 多流混音<br>
+                                AudioHandle — 值类型生命周期管理<br>
+                                AudioSample — 预解码 PCM 缓存到 PSRAM，零 I/O 播放
+                            </div>
+                        </div>
+                        <div class="hw-card" style="flex:1; min-width:280px;">
+                            <div class="corner-tl"></div>
+                            <div class="corner-br"></div>
+                            <div class="hw-icon">🎮</div>
+                            <div class="hw-name">BLE 无线手柄</div>
+                            <div class="hw-desc">
+                                4 玩家上限 · NimBLE + esp_hosted<br>
+                                NVS 持久化配对 · 开机 5 秒自动重连<br>
+                                GamepadState 位图按键 · 电池服务读数
+                            </div>
+                        </div>
+                        <div class="hw-card" style="flex:0.8; min-width:200px;">
+                            <div class="corner-tl"></div>
+                            <div class="corner-br"></div>
+                            <div class="hw-icon">🔋</div>
+                            <div class="hw-name">电池管理</div>
+                            <div class="hw-desc">
+                                ADC1_CH6 分压检测 · GPIO23 充电状态<br>
+                                充电动画 · LV_SYMBOL_BATTERY 图标
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audio data flow -->
+                    <div class="tech-flow reveal" style="margin-top:16px;">
+                        <div class="flow-step" style="padding:10px 14px;">
+                            <div class="step-icon" style="font-size:22px;">💿</div>
+                            <div class="step-text">FAT 文件</div>
+                        </div>
+                        <span class="flow-arrow" style="font-size:18px;">→</span>
+                        <div class="flow-step" style="padding:10px 14px;">
+                            <div class="step-icon" style="font-size:22px;">🔐</div>
+                            <div class="step-text">AudioSample 解码</div>
+                        </div>
+                        <span class="flow-arrow" style="font-size:18px;">→</span>
+                        <div class="flow-step" style="padding:10px 14px;border-color:var(--neon-yellow);">
+                            <div class="step-icon" style="font-size:22px;">📦</div>
+                            <div class="step-text" style="color:var(--neon-yellow);">PCM PSRAM 缓存</div>
+                        </div>
+                        <span class="flow-arrow" style="font-size:18px;">→</span>
+                        <div class="flow-step" style="padding:10px 14px;">
+                            <div class="step-icon" style="font-size:22px;">🎚️</div>
+                            <div class="step-text">esp_audio_render 混音</div>
+                        </div>
+                        <span class="flow-arrow" style="font-size:18px;">→</span>
+                        <div class="flow-step" style="padding:10px 14px;border-color:var(--neon-pink);">
+                            <div class="step-icon" style="font-size:22px;">🔊</div>
+                            <div class="step-text" style="color:var(--neon-pink);">ES8311 DAC 输出</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 9 — STORAGE & SYSTEM
+                 =========================================== -->
+            <section class="slide grid-bg crt-vignette" data-label="存储与系统">
+                <div class="starfield" id="starfield9"></div>
+                <div class="slide-content">
+                    <span class="label-pill reveal">系统</span>
+                    <h2 class="display cjk reveal" style="margin-top:8px;">
+                        存储 &amp; 系统架构
+                    </h2>
+
+                    <div class="reveal" style="margin-top:16px; display:flex; gap:20px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:280px;">
+                            <div class="stat-block" style="margin-bottom:14px;">
+                                <div class="corner-tl"></div>
+                                <div class="corner-br"></div>
+                                <div style="font-family:var(--font-mono); font-size:12px; color:var(--neon-cyan); letter-spacing:0.1em; margin-bottom:4px;">FAT Flash</div>
+                                <div class="stat-number" style="font-size:44px;">16 MB</div>
+                                <div class="stat-label" style="font-size:11px;">/root/ · 资源+配置</div>
+                            </div>
+                            <div class="stat-block" style="margin-bottom:14px;">
+                                <div class="corner-tl"></div>
+                                <div class="corner-br"></div>
+                                <div style="font-family:var(--font-mono); font-size:12px; color:var(--neon-cyan); letter-spacing:0.1em; margin-bottom:4px;">memFS PSRAM</div>
+                                <div class="stat-number" style="font-size:44px;">6 MB</div>
+                                <div class="stat-label" style="font-size:11px;">/root/mem · 运行时文件</div>
+                            </div>
+                            <div class="stat-block">
+                                <div class="corner-tl"></div>
+                                <div class="corner-br"></div>
+                                <div style="font-family:var(--font-mono); font-size:12px; color:var(--neon-cyan); letter-spacing:0.1em; margin-bottom:4px;">SD 卡</div>
+                                <div class="stat-number" style="font-size:44px;">∞</div>
+                                <div class="stat-label" style="font-size:11px;">/root/sd · 扩展存储</div>
+                            </div>
+                        </div>
+
+                        <div style="flex:2; min-width:450px;">
+                            <!-- Partition table -->
+                            <div style="background:rgba(94,220,244,0.06); border:2px solid rgba(94,220,244,0.15); padding:16px 20px;">
+                                <p style="font-family:var(--font-mono); font-size:14px; color:var(--neon-yellow); letter-spacing:0.1em; margin-bottom:10px;">分区表</p>
+                                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; font-family:var(--font-mono); font-size:13px;">
+                                    <div style="background:rgba(15,27,61,0.5); padding:8px 12px; border-left:3px solid var(--neon-cyan);">
+                                        <span style="color:var(--neon-cyan);">nvs</span><br>
+                                        <span style="color:var(--text-body-dark);">16KB · 配置持久化</span>
+                                    </div>
+                                    <div style="background:rgba(15,27,61,0.5); padding:8px 12px; border-left:3px solid var(--neon-pink);">
+                                        <span style="color:var(--neon-pink);">otadata</span><br>
+                                        <span style="color:var(--text-body-dark);">8KB · OTA 数据</span>
+                                    </div>
+                                    <div style="background:rgba(15,27,61,0.5); padding:8px 12px; border-left:3px solid var(--neon-yellow);">
+                                        <span style="color:var(--neon-yellow);">phy_init</span><br>
+                                        <span style="color:var(--text-body-dark);">4KB · 射频校准</span>
+                                    </div>
+                                    <div style="background:rgba(15,27,61,0.5); padding:8px 12px; border-left:3px solid var(--neon-cyan);">
+                                        <span style="color:var(--neon-cyan);">ota_0</span><br>
+                                        <span style="color:var(--text-body-dark);">6MB · 应用固件</span>
+                                    </div>
+                                    <div style="background:rgba(15,27,61,0.5); padding:8px 12px; border-left:3px solid var(--neon-green);">
+                                        <span style="color:var(--neon-green);">fat</span><br>
+                                        <span style="color:var(--text-body-dark);">16MB · 数据分区</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Startup flow -->
+                            <div style="margin-top:14px; padding:14px 20px; background:rgba(15,27,61,0.5); border-left:4px solid var(--neon-pink);">
+                                <p style="font-family:var(--font-mono); font-size:14px; color:var(--neon-pink); letter-spacing:0.1em; margin-bottom:8px;">启动流程</p>
+                                <p style="font-family:var(--font-body); font-size:14px; color:var(--text-body-dark); line-height:1.7;">
+                                    FAT 挂载 → C6 SDIO 复位 (并行 ~1.5s) → 显示初始化 → 字体加载 → 音频初始化 → 电池检测 → AppStack 创建 → BLE 启动 → WiFi STA/AP → HTTP+WS 服务器
+                                </p>
+                            </div>
+
+                            <!-- NVS -->
+                            <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+                                <span style="background:rgba(94,220,244,0.08); padding:8px 14px; border:1px solid rgba(94,220,244,0.2); font-family:var(--font-mono); font-size:12px; color:var(--neon-cyan);">NVS: WiFi 配置</span>
+                                <span style="background:rgba(240,166,202,0.08); padding:8px 14px; border:1px solid rgba(240,166,202,0.2); font-family:var(--font-mono); font-size:12px; color:var(--neon-pink);">NVS: BLE 配对</span>
+                                <span style="background:rgba(244,208,63,0.08); padding:8px 14px; border:1px solid rgba(244,208,63,0.2); font-family:var(--font-mono); font-size:12px; color:var(--neon-yellow);">NVS: 音量/亮度</span>
+                                <span style="background:rgba(0,200,83,0.08); padding:8px 14px; border:1px solid rgba(0,200,83,0.2); font-family:var(--font-mono); font-size:12px; color:var(--neon-green);">补丁: 3 个 managed_components</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 10 — THANK YOU / CLOSING
                  =========================================== -->
             <section class="slide slide-thanks grid-bg crt-vignette" data-label="结束">
-                <div class="starfield" id="starfield7"></div>
+                <div class="starfield" id="starfield10"></div>
                 <div class="slide-content flex-center flex-col" style="justify-content:center;">
                     <div class="thanks-inner reveal" style="text-align:center;">
-                        <h1 class="pixel-hero cjk" style="font-size:96px;">
+                        <h1 class="pixel-hero cjk" style="font-size:110px;">
                             THANK YOU
                         </h1>
-                        <p class="body reveal" style="margin-top:20px; font-size:22px; max-width:900px;">
+                        <p class="body reveal" style="margin-top:24px; font-size:26px; max-width:900px;">
                             The-Defect · ESP32-P4 多人游戏主机
                         </p>
                         <div class="thanks-links reveal">
                             <div class="link-item">
-                                <span style="font-size:28px;">🔗</span><br>
-                                GitHub
+                                <span style="font-size:32px;">🔗</span><br>
+                                <span style="font-size:16px;">GitHub</span>
                             </div>
                             <div class="link-item">
-                                <span style="font-size:28px;">📄</span><br>
-                                文档
+                                <span style="font-size:32px;">📄</span><br>
+                                <span style="font-size:16px;">AGENTS.md 架构文档</span>
                             </div>
                             <div class="link-item">
-                                <span style="font-size:28px;">🎮</span><br>
-                                项目主页
+                                <span style="font-size:32px;">🎮</span><br>
+                                <span style="font-size:16px;">Gamepad 固件</span>
+                            </div>
+                            <div class="link-item">
+                                <span style="font-size:32px;">🛠️</span><br>
+                                <span style="font-size:16px;">ESP-IDF 5.x</span>
                             </div>
                         </div>
-                        <p class="body reveal" style="margin-top:40px; font-size:14px; color:rgba(255,255,255,0.35);">
-                            Built with ESP-IDF · LVGL 9.4 · FreeType · ESP32-P4
+                        <p class="body reveal" style="margin-top:48px; font-size:16px; color:rgba(255,255,255,0.4);">
+                            ESP-IDF · LVGL 9.4 · FreeType · NimBLE · esp_hosted · PPA · FreeRTOS
                         </p>
                     </div>
                 </div>
@@ -1400,7 +1741,7 @@
          DECK CHROME (outside stage)
          =========================================== -->
     <div class="nav-dots" id="navDots"></div>
-    <div class="deck-counter" id="deckCounter">01 / 07</div>
+    <div class="deck-counter" id="deckCounter">01 / 10</div>
     <div class="deck-nav-hint">← → 翻页  ·  R 重置</div>
 
     <!-- ===========================================
@@ -1657,6 +1998,7 @@
                         '.slide .hw-name, .slide .hw-desc, .slide .feat-name, .slide .feat-desc, ' +
                         '.slide .hl-title, .slide .hl-desc, .slide .stat-number, .slide .stat-label, ' +
                         '.slide .layer-label, .slide .layer-items, .slide .step-text, ' +
+                        '.slide .af-text, .slide .ag-title, .slide .ag-desc, ' +
                         '.slide .link-item, .slide .label-pill').forEach(el => {
                         el.contentEditable = true;
                     });
