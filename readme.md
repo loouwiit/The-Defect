@@ -18,20 +18,31 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 
 ### 🤖 AI Agent — 自然语言操控设备
 
-集成 OpenAI 兼容 API，用户通过触屏输入自然语言，AI 自主规划并执行操作：
+集成 OpenAI 兼容 API，用户通过触屏或手柄输入自然语言，AI 自主规划并执行操作：
 
 - **系统层浮动窗**：驻留 `lv_layer_sys`，不占用 App 栈，底层 App 不受影响
-- **顶部下滑唤出**：在任意界面从屏幕顶部下滑即可呼出 AI 助手
-- **可拖拽窗口**：浮动窗可任意拖动位置，点击聊天区可收起键盘扩大视野
-- **11 个系统级工具**：开关应用、调亮度/音量、WiFi 连接、设备信息等
-- **App 自定义工具**：各 App 通过 `getAiContext()` / `executeAiAction()` 暴露专属操作
-- **Agent 循环**：AI 调用工具 → 系统采集数据 → 自动下一轮 → AI 综合回复
+- **多种唤出方式**：顶部下滑 / 手柄组合键(Y+X+B) / 桌面 AI 卡片
+- **可拖拽窗口**：浮动窗可任意拖动位置，附带 LVGL 虚拟键盘
+- **13 个系统操作**：开关应用、焦点导航(select/activate)、调亮度/音量、WiFi 连接、设备信息、关机等
+- **焦点系统集成**：所有 App 接入 `onAiSelect()` / `onAiActivate()`，AI 可通过焦点组导航操作任意界面
+- **多轮协作**：AI 通过 `nextRound` 自主控制多轮交互，跨 App 探索（如打开时间设置 → 同步时间）
+- **长期记忆**：AI 通过 `memory` 字段自行维护跨对话的用户偏好
+- **对话历史**：保留最近 5 轮对话，超出的由 AI 自主写入长期记忆
+- **App 自定义动作**：各 App 通过 `getAiContext()` / `executeAiAction()` 暴露专属操作
 - **多模型兼容**：OpenAI / Ollama / DeepSeek 等，配置即用
 
 ```
-用户输入 → HTTPS → LLM → JSON actions → AiExecutor → 系统/App 操作
-                                          ↓ (如需数据)
-                                  采集结果 → 下一轮 LLM → 回复用户
+用户输入 + 5轮历史 + 长期记忆
+  ↓
+① LLM 推理 → 返回 JSON actions
+  ↓
+② AiExecutor 顺序执行
+  ├─ system actions（亮度、导航、select/activate 等）
+  └─ App::onAiSelect/onAiActivate（焦点操控）
+  ↓
+③ 如需继续（nextRound=true）→ 重刷 {app_context} → 回到 ①
+  ↓ (最多 3 轮)
+④ 更新 memory + 对话历史
 ```
 
 ### 🖥️ 主机 + 协处理器分离架构
