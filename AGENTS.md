@@ -589,7 +589,7 @@ class App {
 ③ 如果 response.nextRound == true 且未达 3 轮上限：
    → 从模板重建 system prompt（刷新 {app_context} 为新 App 信息）
    → 再次调用 AI 继续完成目标
-   ↓ (最多 3 轮)
+   ↓ (最多 5 轮)
 ④ 记录 memory（长期记忆） + 对话历史（最近 5 轮）
   ↓
 ⑤ 等待用户下一轮输入

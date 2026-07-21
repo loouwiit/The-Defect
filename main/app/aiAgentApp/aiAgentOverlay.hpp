@@ -90,7 +90,7 @@ private:
     AiConfig m_config;
     bool m_isWaiting{};
     int m_followUpCount{};
-    static constexpr int MAX_FOLLOW_UP = 3;
+    static constexpr int MAX_FOLLOW_UP = 5;
     std::string m_lastUserInput;
     std::string m_lastAiContent;
     std::string m_lastSystemPrompt;

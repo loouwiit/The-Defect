@@ -41,7 +41,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
   └─ App::onAiSelect/onAiActivate（焦点操控）
   ↓
 ③ 如需继续（nextRound=true）→ 重刷 {app_context} → 回到 ①
-  ↓ (最多 3 轮)
+  ↓ (最多 5 轮)
 ④ 更新 memory + 对话历史
 ```
 
