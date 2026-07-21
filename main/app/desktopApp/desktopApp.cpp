@@ -568,9 +568,9 @@ std::string DesktopApp::getAiContext()
 		"- wifiSettings\n"
 		"- bleSettings\n"
 		"- powerManagement\n\n"
-		"桌面自定义命令：\n"
-		"- select_card	选中游戏卡片, value: 卡片id(0-4)	{\"action\":\"select_card\",\"value\":2}\n"
-		"- launch: 启动当前选中的游戏\n";
+		"桌面自定义操作：\n"
+		"- select_card	选中游戏卡片	{\"action\":\"select_card\",\"value\":2}\n"
+		"- launch	启动当前选中的游戏	{\"action\":\"launch\"}\n";
 
 	ctx += "当前卡片位置:" + std::to_string(m_focusCardsIdx);
 
@@ -580,8 +580,8 @@ std::string DesktopApp::getAiContext()
 bool DesktopApp::executeAiAction(const AiAction& action)
 {
 	// ── open_app: 打开游戏或设置 ──
-	if (action.type == AiActionType::OpenApp && !action.appName.empty()) {
-		App* app = AppFactory::create(action.appName, display);
+	if (action.type == AiActionType::OpenApp && !action.text.empty()) {
+		App* app = AppFactory::create(action.text, display);
 		if (app) {
 			m_manager->pushToNewStack(app);
 			return true;
@@ -590,13 +590,13 @@ bool DesktopApp::executeAiAction(const AiAction& action)
 	}
 
 	// ── desktop_action: 桌面自定义命令 ──
-	bool isSelectCard = (action.command == "select_card") || (action.actionStr == "select_card");
-	if (action.type == AiActionType::UnknownAction && isSelectCard) {
-		// AI 有时把 value 放顶层 intValue，有时放 params 字典里
-		int idx = action.intValue;
-		auto it = action.params.find("value");
-		if (it != action.params.end())
-			idx = std::atoi(it->second.c_str());
+	if (action.type == AiActionType::UnknownAction && action.actionStr == "select_card") {
+		// value 可能在顶层，也可能在 params 里
+		int idx = action.value;
+		if (action.params) {
+			cJSON* valObj = cJSON_GetObjectItem(action.params, "value");
+			if (cJSON_IsNumber(valObj)) idx = valObj->valueint;
+		}
 		if (idx >= 0 && idx < GAME_COUNT) {
 			auto guard = display->lockGuard();
 			m_focusGroup = FOCUS_CARDS;
@@ -609,8 +609,7 @@ bool DesktopApp::executeAiAction(const AiAction& action)
 		return false;
 	}
 
-	bool isLaunch = (action.command == "launch") || (action.actionStr == "launch");
-	if (action.type == AiActionType::UnknownAction && isLaunch) {
+	if (action.type == AiActionType::UnknownAction && action.actionStr == "launch") {
 		Task::addTask([](void* param) -> TickType_t {
 			auto* self = static_cast<DesktopApp*>(param);
 			self->m_focusGroup = FOCUS_BOTTOM;

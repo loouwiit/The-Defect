@@ -200,21 +200,13 @@ private:
         };
 
         action.text = readStr("text");
-        action.appName = readStr("app");
-        action.command = readStr("command");
-        action.intValue = readInt("value", 0);
+        if (action.text.empty()) action.text = readStr("app");  // fallback 旧格式
+        action.value = readInt("value", 0);
 
-        // 读取 params 对象 → map
-        cJSON* params = cJSON_GetObjectItem(item, "params");
-        if (cJSON_IsObject(params)) {
-            cJSON* child = nullptr;
-            cJSON_ArrayForEach(child, params) {
-                if (cJSON_IsString(child) && child->string && child->valuestring) {
-                    action.params[child->string] = child->valuestring;
-                } else if (cJSON_IsNumber(child) && child->string) {
-                    action.params[child->string] = std::to_string(child->valueint);
-                }
-            }
+        // 读取 params 对象 → cJSON 深拷贝
+        cJSON* paramsObj = cJSON_GetObjectItem(item, "params");
+        if (cJSON_IsObject(paramsObj)) {
+            action.params = cJSON_Duplicate(paramsObj, true);
         }
 
         return action;

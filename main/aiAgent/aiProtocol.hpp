@@ -2,8 +2,8 @@
 
 #include <cstdint>
 #include <string>
-#include <map>
 #include <vector>
+#include <cJSON.h>
 
 /**
  * @file aiProtocol.hpp
@@ -47,18 +47,45 @@ struct AiAction {
     // 原始 action 字符串（AI 回复中的 "action" 字段原文）
     std::string actionStr;
 
-    // 通用字段
-    std::string text;                               // respond_text / notification 内容
+    // 通用字符串参数（app名、回复文本、路径等）
+    std::string text;
 
-    // 应用操作
-    std::string appName;                            // open_app 目标应用名
+    // 数值参数（亮度、音量等）
+    int value{};
 
-    // 数值参数
-    int intValue{};                                 // set_brightness / set_volume 值
+    // 额外参数（cJSON 对象，所有权转移，自动管理生命周期）
+    cJSON* params{};
 
-    // app_custom 用
-    std::string command;                            // 自定义命令名
-    std::map<std::string, std::string> params;      // 扩展参数字典
+    ~AiAction() { if (params) cJSON_Delete(params); }
+
+    AiAction() = default;
+
+    AiAction(const AiAction& o)
+        : type(o.type), actionStr(o.actionStr), text(o.text),
+          value(o.value), params(o.params ? cJSON_Duplicate(o.params, true) : nullptr) {}
+
+    AiAction(AiAction&& o) noexcept
+        : type(o.type), actionStr(std::move(o.actionStr)), text(std::move(o.text)),
+          value(o.value), params(o.params) { o.params = nullptr; }
+
+    AiAction& operator=(const AiAction& o) {
+        if (this != &o) {
+            if (params) cJSON_Delete(params);
+            type = o.type; actionStr = o.actionStr; text = o.text;
+            value = o.value;
+            params = o.params ? cJSON_Duplicate(o.params, true) : nullptr;
+        }
+        return *this;
+    }
+
+    AiAction& operator=(AiAction&& o) noexcept {
+        if (this != &o) {
+            if (params) cJSON_Delete(params);
+            type = o.type; actionStr = std::move(o.actionStr); text = std::move(o.text);
+            value = o.value; params = o.params; o.params = nullptr;
+        }
+        return *this;
+    }
 };
 
 // ============================================================

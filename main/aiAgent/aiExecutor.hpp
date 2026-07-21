@@ -90,7 +90,7 @@ public:
 
                 case AiActionType::SetBrightness:
                     if (display) {
-                        int brightness = action.intValue;
+                        int brightness = action.value;
                         if (brightness < 0) brightness = 0;
                         if (brightness > 100) brightness = 100;
                         display->setBrightness(static_cast<uint8_t>(brightness));
@@ -100,7 +100,7 @@ public:
                     break;
 
                 case AiActionType::SetVolume:
-                    Audio::setMasterVolume(action.intValue);
+                    Audio::setMasterVolume(action.value);
                     handled = true;
                     break;
 
@@ -113,11 +113,16 @@ public:
 
                 case AiActionType::WifiConnect:
                 {
-                    auto ssidIt = action.params.find("ssid");
-                    auto passIt = action.params.find("password");
-                    if (ssidIt != action.params.end()) {
-                        wifiConnect(ssidIt->second.c_str(),
-                            passIt != action.params.end() ? passIt->second.c_str() : "");
+                    const char* ssid = nullptr;
+                    const char* pass = nullptr;
+                    if (action.params) {
+                        cJSON* ssidObj = cJSON_GetObjectItem(action.params, "ssid");
+                        if (cJSON_IsString(ssidObj)) ssid = ssidObj->valuestring;
+                        cJSON* passObj = cJSON_GetObjectItem(action.params, "password");
+                        if (cJSON_IsString(passObj)) pass = passObj->valuestring;
+                    }
+                    if (ssid) {
+                        wifiConnect(ssid, pass ? pass : "");
                         handled = true;
                     }
                     break;
