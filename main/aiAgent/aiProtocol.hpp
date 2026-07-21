@@ -97,4 +97,5 @@ struct AiResponse {
     std::vector<AiAction> actions;                  // 解析出的动作列表
     std::string errorMsg;                           // 错误描述（success=false 时）
     std::string rawContent;                         // AI 原始回复文本（调试用）
+    std::string memory;                             // 长期记忆（AI 可选写入，增量更新）
 };

@@ -95,6 +95,12 @@ private:
     std::string m_lastAiContent;
     std::string m_lastSystemPrompt;
     std::vector<std::string> m_chatHistory;
+
+    // ── 对话上下文 ──
+    static constexpr size_t MAX_HISTORY_TURNS = 5;
+    std::vector<std::pair<std::string, std::string>> m_history;  // (role, content)
+    std::string m_memoryText;                                     // AI 长期记忆
+
     TickType_t m_nextActionTime{};
     static constexpr TickType_t ACTION_COOLDOWN = 300;
 

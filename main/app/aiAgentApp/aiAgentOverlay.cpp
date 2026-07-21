@@ -51,6 +51,11 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 
 未在本列表中的 action 会自动透传给前台 App 处理。
 
+系统只保留最近 5 轮对话，超过的会被丢弃。
+如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。
+
+{memory_context}
+
 {app_context}
 
 注意：JSON 必须合法，不能包含多余文字，所有字段名和字符串值使用双引号。
@@ -518,10 +523,29 @@ void AiAgentOverlay::onSend()
 		}
 	}
 
+	// 替换 {memory_context}
+	{
+		size_t pos = systemPrompt.find("{memory_context}");
+		if (pos != std::string::npos) {
+			systemPrompt.replace(pos, 16,
+				m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
+		}
+		else if (!m_memoryText.empty()) {
+			systemPrompt += "长期记忆：\n" + m_memoryText;
+		}
+	}
+
 	m_lastSystemPrompt = systemPrompt;
 
-	// 发送请求
-	HttpClient::send(m_config, systemPrompt, input,
+	// 构建对话历史
+	std::vector<std::pair<std::string, std::string>> history;
+	history.reserve(m_history.size());
+	for (const auto& [role, content] : m_history) {
+		history.push_back({role, content});
+	}
+
+	// 发送请求（带历史上下文）
+	HttpClient::sendWithHistory(m_config, systemPrompt, input, history,
 		[this](bool success, const std::string& responseText, const std::string& errorMsg)
 		{
 			auto* ctx = new AiSendCtx{ this, responseText, errorMsg, success };
@@ -642,6 +666,28 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 	}
 
 	m_followUpCount = 0;
+
+	// ── 4. 更新长期记忆 ──
+	if (!response.memory.empty()) {
+		m_memoryText = response.memory;
+		ESP_LOGI(TAG, "记忆已更新: %s", response.memory.c_str());
+	}
+
+	// ── 5. 记录对话历史 ──
+	std::string replyForHistory = replyText;
+	if (replyForHistory.empty()) {
+		replyForHistory = execResult.summary;
+	}
+	if (!replyForHistory.empty() && !m_lastUserInput.empty()) {
+		m_history.push_back({"user", m_lastUserInput});
+		m_history.push_back({"assistant", replyForHistory});
+		// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮
+		while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
+			m_history.erase(m_history.begin());
+			m_history.erase(m_history.begin());
+		}
+		ESP_LOGI(TAG, "对话历史: %zu 轮", m_history.size() / 2);
+	}
 }
 
 // ============================================================

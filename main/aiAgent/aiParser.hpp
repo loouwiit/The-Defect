@@ -167,6 +167,12 @@ private:
             result.actions.push_back(action);
         }
 
+        // 6. 提取顶层 memory（长期记忆，可选）
+        cJSON* memoryObj = cJSON_GetObjectItem(root, "memory");
+        if (cJSON_IsString(memoryObj) && memoryObj->valuestring) {
+            result.memory = memoryObj->valuestring;
+        }
+
         result.success = !result.actions.empty();
         cJSON_Delete(root);
         return result;
