@@ -46,7 +46,7 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 - set_volume	调音量	{"action":"set_volume","value":70}
 - play_audio	播放音频	{"action":"play_audio","text":"/path/file.mp3"}
 - wifi_connect	连接WiFi	{"action":"wifi_connect","params":{"ssid":"...","password":"..."}}
-- system_info	获取设备信息	{"action":"system_info"}
+- system_info	获取设备信息（需搭配nextRound）	{"action":"system_info"}
 - power_off	关机	{"action":"power_off"}
 - select	移动焦点到指定元素	{"action":"select","text":"groupName","value":2}
 - activate	触发当前焦点的元素	{"action":"activate"}
