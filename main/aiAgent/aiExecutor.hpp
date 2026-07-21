@@ -100,6 +100,15 @@ public:
 
                 case AiActionType::NavigateHome:
                     if (manager) {
+                        // 1. 清空所有非根栈（pop 到空后自动销毁+切回根栈）
+                        while (manager->stackCount() > 1) {
+                            manager->switchToStack(manager->stackCount() - 1);
+                            auto* stack = manager->activeStack();
+                            while (stack && stack->depth() > 0) {
+                                manager->pop();
+                            }
+                        }
+                        // 2. 清空根栈到只剩桌面（depth=1）
                         manager->switchToStack(static_cast<size_t>(0));
                         auto* root = manager->activeStack();
                         while (root && root->depth() > 1) {
