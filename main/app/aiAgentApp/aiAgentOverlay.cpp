@@ -32,7 +32,7 @@ JSON 字段说明：
 
 可用系统操作：
 - respond_text	回复文字	{"action":"respond_text","text":"你好"}
-- open_app	打开应用	{"action":"open_app","app":"tetris"}
+- open_app	打开应用（如果能）	{"action":"open_app","app":"tetris"}
 - navigate_back	返回上一级	{"action":"navigate_back"}
 - navigate_home	回桌面	{"action":"navigate_home"}
 - set_brightness	调亮度	{"action":"set_brightness","value":50}
@@ -41,10 +41,6 @@ JSON 字段说明：
 - wifi_connect	连接WiFi	{"action":"wifi_connect","params":{"ssid":"...","password":"..."}}
 - system_info	获取设备信息	{"action":"system_info"}
 - power_off	关机	{"action":"power_off"}
-
-当前应用的自定义操作由 {app_context} 提供。
-
-未识别的 action 会自动透传给前台 App 处理。
 
 多个操作示例：
 {"actions":[{"action":"open_app","app":"tetris"},{"action":"respond_text","text":"已打开"}]}

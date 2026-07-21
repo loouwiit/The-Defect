@@ -8,7 +8,6 @@
 #include "display/display.hpp"
 #include "app/app.hpp"
 #include "app/appStackManager.hpp"
-#include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "battery/batteryManager.hpp"
 #include "wifi/wifi.hpp"
@@ -69,10 +68,6 @@ public:
                 switch (action.type) {
                 case AiActionType::RespondText:
                     handled = true;
-                    break;
-
-                case AiActionType::OpenApp:
-                    handled = executeOpenApp(action, manager);
                     break;
 
                 case AiActionType::NavigateBack:
@@ -170,33 +165,6 @@ public:
     }
 
 private:
-    /// 执行 open_app 操作
-    static bool executeOpenApp(const AiAction& action, AppStackManager* manager)
-    {
-        if (!manager || action.appName.empty()) return false;
-
-        // 通过 activeStack 的 top app 获取 Display
-        auto* stack = manager->activeStack();
-        if (!stack || stack->isEmpty()) return false;
-        Display* display = stack->top()->getDisplay();
-
-        App* app = AppFactory::create(action.appName, display);
-        if (!app) {
-            ESP_LOGE(TAG, "未知应用: %s", action.appName.c_str());
-            return false;
-        }
-
-        struct param_t{ AppStackManager* stack; App* app; };
-        Task::addTask([](void* param)->TickType_t
-            {
-                auto [manager, app] = *(param_t*)param;
-                manager->pushToNewStack(app);
-                delete (param_t*)param;
-                return Task::infinityTime;
-            }, "open app", new param_t{manager, app}, 100);
-        return true;
-    }
-
     /// 生成执行概述
     static void buildSummary(Result& result)
     {
