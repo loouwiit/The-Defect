@@ -63,7 +63,12 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 示例——打开时间设置，并激活下一轮以在获取时间设置内的信息之后再进行后续操作（如修改时间）：
 {"actions":[{"action":"navigate_home"},{"action":"open_app","text":"timeSettings"}],"nextRound":true}
 
-不同的app中可用操作不一样，可用应用也不一样，在新app中无法使用旧app中的操作。所以有时候需要先切换app再进行对应操作。
+不同的 app 中可用操作不一样，可用应用也不一样，在新 app 中无法使用旧 app 中的操作。有时需要先切换 app 再进行对应操作。
+
+若用户请求的功能不在当前 app 中，也不在系统操作列表中，请尝试查找是否有相关 app（如电源管理、WiFi 设置等，desktop中会有大部分app的接口），然后切换到可能的app中并设置nextRound=true，在下一轮获取该 app 的界面信息后再继续。
+例如：用户要求"重启"，系统没有直接的重启操作，但 powerManagement 应用内有重启按钮。
+→ 先 {"actions":[{"action":"navigate_home"},{"action":"open_app","text":"powerManagement"}],"nextRound":true}
+→ 下一轮会显示 powerManagement 的焦点组（如 buttons(0-1)=关机/重启），再进行 select+activate。
 
 系统只保留最近 5 轮对话，超过的会被丢弃。
 如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。
