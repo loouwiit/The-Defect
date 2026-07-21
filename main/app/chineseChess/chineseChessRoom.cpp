@@ -265,7 +265,7 @@ void ChineseChessRoom::onForeground()
 std::string ChineseChessRoom::getAiContext()
 {
 	std::string ctx = "当前在中国象棋大厅。\n"
-		"焦点索引映射：\n"
+		"焦点组为空（select 时无需指定 text，直接设 value 即可）：\n"
 		"  0=返回, 1=人机对战, 2=双人对战\n\n";
 
 	ctx += "焦点@:" + std::to_string(m_focusIdx) + "\n";

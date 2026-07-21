@@ -348,7 +348,7 @@ void SnakeRoom::onForeground()
 std::string SnakeRoom::getAiContext()
 {
 	std::string ctx = "当前在贪吃蛇大厅。\n"
-		"焦点索引映射：\n"
+		"焦点组为空（select 时无需指定 text，直接设 value 即可）：\n"
 		"  0=返回, 1=1P, 2=2P, 3=3P, 4=4P\n\n";
 
 	ctx += "焦点@:" + std::to_string(m_focusIdx) + "\n";
