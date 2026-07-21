@@ -100,4 +100,5 @@ struct AiResponse {
     std::string errorMsg;                           // 错误描述（success=false 时）
     std::string rawContent;                         // AI 原始回复文本（调试用）
     std::string memory;                             // 长期记忆（AI 可选写入，增量更新）
+    bool nextRound = false;                         // true=本轮执行后继续下一轮（App 切换等场景）
 };

@@ -94,6 +94,7 @@ private:
     std::string m_lastUserInput;
     std::string m_lastAiContent;
     std::string m_lastSystemPrompt;
+    std::string m_systemPromptTemplate;   // 含 {app_context}/{memory_context} 占位符的原始模板
     std::vector<std::string> m_chatHistory;
 
     // ── 对话上下文 ──

@@ -173,6 +173,12 @@ private:
             result.memory = memoryObj->valuestring;
         }
 
+        // 7. 提取 nextRound（是否继续下一轮）
+        cJSON* nextRoundObj = cJSON_GetObjectItem(root, "nextRound");
+        if (cJSON_IsBool(nextRoundObj)) {
+            result.nextRound = cJSON_IsTrue(nextRoundObj);
+        }
+
         result.success = !result.actions.empty();
         cJSON_Delete(root);
         return result;

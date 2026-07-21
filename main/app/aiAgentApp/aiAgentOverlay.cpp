@@ -25,6 +25,12 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 
 重要：必须始终使用 {"actions":[...]} 数组形式，即使只有一个操作也要放在数组中。系统会依次执行对应操作。
 
+顶层可选字段（与 actions 同级）：
+- memory:    长期记忆字符串，需要更新时写入
+- nextRound: true/false，设为 true 时系统会执行下一轮并带上新的系统信息（如果有）
+
+在 JSON 顶层添加 "nextRound": true 可以触发多轮操作。如果不需要继续，省略 nextRound 或设为 false 即可。
+
 每个 action 对象的通用字段：
 - action:   操作类型（必填）
 - text:     字符串参数（app名、焦点组名、回复内容、文件路径等）
@@ -53,6 +59,11 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 
 示例——单个回复操作：
 {"actions":[{"action":"respond_text","text":"你好"}]}
+
+示例——打开时间设置，并激活下一轮以在获取时间设置内的信息之后再进行后续操作（如修改时间）：
+{"actions":[{"action":"navigate_home"},{"action":"open_app","text":"timeSettings"}],"nextRound":true}
+
+不同的app中可用操作不一样，可用应用也不一样，在新app中无法使用旧app中的操作。所以有时候需要先切换app再进行对应操作。
 
 系统只保留最近 5 轮对话，超过的会被丢弃。
 如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。
@@ -514,6 +525,9 @@ void AiAgentOverlay::onSend()
 		}
 	}
 
+	// 保存原始模板（含占位符），供 agent 循环重建用
+	m_systemPromptTemplate = systemPrompt;
+
 	// 替换 {app_context}
 	{
 		size_t pos = systemPrompt.find("{app_context}");
@@ -620,8 +634,8 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 		addChatEntry("AI", execResult.summary);
 	}
 
-	// ── 3. Agent 循环 ──
-	if (m_followUpCount < MAX_FOLLOW_UP) {
+	// ── 3. Agent 循环（由 AI 的 nextRound 字段控制是否继续） ──
+	if (response.nextRound && m_followUpCount < MAX_FOLLOW_UP) {
 		std::string observations;
 		for (const auto& action : response.actions) {
 			if (action.type == AiActionType::SystemInfo) {
@@ -629,43 +643,73 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 			}
 		}
 
-		if (!observations.empty()) {
-			m_followUpCount++;
-			ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
-			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
-			setLoading(true);
+		m_followUpCount++;
+		ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
+		setLoading(true);
 
-			std::vector<std::pair<std::string, std::string>> history;
-			history.push_back({ "user", m_lastUserInput });
-			{
-				cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
-				if (root) {
-					cJSON* choices = cJSON_GetObjectItem(root, "choices");
-					if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
-						cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
-						cJSON* content = cJSON_GetObjectItem(msg, "content");
-						if (cJSON_IsString(content) && content->valuestring) {
-							history.push_back({ "assistant", content->valuestring });
-						}
-					}
-					cJSON_Delete(root);
-				}
+		// 从原始模板重建 system prompt，带上新 App 上下文
+		{
+			std::string newPrompt = m_systemPromptTemplate;
+			std::string newCtx;
+			auto* nextApp = m_display->getActiveApp();
+			if (nextApp) newCtx = nextApp->getAiContext();
+
+			// 替换 {app_context}
+			size_t pos = newPrompt.find("{app_context}");
+			if (pos != std::string::npos) {
+				newPrompt.replace(pos, 13,
+					newCtx.empty() ? "当前 App 无自定义操作" : newCtx);
 			}
 
-			HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
-				"[工具返回数据]\n" + observations + "\n请根据以上内容继续或向用户进行总结。",
-				history,
-				[this](bool ok, const std::string& resp, const std::string& err) {
-					auto* ctx = new AiSendCtx{ this, resp, err, ok };
-					Task::addTask([](void* p) -> TickType_t {
-						auto* c = static_cast<AiSendCtx*>(p);
-						c->self->onAiResponse(c->ok, c->text, c->err);
-						delete c;
-						return Task::infinityTime;
-						}, "aiFup", ctx, 0, Task::Affinity::None);
-				});
-			return;
+			// 替换 {memory_context}
+			pos = newPrompt.find("{memory_context}");
+			if (pos != std::string::npos) {
+				newPrompt.replace(pos, 16,
+					m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
+			}
+
+			m_lastSystemPrompt = newPrompt;
 		}
+
+		// 构建 follow-up 消息
+		std::string followUpMsg;
+		if (!observations.empty()) {
+			followUpMsg += "[工具返回数据]\n" + observations + "\n\n请根据以上数据继续或向用户进行总结。";
+			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
+		} else {
+			followUpMsg += "已执行上一轮的指令，请继续完成用户的需求。如果已完成目标，请回复用户。";
+			addChatEntry(">>", "(继续执行...)");
+		}
+
+		std::vector<std::pair<std::string, std::string>> history;
+		history.push_back({ "user", m_lastUserInput });
+		{
+			cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
+			if (root) {
+				cJSON* choices = cJSON_GetObjectItem(root, "choices");
+				if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
+					cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
+					cJSON* content = cJSON_GetObjectItem(msg, "content");
+					if (cJSON_IsString(content) && content->valuestring) {
+						history.push_back({ "assistant", content->valuestring });
+					}
+				}
+				cJSON_Delete(root);
+			}
+		}
+
+		HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
+			followUpMsg, history,
+			[this](bool ok, const std::string& resp, const std::string& err) {
+				auto* ctx = new AiSendCtx{ this, resp, err, ok };
+				Task::addTask([](void* p) -> TickType_t {
+					auto* c = static_cast<AiSendCtx*>(p);
+					c->self->onAiResponse(c->ok, c->text, c->err);
+					delete c;
+					return Task::infinityTime;
+					}, "aiFup", ctx, 0, Task::Affinity::None);
+			});
+		return;
 	}
 
 	m_followUpCount = 0;
