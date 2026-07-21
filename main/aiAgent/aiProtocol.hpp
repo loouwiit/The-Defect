@@ -30,6 +30,8 @@ enum class AiActionType : uint8_t {
     PlayAudio,          // 播放音频文件. params: path
     WifiConnect,        // 连接 WiFi. params: ssid, password
     SystemInfo,         // 显示设备信息
+    Select,             // 聚焦到指定元素（text=组名, value=索引）
+    Activate,           // 触发当前聚焦元素
     PowerOff,           // 关机（Deep-sleep）
 
     // ── 内部用 ──

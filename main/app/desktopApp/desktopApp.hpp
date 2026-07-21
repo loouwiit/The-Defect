@@ -21,6 +21,8 @@ public:
 	// ── AI 能力 ──
 	std::string getAiContext() override;
 	bool executeAiAction(const AiAction& action) override;
+	void onAiSelect(const AiSelectTarget& target) override;
+	void onAiActivate() override;
 
 private:
 	// ── 游戏数据 ──

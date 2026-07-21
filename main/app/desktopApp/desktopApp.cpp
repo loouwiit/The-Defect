@@ -558,21 +558,22 @@ void DesktopApp::startGame()
 std::string DesktopApp::getAiContext()
 {
 	std::string ctx = "当前在桌面（主菜单）。\n"
-		"可用 open_app 打开的应用：\n"
-		"- snake(index = 0)\n"
-		"- fruitNinja(index = 1)\n"
-		"- tetris(index = 2)\n"
-		"- doudizhu(斗地主, index = 3)\n"
-		"- chineseChess(index = 4)\n"
-		"- timeSettings\n"
-		"- wifiSettings\n"
-		"- bleSettings\n"
-		"- powerManagement\n\n"
-		"桌面自定义操作：\n"
-		"- select_card	选中游戏卡片	{\"action\":\"select_card\",\"value\":2}\n"
-		"- launch	启动当前选中的游戏	{\"action\":\"launch\"}\n";
+		"可用 open_app (或select) 操作的对象：\n"
+		"- snake(贪吃蛇 0@cards), fruitNinja(水果忍者 1@cards), tetris(俄罗斯方块 2@cards) doudizhu(斗地主 3@cards), chineseChess(中国象棋 4@cards)\n"
+		"- timeSettings(时间设置 0@status), wifiSettings(wifi设置 1@status), bleSettings(蓝牙手柄设置 2@status), 音量调节滑块(非独立app只能选择无法启动 3@status), 亮度调节滑块(非独立app只能选择无法启动 4@status), powerManagement(电源设置 5@status)\n\n"
+		"- startGameButton(开始游戏按钮 0@buttons)"
+		"焦点组解释：0-4@cards为游戏卡片, 0-5@status为状态栏, 0@buttons为“开始游戏”按钮\n\n";
 
-	ctx += "当前卡片位置:" + std::to_string(m_focusCardsIdx);
+	// 当前焦点
+	ctx += "当前焦点：";
+	switch (m_focusGroup) {
+		case FOCUS_CARDS:  ctx += std::to_string(m_focusCardsIdx) +"@cards";  break;
+		case FOCUS_BOTTOM: ctx += std::to_string(0) +"@buttons"; break;
+		case FOCUS_STATUS: ctx += std::to_string(m_focusStatusIdx) +"@status";  break;
+		default:
+			ctx += "未知"; break;
+	}	
+	ctx += "\n";
 
 	return ctx;
 }
@@ -589,37 +590,37 @@ bool DesktopApp::executeAiAction(const AiAction& action)
 		return true;  // 已消费（即便名称无效也阻止系统兜底）
 	}
 
-	// ── desktop_action: 桌面自定义命令 ──
-	if (action.type == AiActionType::UnknownAction && action.actionStr == "select_card") {
-		// value 可能在顶层，也可能在 params 里
-		int idx = action.value;
-		if (action.params) {
-			cJSON* valObj = cJSON_GetObjectItem(action.params, "value");
-			if (cJSON_IsNumber(valObj)) idx = valObj->valueint;
-		}
-		if (idx >= 0 && idx < GAME_COUNT) {
-			auto guard = display->lockGuard();
-			m_focusGroup = FOCUS_CARDS;
-			m_focusCardsIdx = static_cast<int8_t>(idx);
-			updateSelectionLabels();
-			applyFocus();
-			ESP_LOGI(TAG, "AI 选中卡片 %d: %s", idx, GAME_NAMES[idx]);
-			return true;
-		}
-		return false;
-	}
+	return false;  // Select/Activate 等交给系统执行器
+}
 
-	if (action.type == AiActionType::UnknownAction && action.actionStr == "launch") {
-		Task::addTask([](void* param) -> TickType_t {
-			auto* self = static_cast<DesktopApp*>(param);
-			self->m_focusGroup = FOCUS_BOTTOM;
-			self->startGame();
-			return Task::infinityTime;
-			}, "aiLaunch", this, 0, Task::Affinity::None);
-		return true;
-	}
+void DesktopApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
 
-	return false;  // 交系统执行器兜底
+	if (target.group == "cards" && target.index >= 0 && target.index < GAME_COUNT) {
+		m_focusGroup = FOCUS_CARDS;
+		m_focusCardsIdx = static_cast<int8_t>(target.index);
+		updateSelectionLabels();
+		applyFocus();
+		ESP_LOGI(TAG, "AI select cards %d: %s", target.index, GAME_NAMES[target.index]);
+	}
+	else if (target.group == "buttons" && target.index == 0) {
+		m_focusGroup = FOCUS_BOTTOM;
+		applyFocus();
+		ESP_LOGI(TAG, "AI select buttons");
+	}
+	else if (target.group == "status" && target.index >= 0 && target.index <= 5) {
+		m_focusGroup = FOCUS_STATUS;
+		m_focusStatusIdx = static_cast<int8_t>(target.index);
+		applyFocus();
+		ESP_LOGI(TAG, "AI select status %d", target.index);
+	}
+}
+
+void DesktopApp::onAiActivate()
+{
+	activateFocus();
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -27,13 +27,15 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 
 每个 action 对象的通用字段：
 - action:   操作类型（必填）
-- text:     字符串参数（app名、回复内容、文件路径等）
-- value:    数值参数（亮度、音量、卡片索引等）
+- text:     字符串参数（app名、焦点组、回复内容、文件路径等）
+- value:    数值参数（亮度、音量、焦点索引等）
 - params:   扩展参数字典（复杂结构用 JSON 对象）
 
 可用系统操作：
 - respond_text	回复文字	{"action":"respond_text","text":"你好"}
 - open_app	打开应用	{"action":"open_app","text":"tetris"}
+- select	聚焦到元素	{"action":"select","text":"cards","value":2}
+- activate	触发当前元素	{"action":"activate"}
 - navigate_back	返回上一级	{"action":"navigate_back"}
 - navigate_home	回桌面	{"action":"navigate_home"}
 - set_brightness	调亮度	{"action":"set_brightness","value":50}
@@ -47,7 +49,7 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 {"actions":[{"action":"respond_text","text":"你好"}]}
 
 示例——多个操作：
-{"actions":[{"action":"open_app","text":"tetris"},{"action":"respond_text","text":"已打开俄罗斯方块"}]}
+{"actions":[{"action":"select","text":"cards","value":2},{"action":"respond_text","text":"已选中第3个卡片"}]}
 
 未在本列表中的 action 会自动透传给前台 App 处理。
 

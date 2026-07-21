@@ -70,6 +70,27 @@ public:
                     handled = true;
                     break;
 
+                case AiActionType::Select:
+                {
+                    if (activeApp) {
+                        AiSelectTarget target;
+                        target.group = action.text;
+                        target.index = action.value;
+                        activeApp->onAiSelect(target);
+                        handled = true;
+                    }
+                    break;
+                }
+
+                case AiActionType::Activate:
+                {
+                    if (activeApp) {
+                        activeApp->onAiActivate();
+                        handled = true;
+                    }
+                    break;
+                }
+
                 case AiActionType::NavigateBack:
                     if (manager) {
                         manager->pop();
