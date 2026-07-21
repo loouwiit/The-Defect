@@ -4,6 +4,7 @@
 #include <vector>
 #include <esp_log.h>
 #include "aiProtocol.hpp"
+#include "aiAgent/aiSystemInfo.hpp"
 #include "display/display.hpp"
 #include "app/app.hpp"
 #include "app/appStackManager.hpp"
@@ -11,6 +12,8 @@
 #include "audio/Audio.hpp"
 #include "battery/batteryManager.hpp"
 #include "wifi/wifi.hpp"
+#include "power/powerManager.hpp"
+#include "bleGamepad/bleGamepad.hpp"
 
 /**
  * @file aiExecutor.hpp
@@ -55,7 +58,6 @@ public:
 
             // ── 第 1 步：App 优先拦截（RespondText/ParseError 除外） ──
             if (action.type != AiActionType::RespondText &&
-                action.type != AiActionType::ShowNotification &&
                 action.type != AiActionType::ParseError &&
                 activeApp)
             {
@@ -66,7 +68,6 @@ public:
             if (!handled) {
                 switch (action.type) {
                 case AiActionType::RespondText:
-                case AiActionType::ShowNotification:
                     handled = true;
                     break;
 
@@ -128,7 +129,26 @@ public:
                 }
 
                 case AiActionType::SystemInfo:
+                {
+                    std::string sysInfo = collectSystemInfo();
+                    ESP_LOGI(TAG, "系统信息:\n%s", sysInfo.c_str());
+                    handled = true;
+                    break;
+                }
+
                 case AiActionType::PowerOff:
+                {
+                    ESP_LOGW(TAG, "AI 触发关机");
+                    BleGamepad::instance().stopScan();
+                    if (display) {
+                        PowerManager::instance().prepareShutdown(
+                            display->getLvglDisplay(), nullptr);
+                    }
+                    PowerManager::instance().shutdown();
+                    handled = true;
+                    break;
+                }
+
                 case AiActionType::ParseError:
                     handled = true;
                     break;

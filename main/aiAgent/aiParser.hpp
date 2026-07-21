@@ -231,7 +231,6 @@ private:
         if (s == "play_audio")        return AiActionType::PlayAudio;
         if (s == "wifi_connect")      return AiActionType::WifiConnect;
         if (s == "system_info")       return AiActionType::SystemInfo;
-        if (s == "show_notification") return AiActionType::ShowNotification;
         if (s == "power_off")         return AiActionType::PowerOff;
         return AiActionType::UnknownAction;
     }

@@ -5,12 +5,8 @@
 #include "aiAgent/aiClient.hpp"
 #include "aiAgent/aiParser.hpp"
 #include "aiAgent/aiExecutor.hpp"
-#include "battery/batteryManager.hpp"
+#include "aiAgent/aiSystemInfo.hpp"
 #include "bleGamepad/bleGamepad.hpp"
-
-// wifi 前向声明（避免包含 wifi.hpp 触发默认参数重定义）
-bool wifiIsConnect();
-esp_ip4_addr_t wifiStationGetIp();
 
 #include <esp_log.h>
 #include <cstring>
@@ -44,7 +40,6 @@ JSON 字段说明：
 - play_audio	播放音频	{"action":"play_audio","text":"/path/file.mp3"}
 - wifi_connect	连接WiFi	{"action":"wifi_connect","params":{"ssid":"...","password":"..."}}
 - system_info	获取设备信息	{"action":"system_info"}
-- show_notification	通知	{"action":"show_notification","text":"内容","params":{"type":"info"}}
 - power_off	关机	{"action":"power_off"}
 
 当前应用的自定义操作由 {app_context} 提供。
@@ -59,33 +54,7 @@ JSON 字段说明：
 {app_context}
 )";
 
-// ============================================================
-//  System Info 采集
-// ============================================================
 
-static std::string collectSystemInfo()
-{
-	std::string info;
-	int batPct = BatteryManager::instance().getPercent();
-	if (batPct >= 0) {
-		info += "- 电池电量: " + std::to_string(batPct) + "%";
-		info += BatteryManager::instance().isCharging() ? " (充电中)" : "";
-		info += "\n";
-	}
-	if (wifiIsConnect()) {
-		esp_ip4_addr_t ip = wifiStationGetIp();
-		char ipStr[16];
-		snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
-		info += "- IP 地址: " + std::string(ipStr) + "\n";
-		info += "- WiFi: 已连接\n";
-	}
-	else {
-		info += "- WiFi: 未连接\n";
-	}
-	info += "- 屏幕分辨率: 720×1280\n";
-	info += "- 型号: ESP32-P4\n";
-	return info;
-}
 
 // ============================================================
 //  单例

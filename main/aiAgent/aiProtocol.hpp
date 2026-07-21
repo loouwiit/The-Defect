@@ -30,8 +30,7 @@ enum class AiActionType : uint8_t {
     PlayAudio,          // 播放音频文件. params: path
     WifiConnect,        // 连接 WiFi. params: ssid, password
     SystemInfo,         // 显示设备信息
-    ShowNotification,   // 显示通知. params: text, type(info/success/error)
-    PowerOff,           // 关机（需确认）
+    PowerOff,           // 关机（Deep-sleep）
 
     // ── 内部用 ──
     ParseError,         // JSON 解析失败
