@@ -107,4 +107,9 @@ private:
 	static void onSecResetCb(lv_event_t* e);
 	static void onAutoSyncCb(lv_event_t* e);
 	static void onSyncNowCb(lv_event_t* e);
+
+	// ── AI 能力 ──
+	std::string getAiContext() override;
+	void onAiSelect(const AiSelectTarget& target) override;
+	void onAiActivate() override;
 };

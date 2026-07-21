@@ -340,3 +340,34 @@ void SnakeRoom::onForeground()
 
 	m_nextActionTime = xTaskGetTickCount() + ACTION_COOLDOWN;
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string SnakeRoom::getAiContext()
+{
+	std::string ctx = "当前在贪吃蛇大厅。\n"
+		"焦点索引映射：\n"
+		"  0=返回, 1=1P, 2=2P, 3=3P, 4=4P\n\n";
+
+	ctx += "焦点@:" + std::to_string(m_focusIdx) + "\n";
+	return ctx;
+}
+
+void SnakeRoom::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	int idx = target.index;
+	if (target.group.empty() && idx >= 0 && idx <= 4) {
+		m_focusIdx = (int8_t)idx;
+		applyFocus();
+	}
+}
+
+void SnakeRoom::onAiActivate()
+{
+	activateFocus();
+}

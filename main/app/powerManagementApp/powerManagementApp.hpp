@@ -113,4 +113,9 @@ private:
 	static void onBackBtnCb(lv_event_t* e);
 	static void onShutdownBtnCb(lv_event_t* e);
 	static void onRestartBtnCb(lv_event_t* e);
+
+	// ── AI 能力 ──
+	std::string getAiContext() override;
+	void onAiSelect(const AiSelectTarget& target) override;
+	void onAiActivate() override;
 };

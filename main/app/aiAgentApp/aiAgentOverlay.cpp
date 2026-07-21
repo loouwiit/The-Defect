@@ -23,35 +23,36 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 你是一个 ESP32-P4 游戏主机的 AI 助手。
 请严格以 JSON 格式返回操作指令。
 
-重要：必须始终使用 {"actions":[...]} 数组形式，即使只有一个操作也要放在数组中。
+重要：必须始终使用 {"actions":[...]} 数组形式，即使只有一个操作也要放在数组中。系统会依次执行对应操作。
 
 每个 action 对象的通用字段：
 - action:   操作类型（必填）
-- text:     字符串参数（app名、焦点组、回复内容、文件路径等）
+- text:     字符串参数（app名、焦点组名、回复内容、文件路径等）
 - value:    数值参数（亮度、音量、焦点索引等）
 - params:   扩展参数字典（复杂结构用 JSON 对象）
 
 可用系统操作：
 - respond_text	回复文字	{"action":"respond_text","text":"你好"}
 - open_app	打开应用	{"action":"open_app","text":"tetris"}
-- select	聚焦到元素	{"action":"select","text":"cards","value":2}
-- activate	触发当前元素	{"action":"activate"}
-- navigate_back	返回上一级	{"action":"navigate_back"}
-- navigate_home	回桌面	{"action":"navigate_home"}
+- navigate_back	返回上一级App	{"action":"navigate_back"}
+- navigate_home	返回桌面	{"action":"navigate_home"}
 - set_brightness	调亮度	{"action":"set_brightness","value":50}
 - set_volume	调音量	{"action":"set_volume","value":70}
 - play_audio	播放音频	{"action":"play_audio","text":"/path/file.mp3"}
 - wifi_connect	连接WiFi	{"action":"wifi_connect","params":{"ssid":"...","password":"..."}}
 - system_info	获取设备信息	{"action":"system_info"}
 - power_off	关机	{"action":"power_off"}
+- select	移动焦点到指定元素	{"action":"select","text":"groupName","value":2}
+- activate	触发当前焦点的元素	{"action":"activate"}
 
-示例——单个操作：
+示例——选中启动卡片并回复消息：
+{"actions":[{"action":"select","text":"cards","value":2},{"action":"activate"},{"action":"respond_text","text":"已激活2号卡片"}]}
+
+示例——聚焦到状态栏的0号元素并启动：
+{"actions":[{"action":"select","text":"status","value":0},{"action":"activate"}]}
+
+示例——单个回复操作：
 {"actions":[{"action":"respond_text","text":"你好"}]}
-
-示例——多个操作：
-{"actions":[{"action":"select","text":"cards","value":2},{"action":"respond_text","text":"已选中第3个卡片"}]}
-
-未在本列表中的 action 会自动透传给前台 App 处理。
 
 系统只保留最近 5 轮对话，超过的会被丢弃。
 如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。
@@ -543,7 +544,7 @@ void AiAgentOverlay::onSend()
 	std::vector<std::pair<std::string, std::string>> history;
 	history.reserve(m_history.size());
 	for (const auto& [role, content] : m_history) {
-		history.push_back({role, content});
+		history.push_back({ role, content });
 	}
 
 	// 发送请求（带历史上下文）
@@ -681,8 +682,8 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 		replyForHistory = execResult.summary;
 	}
 	if (!replyForHistory.empty() && !m_lastUserInput.empty()) {
-		m_history.push_back({"user", m_lastUserInput});
-		m_history.push_back({"assistant", replyForHistory});
+		m_history.push_back({ "user", m_lastUserInput });
+		m_history.push_back({ "assistant", replyForHistory });
 		// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮
 		while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
 			m_history.erase(m_history.begin());
@@ -738,7 +739,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 				if (auto g = s->m_display->lockGuard())
 					s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
 				return Task::infinityTime;
-			}, "gpKbd", self, 0, Task::Affinity::None);
+				}, "gpKbd", self, 0, Task::Affinity::None);
 			return;
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
@@ -756,7 +757,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			Task::addTask([](void* arg) -> TickType_t {
 				static_cast<AiAgentOverlay*>(arg)->onSend();
 				return Task::infinityTime;
-			}, "gpSend", self, 0, Task::Affinity::None);
+				}, "gpSend", self, 0, Task::Affinity::None);
 			return;
 		}
 

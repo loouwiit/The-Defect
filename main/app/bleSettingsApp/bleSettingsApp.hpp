@@ -137,4 +137,9 @@ private:
 	void navListEnd();
 	void navSlotsLeft();
 	void navSlotsRight();
+
+	// ── AI 能力 ──
+	std::string getAiContext() override;
+	void onAiSelect(const AiSelectTarget& target) override;
+	void onAiActivate() override;
 };

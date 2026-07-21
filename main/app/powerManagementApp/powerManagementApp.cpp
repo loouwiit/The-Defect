@@ -714,3 +714,59 @@ void PowerManagementApp::onRestartBtnCb(lv_event_t* e)
 			return Task::infinityTime;
 		}, "powerMgrRestart", self, 500, Task::Affinity::None);
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string PowerManagementApp::getAiContext()
+{
+	std::string ctx = "当前在电源管理。\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- title(0)\t返回\n"
+		"- slots(0-3)\t手柄电池槽位\n"
+		"- buttons(0-1)\t关机/重启\n\n";
+
+	int batPct = BatteryManager::instance().getPercent();
+	if (batPct >= 0) {
+		ctx += "主机电池: " + std::to_string(batPct) + "%";
+		ctx += BatteryManager::instance().isCharging() ? " (充电中)" : "";
+		ctx += "\n";
+	}
+
+	const char* groupName = "";
+	switch (m_focusGroup) {
+		case FOCUS_TITLE:  groupName = "title"; break;
+		case FOCUS_SLOTS:  groupName = "slots"; break;
+		case FOCUS_BUTTONS: groupName = "buttons"; break;
+	}
+	ctx += std::string("焦点@") + groupName;
+	if (m_focusGroup == FOCUS_SLOTS) ctx += ":" + std::to_string(m_focusSlotsIdx);
+	else if (m_focusGroup == FOCUS_BUTTONS) ctx += ":" + std::to_string(m_focusBtnIdx);
+	ctx += "\n";
+	return ctx;
+}
+
+void PowerManagementApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (target.group == "title" && target.index == 0) {
+		m_focusGroup = FOCUS_TITLE;
+		applyFocus();
+	} else if (target.group == "slots" && target.index >= 0 && target.index < (int8_t)MaxPlayers) {
+		m_focusGroup = FOCUS_SLOTS;
+		m_focusSlotsIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "buttons" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_BUTTONS;
+		m_focusBtnIdx = (int8_t)target.index;
+		applyFocus();
+	}
+}
+
+void PowerManagementApp::onAiActivate()
+{
+	activateFocus();
+}

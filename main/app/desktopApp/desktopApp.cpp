@@ -558,21 +558,22 @@ void DesktopApp::startGame()
 std::string DesktopApp::getAiContext()
 {
 	std::string ctx = "当前在桌面（主菜单）。\n"
-		"可用 open_app (或select) 操作的对象：\n"
-		"- snake(贪吃蛇 0@cards), fruitNinja(水果忍者 1@cards), tetris(俄罗斯方块 2@cards) doudizhu(斗地主 3@cards), chineseChess(中国象棋 4@cards)\n"
-		"- timeSettings(时间设置 0@status), wifiSettings(wifi设置 1@status), bleSettings(蓝牙手柄设置 2@status), 音量调节滑块(非独立app只能选择无法启动 3@status), 亮度调节滑块(非独立app只能选择无法启动 4@status), powerManagement(电源设置 5@status)\n\n"
-		"- startGameButton(开始游戏按钮 0@buttons)"
-		"焦点组解释：0-4@cards为游戏卡片, 0-5@status为状态栏, 0@buttons为“开始游戏”按钮\n\n";
+		"可用 open_app 打开的应用（用 text 指定名称）：\n"
+		"- snake, fruitNinja, tetris\n"
+		"- doudizhu, chineseChess\n"
+		"- timeSettings, wifiSettings, bleSettings, powerManagement\n\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- cards(0-4)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess）\n"
+		"- status(0-5)\t状态栏（时间/WiFi/蓝牙/音量/亮度/电池）\n"
+		"- buttons(0)\t开始游戏按钮\n\n";
 
 	// 当前焦点
-	ctx += "当前焦点：";
+	ctx += "焦点@";
 	switch (m_focusGroup) {
-		case FOCUS_CARDS:  ctx += std::to_string(m_focusCardsIdx) +"@cards";  break;
-		case FOCUS_BOTTOM: ctx += std::to_string(0) +"@buttons"; break;
-		case FOCUS_STATUS: ctx += std::to_string(m_focusStatusIdx) +"@status";  break;
-		default:
-			ctx += "未知"; break;
-	}	
+		case FOCUS_CARDS:  ctx += "cards:" + std::to_string(m_focusCardsIdx); break;
+		case FOCUS_BOTTOM: ctx += "buttons:0"; break;
+		case FOCUS_STATUS: ctx += "status:" + std::to_string(m_focusStatusIdx); break;
+	}
 	ctx += "\n";
 
 	return ctx;

@@ -757,3 +757,52 @@ void TimeSettingsApp::onSyncNowCb(lv_event_t* e)
 {
 	static_cast<TimeSettingsApp*>(lv_event_get_user_data(e))->doSyncNow();
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string TimeSettingsApp::getAiContext()
+{
+	std::string ctx = "当前在时间设置。\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- title(0)\t返回\n"
+		"- adjust(0-4)\t时−/时+/分−/分+/秒归零\n"
+		"- sync(0-1)\t自动同步/立即同步\n\n";
+
+	const char* groupName = "";
+	switch (m_focusGroup) {
+		case FOCUS_TITLE:  groupName = "title"; break;
+		case FOCUS_ADJUST: groupName = "adjust"; break;
+		case FOCUS_SYNC:   groupName = "sync"; break;
+	}
+	ctx += std::string("焦点@") + groupName;
+	if (m_focusGroup == FOCUS_ADJUST) ctx += ":" + std::to_string(m_focusAdjustIdx);
+	else if (m_focusGroup == FOCUS_SYNC) ctx += ":" + std::to_string(m_focusSyncIdx);
+	ctx += "\n";
+	return ctx;
+}
+
+void TimeSettingsApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (target.group == "title" && target.index == 0) {
+		m_focusGroup = FOCUS_TITLE;
+		applyFocus();
+	} else if (target.group == "adjust" && target.index >= 0 && target.index <= 4) {
+		m_focusGroup = FOCUS_ADJUST;
+		m_focusAdjustIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "sync" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_SYNC;
+		m_focusSyncIdx = (int8_t)target.index;
+		applyFocus();
+	}
+}
+
+void TimeSettingsApp::onAiActivate()
+{
+	activateFocus();
+}

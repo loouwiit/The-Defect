@@ -83,4 +83,9 @@ private:
 	static void onStartBtnCb(lv_event_t* e);
 
 	AudioHandle bgm{};
+
+	// ── AI 能力 ──
+	std::string getAiContext() override;
+	void onAiSelect(const AiSelectTarget& target) override;
+	void onAiActivate() override;
 };

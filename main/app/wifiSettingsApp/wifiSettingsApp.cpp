@@ -1171,3 +1171,54 @@ void WifiSettingsApp::onKeyboardReadyCb(lv_event_t* e)
 	const char* password = lv_textarea_get_text(self->m_passwordTa);
 	self->doConnect(self->m_pwdTargetIdx, password);
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string WifiSettingsApp::getAiContext()
+{
+	std::string ctx = "当前在 WiFi 设置。\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- title(0-1)\t返回/扫描\n"
+		"- list(0-" + std::to_string(m_scanResults.empty() ? 0 : (int)m_scanResults.size() - 1) + ")\tAP 列表\n\n";
+
+	ctx += "扫描到 " + std::to_string(m_scanResults.size()) + " 个 AP\n";
+	ctx += m_isConnected ? "WiFi: 已连接\n" : "WiFi: 未连接\n";
+
+	const char* groupName = "";
+	switch (m_focusGroup) {
+		case FOCUS_TITLE: groupName = "title"; break;
+		case FOCUS_LIST:  groupName = "list"; break;
+		case FOCUS_INFO:  groupName = "info"; break;
+	}
+	ctx += std::string("焦点@") + groupName;
+	if (m_focusGroup == FOCUS_TITLE) ctx += ":" + std::to_string(m_focusTitleIdx);
+	else if (m_focusGroup == FOCUS_LIST) ctx += ":" + std::to_string(m_focusListIdx);
+	ctx += "\n";
+	return ctx;
+}
+
+void WifiSettingsApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (target.group == "title" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_TITLE;
+		m_focusTitleIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "list" && target.index >= 0 && (size_t)target.index < m_scanRows.size()) {
+		m_focusGroup = FOCUS_LIST;
+		m_focusListIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "info" && target.index == 0) {
+		m_focusGroup = FOCUS_INFO;
+		applyFocus();
+	}
+}
+
+void WifiSettingsApp::onAiActivate()
+{
+	activateFocus();
+}
