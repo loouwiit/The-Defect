@@ -3,6 +3,15 @@
 #include <esp_log.h>
 
 // ════════════════════════════════════════════════════════════════
+// 全局访问（供 HTTP /api/games 查询）
+// ════════════════════════════════════════════════════════════════
+
+static AppStackManager* s_globalMgr = nullptr;
+
+void setGlobalAppStackManager(AppStackManager* mgr) { s_globalMgr = mgr; }
+AppStackManager* getGlobalAppStackManager() { return s_globalMgr; }
+
+// ════════════════════════════════════════════════════════════════
 // 构造 / 析构
 // ════════════════════════════════════════════════════════════════
 

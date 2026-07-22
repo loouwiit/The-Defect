@@ -35,8 +35,12 @@ public:
 	virtual void init() { running = true; deletable = false; };
 	virtual void deinit() { running = false; deletable = true; };
 
-	// BLE 手柄输入 — 由 BleGamepad 路由到当前活跃 App
-	virtual void onGamepadInput(uint8_t playerId, const GamepadState& state) {}
+	// 手柄输入 — 由 VirtualGamepad 统一分发
+	// hostId: 0=本机, 1-3=从机 (HostManager slot)
+	// playerId: 该设备上的手柄编号 (0-3)
+	virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state) {
+		(void)hostId;
+	}
 	virtual void onGamepadConnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d connected", playerId); }
 	virtual void onGamepadDisconnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d disconnected", playerId); }
 
@@ -49,6 +53,14 @@ public:
 	virtual void onAiSelect(const AiSelectTarget& target) { (void)target; }
 	/** @brief AI activate：触发当前聚焦的元素 */
 	virtual void onAiActivate() {}
+
+	// ── 游戏信息（供 HTTP /api/games 和跨主机发现使用） ──
+	/** @brief 返回本 App 的游戏名称（如 "tetris"），空=非游戏 */
+	virtual const char* getGameName() const { return ""; }
+	/** @brief 返回当前玩家人数（远端查询用） */
+	virtual int getGamePlayerCount() const { return 0; }
+	/** @brief 返回最大玩家数 */
+	virtual int getGameMaxPlayers() const { return 0; }
 
 	// ── 栈生命周期钩子（由 AppStackManager 调用） ──
 	/** @brief App 成为前台活跃（已 visible） */

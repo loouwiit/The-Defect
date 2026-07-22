@@ -26,6 +26,10 @@
  * mgr.switchToStack(0);
  * @endcode
  */
+// 全局访问（供 HTTP /api/games 查询当前活跃游戏）
+void setGlobalAppStackManager(AppStackManager* mgr);
+AppStackManager* getGlobalAppStackManager();
+
 class AppStackManager
 {
 public:

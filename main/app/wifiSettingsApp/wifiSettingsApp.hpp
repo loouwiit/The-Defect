@@ -28,7 +28,7 @@ public:
 	void deinit() override;
 	void onForeground() override;
 	void onBackground() override;
-	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+	void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state) override;
 
 private:
 	static constexpr int MaxAps = 32;

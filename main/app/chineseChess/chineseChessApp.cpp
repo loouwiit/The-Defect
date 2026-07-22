@@ -746,7 +746,7 @@ void ChineseChessApp::activateFocus()
 // 手柄输入
 // ============================================================
 
-void ChineseChessApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void ChineseChessApp::onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state)
 {
 	if (playerId >= MaxPlayers) return;
 

@@ -554,7 +554,7 @@ void PowerManagementApp::activateFocus()
 // 手柄输入
 // ════════════════════════════════════════════════════════════════
 
-void PowerManagementApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void PowerManagementApp::onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state)
 {
 	constexpr uint8_t deadZone = 13;
 	constexpr uint8_t center = 128;

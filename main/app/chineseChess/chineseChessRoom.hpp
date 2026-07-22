@@ -19,7 +19,7 @@ public:
 	~ChineseChessRoom() override;
 
 	void init() override;
-	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+	void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state) override;
 	void onForeground() override;
 
 private:

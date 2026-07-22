@@ -424,7 +424,7 @@ void TetrisRoomApp::startGame()
 //  BLE 手柄输入
 // ════════════════════════════════════════════════════════════════
 
-void TetrisRoomApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void TetrisRoomApp::onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state)
 {
 	// 记录活动
 	if (playerId < MAX_PLAYERS)

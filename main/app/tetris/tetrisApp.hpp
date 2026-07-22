@@ -31,8 +31,13 @@ public:
 
     void onForeground() override;
 
+    // ── 游戏信息 ──
+    const char* getGameName() const override { return "tetris"; }
+    int getGamePlayerCount() const override { return m_playerCount; }
+    int getGameMaxPlayers() const override { return MAX_PLAYERS; }
+
     // ── BLE 手柄输入 ──
-    void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+    void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state) override;
 
 private:
     int m_playerCount;

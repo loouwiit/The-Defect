@@ -27,7 +27,7 @@ public:
 	void init() override;
 	void deinit() override;
 
-	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+	void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state) override;
 
 	/** @brief WebSocket 游戏按键回调（静态，转发给实例） */
 	static void gameKeyCb(int player, uint8_t keyCode, bool pressed, void* ctx);

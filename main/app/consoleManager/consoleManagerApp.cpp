@@ -5,6 +5,9 @@
 #include "task/task.hpp"
 #include "wifi/wifi.hpp"
 #include "discovery/discovery.hpp"
+#include "host/hostManager.hpp"
+#include "host/virtualGamepad.hpp"
+#include "wifi/mdns.hpp"  // mdnsGetConfiguredHostname
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -48,6 +51,20 @@ void ConsoleManagerApp::init()
 	m_focusListIdx = 0;
 	applyFocus();
 
+	// 注册槽位更新回调 — 始终生效（主机/从机均需要）
+	HostManager::instance().setOnSlotUpdate([this](int) {
+		updateSlots();
+	});
+
+	// 初始更新槽位显示
+	updateSlots();
+
+	// 如果已经是连接状态（从其他 App 返回），切换到从机视图
+	if (HostManager::instance().isClient())
+	{
+		switchToConnectedView();
+	}
+
 	// 定时器
 	m_refreshTimer = lv_timer_create(timerCb, RefreshInterval, this);
 
@@ -80,6 +97,17 @@ void ConsoleManagerApp::onForeground()
 	m_prevButtons = 0xFFFF;
 	for (auto& t : m_nextMoveTime) t = 0;
 	m_nextActionTime = xTaskGetTickCount() + 500;
+
+	// 恢复正确的视图
+	if (HostManager::instance().isClient())
+	{
+		if (!m_connectedView) switchToConnectedView();
+	}
+	else
+	{
+		if (m_connectedView) switchToScanView();
+	}
+
 	ESP_LOGI(TAG, "前台");
 }
 
@@ -106,6 +134,8 @@ void ConsoleManagerApp::refreshUi()
 	if (!guard) return;
 
 	updateStatus();
+	if (m_connectedView || HostManager::instance().isClient())
+		updateSlots();
 
 	// 扫描状态检查
 	if (m_scanActive)
@@ -188,6 +218,9 @@ void ConsoleManagerApp::buildUi()
 	lv_obj_set_style_text_align(empty_hint, LV_TEXT_ALIGN_CENTER, 0);
 	m_scanRows.push_back(empty_hint);
 
+	// ── 槽位区域（始终显示）──
+	buildSlots();
+
 	// ── 底部状态 ──
 	m_statusLabel = GUI::createLabel(screen, "就绪");
 	lv_obj_set_width(m_statusLabel, lv_pct(100));
@@ -196,6 +229,29 @@ void ConsoleManagerApp::buildUi()
 	lv_obj_set_style_text_color(m_statusLabel, GUI::Color::SUBTLE, 0);
 	lv_obj_set_style_pad_all(m_statusLabel, 8, 0);
 	lv_obj_set_style_pad_bottom(m_statusLabel, 12, 0);
+
+	// ── 连接状态容器（初始隐藏，连接到主机后显示）──
+	m_connectedContainer = lv_obj_create(screen);
+	lv_obj_set_size(m_connectedContainer, lv_pct(100), LV_SIZE_CONTENT);
+	lv_obj_set_flex_grow(m_connectedContainer, 1);
+	lv_obj_set_style_border_width(m_connectedContainer, 0, 0);
+	lv_obj_set_style_bg_opa(m_connectedContainer, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(m_connectedContainer, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(m_connectedContainer, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_flex_align(m_connectedContainer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(m_connectedContainer, 40, 0);
+	lv_obj_add_flag(m_connectedContainer, LV_OBJ_FLAG_HIDDEN);
+
+	m_connectedLabel = GUI::createTitle(m_connectedContainer, "已连接到主机");
+	lv_obj_set_style_text_font(m_connectedLabel, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
+	lv_obj_set_style_pad_bottom(m_connectedLabel, 24, 0);
+
+	m_disconnectBtn = GUI::createButton(m_connectedContainer, "断开连接", 160, 50);
+	lv_obj_set_style_radius(m_disconnectBtn, 12, 0);
+	lv_obj_set_style_bg_color(m_disconnectBtn, LV_COLOR_MAKE(0xAA, 0x33, 0x33), 0);
+	lv_obj_set_style_border_width(m_disconnectBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_color(m_disconnectBtn, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_add_event_cb(m_disconnectBtn, onDisconnectBtnCb, LV_EVENT_CLICKED, this);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -272,9 +328,282 @@ void ConsoleManagerApp::doConnect(size_t index)
 	const auto& c = m_consoles[index];
 	ESP_LOGI(TAG, "连接到主机: %s @ %s:%u", c.hostname, c.ip, c.port);
 
-	// TODO: 后续实现 WebSocket 连接逻辑
-	// 目前仅打印日志
-	ESP_LOGI(TAG, "想要什么去代码里自己写(%s:%d)", __FILE__, __LINE__);
+	// ── 通过 HostManager 连接远程主机（将放弃本机主机资格）──
+	if (!HostManager::instance().connectToHost(c.ip, 8080))
+	{
+		ESP_LOGE(TAG, "连接失败");
+		auto guard = display->lockGuard();
+		lv_label_set_text(m_statusLabel, "连接失败");
+		return;
+	}
+
+	ESP_LOGI(TAG, "已连接到 %s，成为从机", c.hostname);
+
+	// ── 切换到从机视图 ──
+	switchToConnectedView();
+}
+
+void ConsoleManagerApp::disconnectFromHost()
+{
+	ESP_LOGI(TAG, "断开与主机的连接");
+
+	// 断开 HostManager 连接（恢复主机身份）
+	HostManager::instance().disconnectFromHost();
+
+	// 重新注册回调（断开时会被清空，重新注册保持主机侧响应）
+	HostManager::instance().setOnSlotUpdate([this](int) {
+		updateSlots();
+	});
+
+	// 更新槽位显示
+	updateSlots();
+
+	// 切回扫描视图
+	switchToScanView();
+}
+
+void ConsoleManagerApp::switchToConnectedView()
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	m_connectedView = true;
+
+	// 隐藏扫描相关控件
+	lv_obj_add_flag(m_scanBtn, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_add_flag(m_scanListContainer, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_add_flag(m_statusLabel, LV_OBJ_FLAG_HIDDEN);
+
+	// 显示连接状态区域
+	lv_obj_clear_flag(m_connectedContainer, LV_OBJ_FLAG_HIDDEN);
+	updateSlots();
+
+	const char* hostname = HostManager::instance().getRemoteHostname();
+	if (hostname && hostname[0] != '\0')
+	{
+		char buf[64];
+		snprintf(buf, sizeof(buf), "已连接到 %s", hostname);
+		lv_label_set_text(m_connectedLabel, buf);
+	}
+	else
+	{
+		lv_label_set_text(m_connectedLabel, "已连接到主机");
+	}
+
+	ESP_LOGI(TAG, "切换到从机视图");
+}
+
+void ConsoleManagerApp::switchToScanView()
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	m_connectedView = false;
+
+	// 隐藏连接状态区域（槽位始终显示）
+	lv_obj_add_flag(m_connectedContainer, LV_OBJ_FLAG_HIDDEN);
+
+	// 恢复扫描相关控件
+	lv_obj_clear_flag(m_scanBtn, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_clear_flag(m_scanListContainer, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_clear_flag(m_statusLabel, LV_OBJ_FLAG_HIDDEN);
+
+	lv_label_set_text(m_statusLabel, "就绪");
+
+	ESP_LOGI(TAG, "切回扫描视图");
+}
+
+// ════════════════════════════════════════════════════════════════
+// 槽位 UI
+// ════════════════════════════════════════════════════════════════
+
+static constexpr lv_coord_t SLOT_W = 145;
+static constexpr lv_coord_t SLOT_H = 110;
+static constexpr lv_coord_t MASK_BTN_SIZE = 28;
+
+void ConsoleManagerApp::buildSlots()
+{
+	auto guard = display->lockGuard();
+
+	m_slotsContainer = lv_obj_create(screen);
+	lv_obj_set_width(m_slotsContainer, lv_pct(100));
+	lv_obj_set_height(m_slotsContainer, LV_SIZE_CONTENT);
+	lv_obj_set_style_border_width(m_slotsContainer, 0, 0);
+	lv_obj_set_style_bg_opa(m_slotsContainer, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(m_slotsContainer, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(m_slotsContainer, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(m_slotsContainer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(m_slotsContainer, 4, 0);
+	lv_obj_set_style_pad_column(m_slotsContainer, 6, 0);
+	lv_obj_set_style_pad_bottom(m_slotsContainer, 8, 0);
+
+	for (int slot = 0; slot < 4; slot++)
+	{
+		// ── 卡片 ──
+		auto card = lv_obj_create(m_slotsContainer);
+		lv_obj_set_size(card, SLOT_W, SLOT_H);
+		lv_obj_set_style_radius(card, 8, 0);
+		lv_obj_set_style_bg_color(card, GUI::Color::CARD, 0);
+		lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+		lv_obj_set_style_border_width(card, 2, 0);
+		lv_obj_set_style_border_color(card, GUI::Color::SUBTLE, 0);
+		lv_obj_set_style_border_width(card, 3, LV_STATE_FOCUSED);
+		lv_obj_set_style_border_color(card, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+		lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+		lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+		lv_obj_set_style_pad_all(card, 4, 0);
+		lv_obj_set_user_data(card, (void*)(uintptr_t)slot);
+		lv_obj_add_event_cb(card, onSlotClickCb, LV_EVENT_CLICKED, this);
+
+		// ── 第一行：Slot 编号 + 主机名 ──
+		char label[32];
+		snprintf(label, sizeof(label), "Slot %d:", slot);
+		auto nameLabel = GUI::createLabel(card, label);
+		lv_obj_set_style_text_font(nameLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+		lv_obj_set_style_text_align(nameLabel, LV_TEXT_ALIGN_CENTER, 0);
+		lv_obj_set_width(nameLabel, lv_pct(100));
+		lv_obj_set_flex_grow(nameLabel, 1);
+		lv_label_set_long_mode(nameLabel, LV_LABEL_LONG_DOT);
+		m_slotNameLabels[slot] = nameLabel;
+
+		// ── 第二行：4 个掩码按钮 ──
+		auto maskRow = lv_obj_create(card);
+		lv_obj_set_width(maskRow, lv_pct(100));
+		lv_obj_set_height(maskRow, LV_SIZE_CONTENT);
+		lv_obj_set_style_border_width(maskRow, 0, 0);
+		lv_obj_set_style_bg_opa(maskRow, LV_OPA_TRANSP, 0);
+		lv_obj_set_layout(maskRow, LV_LAYOUT_FLEX);
+		lv_obj_set_flex_flow(maskRow, LV_FLEX_FLOW_ROW);
+		lv_obj_set_flex_align(maskRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+		lv_obj_set_style_pad_column(maskRow, 4, 0);
+		lv_obj_set_style_pad_all(maskRow, 0, 0);
+		lv_obj_remove_flag(maskRow, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_clear_flag(maskRow, LV_OBJ_FLAG_CLICKABLE);
+
+		for (int p = 0; p < 4; p++)
+		{
+			auto btn = lv_obj_create(maskRow);
+			lv_obj_set_size(btn, MASK_BTN_SIZE, MASK_BTN_SIZE);
+			lv_obj_set_style_radius(btn, 4, 0);
+			lv_obj_set_style_border_width(btn, 1, 0);
+			lv_obj_set_style_border_color(btn, GUI::Color::SUBTLE, 0);
+			lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
+			lv_obj_set_style_border_color(btn, lv_color_white(), LV_STATE_FOCUSED);
+			lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+			lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+			lv_obj_set_user_data(btn, (void*)(uintptr_t)(slot * 4 + p));
+			lv_obj_add_event_cb(btn, onMaskBtnCb, LV_EVENT_CLICKED, this);
+			m_maskBtns[slot][p] = btn;
+		}
+	}
+
+	// 初始更新
+	updateSlots();
+}
+
+void ConsoleManagerApp::updateSlots()
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	auto& hm = HostManager::instance();
+
+	if (hm.isHost())
+	{
+		// ── 主机视图：Slot 0 = 本机，Slot 1-3 = 已连接的从机 ──
+		const auto* slots = hm.getSlots();
+		for (int slot = 0; slot < 4; slot++)
+		{
+			const auto& s = slots[slot];
+			char label[80];
+			if (s.connected && s.hostname[0] != '\0')
+				snprintf(label, sizeof(label), "S%d:%s", slot, s.hostname);
+			else
+				snprintf(label, sizeof(label), "S%d:--", slot);
+			lv_label_set_text(m_slotNameLabels[slot], label);
+		}
+	}
+	else
+	{
+		// ── 从机视图：Slot 0 = 远程主机，mySlot = 本机，其余由广播更新 ──
+		int8_t mySlot = hm.myAssignedSlot();
+		const char* remoteHost = hm.getRemoteHostname();
+
+		for (int slot = 0; slot < 4; slot++)
+		{
+			char label[80];
+			if (slot == 0)
+			{
+				// Slot 0 始终显示远程主机
+				if (remoteHost && remoteHost[0] != '\0')
+					snprintf(label, sizeof(label), "S0:%s", remoteHost);
+				else
+					snprintf(label, sizeof(label), "S0:主机");
+			}
+			else if (slot == mySlot)
+			{
+				// 本设备的槽位
+				snprintf(label, sizeof(label), "S%d:%s(我)", slot,
+					mdnsGetConfiguredHostname());
+			}
+			else
+			{
+				// 其他从机（通过 client_joined 广播获取）
+				const auto* slots = hm.getSlots();
+				if (slot < 4 && slots[slot].connected && slots[slot].hostname[0] != '\0')
+					snprintf(label, sizeof(label), "S%d:%s", slot, slots[slot].hostname);
+				else
+					snprintf(label, sizeof(label), "S%d:--", slot);
+			}
+			lv_label_set_text(m_slotNameLabels[slot], label);
+		}
+	}
+
+	// 更新掩码按钮
+	for (int slot = 0; slot < 4; slot++)
+		updateMaskBtnVisual(slot);
+}
+
+void ConsoleManagerApp::updateMaskBtnVisual(int slot)
+{
+	const uint16_t* mask = VirtualGamepad::instance().getInputMask();
+	uint16_t slotMask = mask[slot];
+
+	for (int p = 0; p < 4; p++)
+	{
+		bool enabled = (slotMask & (1u << p)) != 0;
+		lv_obj_t* btn = m_maskBtns[slot][p];
+		if (enabled)
+		{
+			lv_obj_set_style_bg_color(btn, GUI::Color::PRIMARY, 0);
+			lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+			lv_obj_set_style_border_color(btn, GUI::Color::PRIMARY, 0);
+		}
+		else
+		{
+			lv_obj_set_style_bg_color(btn, GUI::Color::CARD, 0);
+			lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+			lv_obj_set_style_border_color(btn, GUI::Color::SUBTLE, 0);
+		}
+	}
+}
+
+void ConsoleManagerApp::doSwapSlots(int slotA, int slotB)
+{
+	if (slotA == slotB) return;
+	if (slotA == 0 || slotB == 0)
+	{
+		ESP_LOGW(TAG, "不能交换 Slot 0（本机）");
+		return;
+	}
+
+	ESP_LOGI(TAG, "交换 Slot %d <-> %d", slotA, slotB);
+	HostManager::instance().swapSlots(slotA, slotB);
+	updateSlots();
+	m_swapSelectedSlot = -1;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -389,6 +718,11 @@ void ConsoleManagerApp::applyFocus()
 	clearFocus(m_backBtn);
 	clearFocus(m_scanBtn);
 	for (auto* row : m_scanRows) clearFocus(row);
+	for (int s = 0; s < 4; s++) {
+		// 清除槽位卡片的焦点
+		auto child = lv_obj_get_child(m_slotsContainer, s);
+		if (child) clearFocus(static_cast<lv_obj_t*>(child));
+	}
 
 	switch (m_focusGroup)
 	{
@@ -405,6 +739,17 @@ void ConsoleManagerApp::applyFocus()
 			focus(m_scanRows[m_focusListIdx]);
 			lv_obj_scroll_to_view(m_scanRows[m_focusListIdx], LV_ANIM_ON);
 		}
+		break;
+
+	case FOCUS_SLOTS:
+		if (m_focusSlotIdx >= 0 && m_focusSlotIdx < 4)
+		{
+			auto child = lv_obj_get_child(m_slotsContainer, m_focusSlotIdx);
+			if (child) focus((lv_obj_t*)child);
+		}
+		break;
+
+	default:
 		break;
 	}
 }
@@ -429,6 +774,19 @@ void ConsoleManagerApp::activateFocus()
 			lv_obj_send_event(m_connectBtns[idx], LV_EVENT_CLICKED, nullptr);
 		break;
 	}
+	case FOCUS_SLOTS:
+	{
+		auto guard = display->lockGuard();
+		if (m_focusSlotIdx >= 0 && m_focusSlotIdx < 4)
+		{
+			auto child = lv_obj_get_child(m_slotsContainer, m_focusSlotIdx);
+			if (child) lv_obj_send_event((lv_obj_t*)child, LV_EVENT_CLICKED, nullptr);
+		}
+		break;
+	}
+
+	default:
+		break;
 	}
 }
 
@@ -473,11 +831,38 @@ void ConsoleManagerApp::navListDown()
 	// 已在底部，不循环
 }
 
+void ConsoleManagerApp::navSlotLeft()
+{
+	auto guard = display->lockGuard();
+	if (m_focusSlotIdx > 0) { m_focusSlotIdx--; applyFocus(); }
+}
+
+void ConsoleManagerApp::navSlotRight()
+{
+	auto guard = display->lockGuard();
+	if (m_focusSlotIdx < 3) { m_focusSlotIdx++; applyFocus(); }
+}
+
+void ConsoleManagerApp::navSlotUp()
+{
+	auto guard = display->lockGuard();
+	m_focusGroup = FOCUS_TITLE;
+	applyFocus();
+}
+
+void ConsoleManagerApp::navSlotDown()
+{
+	auto guard = display->lockGuard();
+	if (m_connectedView) {
+		// 在连接视图中，向下到断开按钮
+	}
+}
+
 // ════════════════════════════════════════════════════════════════
 // 手柄输入
 // ════════════════════════════════════════════════════════════════
 
-void ConsoleManagerApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void ConsoleManagerApp::onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state)
 {
 	uint16_t newPress = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;
@@ -530,19 +915,38 @@ void ConsoleManagerApp::onGamepadInput(uint8_t playerId, const GamepadState& sta
 		if (lxRight) navTitleRight();
 		if (lyDown)
 		{
-			auto g = display->lockGuard();
-			if (!m_scanRows.empty())
+			if (m_connectedView)
+			{
+				// 连接视图下 → 切到槽位
+				m_focusGroup = FOCUS_SLOTS;
+				m_focusSlotIdx = 0;
+				applyFocus();
+			}
+			else if (!m_scanRows.empty())
 			{
 				m_focusGroup = FOCUS_LIST;
 				m_focusListIdx = 0;
+				applyFocus();
 			}
-			applyFocus();
 		}
 		break;
 
 	case FOCUS_LIST:
 		if (lyUp)   navListUp();
 		if (lyDown) navListDown();
+		break;
+
+	case FOCUS_SLOTS:
+		if (lxLeft)  navSlotLeft();
+		if (lxRight) navSlotRight();
+		if (lyDown)  navSlotDown();
+		if (lyUp)    navSlotUp();
+		break;
+
+	case FOCUS_MASK:
+		if (lxLeft)  { m_focusMaskSlotIdx = 0; m_focusGroup = FOCUS_SLOTS; applyFocus(); }
+		if (lxRight) { m_focusMaskSlotIdx = 3; m_focusGroup = FOCUS_SLOTS; applyFocus(); }
+		if (lyUp)    { m_focusGroup = FOCUS_SLOTS; applyFocus(); }
 		break;
 	}
 }
@@ -599,6 +1003,93 @@ void ConsoleManagerApp::onBackBtnCb(lv_event_t* e)
 		}, "consoleBack", self, 0, Task::Affinity::None);
 }
 
+void ConsoleManagerApp::onDisconnectBtnCb(lv_event_t* e)
+{
+	auto* self = static_cast<ConsoleManagerApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+		return;
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
+	// 在 Task 中执行断开逻辑
+	Task::addTask([](void* param) -> TickType_t
+		{
+			static_cast<ConsoleManagerApp*>(param)->disconnectFromHost();
+			return Task::infinityTime;
+		}, "consoleDisconnect", self, 0, Task::Affinity::None);
+}
+
+void ConsoleManagerApp::onSlotClickCb(lv_event_t* e)
+{
+	auto* self = static_cast<ConsoleManagerApp*>(lv_event_get_user_data(e));
+	auto target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+	int slot = (int)(uintptr_t)lv_obj_get_user_data(target);
+
+	const auto* slots = HostManager::instance().getSlots();
+	if (!slots[slot].connected)
+	{
+		ESP_LOGW(TAG, "Slot %d 为空，不能交换", slot);
+		return;
+	}
+
+	if (self->m_swapSelectedSlot < 0)
+	{
+		// 第一次选择：标记交换源
+		self->m_swapSelectedSlot = slot;
+		lv_obj_set_style_border_color(target, LV_COLOR_MAKE(0xFF, 0xCC, 0x00), 0);
+		ESP_LOGI(TAG, "选择 Slot %d 作为交换源", slot);
+	}
+	else if (self->m_swapSelectedSlot == slot)
+	{
+		// 点同一个：取消选择
+		self->m_swapSelectedSlot = -1;
+		self->updateSlots();
+		ESP_LOGI(TAG, "取消交换");
+	}
+	else
+	{
+		// 第二次选择：执行交换
+		int src = self->m_swapSelectedSlot;
+		self->doSwapSlots(src, slot);
+		// 取消高亮（updateSlots 内已刷新）
+		self->updateSlots();
+	}
+}
+
+void ConsoleManagerApp::onMaskBtnCb(lv_event_t* e)
+{
+	auto* self = static_cast<ConsoleManagerApp*>(lv_event_get_user_data(e));
+	auto btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
+	int idx = (int)(uintptr_t)lv_obj_get_user_data(btn);
+	int slot = idx / 4;
+	int player = idx % 4;
+
+	// 切换该 slot 的对应 player bit
+	uint16_t currentMask[4];
+	const uint16_t* mask = VirtualGamepad::instance().getInputMask();
+	for (int i = 0; i < 4; i++) currentMask[i] = mask[i];
+
+	currentMask[slot] ^= (1u << player);
+
+	VirtualGamepad::instance().setInputMask(currentMask);
+	self->updateMaskBtnVisual(slot);
+
+	ESP_LOGI(TAG, "掩码: Slot%d P%d %s", slot, player,
+		(currentMask[slot] & (1u << player)) ? "ON" : "OFF");
+
+	// 广播掩码给所有从机（限速：最快每 200ms 一次）
+	static TickType_t s_lastMaskBcast = 0;
+	TickType_t now = xTaskGetTickCount();
+	if (now - s_lastMaskBcast >= pdMS_TO_TICKS(200)) {
+		s_lastMaskBcast = now;
+		char maskMsg[128];
+		int mn = snprintf(maskMsg, sizeof(maskMsg),
+			"{\"type\":\"mask_sync\",\"mask\":[%u,%u,%u,%u]}",
+			currentMask[0], currentMask[1], currentMask[2], currentMask[3]);
+		if (mn > 0) HostManager::instance().broadcast(maskMsg, mn);
+	}
+}
+
 // ════════════════════════════════════════════════════════════════
 // AI 能力
 // ════════════════════════════════════════════════════════════════
@@ -616,10 +1107,13 @@ std::string ConsoleManagerApp::getAiContext()
 	switch (m_focusGroup) {
 	case FOCUS_TITLE: groupName = "title"; break;
 	case FOCUS_LIST:  groupName = "list"; break;
+	case FOCUS_SLOTS: groupName = "slots"; break;
+	case FOCUS_MASK:  groupName = "mask"; break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	if (m_focusGroup == FOCUS_TITLE) ctx += ":" + std::to_string(m_focusTitleIdx);
 	else if (m_focusGroup == FOCUS_LIST) ctx += ":" + std::to_string(m_focusListIdx);
+	else if (m_focusGroup == FOCUS_SLOTS) ctx += ":" + std::to_string(m_focusSlotIdx);
 	ctx += "\n";
 	return ctx;
 }

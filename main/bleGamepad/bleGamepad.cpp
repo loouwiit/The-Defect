@@ -3,6 +3,9 @@
 #include "task/task.hpp"
 
 #include "app/app.hpp"
+#include "host/virtualGamepad.hpp"
+#include "host/hostManager.hpp"
+#include "wifi/wsClient.hpp"
 #include "esp_log.h"
 #include "esp_err.h"
 
@@ -530,16 +533,34 @@ void BleGamepad::processTask(void* arg)
 				ctx.state = evt.state;
 				// 状态变化日志（调试用）
 				if (ctx.state.buttons || ctx.state.dpad < 8) {
-					ESP_LOGD(TAG, "P%d: btn=0x%04x lx=%d ly=%d rx=%d ry=%d dpad=%d",
-						evt.playerId, evt.state.buttons,
-						evt.state.lx, evt.state.ly,
-						evt.state.rx, evt.state.ry,
-						evt.state.dpad);
+					}
+				// 注入到 VirtualGamepad（所有输入统一入口）
+				VirtualGamepad::instance().inject(0, evt.playerId, evt.state);
+
+				// 从机模式：将输入放入共享队列（consolePoll Task 统一发送）
+				{
+					auto& hm = HostManager::instance();
+					bool isCli = hm.isClient();
+					int8_t slot = hm.myAssignedSlot();
+					ESP_LOGI(TAG, "BLE evt P%d btn=0x%04x isClient=%d slot=%d",
+						evt.playerId, evt.state.buttons, isCli, slot);
+					if (isCli && slot >= 0)
+					{
+						auto q = hm.getInputQueue();
+						if (q) {
+							xQueueOverwrite(q, &evt);
+							ESP_LOGI(TAG, "queued P%d for fwd", evt.playerId);
+						}
+					}
 				}
-				// 路由到当前活跃 App（overlay 显示时独占手柄输入）
+
+				// 立即分发给当前活跃 App（零延迟 UI 输入）
+				// 游戏循环可通过 pollAndDispatch() 自行获取
 				if (self.m_display && !AiAgentOverlay::instance().isVisible()) {
 					auto* app = self.m_display->getActiveApp();
-					if (app) app->onGamepadInput(evt.playerId, evt.state);
+					if (app && (VirtualGamepad::instance().getInputMask()[0] & (1u << evt.playerId))) {
+						app->onGamepadInput(0, evt.playerId, evt.state);
+					}
 				}
 			}
 		}

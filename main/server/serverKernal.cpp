@@ -18,6 +18,7 @@
 #include "aiAgent/aiParser.hpp"
 
 #include "task/task.hpp"
+#include "app/appStackManager.hpp"
 
 EXT_RAM_BSS_ATTR static uint8_t autoRestartTimes = 0;
 EXT_RAM_BSS_ATTR static uint8_t maxRestartTimes = 0;
@@ -420,6 +421,38 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		int n = snprintf(body, sizeof(body),
 			"{\"hostname\":\"%s\",\"instance\":\"%s Game Console\"}",
 			hostname, hostname);
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+		respond.setBody(body);
+		respond.setBodyLenght(n);
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		return;
+	}
+
+	// ── API: 查询本机活跃游戏 ──
+	if (stringCompare((char*)uri, strlen(uri), "/api/games", 10))
+	{
+		char body[256];
+		int n = 0;
+
+		auto* mgr = getGlobalAppStackManager();
+		if (mgr) {
+			auto* app = mgr->activeApp();
+			if (app && app->getGameName()[0] != '\0') {
+				n = snprintf(body, sizeof(body),
+					"[{\"game\":\"%s\",\"players\":%d,\"max_players\":%d}]",
+					app->getGameName(),
+					app->getGamePlayerCount(),
+					app->getGameMaxPlayers());
+			}
+		}
+
+		if (n == 0) {
+			n = snprintf(body, sizeof(body), "[]");
+		}
+
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
 		respond.setBody(body);

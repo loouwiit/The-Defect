@@ -28,6 +28,7 @@
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
+#include "host/wsConsoleHandler.hpp"
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
@@ -171,6 +172,7 @@ extern "C" void app_main(void)
 
 	// 启动 AppStackManager — 多栈导航系统
 	AppStackManager stackManager(&display);
+	setGlobalAppStackManager(&stackManager);
 	display.setStackManager(&stackManager);
 
 	// 创建根栈（索引 0）并推入桌面应用
@@ -241,6 +243,10 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
 	ESP_LOGI(TAG, "wsServerStart done");
+
+	// 跨主机管理 WS 通道（/ws/console, /ws/input）
+	registerHostWsHandlers();
+	ESP_LOGI(TAG, "registerHostWsHandlers done");
 
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
 	while (true)
