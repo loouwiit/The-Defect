@@ -7,6 +7,7 @@
 #include "app/wifiSettingsApp/wifiSettingsApp.hpp"
 #include "app/timeSettingsApp/timeSettingsApp.hpp"
 #include "app/powerManagementApp/powerManagementApp.hpp"
+#include "app/consoleManager/consoleManagerApp.hpp"
 #include <cstring>
 #include <esp_log.h>
 
@@ -36,6 +37,9 @@ App* AppFactory::create(const std::string& name, Display* display) {
     }
     if (name == "powermanagement" || name == "power_management" || name == "powerManagement") {
         return new PowerManagementApp(display);
+    }
+    if (name == "consolemanager" || name == "console_manager" || name == "consoleManager") {
+        return new ConsoleManagerApp(display);
     }
 
     ESP_LOGE(TAG, "未识别的应用: %s", name.c_str());
