@@ -114,6 +114,7 @@ ESP32-C6 (协处理器)
 ### 设置
 - **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
 - **WiFi 配置** — AP 扫描、密码输入、连接状态
+- **多主机管理** — mDNS 局域网发现、主机列表、连接入口
 - **时间设置** — 手动调时 / SNTP 自动同步
 - **电源管理** — 电量显示、关机 Deep-sleep
 
@@ -122,7 +123,8 @@ ESP32-C6 (协处理器)
 - **Web 触控注入** — 通过浏览器远程触摸操作
 - **音频播放** — 多流混音，MP3/AAC/FLAC/WAV 解码
 - **CPU 监控** — 串口实时任务利用率采样
-- **mDNS** — `esp32p4.local` 自动发现
+- **mDNS** — `esp32p4.local` 自动发现，支持自定义主机名（NVS 持久化，运行时热重启）
+- **设备发现** — 通过 `_p4console._tcp` 服务类型枚举局域网内其他游戏主机
 - **WiFi AP** — 断开时自动切换到热点模式
 
 ---
@@ -131,15 +133,17 @@ ESP32-C6 (协处理器)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     App 层 (12 Apps)                      │
+│                     App 层                                │
 │  DesktopApp │ Tetris │ FruitNinja │ Snake │ ChineseChess  │
-│  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt    │
+│  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt   |
+│  ConsoleManagerment  │   AiAgent     |  testApp           |
 ├───────────────────────┬──────────────────────────────────┤
 │     AppStackManager   │         网络服务                  │
 │  ├─ Stack 0 (桌面)    │  ├─ HTTP Server (port 80)        │
 │  ├─ Stack 1..N (游戏) │  ├─ WS Server  (port 8080)       │
 │  └─ 异步删除 + 去重   │  ├─ ScreenStream (MJPEG)         │
-│                       │  └─ mDNS (_http, _ws)            │
+│                       │  ├─ mDNS (_http, _ws, _p4console)│
+│                       │  └─ Discovery (设备枚举)         │
 ├──────────┬────────────┴────────────┬─────────────────────┤
 │ 显示/输入 │     WiFi / BLE         │      存储            │
 │ Display  │  ├─ STA/AP 双模 + NAT  │ FAT (16MB)          │
@@ -181,8 +185,8 @@ ESP32-C6 (协处理器)
 | 基础设施 | Task / Mutex / GPIO / IIC | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
-| 应用 | 13 个 App（+AI 助手） | `main/app/*/` |
-| 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS | `main/wifi/` `main/server/` `main/wsServer/` |
+| 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
+| 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS / Discovery | `main/wifi/` `main/server/` `main/wsServer/` `main/discovery/` |
 | 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
 | 外设 | BLE Gamepad / Battery / CPU Monitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
 | GUI | 色板 + 工厂方法 | `main/gui/` |

@@ -22,7 +22,7 @@ fat,      data, fat  ,      16M, 16M,
 分区说明：
 | 分区 | 大小 | 用途 |
 |------|------|------|
-| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量等） |
+| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名等） |
 | otadata | 8KB | OTA 启动选择数据 |
 | phy_init | 4KB | WiFi/BT 物理层校准数据 |
 | ota_0 | 6MB | 应用固件（单 OTA slot） |
@@ -76,13 +76,15 @@ reserces/
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
 | | TestApp | `main/app/testApp/` | 测试用 App |
+| | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理（mDNS 发现其他主机） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
 | | SocketStreamWindow | `main/wifi/socketStreamWindow.hpp` | 连接池管理器（HTTP 6 worker 线程） |
 | | HTTP Server | `main/server/` | 裸 socket TCP HTTP，端口 80，6 工作者线程，内置 HTML |
 | | WS Server | `main/wsServer/` | WebSocket 端口 8080，动态 URI 注册/注销，广播 |
-| | mDNS | `main/wifi/mdns.hpp` | mDNS 服务发现（`_http` 80, `_ws` 8080） |
+| | mDNS | `main/wifi/mdns.hpp` | mDNS 服务发现（`_http` 80, `_ws` 8080, `_p4console` 80） |
+| | Discovery | `main/discovery/` | mDNS 设备发现（查询 `_p4console._tcp` 枚举其他主机） |
 | | HTTP | `main/wifi/http.hpp` | HTTP 协议解析（Method/Status/Header 等） |
 | **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + WebSocket 流，直接读 bridge 帧缓冲 |
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
@@ -769,9 +771,44 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 | API | 说明 |
 |------|------|
 | `mdnsInit()` / `mdnsDeinit()` | 初始化/反初始化 |
-| `mdnsStart("esp32p4", "ESP32P4 Game Console")` | 设置主机名和实例名 |
+| `mdnsStart(hostname, instance)` | 设置主机名和实例名（默认 `"esp32p4"`） |
 | `mdnsServiceAdd(name, "_http", "_tcp", 80)` | 注册 HTTP 服务 |
 | `mdnsServiceAdd(name, "_ws", "_tcp", 8080)` | 注册 WS 服务 |
+| `mdnsServiceAdd(name, "_p4console", "_tcp", 80)` | 注册专属服务类型，供设备发现用 |
+| `mdnsGetConfiguredHostname()` | 从 NVS 读取持久化的主机名，未配置返回 `"esp32p4"` |
+| `mdnsSetHostname(hostname)` | 保存到 NVS 并热重启 mDNS（deinit→init→重注册所有服务） |
+
+**主机名自定义**：
+- NVS 持久化（namespace `"mdns"`，key `"hostname"`）
+- 修改后立即生效，无需重启
+- 服务实例名自动跟随派生：`{hostname} HTTP` / `{hostname} WS`
+- 主机名校验：仅字母、数字、连字符，最长 48 字符
+- 配置入口：WiFiSettingsApp 底部"主机名"行 / HTTP API `GET/POST /api/mdnsConfig`
+
+### Discovery — 设备发现
+
+**模块路径**: `main/discovery/`
+
+```cpp
+struct DiscoveredConsole { char hostname[64]; char ip[16]; uint16_t port; };
+
+int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeoutMs = 3000);
+```
+
+- 查询 `_p4console._tcp` 服务，返回局域网内其他游戏主机的 hostname、IP、端口
+- 自动过滤自身（对比当前活跃 hostname）
+- 同步阻塞请求
+
+### ConsoleManagerApp — 多主机管理
+
+**模块路径**: `main/app/consoleManager/`
+
+- 通过 mDNS 发现其他主机，列表展示（hostname + IP:port）
+- 桌面状态栏图标（索引 6）进入
+- 支持手动扫描
+- 手柄焦点导航（FOCUS_TITLE / FOCUS_LIST）
+- AI 入口：`open_app("consoleManager")`
+- 延迟销毁：扫描中退出时保持 `deletable=false`，扫完后自动放行
 
 ---
 
@@ -1280,9 +1317,10 @@ wifiInit(true)                          ← 初始化（通过 C6）
 wifiStart()
 wifiStationStart(); wifiConnect(ssid, pass)
 if (!connected) wifiApStart()           ← 连接失败 → AP 模式
-mdnsInit(); mdnsStart("esp32p4", ...)
+mdnsInit(); mdnsStart(hostname, ...)
 mdnsServiceAdd("_http", 80)
 mdnsServiceAdd("_ws", 8080)
+mdnsServiceAdd("_p4console", 80)       ← 设备发现专用服务
 
 // ── 服务器 ──
 serverStart()                           ← HTTP 端口 80
