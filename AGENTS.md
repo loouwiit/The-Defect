@@ -521,7 +521,7 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄组合键唤起 |
+| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄组合键唤起。集成 LVGL `lv_ime_pinyin` 拼音输入法，支持中英文切换、候选面板上下翻页 |
 
 **模块路径**: `main/aiAgent/`
 
@@ -613,6 +613,18 @@ class App {
 | `power_off` | 关机 (Deep-sleep) | `{"action":"power_off"}` |
 
 **支持**：对话历史（最近 5 轮）+ 长期记忆（AI 通过 `memory` 字段增量更新）+ 多轮协作（`nextRound` 控制）+ App 焦点探索（`select`/`activate`）
+
+**手柄按钮映射**（键盘显示时）：
+
+| 操作 | 按键 |
+|------|------|
+| 键盘按键导航 | ← → ↑ ↓（左摇杆） |
+| 确认按键/选候选字 | A / L3 |
+| 退格删除 | B |
+| 发送消息 | Y |
+| 键盘/候选面板间切换焦点 | X |
+| 中英文模式切换 | 键盘底部 `🔣` 按钮 |
+| 候选面板翻页 | ↑ ↓（焦点在候选面板时） |
 
 ### 设置
 
