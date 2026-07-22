@@ -26,6 +26,7 @@
 #include "app/desktopApp/desktopApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
+#include "discovery/discovery.hpp"
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
 #include "audio/ES8311.hpp"
@@ -228,6 +229,7 @@ extern "C" void app_main(void)
 		ESP_LOGI(TAG, "mdnsServiceAdd");
 		mdnsServiceAdd(httpInstance, "_http", "_tcp", 80);
 		mdnsServiceAdd(wsInstance, "_ws", "_tcp", 8080);
+		mdnsServiceAdd(instanceName, "_p4console", "_tcp", 80);
 	}
 	ESP_LOGI(TAG, "mdnsInit done");
 
@@ -240,6 +242,26 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
 	ESP_LOGI(TAG, "wsServerStart done");
+
+	// ── mDNS 设备发现测试（每 30 秒扫描一次） ──
+	Task::addTask([](void*) -> TickType_t
+		{
+			DiscoveredConsole consoles[8];
+			int count = discoverConsoles(consoles, 8, 2000);
+
+			if (count > 0)
+			{
+				ESP_LOGI("discover", "发现 %d 台主机:", count);
+				for (int i = 0; i < count; i++)
+					ESP_LOGI("discover", "  [%d] %s @ %s:%u",
+						i, consoles[i].hostname,
+						consoles[i].ip, consoles[i].port);
+			}
+			else
+				ESP_LOGI("discover", "未发现其他主机");
+
+			return 3 * 1000;  // 3 秒后下次扫描
+		}, "discover", nullptr, 5000, Task::Affinity::None);
 
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
 	while (true)
