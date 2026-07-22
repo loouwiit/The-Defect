@@ -212,13 +212,24 @@ extern "C" void app_main(void)
 	// mdns
 	ESP_LOGI(TAG, "mdnsInit");
 	mdnsInit();
-	mdnsStart("esp32p4", "ESP32P4 Game Console");
-	ESP_LOGI(TAG, "mdnsInit done");
 
-	ESP_LOGI(TAG, "mdnsServiceAdd");
-	mdnsServiceAdd("ESP32P4 HTTP", "_http", "_tcp", 80);
-	mdnsServiceAdd("ESP32P4 WS", "_ws", "_tcp", 8080);
-	ESP_LOGI(TAG, "mdnsServiceAdd done");
+	{
+		const char* hostname = mdnsGetConfiguredHostname();
+		char instanceName[128];
+		char httpInstance[128];
+		char wsInstance[128];
+
+		snprintf(instanceName, sizeof(instanceName), "%s Game Console", hostname);
+		snprintf(httpInstance, sizeof(httpInstance), "%s HTTP", hostname);
+		snprintf(wsInstance, sizeof(wsInstance), "%s WS", hostname);
+
+		mdnsStart(hostname, instanceName);
+
+		ESP_LOGI(TAG, "mdnsServiceAdd");
+		mdnsServiceAdd(httpInstance, "_http", "_tcp", 80);
+		mdnsServiceAdd(wsInstance, "_ws", "_tcp", 8080);
+	}
+	ESP_LOGI(TAG, "mdnsInit done");
 
 	// 服务器
 	ESP_LOGI(TAG, "serverStart");

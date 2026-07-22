@@ -55,6 +55,11 @@ private:
 	std::vector<lv_obj_t*> m_scanRows;
 	std::vector<lv_obj_t*> m_connectBtns;
 
+	// ── mDNS 主机名配置行 ──
+	lv_obj_t* m_hostnameRow{};
+	lv_obj_t* m_hostnameLabel{};
+	lv_obj_t* m_hostnameEditBtn{};
+
 	// ── 连接信息区域 ──
 	lv_obj_t* m_infoCard{};
 	lv_obj_t* m_infoIcon{};
@@ -70,6 +75,12 @@ private:
 	lv_group_t* m_dialogGroup{};
 	size_t m_pwdTargetIdx{ 0 };
 
+	// ── 主机名编辑弹窗 ──
+	lv_obj_t* m_hostnameDialog{};
+	lv_obj_t* m_hostnameTa{};
+	lv_obj_t* m_hostnameKeyboard{};
+	lv_group_t* m_hostnameGroup{};
+
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
 
@@ -77,11 +88,12 @@ private:
 	enum FocusGroup : int8_t {
 		FOCUS_TITLE = 0,  // 左右: 返回 ↔ 扫描
 		FOCUS_LIST,       // 上下: 设备列表
-		FOCUS_INFO,       // 底部: 连接信息卡 + 断开按钮
+		FOCUS_INFO,       // 底部: 主机名行 + 连接信息卡
 	};
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
-	int8_t m_focusTitleIdx{ 0 };   // 0=返回, 1=扫描
-	int8_t m_focusListIdx{ 0 };    // 0..N-1 AP 列表
+	int8_t m_focusTitleIdx{ 0 };    // 0=返回, 1=扫描
+	int8_t m_focusListIdx{ 0 };     // 0..N-1 AP 列表
+	int8_t m_focusInfoIdx{ 0 };     // 0=主机名行, 1=断开按钮
 	TickType_t m_nextMoveTime[MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
@@ -93,18 +105,24 @@ private:
 	void refreshUi();
 	void updateScanList();
 	void updateConnectionInfo();
+	void updateHostnameRow();
 	void doScan();
 	void doConnect(size_t scanIndex, const char* password);
 	void doDisconnect();
 	void toggleWifi();
+	void doSetHostname(const char* hostname);
 	void showPasswordDialog(size_t scanIndex);
 	void hidePasswordDialog();
+	void showHostnameDialog();
+	void hideHostnameDialog();
 	void applyFocus();
 	void activateFocus();
 	void navTitleLeft();
 	void navTitleRight();
 	void navListUp();
 	void navListDown();
+	void navInfoUp();
+	void navInfoDown();
 
 	// ── 回调（静态，C 兼容） ──
 	static void timerCb(lv_timer_t* t);
@@ -116,6 +134,10 @@ private:
 	static void onPwdCancelCb(lv_event_t* e);
 	static void onBackBtnCb(lv_event_t* e);
 	static void onKeyboardReadyCb(lv_event_t* e);
+	static void onHostnameRowCb(lv_event_t* e);
+	static void onHostnameConfirmCb(lv_event_t* e);
+	static void onHostnameCancelCb(lv_event_t* e);
+	static void onHostnameKeyboardReadyCb(lv_event_t* e);
 
 	// ── AI 能力 ──
 	std::string getAiContext() override;

@@ -35,3 +35,26 @@ bool mdnsStart(const char* hostname, const char* instanceName);
  * @note serviceType 和 proto 必须带下划线前缀
  */
 bool mdnsServiceAdd(const char* instanceName, const char* serviceType, const char* proto, uint16_t port);
+
+/**
+ * @brief 获取当前活跃的 mDNS 主机名
+ * @return const char* 主机名指针（内部静态缓冲区）
+ */
+const char* mdnsGetHostname();
+
+/**
+ * @brief 从 NVS 获取已持久化的主机名
+ * @return const char* 主机名（未配置时返回 "esp32p4"）
+ */
+const char* mdnsGetConfiguredHostname();
+
+/**
+ * @brief 设置 mDNS 主机名（持久化到 NVS 并立即生效）
+ *
+ * 保存主机名到 NVS，如果 mDNS 已启动则执行热重启：
+ * mdnsDeinit() → mdnsInit() → 重新广播所有服务。
+ *
+ * @param hostname 新主机名，仅允许字母、数字、连字符，如 "my-console"
+ * @return bool 设置成功返回 true
+ */
+bool mdnsSetHostname(const char* hostname);
