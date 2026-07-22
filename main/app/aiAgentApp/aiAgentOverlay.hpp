@@ -109,7 +109,9 @@ private:
     std::string m_memoryText;                                     // AI 长期记忆
 
     TickType_t m_nextActionTime{};
+    TickType_t m_nextPageFlipTime{};
     static constexpr TickType_t ACTION_COOLDOWN = 300;
+    static constexpr TickType_t PAGE_FLIP_COOLDOWN = 400;
 
     // ── UI 构建 ──
     void buildUi();

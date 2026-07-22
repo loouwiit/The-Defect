@@ -900,32 +900,73 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			}
 		}
 		else {
-			// 左摇杆 → btnmatrix 内部导航
-			if (gs.lx < center - deadZone) {
-				data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
-			}
-			else if (gs.lx > center + deadZone) {
-				data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
-			}
-			else if (gs.ly < center - deadZone) {
-				data->key = LV_KEY_UP;    data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
-			}
-			else if (gs.ly > center + deadZone) {
-				data->key = LV_KEY_DOWN;  data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
-			}
+			// 检查焦点是否在候选面板上
+			bool candFocused = self->m_candPanel &&
+				(lv_group_get_focused(self->m_gamepadGroup) == self->m_candPanel);
 
-			// 右摇杆 → 跨控件焦点切换（键盘 ↔ 候选面板 ↔ 键盘）
-			if (!handled) {
-				if (gs.rx < center - deadZone) {
-					data->key = LV_KEY_PREV; data->state = LV_INDEV_STATE_PRESSED;
+			if (candFocused) {
+				// 候选面板：左右选字，上下翻页
+				if ((gs.ly < center - deadZone || gs.ly > center + deadZone) &&
+					xTaskGetTickCount() < self->m_nextPageFlipTime) {
+					// 冷却中，跳过
+				}
+				else if (gs.ly < center - deadZone) {
+					self->m_nextPageFlipTime = xTaskGetTickCount() + PAGE_FLIP_COOLDOWN;
+					// 上 ← 上一页
+					Task::addTask([](void* p) -> TickType_t {
+						auto pair = static_cast<std::pair<AiAgentOverlay*, lv_obj_t*>*>(p);
+						if (auto g = pair->first->m_display->lockGuard()) {
+							uint32_t b = 0;
+							lv_buttonmatrix_set_selected_button(pair->second, b);
+							lv_obj_send_event(pair->second, LV_EVENT_VALUE_CHANGED, &b);
+							// pinyin_page_proc 更新了 cand_str 但没重绘，强制刷新
+							lv_obj_invalidate(pair->second);
+						}
+						delete pair;
+						return Task::infinityTime;
+					}, "pgUp", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
 					handled = true;
 				}
-				else if (gs.rx > center + deadZone) {
-					data->key = LV_KEY_NEXT; data->state = LV_INDEV_STATE_PRESSED;
+				else if (gs.ly > center + deadZone) {
+					self->m_nextPageFlipTime = xTaskGetTickCount() + PAGE_FLIP_COOLDOWN;
+					Task::addTask([](void* p) -> TickType_t {
+						auto pair = static_cast<std::pair<AiAgentOverlay*, lv_obj_t*>*>(p);
+						if (auto g = pair->first->m_display->lockGuard()) {
+							uint32_t b = LV_IME_PINYIN_CAND_TEXT_NUM + 1;
+							lv_buttonmatrix_set_selected_button(pair->second, b);
+							lv_obj_send_event(pair->second, LV_EVENT_VALUE_CHANGED, &b);
+							lv_obj_invalidate(pair->second);
+						}
+						delete pair;
+						return Task::infinityTime;
+					}, "pgDn", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
+					handled = true;
+				}
+				else if (gs.lx < center - deadZone) {
+					data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.lx > center + deadZone) {
+					data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+			}
+			else {
+				// 键盘：btnmatrix 内部导航
+				if (gs.lx < center - deadZone) {
+					data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.lx > center + deadZone) {
+					data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.ly < center - deadZone) {
+					data->key = LV_KEY_UP;    data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.ly > center + deadZone) {
+					data->key = LV_KEY_DOWN;  data->state = LV_INDEV_STATE_PRESSED;
 					handled = true;
 				}
 			}
