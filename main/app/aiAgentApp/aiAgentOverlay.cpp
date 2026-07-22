@@ -870,8 +870,27 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			return;
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
-			data->key = LV_KEY_ESC;
-			data->state = LV_INDEV_STATE_PRESSED;
+			// B 键 → 退格删除
+			if (self->m_isChineseMode && self->m_keyboard && !kbdHidden) {
+				// 中文模式：让键盘+IME 处理（键盘删字 + IME 更新候选）
+				// 暂存原焦点位置，执行退格后恢复
+				Task::addTask([](void* arg) -> TickType_t {
+					auto* s = static_cast<AiAgentOverlay*>(arg);
+					if (auto g = s->m_display->lockGuard()) {
+						uint32_t oldSel = lv_buttonmatrix_get_selected_button(s->m_keyboard);
+						uint32_t bsId = 11;  // 退格键在标准键盘 btnmatrix 中的索引
+						lv_buttonmatrix_set_selected_button(s->m_keyboard, bsId);
+						lv_obj_send_event(s->m_keyboard, LV_EVENT_VALUE_CHANGED, &bsId);
+						// 恢复原焦点位置（set_selected_button 内部会做越界检查）
+						lv_buttonmatrix_set_selected_button(s->m_keyboard, oldSel);
+					}
+					return Task::infinityTime;
+				}, "gpBS", self, 0, Task::Affinity::None);
+			} else {
+				// 英文模式或键盘隐藏：直接删
+				if (self->m_inputField)
+					lv_textarea_delete_char(self->m_inputField);
+			}
 			return;
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
