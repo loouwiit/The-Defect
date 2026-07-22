@@ -547,6 +547,18 @@ void AiAgentOverlay::onSend()
 
 	ESP_LOGI(TAG, "用户输入: %s", input.c_str());
 
+	// 先模拟 OK 按钮让 IME 清空内部状态（之后恢复焦点位置）
+	// OK 会触发 READY→onSend 递归，但 m_nextActionTime 防重会拦截
+	if (m_isChineseMode && m_candPanel) {
+		auto guard = m_display->lockGuard();
+		lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
+		uint32_t oldSel = lv_buttonmatrix_get_selected_button(m_keyboard);
+		uint32_t okBtnId = 39;
+		lv_buttonmatrix_set_selected_button(m_keyboard, okBtnId);
+		lv_obj_send_event(m_keyboard, LV_EVENT_VALUE_CHANGED, &okBtnId);
+		lv_buttonmatrix_set_selected_button(m_keyboard, oldSel);
+	}
+
 	// 断开键盘 → 清空输入框 → 移除焦点
 	{
 		auto guard = m_display->lockGuard();
