@@ -228,6 +228,12 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_flex_grow(title, 1);
 	lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
+	// 中/EN 模式指示器（默认中文）
+	m_modeLabel = lv_label_create(m_titleBar);
+	lv_label_set_text(m_modeLabel, "中");
+	lv_obj_set_style_text_font(m_modeLabel, smlFont, 0);
+	lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
+
 	// 标题栏不应拦截拖动事件：清除点击标志，让事件穿透到容器
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICK_FOCUSABLE);
@@ -308,25 +314,80 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_text_font(sendLabel, smlFont, 0);
 	lv_obj_center(sendLabel);
 
-	// ── 键盘（调大按键：增加高度 + 缩小间隙） ──
+	// ── 拼音 IME + 键盘 ──
+	// 1) 先创建键盘（确保它在候选面板之前）
 	m_keyboard = lv_keyboard_create(m_container);
-	lv_obj_set_width(m_keyboard, lv_pct(100));
-	lv_obj_set_height(m_keyboard, 220);
+
+	// 2) 创建 IME（构造时会创建候选面板，位于键盘之后）
+	m_pinyinIme = lv_ime_pinyin_create(m_container);
+	lv_obj_set_style_text_font(m_pinyinIme, smlFont, 0);  // 自动传播到候选面板
+
+	// 3) 关联 IME ↔ 键盘
+	lv_ime_pinyin_set_keyboard(m_pinyinIme, m_keyboard);
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
+
+	// 4) 获取候选面板，移到键盘前面（IME 构造时它在键盘之后）
+	m_candPanel = lv_ime_pinyin_get_cand_panel(m_pinyinIme);
+	lv_obj_move_to_index(m_candPanel, lv_obj_get_index(m_keyboard));
+	lv_obj_set_height(m_candPanel, 44);
+	lv_obj_set_width(m_candPanel, lv_pct(100));
+	lv_obj_set_style_pad_row(m_candPanel, 4, 0);
+	// IME 析构时会删除候选面板，我们将其移入 container 后 lv_ime_pinyin 解引时不会失效
+	// 因为 lv_ime_pinyin 内部有有效性检查
+	// 恢复 CLICK_FOCUSABLE（IME 构造时移除了它，游戏手柄导航需要）
+	lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+	// 候选面板加入游戏手柄组
+	lv_group_add_obj(m_gamepadGroup, m_candPanel);
+	// IME 对象隐藏且不参与布局
+	lv_obj_add_flag(m_pinyinIme, LV_OBJ_FLAG_IGNORE_LAYOUT);
+
+	// 5) 候选面板选中候选字后延迟切焦点回键盘（翻页< >不切）
+	lv_obj_add_event_cb(m_candPanel, [](lv_event_t* e) {
+		if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+		auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+		if (!self->m_keyboard) return;
+		// 跳过翻页按钮（idx=0:'<', idx=CAND_NUM+1:'>'）
+		uint32_t btnId = lv_buttonmatrix_get_selected_button(self->m_candPanel);
+		if (btnId == 0 || btnId == (LV_IME_PINYIN_CAND_TEXT_NUM + 1)) return;
+		Task::addTask([](void* p) -> TickType_t {
+			auto* s = static_cast<AiAgentOverlay*>(p);
+			if (auto g = s->m_display->lockGuard()) {
+				lv_group_focus_obj(s->m_keyboard);
+			}
+			return Task::infinityTime;
+		}, "kbdFocus", self, 0, Task::Affinity::None);
+		}, LV_EVENT_VALUE_CHANGED, this);
+
+	// 6) 候选面板暗色主题样式
+	lv_obj_set_style_bg_opa(m_candPanel, LV_OPA_30, 0);
+	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
+	lv_obj_set_style_bg_opa(m_candPanel, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_text_color(m_candPanel, GUI::Color::TEXT, LV_PART_ITEMS);
+	lv_obj_set_style_text_color(m_candPanel, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_radius(m_candPanel, 6, LV_PART_ITEMS);
+	lv_obj_set_style_border_width(m_candPanel, 0, 0);
+	lv_obj_set_style_border_width(m_candPanel, 0, LV_PART_ITEMS);
+
+	// 6) 键盘通用样式（使用默认键盘 map，不改动按钮布局）
+	lv_obj_set_width(m_keyboard, lv_pct(100));
+	lv_obj_set_height(m_keyboard, 180);  // 原 220px，让 40px 给候选面板
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x1a, 0x1a, 0x2e), 0);
 	lv_obj_set_style_pad_row(m_keyboard, 3, 0);
 	lv_obj_set_style_pad_column(m_keyboard, 3, 0);
 	lv_group_add_obj(m_gamepadGroup, m_keyboard);
-	// 键盘按键焦点高亮（btnmatrix 按键是 LV_PART_ITEMS，不是主部件）
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
 	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
 	lv_obj_set_style_text_color(m_keyboard, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
 	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
+
+	// 8) 拦截键盘图标按钮（LV_SYMBOL_KEYBOARD / LV_SYMBOL_CLOSE）作为中/EN 切换
+	lv_obj_add_event_cb(m_keyboard, kbExtraBtnCb, LV_EVENT_VALUE_CHANGED, this);
 	lv_obj_add_event_cb(m_keyboard, onKeyboardReadyCb, LV_EVENT_READY, this);
-	// 设键盘为默认焦点
+
+	// 9) 设键盘为默认焦点
 	lv_group_focus_obj(m_keyboard);
-	// 调试：输出键盘状态确认焦点是否生效
 	ESP_LOGI(TAG, "键盘焦点已设置，group=%p obj=%p", (void*)m_gamepadGroup, (void*)m_keyboard);
 
 	// ── 初始隐藏 ──
@@ -347,6 +408,9 @@ void AiAgentOverlay::show()
 	lv_obj_clear_flag(m_keyboard, LV_OBJ_FLAG_HIDDEN);
 
 	lv_textarea_set_cursor_pos(m_inputField, LV_TEXTAREA_CURSOR_LAST);
+	lv_keyboard_set_textarea(m_keyboard, m_inputField);
+
+	// 连接到键盘（IME 回调始终注册，只需重新关联 textarea）
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
 
 	updateContextHint();
@@ -411,6 +475,8 @@ void AiAgentOverlay::setKeyboardVisible(bool visible)
 		lv_keyboard_set_textarea(m_keyboard, nullptr);
 		lv_obj_add_flag(m_keyboard, LV_OBJ_FLAG_IGNORE_LAYOUT);
 		lv_obj_add_flag(m_keyboard, LV_OBJ_FLAG_HIDDEN);
+		// 隐藏候选面板
+		if (m_candPanel) lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
 	}
 }
 
@@ -783,12 +849,24 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 
 		// ── 按钮（边沿触发，优先于方向） ──
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_X)) {
-			Task::addTask([](void* arg) -> TickType_t {
-				auto* s = static_cast<AiAgentOverlay*>(arg);
-				if (auto g = s->m_display->lockGuard())
-					s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
-				return Task::infinityTime;
-				}, "gpKbd", self, 0, Task::Affinity::None);
+			bool candVisible = self->m_candPanel &&
+				!lv_obj_has_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN);
+			if (candVisible) {
+				// 有候选字：在键盘和候选面板间切换焦点
+				lv_obj_t* focused = lv_group_get_focused(self->m_gamepadGroup);
+				if (focused == self->m_keyboard)
+					lv_group_focus_obj(self->m_candPanel);
+				else
+					lv_group_focus_obj(self->m_keyboard);
+			} else {
+				// 无候选字：切换键盘显隐（原行为）
+				Task::addTask([](void* arg) -> TickType_t {
+					auto* s = static_cast<AiAgentOverlay*>(arg);
+					if (auto g = s->m_display->lockGuard())
+						s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
+					return Task::infinityTime;
+					}, "gpKbd", self, 0, Task::Affinity::None);
+			}
 			return;
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
@@ -822,6 +900,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			}
 		}
 		else {
+			// 左摇杆 → btnmatrix 内部导航
 			if (gs.lx < center - deadZone) {
 				data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
 				handled = true;
@@ -837,6 +916,18 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			else if (gs.ly > center + deadZone) {
 				data->key = LV_KEY_DOWN;  data->state = LV_INDEV_STATE_PRESSED;
 				handled = true;
+			}
+
+			// 右摇杆 → 跨控件焦点切换（键盘 ↔ 候选面板 ↔ 键盘）
+			if (!handled) {
+				if (gs.rx < center - deadZone) {
+					data->key = LV_KEY_PREV; data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.rx > center + deadZone) {
+					data->key = LV_KEY_NEXT; data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
 			}
 		}
 	}
@@ -915,6 +1006,59 @@ void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
 			self->m_gestureTracking = false;
 			self->requestShow();
 		}
+	}
+}
+
+// ============================================================
+//  中英文切换
+// ============================================================
+
+void AiAgentOverlay::setChineseMode(bool enable)
+{
+	if (m_isChineseMode == enable) return;
+	m_isChineseMode = enable;
+
+	// 清理 IME 中间状态（候选面板 + 输入缓冲）
+	lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
+	// 触发键盘 OK 键来清空 IME 内部 ta_count 等状态
+	// 断开再重连 textarea 让 IME 重置
+	if (m_keyboard && m_inputField) {
+		lv_keyboard_set_textarea(m_keyboard, nullptr);
+		lv_keyboard_set_textarea(m_keyboard, m_inputField);
+	}
+
+	if (enable) {
+		lv_label_set_text(m_modeLabel, "中");
+		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
+		ESP_LOGI(TAG, "切换到中文输入");
+	} else {
+		lv_label_set_text(m_modeLabel, "EN");
+		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
+		ESP_LOGI(TAG, "切换到英文输入");
+	}
+}
+
+void AiAgentOverlay::kbExtraBtnCb(lv_event_t* e)
+{
+	if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+
+	auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+	if (!self || !self->m_keyboard) return;
+
+	uint32_t btnId = lv_buttonmatrix_get_selected_button(self->m_keyboard);
+	if (btnId == LV_BUTTONMATRIX_BUTTON_NONE) return;
+
+	const char* txt = lv_buttonmatrix_get_button_text(self->m_keyboard, btnId);
+	if (!txt) return;
+
+	// 检测键盘图标按钮（LV_SYMBOL_KEYBOARD / LV_SYMBOL_CLOSE）按下
+	if (lv_strcmp(txt, LV_SYMBOL_KEYBOARD) == 0 || lv_strcmp(txt, LV_SYMBOL_CLOSE) == 0) {
+		self->setChineseMode(!self->m_isChineseMode);
+	}
+
+	// 英文模式下：隐藏 IME 可能弹出的候选面板
+	if (!self->m_isChineseMode) {
+		lv_obj_add_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN);
 	}
 }
 
