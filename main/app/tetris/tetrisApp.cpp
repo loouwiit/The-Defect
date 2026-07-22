@@ -192,7 +192,7 @@ void TetrisApp::onForeground()
 //  BLE 手柄输入
 // ============================================================
 
-void TetrisApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void TetrisApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
 	// ── 统一解析摇杆 / D-pad ──
 	constexpr uint8_t deadZone = 13;

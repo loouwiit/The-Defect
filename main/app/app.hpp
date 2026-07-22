@@ -36,7 +36,7 @@ public:
 	virtual void deinit() { running = false; deletable = true; };
 
 	// BLE 手柄输入 — 由 BleGamepad 路由到当前活跃 App
-	virtual void onGamepadInput(uint8_t playerId, const GamepadState& state) {}
+	virtual void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) {}
 	virtual void onGamepadConnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d connected", playerId); }
 	virtual void onGamepadDisconnected(uint8_t playerId) { ESP_LOGI(TAG, "Player %d disconnected", playerId); }
 

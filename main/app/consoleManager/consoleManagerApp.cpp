@@ -477,7 +477,7 @@ void ConsoleManagerApp::navListDown()
 // 手柄输入
 // ════════════════════════════════════════════════════════════════
 
-void ConsoleManagerApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void ConsoleManagerApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
 	uint16_t newPress = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;

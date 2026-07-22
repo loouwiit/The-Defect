@@ -268,7 +268,7 @@ void SnakeRoom::activateFocus()
 // BLE 手柄输入
 // ============================================================
 
-void SnakeRoom::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void SnakeRoom::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
 	constexpr uint8_t deadZone = 13;
 	constexpr uint8_t center = 128;

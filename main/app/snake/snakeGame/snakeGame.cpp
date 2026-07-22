@@ -943,7 +943,7 @@ void SnakeGame::gameLoop(void* param)
 		vTaskDelay(5000); // RAII析构的时候会自动删除自己
 }
 
-void SnakeGame::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void SnakeGame::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
 	constexpr uint8_t deadZone = 13;
 	constexpr uint8_t center = 128;

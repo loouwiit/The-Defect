@@ -16,7 +16,7 @@ public:
 	void deinit() override;
 	void onForeground() override;
 	void onBackground() override;
-	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+	void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 
 	// ── AI 能力 ──
 	std::string getAiContext() override;

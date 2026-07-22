@@ -74,7 +74,7 @@ void TestApp::onForeground()
 // BLE 手柄输入
 // ════════════════════════════════════════════════════════════════
 
-void TestApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
+void TestApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
 	if (state.isPressed(GamepadButton::BTN_A))
 	{

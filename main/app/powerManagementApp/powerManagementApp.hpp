@@ -32,7 +32,7 @@ public:
 	void onBackground() override;
 
 	// 手柄控制
-	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+	void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 	void onGamepadConnected(uint8_t playerId) override;
 	void onGamepadDisconnected(uint8_t playerId) override;
 

@@ -18,7 +18,7 @@ public:
 	~FruitNinjaRoom() override;
 
 	void init() override;
-	void onGamepadInput(uint8_t playerId, const GamepadState& state) override;
+	void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 	void onForeground() override;
 
 private:

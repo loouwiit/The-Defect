@@ -375,7 +375,7 @@ public:
     virtual void onBackground();   // 被覆盖/移出
 
     // ── 输入 ──
-    virtual void onGamepadInput(uint8_t playerId, const GamepadState& state);
+    virtual void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state);
 
     // ── AI 能力 ──
     virtual std::string getAiContext();                         // App 上下文 → 拼入 AI prompt
@@ -456,7 +456,7 @@ public:
         App::deinit();
     }
 
-    void onGamepadInput(uint8_t playerId, const GamepadState& state) override {
+    void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override {
         if (state.isPressed(GamepadButton::BTN_A))
             pushApp(new NextApp(display));   // ✅ 直接调用（BLE task）
         if (state.isPressed(GamepadButton::BTN_B))

@@ -539,7 +539,7 @@ void BleGamepad::processTask(void* arg)
 				// 路由到当前活跃 App（overlay 显示时独占手柄输入）
 				if (self.m_display && !AiAgentOverlay::instance().isVisible()) {
 					auto* app = self.m_display->getActiveApp();
-					if (app) app->onGamepadInput(evt.playerId, evt.state);
+					if (app) app->onGamepadInput(0, evt.playerId, evt.state);
 				}
 			}
 		}
