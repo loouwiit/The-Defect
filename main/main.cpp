@@ -30,8 +30,8 @@
 #include "wifi/mdns.hpp"
 #include "virtualIndev/wsTouchHandler.hpp"
 #include "screenStream/wsStreamHandler.hpp"
-#include "app/consoleManager/testHandler.hpp"
 #include "host/wsInputHandler.hpp"
+#include "host/wsConsoleHandler.hpp"
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
@@ -247,7 +247,7 @@ extern "C" void app_main(void)
 	wsServerRegisterWs("/ws/touch", wsTouchHandler);
 	wsServerRegisterWs("/ws/stream", wsStreamHandler);
 	wsServerRegisterWs("/ws/input", wsInputHandler);
-	wsServerRegisterWs("/ws/test", testWsHandler);
+	wsServerRegisterWs("/ws/console", wsConsoleHandler);
 	ESP_LOGI(TAG, "wsServerStart done");
 
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
