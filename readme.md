@@ -138,10 +138,15 @@ ESP32-C6 (协处理器)
 │  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt   |
 │  ConsoleManagerment  │   AiAgent     |  testApp           |
 ├───────────────────────┬──────────────────────────────────┤
-│     AppStackManager   │         网络服务                  │
-│  ├─ Stack 0 (桌面)    │  ├─ HTTP Server (port 80)        │
-│  ├─ Stack 1..N (游戏) │  ├─ WS Server  (port 8080)       │
-│  └─ 异步删除 + 去重   │  ├─ ScreenStream (MJPEG)         │
+│     AppStackManager   │     VirtualGamepad               │
+│  ├─ Stack 0 (桌面)    │  ├─ inject (BLE/远程)            │
+│  ├─ Stack 1..N (游戏) │  ├─ Dispatch Task @60fps         │
+│  └─ 异步删除 + 去重   │  └─ hostMask 掩码过滤            │
+│                       ├──────────────────────────────────┤
+│                       │         网络服务                  │
+│                       │  ├─ HTTP Server (port 80)        │
+│                       │  ├─ WS Server  (port 8080)       │
+│                       │  ├─ ScreenStream (MJPEG)         │
 │                       │  ├─ mDNS (_http, _ws, _p4console)│
 │                       │  └─ Discovery (设备枚举)         │
 ├──────────┬────────────┴────────────┬─────────────────────┤
@@ -182,7 +187,7 @@ ESP32-C6 (协处理器)
 | 层次 | 模块 | 路径 |
 |------|------|------|
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
-| 基础设施 | Task / Mutex / GPIO / IIC | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` |
+| 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/host/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
@@ -267,6 +272,7 @@ reserces/
 │   ├── display/              ← LVGL 适配 + ILI9881c + 字体
 │   ├── gpio/                 ← GPIO 封装
 │   ├── gui/                  ← GUI 辅助类
+│   ├── host/                 ← VirtualGamepad (统一手柄输入抽象层)
 │   ├── iic/                  ← I²C 总线
 │   ├── monitor/              ← CPU 监视器
 │   ├── mutex/                ← RAII 互斥锁

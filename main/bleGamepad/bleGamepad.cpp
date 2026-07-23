@@ -3,13 +3,13 @@
 #include "task/task.hpp"
 
 #include "app/app.hpp"
+#include "host/virtualGamepad.hpp"
 #include "esp_log.h"
 #include "esp_err.h"
 
 // ESP HOSTED
 #include "esp_hosted.h"
 #include "wifi/slave.hpp"
-#include "app/aiAgentApp/aiAgentOverlay.hpp"
 
 // NimBLE
 #include "nimble/nimble_port.h"
@@ -536,11 +536,8 @@ void BleGamepad::processTask(void* arg)
 						evt.state.rx, evt.state.ry,
 						evt.state.dpad);
 				}
-				// 路由到当前活跃 App（overlay 显示时独占手柄输入）
-				if (self.m_display && !AiAgentOverlay::instance().isVisible()) {
-					auto* app = self.m_display->getActiveApp();
-					if (app) app->onGamepadInput(0, evt.playerId, evt.state);
-				}
+				// 注入到 VirtualGamepad（不再直接调 App）
+				VirtualGamepad::instance().inject(0, evt.playerId, evt.state);
 			}
 		}
 	}
@@ -621,6 +618,10 @@ bool BleGamepad::start(Display* display)
 	}
 
 	m_running = true;
+
+	// 启动统一手柄输入抽象层
+	VirtualGamepad::instance().start(display);
+
 	ESP_LOGI(TAG, "BleGamepad started");
 	return true;
 }
@@ -977,6 +978,8 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 			if (self.m_devices[i].connected && self.m_devices[i].connHandle == handle) {
 				ESP_LOGI(TAG, "Clearing device playerId=%d", i);
 				self.m_devices[i] = {};
+				// 复位 VirtualGamepad 状态，防止 stale 输入残留
+				VirtualGamepad::instance().resetPlayer(0, i);
 				break;
 			}
 		}
