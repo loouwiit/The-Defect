@@ -1,9 +1,11 @@
 #include "virtualGamepad.hpp"
+#include "websocket/wsClient.hpp"
 #include "app/app.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include <cstring>
 
 static constexpr char TAG[] = "VirtualGamepad";
 
@@ -33,7 +35,24 @@ void VirtualGamepad::inject(int8_t hostId, int8_t playerId, const GamepadState& 
 {
 	if (hostId < 0 || hostId >= 4 || playerId < 0 || playerId >= 4)
 		return;
+
 	m_states[hostId][playerId] = state;
+
+	// 从机模式：本机输入 (hostId=0) 只在实际变化时转发
+	if (hostId == 0 && m_remoteForwarder && m_remoteForwarder->isConnected())
+	{
+		// 去重：状态无变化就不发
+		auto& last = m_lastForwarded[playerId];
+		if (last.buttons == state.buttons &&
+			last.lx == state.lx && last.ly == state.ly &&
+			last.dpad == state.dpad)
+			return;
+		last = state;
+
+		uint8_t buf[11];
+		packFrame(buf, 0, playerId, state);
+		m_remoteForwarder->sendBinary(buf, 11);
+	}
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -66,6 +85,40 @@ const GamepadState& VirtualGamepad::getState(int8_t hostId, int8_t playerId) con
 	if (hostId < 0 || hostId >= 4 || playerId < 0 || playerId >= 4)
 		return s_empty;
 	return m_states[hostId][playerId];
+}
+
+// ════════════════════════════════════════════════════════════════
+//  远程转发
+// ════════════════════════════════════════════════════════════════
+
+void VirtualGamepad::setRemoteForwarder(WsClient* client)
+{
+	m_remoteForwarder = client;
+	if (client)
+		ESP_LOGI(TAG, "remote forwarder set");
+	else
+		ESP_LOGI(TAG, "remote forwarder cleared");
+}
+
+void VirtualGamepad::clearRemoteForwarder()
+{
+	m_remoteForwarder = nullptr;
+	ESP_LOGI(TAG, "remote forwarder cleared");
+}
+
+void VirtualGamepad::packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state)
+{
+	buf[0]  = (uint8_t)hostId;
+	buf[1]  = (uint8_t)playerId;
+	buf[2]  = (uint8_t)(state.buttons & 0xFF);
+	buf[3]  = (uint8_t)(state.buttons >> 8);
+	buf[4]  = state.lx;
+	buf[5]  = state.ly;
+	buf[6]  = state.rx;
+	buf[7]  = state.ry;
+	buf[8]  = state.lt;
+	buf[9]  = state.rt;
+	buf[10] = state.dpad;
 }
 
 // ════════════════════════════════════════════════════════════════

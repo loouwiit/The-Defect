@@ -5,6 +5,8 @@
 #include "display/display.hpp"
 #include "task/task.hpp"
 
+class WsClient;  // forward decl, 避免循环包含
+
 /**
  * @brief 统一手柄输入抽象层
  *
@@ -40,10 +42,25 @@ public:
 	/// 查询某输入源的最新状态
 	const GamepadState& getState(int8_t hostId, int8_t playerId) const;
 
+	// ── 远程转发（从机模式）──
+
+	/// 设置远程转发目标（由 HostManager 连接成功后调用）
+	/// 此后 inject(0, ...) 会自动序列化并转发到该客户端
+	void setRemoteForwarder(WsClient* client);
+
+	/// 清除远程转发（断开时调用）
+	void clearRemoteForwarder();
+
+	/// 当前是否正在远程转发
+	bool hasRemoteForwarder() const { return m_remoteForwarder != nullptr; }
+
 private:
 	VirtualGamepad() = default;
 	~VirtualGamepad() = default;
 	VirtualGamepad(const VirtualGamepad&) = delete;
+
+	/// 打包 hostId + GamepadState 到 11 字节缓冲区（供 inject 转发用）
+	static void packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state);
 
 	static void dispatchTask(void* arg);
 
@@ -57,4 +74,10 @@ private:
 	// hostMask[hostId] 的 bit[playerId] = 1 表示启用该输入源
 	// 默认：仅本机 4 个手柄全开
 	uint8_t m_hostMask[4] = { 0x0F, 0, 0, 0 };
+
+	// ── 远程转发目标（从机模式）──
+	WsClient* m_remoteForwarder = nullptr;
+
+	// ── 上次转发的状态（用于去重）──
+	GamepadState m_lastForwarded[4]{};
 };

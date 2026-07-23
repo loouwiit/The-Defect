@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<title>虚拟手柄</title>
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0
+		}
+
+		body {
+			font-family: 'Segoe UI', sans-serif;
+			background: #0d0d1a;
+			color: #e0e0e0;
+			display: flex;
+			justify-content: center;
+			align-items: flex-start;
+			padding: 16px;
+			min-height: 100dvh;
+			-webkit-tap-highlight-color: transparent;
+			touch-action: none;
+			user-select: none
+		}
+
+		#root {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 16px;
+			width: 400px
+		}
+
+		/* ── 顶部信息 ── */
+		h1 {
+			font-size: 22px;
+			color: #4fc3f7;
+			margin-bottom: 4px
+		}
+
+		#connBar {
+			display: flex;
+			gap: 8px;
+			width: 100%;
+			align-items: center;
+			flex-wrap: wrap;
+			justify-content: center
+		}
+
+		#connBar input {
+			flex: 1;
+			min-width: 120px;
+			padding: 8px 10px;
+			border: 1px solid #444;
+			border-radius: 8px;
+			background: #1a1a2e;
+			color: #e0e0e0;
+			font-size: 14px;
+			outline: none
+		}
+
+		#connBar input:focus {
+			border-color: #4fc3f7
+		}
+
+		#playerSel {
+			padding: 8px 10px;
+			border: 1px solid #444;
+			border-radius: 8px;
+			background: #1a1a2e;
+			color: #e0e0e0;
+			font-size: 14px;
+			outline: none
+		}
+
+		.btnC {
+			padding: 8px 18px;
+			border: none;
+			border-radius: 8px;
+			font-size: 14px;
+			font-weight: 600;
+			cursor: pointer;
+			background: #4fc3f7;
+			color: #000;
+			white-space: nowrap
+		}
+
+		.btnC.on {
+			background: #f44336
+		}
+
+		.btnC:disabled {
+			opacity: 0.4;
+			cursor: not-allowed
+		}
+
+		#statusDot {
+			width: 10px;
+			height: 10px;
+			border-radius: 50%;
+			flex-shrink: 0;
+			background: #666
+		}
+
+		#statusDot.connected {
+			background: #4caf50;
+			box-shadow: 0 0 8px #4caf5088
+		}
+
+		#statusDot.disconnected {
+			background: #f44336
+		}
+
+		/* ── 状态显示 ── */
+		#stateDisplay {
+			width: 100%;
+			background: #1a1a2e;
+			border-radius: 8px;
+			padding: 8px 12px;
+			font-family: monospace;
+			font-size: 13px;
+			color: #888;
+			text-align: center
+		}
+
+		#stateDisplay span {
+			margin: 0 6px
+		}
+
+		#stateDisplay .val {
+			color: #4fc3f7
+		}
+
+		/* ── 摇杆 ── */
+		#joystickArea {
+			width: 200px;
+			height: 200px;
+			border-radius: 50%;
+			background: #1a1a2e;
+			border: 3px solid #333;
+			position: relative;
+			cursor: pointer;
+			touch-action: none;
+			margin: 8px 0
+		}
+
+		#joystickKnob {
+			width: 60px;
+			height: 60px;
+			border-radius: 50%;
+			background: #4fc3f7;
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			box-shadow: 0 0 16px #4fc3f744;
+			pointer-events: none;
+			transition: background 0.1s
+		}
+
+		#joystickKnob.active {
+			background: #ff5252
+		}
+
+		#joystickCoords {
+			text-align: center;
+			font-size: 13px;
+			color: #888;
+			margin-top: -4px
+		}
+
+		/* ── 按钮 ── */
+		#btnRow {
+			display: flex;
+			gap: 12px;
+			justify-content: center;
+			flex-wrap: wrap
+		}
+
+		.gBtn {
+			width: 64px;
+			height: 64px;
+			border-radius: 50%;
+			border: 3px solid #555;
+			font-size: 18px;
+			font-weight: 700;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			touch-action: none;
+			transition: transform 0.05s, box-shadow 0.05s
+		}
+
+		.gBtn:active,
+		.gBtn.pressed {
+			transform: scale(0.90)
+		}
+
+		.btnA {
+			background: #4caf50;
+			border-color: #4caf50;
+			color: #fff
+		}
+
+		.btnA.pressed {
+			box-shadow: 0 0 20px #4caf50
+		}
+
+		.btnB {
+			background: #f44336;
+			border-color: #f44336;
+			color: #fff
+		}
+
+		.btnB.pressed {
+			box-shadow: 0 0 20px #f44336
+		}
+
+		.btnX {
+			background: #2196f3;
+			border-color: #2196f3;
+			color: #fff
+		}
+
+		.btnX.pressed {
+			box-shadow: 0 0 20px #2196f3
+		}
+
+		.btnY {
+			background: #ff9800;
+			border-color: #ff9800;
+			color: #fff
+		}
+
+		.btnY.pressed {
+			box-shadow: 0 0 20px #ff9800
+		}
+
+		/* ── 数据发送图表 ── */
+		#traffic {
+			font-size: 12px;
+			color: #555;
+			text-align: center;
+			width: 100%
+		}
+
+		#traffic .ok {
+			color: #4caf50
+		}
+	</style>
+</head>
+
+<body>
+	<div id="root">
+		<h1>🎮 虚拟手柄</h1>
+
+		<div id="connBar">
+			<input id="hostInput" type="text" placeholder="主机 IP" value="">
+			<select id="hostSel" style="padding:8px 10px;border:1px solid #444;border-radius:8px;
+					background:#1a1a2e;color:#e0e0e0;font-size:14px;outline:none">
+				<option value="0">本机</option>
+				<option value="1" selected>设备1</option>
+				<option value="2">设备2</option>
+				<option value="3">设备3</option>
+			</select>
+			<select id="playerSel" style="padding:8px 10px;border:1px solid #444;border-radius:8px;
+					background:#1a1a2e;color:#e0e0e0;font-size:14px;outline:none">
+				<option value="0">P1</option>
+				<option value="1">P2</option>
+				<option value="2">P3</option>
+				<option value="3">P4</option>
+			</select>
+			<button class="btnC" id="connBtn" onclick="toggleConn()">连接</button>
+			<div id="statusDot" class="disconnected"></div>
+		</div>
+
+		<div id="stateDisplay">
+			<span>LX: <span class="val" id="vLx">128</span></span>
+			<span>LY: <span class="val" id="vLy">128</span></span>
+			<span>|</span>
+			<span>BTN: <span class="val" id="vBtn">0x0000</span></span>
+			<span>|</span>
+			<span>帧: <span class="val" id="vSent">0</span></span>
+		</div>
+
+		<div id="joystickArea">
+			<div id="joystickKnob"></div>
+		</div>
+		<div id="joystickCoords">← 拖动摇杆 →</div>
+
+		<div id="btnRow">
+			<div class="gBtn btnL3" data-btn="L3"
+				style="width:56px;height:56px;border-radius:50%;background:#555;border:2px solid #777;font-size:11px;color:#ccc">
+				L3</div>
+			<div class="gBtn btnY" data-btn="Y">Y</div>
+			<div class="gBtn btnB" data-btn="B">B</div>
+			<div class="gBtn btnA" data-btn="A">A</div>
+			<div class="gBtn btnX" data-btn="X">X</div>
+		</div>
+
+		<div id="traffic">等待连接...</div>
+	</div>
+
+	<script>
+		// ============================================================
+		//  按钮位定义（与 GamepadButton 枚举对齐）
+		// ============================================================
+		const BTN = { A: 1 << 0, B: 1 << 1, X: 1 << 3, Y: 1 << 4, L3: 1 << 13 };
+
+		// ============================================================
+		//  状态
+		// ============================================================
+		let ws = null;
+		let connected = false;
+		let frameCount = 0;
+
+		// 当前手柄状态
+		let state = {
+			localPlayer: 0,
+			buttons: 0,
+			lx: 128, ly: 128,
+			rx: 128, ry: 128,
+			lt: 0, rt: 0,
+			dpad: 15
+		};
+
+		// 按下的按钮
+		let pressedBtns = {};
+
+		// 摇杆
+		let stickActive = false;
+		let stickPointerId = null;
+
+		// ── 发送节流 ──
+		const SEND_INTERVAL = 16;  // ms (~60fps)
+		let lastSendTime = 0;
+		let pendingState = null;    // 等待发送的最新状态
+
+		// ── 上次发送的状态（用于去重）──
+		let lastSent = { buttons: -1, lx: -1, ly: -1, dpad: -1 };
+
+		// ── 保活定时器（每 250ms 确保一帧）──
+		let keepAliveTimer = null;
+		let keepAlivePending = false;
+
+		// ============================================================
+		//  WebSocket 连接
+		// ============================================================
+
+		function toggleConn() {
+			if (connected) disconnect();
+			else connect();
+		}
+
+		function connect() {
+			const host = document.getElementById('hostInput').value.trim();
+			if (!host) {
+				document.getElementById('traffic').innerHTML = '⚠️ 请输入主机 IP';
+				return;
+			}
+
+			const url = `ws://${host}:8080/ws/input`;
+			try { ws = new WebSocket(url); } catch (e) {
+				document.getElementById('traffic').innerHTML = '❌ 连接失败: ' + e.message;
+				return;
+			}
+
+			ws.binaryType = 'arraybuffer';
+
+			ws.onopen = () => {
+				connected = true;
+				frameCount = 0;
+				lastSent = { buttons: -1, lx: -1, ly: -1, dpad: -1 };
+				document.getElementById('connBtn').textContent = '断开';
+				document.getElementById('connBtn').className = 'btnC on';
+				document.getElementById('statusDot').className = 'connected';
+				document.getElementById('traffic').innerHTML = '✅ 已连接 <span class="ok">/ws/input</span>';
+				startKeepAlive();
+				sendFrame();  // 立即发一帧初始化
+			};
+
+			ws.onclose = () => {
+				connected = false; ws = null;
+				stopKeepAlive();
+				document.getElementById('connBtn').textContent = '连接';
+				document.getElementById('connBtn').className = 'btnC';
+				document.getElementById('statusDot').className = 'disconnected';
+				document.getElementById('traffic').innerHTML = '⛔ 已断开';
+			};
+
+			ws.onerror = () => { };
+		}
+
+		function disconnect() {
+			if (ws) { ws.close(); ws = null; }
+		}
+
+		// ============================================================
+		//  发送 GamepadState 帧 — 节流到 ~60fps + 变化时触发
+		// ============================================================
+
+		function flushPending() {
+			if (!connected || !ws || !pendingState) return;
+
+			const now = performance.now();
+			if (now - lastSendTime < SEND_INTERVAL) {
+				// 还没到发送窗口，等下次 flush
+				return;
+			}
+
+			// 去重：状态无变化就不发
+			const s = pendingState;
+			if (s.buttons === lastSent.buttons &&
+				s.lx === lastSent.lx &&
+				s.ly === lastSent.ly &&
+				s.dpad === lastSent.dpad &&
+				!keepAlivePending) {
+				pendingState = null;
+				return;
+			}
+			keepAlivePending = false;
+
+			lastSent = { buttons: s.buttons, lx: s.lx, ly: s.ly, dpad: s.dpad };
+			lastSendTime = now;
+			pendingState = null;
+
+			const hostId = parseInt(document.getElementById('hostSel').value);
+
+			const buf = new ArrayBuffer(11);
+			const dv = new DataView(buf);
+			dv.setUint8(0, hostId);
+			dv.setUint8(1, s.localPlayer);
+			dv.setUint16(2, s.buttons, true);
+			dv.setUint8(4, s.lx);
+			dv.setUint8(5, s.ly);
+			dv.setUint8(6, s.rx);
+			dv.setUint8(7, s.ry);
+			dv.setUint8(8, s.lt);
+			dv.setUint8(9, s.rt);
+			dv.setUint8(10, s.dpad);
+
+			ws.send(buf);
+			frameCount++;
+
+			document.getElementById('vLx').textContent = s.lx;
+			document.getElementById('vLy').textContent = s.ly;
+			document.getElementById('vBtn').textContent = '0x' + s.buttons.toString(16).padStart(4, '0');
+			document.getElementById('vSent').textContent = frameCount;
+		}
+
+		// 调度发送：记录最新状态 + 排队等待节流窗口
+		function scheduleSend() {
+			state.localPlayer = parseInt(document.getElementById('playerSel').value);
+			// 复制当前状态到 pending
+			pendingState = {
+				localPlayer: state.localPlayer,
+				buttons: state.buttons,
+				lx: state.lx, ly: state.ly,
+				rx: state.rx, ry: state.ry,
+				lt: state.lt, rt: state.rt,
+				dpad: state.dpad
+			};
+			flushPending();
+			if (pendingState) {
+				// 节流中，等下次空闲再尝试
+				requestAnimationFrame(flushPending);
+			}
+		}
+
+		// 替换所有 sendFrame() 调用为 scheduleSend()
+		const sendFrame = scheduleSend;
+
+		// ── 保活：250ms 发一次（空闲时确保连接通畅）──
+		function startKeepAlive() {
+			stopKeepAlive();
+			keepAliveTimer = setInterval(() => {
+				keepAlivePending = true;
+				// 直接从当前 state 发
+				state.localPlayer = parseInt(document.getElementById('playerSel').value);
+				pendingState = {
+					localPlayer: state.localPlayer,
+					buttons: state.buttons,
+					lx: state.lx, ly: state.ly,
+					rx: state.rx, ry: state.ry,
+					lt: state.lt, rt: state.rt,
+					dpad: state.dpad
+				};
+				flushPending();
+			}, 250);
+		}
+
+		function stopKeepAlive() {
+			if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+		}
+
+		// ============================================================
+		//  摇杆（左摇杆 lx/ly）
+		// ============================================================
+
+		const joystickArea = document.getElementById('joystickArea');
+		const joystickKnob = document.getElementById('joystickKnob');
+		const AREA_R = 100;   // 摇杆区域半径
+		const KNOB_R = 30;     // 旋钮半径
+		const MAX_DIST = 70;   // 最大拖动距离
+
+		function getJoystickCenter() {
+			const rect = joystickArea.getBoundingClientRect();
+			return { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 };
+		}
+
+		function updateJoystick(clientX, clientY) {
+			const { cx, cy } = getJoystickCenter();
+			let dx = clientX - cx;
+			let dy = clientY - cy;
+			let dist = Math.sqrt(dx * dx + dy * dy);
+			if (dist > MAX_DIST) {
+				dx = dx / dist * MAX_DIST;
+				dy = dy / dist * MAX_DIST;
+				dist = MAX_DIST;
+			}
+			// 旋钮位置
+			joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+
+			// 映射到 0-255，中心 128
+			// Y 轴：上=0（dy负），下=255（dy正）
+			state.lx = Math.round(128 + (dx / MAX_DIST) * 127);
+			state.ly = Math.round(128 + (dy / MAX_DIST) * 127);
+			state.lx = Math.max(0, Math.min(255, state.lx));
+			state.ly = Math.max(0, Math.min(255, state.ly));
+
+			sendFrame();  // 变化时立即发送
+		}
+
+		function resetJoystick() {
+			joystickKnob.style.transform = 'translate(-50%, -50%)';
+			state.lx = 128;
+			state.ly = 128;
+			sendFrame();  // 归位也发
+		}
+
+		// ── Pointer Events ──
+		joystickArea.addEventListener('pointerdown', (e) => {
+			e.preventDefault();
+			stickActive = true;
+			stickPointerId = e.pointerId;
+			joystickArea.setPointerCapture(e.pointerId);
+			joystickKnob.classList.add('active');
+			updateJoystick(e.clientX, e.clientY);
+		});
+
+		joystickArea.addEventListener('pointermove', (e) => {
+			if (!stickActive) return;
+			e.preventDefault();
+			updateJoystick(e.clientX, e.clientY);
+		});
+
+		joystickArea.addEventListener('pointerup', (e) => {
+			if (!stickActive) return;
+			stickActive = false;
+			joystickArea.releasePointerCapture(e.pointerId);
+			joystickKnob.classList.remove('active');
+			resetJoystick();
+		});
+
+		joystickArea.addEventListener('pointercancel', () => {
+			stickActive = false;
+			joystickKnob.classList.remove('active');
+			resetJoystick();
+		});
+
+		// ============================================================
+		//  按钮（A/B/X/Y）
+		// ============================================================
+
+		document.querySelectorAll('.gBtn').forEach(btn => {
+			const name = btn.dataset.btn;
+			const mask = BTN[name];
+
+			const down = (e) => {
+				e.preventDefault();
+				if (pressedBtns[name]) return;
+				pressedBtns[name] = true;
+				btn.classList.add('pressed');
+				state.buttons |= mask;
+				sendFrame();  // 按下立即发
+			};
+
+			const up = (e) => {
+				if (!pressedBtns[name]) return;
+				pressedBtns[name] = false;
+				btn.classList.remove('pressed');
+				state.buttons &= ~mask;
+				sendFrame();  // 释放立即发
+			};
+
+			btn.addEventListener('pointerdown', down);
+			btn.addEventListener('pointerup', up);
+			btn.addEventListener('pointerleave', up);
+			btn.addEventListener('pointercancel', up);
+		});
+
+		// ============================================================
+		//  键盘快捷键（Alt+按键）
+		// ============================================================
+
+		document.addEventListener('keydown', (e) => {
+			const map = { 'a': 'A', 'b': 'B', 'x': 'X', 'y': 'Y', 'l': 'L3' };
+			const name = map[e.key.toLowerCase()];
+			if (!name) return;
+			e.preventDefault();
+			const btn = document.querySelector(`.gBtn[data-btn="${name}"]`);
+			if (btn && !pressedBtns[name]) {
+				pressedBtns[name] = true;
+				btn.classList.add('pressed');
+				state.buttons |= BTN[name];
+				sendFrame();
+			}
+		});
+
+		document.addEventListener('keyup', (e) => {
+			const map = { 'a': 'A', 'b': 'B', 'x': 'X', 'y': 'Y', 'l': 'L3' };
+			const name = map[e.key.toLowerCase()];
+			if (!name) return;
+			e.preventDefault();
+			const btn = document.querySelector(`.gBtn[data-btn="${name}"]`);
+			if (btn && pressedBtns[name]) {
+				pressedBtns[name] = false;
+				btn.classList.remove('pressed');
+				state.buttons &= ~BTN[name];
+				sendFrame();
+			}
+		});
+
+		// ============================================================
+		//  默认填充主机 IP（从 URL 或当前页面）
+		// ============================================================
+		document.getElementById('hostInput').value = location.hostname;
+
+		console.log('虚拟手柄已加载 — 连接 /ws/input 发送 10 字节 GamepadState 帧');
+	</script>
+</body>
+
+</html>

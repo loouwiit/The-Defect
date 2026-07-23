@@ -18,6 +18,7 @@ idf_component_register(SRCS "main.cpp"
                             "websocket/wsServer.cpp"
                             "screenStream/screenStream.cpp" "screenStream/wsStreamHandler.cpp"
                             "gamepad/bleGamepad.cpp" "gamepad/virtualGamepad.cpp"
+                            "host/inputHost.cpp" "host/wsInputHandler.cpp"
                             "virtualIndev/virtualIndev.cpp" "virtualIndev/wsTouchHandler.cpp"
 
                             "app/app.cpp" "app/appStack.cpp" "app/appStackManager.cpp" "app/appFactory.cpp"

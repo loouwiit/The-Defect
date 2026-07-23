@@ -31,6 +31,7 @@
 #include "virtualIndev/wsTouchHandler.hpp"
 #include "screenStream/wsStreamHandler.hpp"
 #include "app/consoleManager/testHandler.hpp"
+#include "host/wsInputHandler.hpp"
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
@@ -245,6 +246,7 @@ extern "C" void app_main(void)
 	wsServerStart();
 	wsServerRegisterWs("/ws/touch", wsTouchHandler);
 	wsServerRegisterWs("/ws/stream", wsStreamHandler);
+	wsServerRegisterWs("/ws/input", wsInputHandler);
 	wsServerRegisterWs("/ws/test", testWsHandler);
 	ESP_LOGI(TAG, "wsServerStart done");
 
