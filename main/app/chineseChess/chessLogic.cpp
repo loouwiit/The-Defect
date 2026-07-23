@@ -1,12 +1,69 @@
 #include "chessLogic.hpp"
+#include "esp_random.h"
 #include <cstring>
 #include <algorithm>
+
+// ============================================================
+// Zobrist 静态变量
+// ============================================================
+
+uint64_t ChessLogic::s_zobristPiece[2][7][BOARD_W][BOARD_H]{};
+uint64_t ChessLogic::s_zobristSide[2]{};
+bool ChessLogic::s_zobristInitialized = false;
+
+void ChessLogic::initZobrist()
+{
+	if (s_zobristInitialized)
+		return;
+
+	// 为每个棋子类型×方×位置生成 64 位随机数
+	for (int s = 0; s < 2; s++)
+		for (int t = 0; t < 7; t++)
+			for (int x = 0; x < BOARD_W; x++)
+				for (int y = 0; y < BOARD_H; y++)
+					s_zobristPiece[s][t][x][y] = ((uint64_t)esp_random() << 32) | esp_random();
+
+	// 走棋方随机数
+	s_zobristSide[0] = ((uint64_t)esp_random() << 32) | esp_random();
+	s_zobristSide[1] = ((uint64_t)esp_random() << 32) | esp_random();
+
+	s_zobristInitialized = true;
+}
+
+uint64_t ChessLogic::computeHash() const
+{
+	uint64_t h = 0;
+
+	for (int x = 0; x < BOARD_W; x++)
+	{
+		for (int y = 0; y < BOARD_H; y++)
+		{
+			const auto& p = m_board[x][y];
+			if (p.isEmpty())
+				continue;
+			int sideIdx = (p.side == Side::Red) ? 0 : 1;
+			int typeIdx = static_cast<int>(p.type) - 1; // PieceType::None=0 → -1，跳过
+			if (typeIdx < 0 || typeIdx >= 7)
+				continue;
+			h ^= s_zobristPiece[sideIdx][typeIdx][x][y];
+		}
+	}
+
+	// 走棋方
+	int turnIdx = (m_turn == Side::Red) ? 0 : 1;
+	h ^= s_zobristSide[turnIdx];
+
+	return h;
+}
 
 // ============================================================
 // 构造函数 / 初始布局
 // ============================================================
 
-ChessLogic::ChessLogic() = default;
+ChessLogic::ChessLogic()
+{
+	initZobrist();
+}
 
 void ChessLogic::placePiece(int x, int y, Side side, PieceType type)
 {
@@ -58,8 +115,12 @@ void ChessLogic::reset()
 	m_turn = Side::Red;
 	m_winner = Side::None;
 	m_history.clear();
+	m_hashHistory.clear();
 	m_selected = false;
 	m_validMoves.clear();
+
+	// 计算初始 hash
+	m_hash = computeHash();
 }
 
 // ============================================================
@@ -128,12 +189,34 @@ bool ChessLogic::movePiece(int fromX, int fromY, int toX, int toY)
 	if (!valid)
 		return false;
 
-	// 记录历史
+	// 记录历史（含 hash 快照，用于 undo 恢复）
 	Move move;
 	move.from = { static_cast<int8_t>(fromX), static_cast<int8_t>(fromY) };
 	move.to = { static_cast<int8_t>(toX), static_cast<int8_t>(toY) };
 	move.captured = m_board[toX][toY];
 	m_history.push_back(move);
+	m_hashHistory.push_back(m_hash);
+
+	// ── Zobrist hash 增量更新 ──
+	// 1) 移除源位置的棋子
+	int srcSideIdx = (src.side == Side::Red) ? 0 : 1;
+	int srcTypeIdx = static_cast<int>(src.type) - 1;
+	m_hash ^= s_zobristPiece[srcSideIdx][srcTypeIdx][fromX][fromY];
+
+	// 2) 如果目标位置有棋子（吃子），移除它
+	auto& dst = m_board[toX][toY];
+	if (!dst.isEmpty() && dst.alive)
+	{
+		int capSideIdx = (dst.side == Side::Red) ? 0 : 1;
+		int capTypeIdx = static_cast<int>(dst.type) - 1;
+		m_hash ^= s_zobristPiece[capSideIdx][capTypeIdx][toX][toY];
+	}
+
+	// 3) 将棋子放到目标位置
+	m_hash ^= s_zobristPiece[srcSideIdx][srcTypeIdx][toX][toY];
+
+	// 4) 切换走棋方：异或两个走棋方随机数（相当于翻转 turn bit）
+	m_hash ^= s_zobristSide[0] ^ s_zobristSide[1];
 
 	// 执行走棋
 	m_board[toX][toY] = m_board[fromX][fromY];
@@ -166,6 +249,14 @@ bool ChessLogic::undoMove()
 	m_board[move.to.x][move.to.y] = move.captured;
 
 	m_history.pop_back();
+
+	// 从 hash 历史恢复
+	if (!m_hashHistory.empty())
+	{
+		m_hash = m_hashHistory.back();
+		m_hashHistory.pop_back();
+	}
+
 	m_turn = (m_turn == Side::Red) ? Side::Black : Side::Red;
 	m_winner = Side::None;
 	m_state = State::Playing;

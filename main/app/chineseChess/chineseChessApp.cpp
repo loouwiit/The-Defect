@@ -102,7 +102,7 @@ void ChineseChessApp::init()
 
 	// 启动游戏线程
 	running = true;
-	m_thread = Thread{ gameLoop, "chessGame", this, Thread::Priority::Normal, 4096 };
+	m_thread = Thread{ gameLoop, "chessGame", this, Thread::Priority::Normal, 8192 };
 }
 
 void ChineseChessApp::deinit()
