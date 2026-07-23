@@ -1,7 +1,7 @@
 #pragma once
 
 #include "app/app.hpp"
-#include "bleGamepad/gamepadState.hpp"
+#include "gamepad/gamepadState.hpp"
 #include "audio/Audio.hpp"
 
 /**

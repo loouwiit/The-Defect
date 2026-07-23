@@ -12,7 +12,7 @@
 #include "battery/batteryManager.hpp"
 #include "wifi/wifi.hpp"
 #include "power/powerManager.hpp"
-#include "bleGamepad/bleGamepad.hpp"
+#include "gamepad/bleGamepad.hpp"
 
 /**
  * @file aiExecutor.hpp

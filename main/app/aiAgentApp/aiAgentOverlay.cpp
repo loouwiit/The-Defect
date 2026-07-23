@@ -6,7 +6,7 @@
 #include "aiAgent/aiParser.hpp"
 #include "aiAgent/aiExecutor.hpp"
 #include "aiAgent/aiSystemInfo.hpp"
-#include "bleGamepad/bleGamepad.hpp"
+#include "gamepad/bleGamepad.hpp"
 
 #include <esp_log.h>
 #include <cstring>

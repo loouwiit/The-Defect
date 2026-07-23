@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include "bleGamepad/gamepadState.hpp"
+#include "gamepad/gamepadState.hpp"
 #include "display/display.hpp"
 #include "task/task.hpp"
 

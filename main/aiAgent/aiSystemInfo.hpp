@@ -8,7 +8,7 @@
 #include "battery/batteryManager.hpp"
 #include "wifi/wifi.hpp"
 #include "storage/fat.hpp"
-#include "bleGamepad/bleGamepad.hpp"
+#include "gamepad/bleGamepad.hpp"
 
 /**
  * @file aiSystemInfo.hpp

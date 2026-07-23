@@ -4,7 +4,7 @@
 #include "task/task.hpp"
 #include "fruitNinjaLogic.hpp"
 #include "fruitNinjaRenderer.hpp"
-#include "bleGamepad/gamepadState.hpp"
+#include "gamepad/gamepadState.hpp"
 
 /**
  * @brief 水果忍者游戏 App

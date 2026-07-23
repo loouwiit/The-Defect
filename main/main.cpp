@@ -34,7 +34,7 @@
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
-#include "bleGamepad/bleGamepad.hpp"
+#include "gamepad/bleGamepad.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "monitor/cpuMonitor.hpp"
 #include "battery/batteryManager.hpp"

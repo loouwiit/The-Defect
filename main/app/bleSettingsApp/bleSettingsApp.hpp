@@ -1,7 +1,7 @@
 #pragma once
 
 #include "app/app.hpp"
-#include "bleGamepad/bleGamepad.hpp"
+#include "gamepad/bleGamepad.hpp"
 #include "lvgl.h"
 #include <vector>
 #include <cstdint>

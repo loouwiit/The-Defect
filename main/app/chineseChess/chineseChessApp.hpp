@@ -2,7 +2,7 @@
 
 #include "app/app.hpp"
 #include "task/task.hpp"
-#include "bleGamepad/gamepadState.hpp"
+#include "gamepad/gamepadState.hpp"
 #include "chessLogic.hpp"
 #include "chessAI.hpp"
 

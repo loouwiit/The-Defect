@@ -3,7 +3,7 @@
 #include "app/appStackManager.hpp"
 #include "display/font.hpp"
 #include "task/task.hpp"
-#include "bleGamepad/bleGamepad.hpp"
+#include "gamepad/bleGamepad.hpp"
 #include "battery/batteryManager.hpp"
 #include "power/powerManager.hpp"
 #include "esp_log.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esp_lv_adapter_display.h"
-#include "bleGamepad/gamepadState.hpp"
+#include "gamepad/gamepadState.hpp"
 #include <string>
 #include <esp_log.h>
 class Display;

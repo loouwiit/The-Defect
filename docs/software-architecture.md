@@ -635,7 +635,7 @@ flowchart TB
 
 ### 7.2 BLE Gamepad
 
-**文件**: `main/bleGamepad/bleGamepad.hpp/cpp`, `gamepadState.hpp`
+**文件**: `main/gamepad/bleGamepad.hpp/cpp`, `gamepadState.hpp`
 
 ```mermaid
 flowchart TB

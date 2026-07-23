@@ -3,7 +3,7 @@
 #include "task/task.hpp"
 
 #include "app/app.hpp"
-#include "host/virtualGamepad.hpp"
+#include "gamepad/virtualGamepad.hpp"
 #include "esp_log.h"
 #include "esp_err.h"
 
