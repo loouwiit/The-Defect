@@ -4,6 +4,7 @@
 #include "display/font.hpp"
 #include "task/task.hpp"
 #include "wifi/wifi.hpp"
+#include "wifi/wsClient.hpp"
 #include "discovery/discovery.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -61,6 +62,13 @@ void ConsoleManagerApp::deinit()
 	{
 		lv_timer_del(m_refreshTimer);
 		m_refreshTimer = nullptr;
+	}
+
+	// 断开 WS 测试连接
+	if (m_testClient)
+	{
+		delete m_testClient;
+		m_testClient = nullptr;
 	}
 
 	running = false;
@@ -272,9 +280,59 @@ void ConsoleManagerApp::doConnect(size_t index)
 	const auto& c = m_consoles[index];
 	ESP_LOGI(TAG, "连接到主机: %s @ %s:%u", c.hostname, c.ip, c.port);
 
-	// TODO: 后续实现 WebSocket 连接逻辑
-	// 目前仅打印日志
-	ESP_LOGI(TAG, "想要什么去代码里自己写(%s:%d)", __FILE__, __LINE__);
+	// ── 断开旧连接（如有）──
+	if (m_testClient)
+	{
+		delete m_testClient;
+		m_testClient = nullptr;
+	}
+
+	// ── 创建 WS 客户端并连接 /ws/test ──
+	m_testClient = new WsClient();
+	m_testSeq = 0;
+
+	m_testClient->setOnConnected([this]()
+	{
+		ESP_LOGI(TAG, "/ws/test 已连接");
+
+		// 连接成功后立即发送第一条 test 消息
+		char buf[32];
+		int n = snprintf(buf, sizeof(buf), "test %d", ++m_testSeq);
+		if (n > 0)
+			m_testClient->sendText(buf, (size_t)n);
+	});
+
+	m_testClient->setOnMessage([this](const char* data, size_t len)
+	{
+		ESP_LOGI(TAG, "/ws/test 收到回复: %.*s", (int)len, data);
+
+		// 收到回复后延迟 2 秒再发下一条
+		// 用 Task::addTask 避免在 WS Task 中长时间停留
+		Task::addTask([](void* param) -> TickType_t
+		{
+			auto* app = static_cast<ConsoleManagerApp*>(param);
+			if (!app->m_testClient || !app->m_testClient->isConnected())
+				return Task::infinityTime;
+
+			char buf[32];
+			int n = snprintf(buf, sizeof(buf), "test %d", ++app->m_testSeq);
+			if (n > 0)
+			{
+				app->m_testClient->sendText(buf, (size_t)n);
+				ESP_LOGI(TAG, "/ws/test 发送: %s", buf);
+			}
+			return Task::infinityTime;
+		}, "wsTestSend", this, pdMS_TO_TICKS(2000), Task::Affinity::None);
+	});
+
+	m_testClient->setOnDisconnected([this]()
+	{
+		ESP_LOGW(TAG, "/ws/test 连接断开");
+	});
+
+	char uri[64];
+	snprintf(uri, sizeof(uri), "/ws/test");
+	m_testClient->connect(c.ip, 8080, uri);
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -2,6 +2,7 @@
 
 #include "app/app.hpp"
 #include "discovery/discovery.hpp"
+#include "wifi/wsClient.hpp"
 #include "lvgl.h"
 #include <vector>
 #include <cstdint>
@@ -42,6 +43,10 @@ private:
 	// ── 扫描结果 ──
 	std::vector<DiscoveredConsole> m_consoles;
 	bool m_scanActive{ false };
+
+	// ── WS 测试连接 ──
+	WsClient* m_testClient{};
+	int m_testSeq{};
 
 	// ── 列表行 ──
 	std::vector<lv_obj_t*> m_scanRows;

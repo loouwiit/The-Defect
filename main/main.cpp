@@ -28,6 +28,7 @@
 #include "virtualIndev/virtualIndev.hpp"
 #include "wsServer/wsServer.hpp"
 #include "wifi/mdns.hpp"
+#include "host/testHandler.hpp"
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
@@ -237,9 +238,10 @@ extern "C" void app_main(void)
 	serverStart();
 	ESP_LOGI(TAG, "serverStart done");
 
-	// WebSocket 服务器（端口 8080，仅用于触控回传）
+	// WebSocket 服务器（端口 8080）
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
+	wsServerRegisterWs("/ws/test", testWsHandler);
 	ESP_LOGI(TAG, "wsServerStart done");
 
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
