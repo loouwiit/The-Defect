@@ -2,7 +2,7 @@
 
 #include "app/app.hpp"
 #include "discovery/discovery.hpp"
-#include "wifi/wsClient.hpp"
+#include "websocket/wsClient.hpp"
 #include "lvgl.h"
 #include <vector>
 #include <cstdint>

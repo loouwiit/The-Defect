@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <functional>
-#include "wsServer/wsServer.hpp"
+#include "websocket/wsServer.hpp"
 #include "app/tetris/gameLogic/gameState.hpp"
 
 /* ============================================================

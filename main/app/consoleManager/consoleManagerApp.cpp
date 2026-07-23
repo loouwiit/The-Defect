@@ -4,7 +4,7 @@
 #include "display/font.hpp"
 #include "task/task.hpp"
 #include "wifi/wifi.hpp"
-#include "wifi/wsClient.hpp"
+#include "websocket/wsClient.hpp"
 #include "discovery/discovery.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"

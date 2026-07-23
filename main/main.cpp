@@ -26,9 +26,11 @@
 #include "app/desktopApp/desktopApp.hpp"
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
-#include "wsServer/wsServer.hpp"
+#include "websocket/wsServer.hpp"
 #include "wifi/mdns.hpp"
-#include "host/testHandler.hpp"
+#include "virtualIndev/wsTouchHandler.hpp"
+#include "screenStream/wsStreamHandler.hpp"
+#include "app/consoleManager/testHandler.hpp"
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
@@ -241,6 +243,8 @@ extern "C" void app_main(void)
 	// WebSocket 服务器（端口 8080）
 	ESP_LOGI(TAG, "wsServerStart");
 	wsServerStart();
+	wsServerRegisterWs("/ws/touch", wsTouchHandler);
+	wsServerRegisterWs("/ws/stream", wsStreamHandler);
 	wsServerRegisterWs("/ws/test", testWsHandler);
 	ESP_LOGI(TAG, "wsServerStart done");
 
