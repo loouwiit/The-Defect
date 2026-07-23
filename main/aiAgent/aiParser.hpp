@@ -167,6 +167,18 @@ private:
             result.actions.push_back(action);
         }
 
+        // 6. 提取顶层 memory（长期记忆，可选）
+        cJSON* memoryObj = cJSON_GetObjectItem(root, "memory");
+        if (cJSON_IsString(memoryObj) && memoryObj->valuestring) {
+            result.memory = memoryObj->valuestring;
+        }
+
+        // 7. 提取 nextRound（是否继续下一轮）
+        cJSON* nextRoundObj = cJSON_GetObjectItem(root, "nextRound");
+        if (cJSON_IsBool(nextRoundObj)) {
+            result.nextRound = cJSON_IsTrue(nextRoundObj);
+        }
+
         result.success = !result.actions.empty();
         cJSON_Delete(root);
         return result;
@@ -200,21 +212,13 @@ private:
         };
 
         action.text = readStr("text");
-        action.appName = readStr("app");
-        action.command = readStr("command");
-        action.intValue = readInt("value", 0);
+        if (action.text.empty()) action.text = readStr("app");  // fallback 旧格式
+        action.value = readInt("value", 0);
 
-        // 读取 params 对象 → map
-        cJSON* params = cJSON_GetObjectItem(item, "params");
-        if (cJSON_IsObject(params)) {
-            cJSON* child = nullptr;
-            cJSON_ArrayForEach(child, params) {
-                if (cJSON_IsString(child) && child->string && child->valuestring) {
-                    action.params[child->string] = child->valuestring;
-                } else if (cJSON_IsNumber(child) && child->string) {
-                    action.params[child->string] = std::to_string(child->valueint);
-                }
-            }
+        // 读取 params 对象 → cJSON 深拷贝
+        cJSON* paramsObj = cJSON_GetObjectItem(item, "params");
+        if (cJSON_IsObject(paramsObj)) {
+            action.params = cJSON_Duplicate(paramsObj, true);
         }
 
         return action;
@@ -231,7 +235,8 @@ private:
         if (s == "play_audio")        return AiActionType::PlayAudio;
         if (s == "wifi_connect")      return AiActionType::WifiConnect;
         if (s == "system_info")       return AiActionType::SystemInfo;
-        if (s == "show_notification") return AiActionType::ShowNotification;
+        if (s == "select")            return AiActionType::Select;
+        if (s == "activate")          return AiActionType::Activate;
         if (s == "power_off")         return AiActionType::PowerOff;
         return AiActionType::UnknownAction;
     }

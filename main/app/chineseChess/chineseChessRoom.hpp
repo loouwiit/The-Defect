@@ -50,4 +50,9 @@ private:
 	static void onBackBtnCb(lv_event_t* e);
 	static void btnAICb(lv_event_t* e);
 	static void btn2PCb(lv_event_t* e);
+
+	// ── AI 能力 ──
+	std::string getAiContext() override;
+	void onAiSelect(const AiSelectTarget& target) override;
+	void onAiActivate() override;
 };

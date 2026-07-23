@@ -22,7 +22,7 @@ AppStack::~AppStack()
 	{
 		(*it)->deinit();
 		while (!(*it)->deletable) vTaskDelay(10);
-		delete *it;
+		delete* it;
 	}
 	m_stack.clear();
 }
@@ -126,10 +126,11 @@ void AppStack::scheduleDeletion(App* app)
 		{
 			auto* oldApp = (App*)param;
 
-			oldApp->deinit();
+			if (oldApp->running)
+				oldApp->deinit();
 
-			while (!oldApp->deletable)
-				vTaskDelay(10);
+			if (!oldApp->deletable)
+				return 10;
 
 			if (auto guard = oldApp->display->lockGuard())
 			{

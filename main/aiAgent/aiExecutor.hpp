@@ -4,13 +4,15 @@
 #include <vector>
 #include <esp_log.h>
 #include "aiProtocol.hpp"
+#include "aiAgent/aiSystemInfo.hpp"
 #include "display/display.hpp"
 #include "app/app.hpp"
 #include "app/appStackManager.hpp"
-#include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "battery/batteryManager.hpp"
 #include "wifi/wifi.hpp"
+#include "power/powerManager.hpp"
+#include "bleGamepad/bleGamepad.hpp"
 
 /**
  * @file aiExecutor.hpp
@@ -55,7 +57,6 @@ public:
 
             // ── 第 1 步：App 优先拦截（RespondText/ParseError 除外） ──
             if (action.type != AiActionType::RespondText &&
-                action.type != AiActionType::ShowNotification &&
                 action.type != AiActionType::ParseError &&
                 activeApp)
             {
@@ -66,13 +67,29 @@ public:
             if (!handled) {
                 switch (action.type) {
                 case AiActionType::RespondText:
-                case AiActionType::ShowNotification:
                     handled = true;
                     break;
 
-                case AiActionType::OpenApp:
-                    handled = executeOpenApp(action, manager);
+                case AiActionType::Select:
+                {
+                    if (activeApp) {
+                        AiSelectTarget target;
+                        target.group = action.text;
+                        target.index = action.value;
+                        activeApp->onAiSelect(target);
+                        handled = true;
+                    }
                     break;
+                }
+
+                case AiActionType::Activate:
+                {
+                    if (activeApp) {
+                        activeApp->onAiActivate();
+                        handled = true;
+                    }
+                    break;
+                }
 
                 case AiActionType::NavigateBack:
                     if (manager) {
@@ -83,6 +100,15 @@ public:
 
                 case AiActionType::NavigateHome:
                     if (manager) {
+                        // 1. 清空所有非根栈（pop 到空后自动销毁+切回根栈）
+                        while (manager->stackCount() > 1) {
+                            manager->switchToStack(manager->stackCount() - 1);
+                            auto* stack = manager->activeStack();
+                            while (stack && stack->depth() > 0) {
+                                manager->pop();
+                            }
+                        }
+                        // 2. 清空根栈到只剩桌面（depth=1）
                         manager->switchToStack(static_cast<size_t>(0));
                         auto* root = manager->activeStack();
                         while (root && root->depth() > 1) {
@@ -94,7 +120,7 @@ public:
 
                 case AiActionType::SetBrightness:
                     if (display) {
-                        int brightness = action.intValue;
+                        int brightness = action.value;
                         if (brightness < 0) brightness = 0;
                         if (brightness > 100) brightness = 100;
                         display->setBrightness(static_cast<uint8_t>(brightness));
@@ -104,7 +130,7 @@ public:
                     break;
 
                 case AiActionType::SetVolume:
-                    Audio::setMasterVolume(action.intValue);
+                    Audio::setMasterVolume(action.value);
                     handled = true;
                     break;
 
@@ -117,18 +143,42 @@ public:
 
                 case AiActionType::WifiConnect:
                 {
-                    auto ssidIt = action.params.find("ssid");
-                    auto passIt = action.params.find("password");
-                    if (ssidIt != action.params.end()) {
-                        wifiConnect(ssidIt->second.c_str(),
-                            passIt != action.params.end() ? passIt->second.c_str() : "");
+                    const char* ssid = nullptr;
+                    const char* pass = nullptr;
+                    if (action.params) {
+                        cJSON* ssidObj = cJSON_GetObjectItem(action.params, "ssid");
+                        if (cJSON_IsString(ssidObj)) ssid = ssidObj->valuestring;
+                        cJSON* passObj = cJSON_GetObjectItem(action.params, "password");
+                        if (cJSON_IsString(passObj)) pass = passObj->valuestring;
+                    }
+                    if (ssid) {
+                        wifiConnect(ssid, pass ? pass : "");
                         handled = true;
                     }
                     break;
                 }
 
                 case AiActionType::SystemInfo:
+                {
+                    std::string sysInfo = collectSystemInfo();
+                    ESP_LOGI(TAG, "系统信息:\n%s", sysInfo.c_str());
+                    handled = true;
+                    break;
+                }
+
                 case AiActionType::PowerOff:
+                {
+                    ESP_LOGW(TAG, "AI 触发关机");
+                    BleGamepad::instance().stopScan();
+                    if (display) {
+                        PowerManager::instance().prepareShutdown(
+                            display->getLvglDisplay(), nullptr);
+                    }
+                    PowerManager::instance().shutdown();
+                    handled = true;
+                    break;
+                }
+
                 case AiActionType::ParseError:
                     handled = true;
                     break;
@@ -150,33 +200,6 @@ public:
     }
 
 private:
-    /// 执行 open_app 操作
-    static bool executeOpenApp(const AiAction& action, AppStackManager* manager)
-    {
-        if (!manager || action.appName.empty()) return false;
-
-        // 通过 activeStack 的 top app 获取 Display
-        auto* stack = manager->activeStack();
-        if (!stack || stack->isEmpty()) return false;
-        Display* display = stack->top()->getDisplay();
-
-        App* app = AppFactory::create(action.appName, display);
-        if (!app) {
-            ESP_LOGE(TAG, "未知应用: %s", action.appName.c_str());
-            return false;
-        }
-
-        struct param_t{ AppStackManager* stack; App* app; };
-        Task::addTask([](void* param)->TickType_t
-            {
-                auto [manager, app] = *(param_t*)param;
-                manager->pushToNewStack(app);
-                delete (param_t*)param;
-                return Task::infinityTime;
-            }, "open app", new param_t{manager, app}, 100);
-        return true;
-    }
-
     /// 生成执行概述
     static void buildSummary(Result& result)
     {

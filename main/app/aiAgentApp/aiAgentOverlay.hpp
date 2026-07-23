@@ -69,6 +69,11 @@ private:
     uint16_t m_prevButtons[4]{};
     static void gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data);
 
+    // ── IME 拼音输入 ──
+    lv_obj_t* m_pinyinIme{};
+    lv_obj_t* m_candPanel{};
+    bool m_isChineseMode{true};
+
     // ── 依赖 ──
     Display* m_display{};
 
@@ -84,19 +89,29 @@ private:
     lv_obj_t* m_chatWrapper{};  // 聊天区滚动容器
     lv_obj_t* m_inputField{};   // 输入框
     lv_obj_t* m_sendBtn{};      // 发送按钮
+    lv_obj_t* m_modeLabel{};    // 中/EN 模式指示
     lv_obj_t* m_keyboard{};     // LVGL 键盘
 
     // ── 状态 ──
     AiConfig m_config;
     bool m_isWaiting{};
     int m_followUpCount{};
-    static constexpr int MAX_FOLLOW_UP = 3;
+    static constexpr int MAX_FOLLOW_UP = 5;
     std::string m_lastUserInput;
     std::string m_lastAiContent;
     std::string m_lastSystemPrompt;
+    std::string m_systemPromptTemplate;   // 含 {app_context}/{memory_context} 占位符的原始模板
     std::vector<std::string> m_chatHistory;
+
+    // ── 对话上下文 ──
+    static constexpr size_t MAX_HISTORY_TURNS = 5;
+    std::vector<std::pair<std::string, std::string>> m_history;  // (role, content)
+    std::string m_memoryText;                                     // AI 长期记忆
+
     TickType_t m_nextActionTime{};
+    TickType_t m_nextPageFlipTime{};
     static constexpr TickType_t ACTION_COOLDOWN = 300;
+    static constexpr TickType_t PAGE_FLIP_COOLDOWN = 400;
 
     // ── UI 构建 ──
     void buildUi();
@@ -109,6 +124,10 @@ private:
     // ── 发送逻辑 ──
     void onSend();
     void onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg);
+
+    // ── IME 中英文切换 ──
+    void setChineseMode(bool enable);
+    static void kbExtraBtnCb(lv_event_t* e);
 
     // ── LVGL 事件回调 ──
     static void onCloseBtnCb(lv_event_t* e);

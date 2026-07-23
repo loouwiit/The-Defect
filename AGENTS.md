@@ -22,7 +22,7 @@ fat,      data, fat  ,      16M, 16M,
 分区说明：
 | 分区 | 大小 | 用途 |
 |------|------|------|
-| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量等） |
+| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名等） |
 | otadata | 8KB | OTA 启动选择数据 |
 | phy_init | 4KB | WiFi/BT 物理层校准数据 |
 | ota_0 | 6MB | 应用固件（单 OTA slot） |
@@ -62,9 +62,9 @@ reserces/
 | **导航** | App | `main/app/app.hpp` | 应用基类（生命周期、栈钩子、手柄输入） |
 | | AppStack | `main/app/appStack.hpp` | 单栈导航（push/pop/replace + 异步删除） |
 | | AppStackManager | `main/app/appStackManager.hpp` | 多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
-| **AI Agent** | AiClient / AiParser / AiExecutor | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行 |
-| | AiAgentOverlay | `main/app/aiAgentApp/` | 系统层浮动窗（`lv_layer_sys`），不占 AppStack |
-| | App (基类) | `main/app/app.hpp` | `getAiContext()` / `executeAiAction()` |
+| **AI Agent** | AiClient / AiParser / AiExecutor / AiSystemInfo | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行、系统信息采集 |
+| | AiAgentOverlay | `main/app/aiAgentApp/` | 系统层浮动窗（`lv_layer_sys`），对话历史 + 长期记忆 |
+| | App (基类) | `main/app/app.hpp` | `getAiContext()` / `onAiSelect()` / `onAiActivate()` + 可选 `executeAiAction()` |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 AI 助手），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
 | | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
@@ -76,13 +76,15 @@ reserces/
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
 | | TestApp | `main/app/testApp/` | 测试用 App |
+| | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理（mDNS 发现其他主机） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
 | | SocketStreamWindow | `main/wifi/socketStreamWindow.hpp` | 连接池管理器（HTTP 6 worker 线程） |
 | | HTTP Server | `main/server/` | 裸 socket TCP HTTP，端口 80，6 工作者线程，内置 HTML |
 | | WS Server | `main/wsServer/` | WebSocket 端口 8080，动态 URI 注册/注销，广播 |
-| | mDNS | `main/wifi/mdns.hpp` | mDNS 服务发现（`_http` 80, `_ws` 8080） |
+| | mDNS | `main/wifi/mdns.hpp` | mDNS 服务发现（`_http` 80, `_ws` 8080, `_p4console` 80） |
+| | Discovery | `main/discovery/` | mDNS 设备发现（查询 `_p4console._tcp` 枚举其他主机） |
 | | HTTP | `main/wifi/http.hpp` | HTTP 协议解析（Method/Status/Header 等） |
 | **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + WebSocket 流，直接读 bridge 帧缓冲 |
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
@@ -375,6 +377,12 @@ public:
     // ── 输入 ──
     virtual void onGamepadInput(uint8_t playerId, const GamepadState& state);
 
+    // ── AI 能力 ──
+    virtual std::string getAiContext();                         // App 上下文 → 拼入 AI prompt
+    virtual void onAiSelect(const AiSelectTarget& target);     // select 焦点
+    virtual void onAiActivate();                                // activate 触发
+    virtual bool executeAiAction(const AiAction& action);       // 自定义动作拦截
+
     // ── 便利方法 ──
     void pushApp(App* app);        // push 到当前栈
     void popApp();                 // 弹出当前栈顶
@@ -515,41 +523,110 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，`getActiveApp()` 始终返回底层真实 App → `getAiContext()` 正常。可拖拽，顶部下滑/桌面卡片唤起 |
+| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄组合键唤起。集成 LVGL `lv_ime_pinyin` 拼音输入法，支持中英文切换、候选面板上下翻页 |
 
 **模块路径**: `main/aiAgent/`
 
 | 模块 | 说明 |
 |------|------|
-| `aiProtocol.hpp` | `AiActionType` / `AiAction` / `AiResponse` 数据结构 |
+| `aiProtocol.hpp` | `AiActionType` / `AiAction` / `AiResponse`（含 `memory` + `nextRound`） |
 | `aiConfig.hpp` | FAT 配置文件 + NVS API Key 加载 |
 | `aiClient.hpp` | `HttpClient::send()` / `sendWithHistory()` — `esp_http_client` HTTPS POST |
-| `aiParser.hpp` | cJSON 解析，鲁棒处理，`actions[]` 提取 |
-| `aiExecutor.hpp` | 动作顺序执行，系统操作 + `default:` 透传前台 App |
+| `aiParser.hpp` | cJSON 解析，鲁棒处理；提取 `actions[]`、`memory`、`nextRound` |
+| `aiExecutor.hpp` | 动作顺序执行，13 个系统操作（含 Select/Activate/PowerOff 等） |
+| `aiSystemInfo.hpp` | 系统信息采集：电池、WiFi、存储、内存、手柄电量等 |
+
+**AiAction 字段**（所有系统操作共用）：
+
+| 字段 | 类型 | 用途 |
+|------|------|------|
+| `action` | string | 操作类型（必填） |
+| `text` | string | 字符串参数（app名、焦点组名、回复内容等） |
+| `value` | number | 数值参数（亮度、音量、焦点索引等） |
+| `params` | object | 扩展参数（复杂 JSON，如 wifi_connect 的 ssid/password） |
+
+**AiResponse 顶层字段**：
+
+| 字段 | 类型 | 用途 |
+|------|------|------|
+| `actions` | array | 操作列表 |
+| `memory` | string (可选) | 长期记忆，增量更新 |
+| `nextRound` | bool (可选) | true=本轮执行后继续下一轮（如 App 切换后探索新界面） |
 
 **App 基类 AI 接口** (`main/app/app.hpp`)：
 
 ```cpp
+struct AiSelectTarget {
+    std::string group;   // 焦点组名（空=单维度焦点）
+    int index{};         // 组内索引
+};
+
 class App {
-    // 可选覆盖，默认空实现
-    virtual std::string getAiContext();           // 返回本 App 的 AI 上下文描述
-    virtual bool executeAiAction(const AiAction& action);  // 执行 AI 发来的自定义动作
+    // 上下文描述 → 拼入 {app_context}
+    virtual std::string getAiContext();
+
+    // 焦点系统（系统级，由 AiExecutor 路由）
+    virtual void onAiSelect(const AiSelectTarget& target);   // select 动作
+    virtual void onAiActivate();                              // activate 动作
+
+    // 自定义动作拦截（可选覆盖）
+    virtual bool executeAiAction(const AiAction& action);
 };
 ```
 
-**Agent 循环流程**：
+所有带焦点导航的 App 均已接入 `onAiSelect()` + `onAiActivate()`：
+- DesktopApp、BleSettingsApp、WifiSettingsApp、TimeSettingsApp
+- PowerManagementApp、TetrisRoomApp
+- FruitNinjaRoom、SnakeRoom、ChineseChessRoom
+
+**Agent 多轮协作流程**：
 
 ```
-用户输入 → HttpClient::send(systemPrompt, input)
+用户输入
   ↓
-AiParser::parse(response) → AiExecutor::execute(actions)
+① HttpClient::send(systemPrompt, userInput, history)
   ↓
-  如有 system_info 等需数据采集的 action
-  → collectSystemInfo() → 带对话历史再次调用 AI
-  → AI 综合回复 respond_text
-  ↓ (最多 3 轮)
-显示最终回复
+② AiParser::parse(response) → AiExecutor::execute(actions)
+  ↓
+③ 如果 response.nextRound == true 且未达 3 轮上限：
+   → 从模板重建 system prompt（刷新 {app_context} 为新 App 信息）
+   → 再次调用 AI 继续完成目标
+   ↓ (最多 5 轮)
+④ 记录 memory（长期记忆） + 对话历史（最近 5 轮）
+  ↓
+⑤ 等待用户下一轮输入
 ```
+
+**13 个系统操作**：
+
+| 操作 | 说明 | 示例 |
+|------|------|------|
+| `respond_text` | 回复文字 | `{"action":"respond_text","text":"你好"}` |
+| `open_app` | 打开应用 | `{"action":"open_app","text":"tetris"}` |
+| `select` | 移动焦点到元素 | `{"action":"select","text":"cards","value":2}` |
+| `activate` | 触发当前焦点 | `{"action":"activate"}` |
+| `navigate_back` | 返回上一级 | `{"action":"navigate_back"}` |
+| `navigate_home` | 回桌面 | `{"action":"navigate_home"}` |
+| `set_brightness` | 调亮度 0-100 | `{"action":"set_brightness","value":50}` |
+| `set_volume` | 调音量 0-100 | `{"action":"set_volume","value":70}` |
+| `play_audio` | 播放音频 | `{"action":"play_audio","text":"/path/file.mp3"}` |
+| `wifi_connect` | 连接 WiFi | `{"action":"wifi_connect","params":{...}}` |
+| `system_info` | 获取设备信息 | `{"action":"system_info"}` |
+| `power_off` | 关机 (Deep-sleep) | `{"action":"power_off"}` |
+
+**支持**：对话历史（最近 5 轮）+ 长期记忆（AI 通过 `memory` 字段增量更新）+ 多轮协作（`nextRound` 控制）+ App 焦点探索（`select`/`activate`）
+
+**手柄按钮映射**（键盘显示时）：
+
+| 操作 | 按键 |
+|------|------|
+| 键盘按键导航 | ← → ↑ ↓（左摇杆） |
+| 确认按键/选候选字 | A / L3 |
+| 退格删除 | B |
+| 发送消息 | Y |
+| 键盘/候选面板间切换焦点 | X |
+| 中英文模式切换 | 键盘底部 `🔣` 按钮 |
+| 候选面板翻页 | ↑ ↓（焦点在候选面板时） |
 
 ### 设置
 
@@ -694,9 +771,44 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 | API | 说明 |
 |------|------|
 | `mdnsInit()` / `mdnsDeinit()` | 初始化/反初始化 |
-| `mdnsStart("esp32p4", "ESP32P4 Game Console")` | 设置主机名和实例名 |
+| `mdnsStart(hostname, instance)` | 设置主机名和实例名（默认 `"esp32p4"`） |
 | `mdnsServiceAdd(name, "_http", "_tcp", 80)` | 注册 HTTP 服务 |
 | `mdnsServiceAdd(name, "_ws", "_tcp", 8080)` | 注册 WS 服务 |
+| `mdnsServiceAdd(name, "_p4console", "_tcp", 80)` | 注册专属服务类型，供设备发现用 |
+| `mdnsGetConfiguredHostname()` | 从 NVS 读取持久化的主机名，未配置返回 `"esp32p4"` |
+| `mdnsSetHostname(hostname)` | 保存到 NVS 并热重启 mDNS（deinit→init→重注册所有服务） |
+
+**主机名自定义**：
+- NVS 持久化（namespace `"mdns"`，key `"hostname"`）
+- 修改后立即生效，无需重启
+- 服务实例名自动跟随派生：`{hostname} HTTP` / `{hostname} WS`
+- 主机名校验：仅字母、数字、连字符，最长 48 字符
+- 配置入口：WiFiSettingsApp 底部"主机名"行 / HTTP API `GET/POST /api/mdnsConfig`
+
+### Discovery — 设备发现
+
+**模块路径**: `main/discovery/`
+
+```cpp
+struct DiscoveredConsole { char hostname[64]; char ip[16]; uint16_t port; };
+
+int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeoutMs = 3000);
+```
+
+- 查询 `_p4console._tcp` 服务，返回局域网内其他游戏主机的 hostname、IP、端口
+- 自动过滤自身（对比当前活跃 hostname）
+- 同步阻塞请求
+
+### ConsoleManagerApp — 多主机管理
+
+**模块路径**: `main/app/consoleManager/`
+
+- 通过 mDNS 发现其他主机，列表展示（hostname + IP:port）
+- 桌面状态栏图标（索引 6）进入
+- 支持手动扫描
+- 手柄焦点导航（FOCUS_TITLE / FOCUS_LIST）
+- AI 入口：`open_app("consoleManager")`
+- 延迟销毁：扫描中退出时保持 `deletable=false`，扫完后自动放行
 
 ---
 
@@ -1205,9 +1317,10 @@ wifiInit(true)                          ← 初始化（通过 C6）
 wifiStart()
 wifiStationStart(); wifiConnect(ssid, pass)
 if (!connected) wifiApStart()           ← 连接失败 → AP 模式
-mdnsInit(); mdnsStart("esp32p4", ...)
+mdnsInit(); mdnsStart(hostname, ...)
 mdnsServiceAdd("_http", 80)
 mdnsServiceAdd("_ws", 8080)
+mdnsServiceAdd("_p4console", 80)       ← 设备发现专用服务
 
 // ── 服务器 ──
 serverStart()                           ← HTTP 端口 80

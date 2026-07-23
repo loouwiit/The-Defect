@@ -1,3 +1,5 @@
+#pragma once
+
 #include <esp_wifi_types_generic.h>
 #include <esp_netif_ip_addr.h>
 

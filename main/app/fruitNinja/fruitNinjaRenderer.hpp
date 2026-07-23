@@ -28,6 +28,9 @@ public:
 	/** @brief 显示得分/生命/计时标签 */
 	void updateHUD(lv_obj_t* parent, const FruitNinjaLogic& logic);
 
+	/** @brief 获取退出按钮（供 App 注册回调） */
+	lv_obj_t* getExitBtn() const { return m_exitBtn; }
+
 private:
 	static constexpr int MAX_FRUITS = FruitNinjaLogic::MAX_FRUITS;
 	static constexpr int MAX_PARTICLES = FruitNinjaLogic::MAX_PARTICLES;
@@ -46,6 +49,9 @@ private:
 	lv_obj_t* m_livesLabel{};
 	lv_obj_t* m_timerLabel{};
 	lv_obj_t* m_hintLabel{};
+
+	// ── 退出按钮 ──
+	lv_obj_t* m_exitBtn{};
 
 	// ── GameOver ──
 	lv_obj_t* m_overlay{};

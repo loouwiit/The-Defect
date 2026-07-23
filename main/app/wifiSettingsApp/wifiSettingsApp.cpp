@@ -4,10 +4,13 @@
 #include "display/font.hpp"
 #include "task/task.hpp"
 #include "wifi/wifi.hpp"
+#include "wifi/mdns.hpp"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <cstring>
+#include <utility>
 
 // ════════════════════════════════════════════════════════════════
 // 构造 / 析构
@@ -46,6 +49,7 @@ void WifiSettingsApp::init()
 	m_focusGroup = FOCUS_TITLE;
 	m_focusTitleIdx = 0;
 	m_focusListIdx = 0;
+	m_focusInfoIdx = 0;
 	applyFocus();
 
 	// 同步初始 WiFi 开关状态
@@ -75,8 +79,9 @@ void WifiSettingsApp::deinit()
 		lv_timer_del(m_refreshTimer);
 		m_refreshTimer = nullptr;
 	}
-	// 关闭密码弹窗
+	// 关闭所有弹窗
 	hidePasswordDialog();
+	hideHostnameDialog();
 
 	App::deinit();
 	ESP_LOGI(TAG, "WiFi 设置 App 已释放");
@@ -131,6 +136,7 @@ void WifiSettingsApp::refreshUi()
 	// ── 密码弹窗打开时，跳过扫描列表更新（避免干扰 textarea 光标） ──
 	if (m_passwordDialog)
 	{
+		updateHostnameRow();
 		updateConnectionInfo();
 		return;
 	}
@@ -200,6 +206,9 @@ void WifiSettingsApp::refreshUi()
 		}
 		updateScanList();
 	}
+
+	// ── 更新主机名行 ──
+	updateHostnameRow();
 
 	// ── 更新连接信息 ──
 	updateConnectionInfo();
@@ -301,6 +310,38 @@ void WifiSettingsApp::buildUi()
 	lv_obj_set_width(empty_hint, lv_pct(100));
 	lv_obj_set_style_text_align(empty_hint, LV_TEXT_ALIGN_CENTER, 0);
 	m_scanRows.push_back(empty_hint);
+
+	// ── mDNS 主机名配置行 ──
+	m_hostnameRow = lv_obj_create(screen);
+	lv_obj_set_width(m_hostnameRow, lv_pct(100));
+	lv_obj_set_height(m_hostnameRow, LV_SIZE_CONTENT);
+	styleCard(m_hostnameRow);
+	lv_obj_set_layout(m_hostnameRow, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(m_hostnameRow, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(m_hostnameRow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(m_hostnameRow, 8, 0);
+	lv_obj_set_style_pad_left(m_hostnameRow, 16, 0);
+	lv_obj_set_style_pad_right(m_hostnameRow, 16, 0);
+	lv_obj_set_style_border_width(m_hostnameRow, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_color(m_hostnameRow, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_border_width(m_hostnameRow, 0, 0);
+	lv_obj_set_style_bg_opa(m_hostnameRow, LV_OPA_COVER, 0);
+	lv_obj_add_flag(m_hostnameRow, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_hostnameRow, onHostnameRowCb, LV_EVENT_CLICKED, this);
+
+	m_hostnameLabel = GUI::createLabel(m_hostnameRow, "");
+	lv_obj_set_style_text_font(m_hostnameLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_obj_set_flex_grow(m_hostnameLabel, 1);
+
+	m_hostnameEditBtn = GUI::createButton(m_hostnameRow, "编辑", 60, 32);
+	lv_obj_set_style_radius(m_hostnameEditBtn, 6, 0);
+	lv_obj_set_style_pad_all(m_hostnameEditBtn, 0, 0);
+	lv_obj_set_style_bg_color(m_hostnameEditBtn, LV_COLOR_MAKE(0x30, 0x50, 0x70), 0);
+	lv_obj_set_style_text_font(lv_obj_get_child(m_hostnameEditBtn, 0),
+		FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_obj_add_event_cb(m_hostnameEditBtn, onHostnameRowCb, LV_EVENT_CLICKED, this);
+
+	updateHostnameRow();
 
 	// ── 底部连接信息区域 ──
 	m_infoCard = lv_obj_create(screen);
@@ -586,6 +627,15 @@ void WifiSettingsApp::updateConnectionInfo()
 	}
 }
 
+void WifiSettingsApp::updateHostnameRow()
+{
+	if (!m_hostnameLabel) return;
+	const char* hostname = mdnsGetHostname();
+	char buf[96];
+	snprintf(buf, sizeof(buf), "主机名: %s", hostname);
+	lv_label_set_text(m_hostnameLabel, buf);
+}
+
 // ════════════════════════════════════════════════════════════════
 // 操作
 // ════════════════════════════════════════════════════════════════
@@ -616,6 +666,36 @@ void WifiSettingsApp::doDisconnect()
 	ESP_LOGI(TAG, "断开 WiFi");
 	wifiDisconnect();
 	refreshUi();
+}
+
+// ════════════════════════════════════════════════════════════════
+// mDNS 主机名设置
+// ════════════════════════════════════════════════════════════════
+
+void WifiSettingsApp::doSetHostname(const char* hostname)
+{
+	// 校验：不为空
+	if (!hostname || hostname[0] == '\0')
+	{
+		ESP_LOGW(TAG, "主机名为空，忽略");
+		// 刷新显示保持原值
+		if (auto guard = display->lockGuard())
+			updateHostnameRow();
+		return;
+	}
+
+	ESP_LOGI(TAG, "设置 mDNS 主机名: %s", hostname);
+
+	if (!mdnsSetHostname(hostname))
+	{
+		ESP_LOGE(TAG, "mDNS 主机名设置失败");
+	}
+
+	// 刷新 UI（mdnsSetHostname 可能耗时，需在 Task 上下文中调用）
+	if (auto guard = display->lockGuard())
+	{
+		updateHostnameRow();
+	}
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -797,6 +877,125 @@ void WifiSettingsApp::hidePasswordDialog()
 }
 
 // ════════════════════════════════════════════════════════════════
+// mDNS 主机名编辑弹窗
+// ════════════════════════════════════════════════════════════════
+
+void WifiSettingsApp::showHostnameDialog()
+{
+	if (m_hostnameDialog) return;
+
+	// ── 遮罩层 ──
+	auto overlay = lv_obj_create(lv_layer_top());
+	lv_obj_set_size(overlay, lv_disp_get_hor_res(NULL), lv_disp_get_ver_res(NULL));
+	lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), 0);
+	lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+	lv_obj_set_style_border_width(overlay, 0, 0);
+	lv_obj_set_style_pad_all(overlay, 0, 0);
+	lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_move_foreground(overlay);
+
+	// ── 卡片 ──
+	auto card = lv_obj_create(overlay);
+	lv_obj_set_size(card, lv_pct(80), LV_SIZE_CONTENT);
+	lv_obj_center(card);
+	styleCard(card);
+	lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(card, 12, 0);
+	lv_obj_set_style_pad_top(card, 20, 0);
+
+	m_hostnameDialog = overlay;
+
+	// 标题
+	auto title = GUI::createLabel(card, "设置 mDNS 主机名");
+	lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
+
+	// 说明
+	auto hint = GUI::createLabel(card, "仅允许字母、数字、连字符");
+	lv_obj_set_style_text_font(hint, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_obj_set_style_text_color(hint, GUI::Color::SUBTLE, 0);
+	lv_obj_set_style_pad_bottom(hint, 8, 0);
+
+	// 输入框（预填当前 hostname）
+	m_hostnameTa = lv_textarea_create(card);
+	lv_obj_set_width(m_hostnameTa, lv_pct(90));
+	lv_obj_set_height(m_hostnameTa, 60);
+	lv_textarea_set_one_line(m_hostnameTa, true);
+	lv_obj_set_scrollbar_mode(m_hostnameTa, LV_SCROLLBAR_MODE_OFF);
+	lv_textarea_set_password_mode(m_hostnameTa, false);
+	lv_textarea_set_placeholder_text(m_hostnameTa, "输入主机名");
+	lv_obj_set_style_text_align(m_hostnameTa, LV_TEXT_ALIGN_LEFT, 0);
+	lv_obj_set_style_text_font(m_hostnameTa, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_textarea_set_text(m_hostnameTa, mdnsGetHostname());
+	lv_obj_add_event_cb(m_hostnameTa, onHostnameKeyboardReadyCb, LV_EVENT_READY, this);
+
+	// 键盘
+	m_hostnameKeyboard = lv_keyboard_create(card);
+	lv_obj_set_width(m_hostnameKeyboard, lv_pct(100));
+	lv_obj_set_height(m_hostnameKeyboard, 280);
+	lv_obj_set_flex_grow(m_hostnameKeyboard, 0);
+	lv_keyboard_set_textarea(m_hostnameKeyboard, m_hostnameTa);
+	lv_obj_set_style_text_font(m_hostnameKeyboard,
+		FontLoader::getDefault(FontLoader::FontSize::Small), LV_PART_ITEMS);
+	lv_obj_set_style_bg_color(m_hostnameKeyboard,
+		LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_opa(m_hostnameKeyboard,
+		LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_text_color(m_hostnameKeyboard,
+		LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+
+	// 焦点组
+	m_hostnameGroup = lv_group_create();
+	lv_group_add_obj(m_hostnameGroup, m_hostnameKeyboard);
+	lv_group_focus_obj(m_hostnameKeyboard);
+
+	// 重置摇杆定时器
+	for (auto& t : m_nextMoveTime) t = 0;
+
+	// 按钮行
+	auto btn_row = lv_obj_create(card);
+	lv_obj_set_width(btn_row, lv_pct(90));
+	lv_obj_set_height(btn_row, LV_SIZE_CONTENT);
+	lv_obj_remove_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_style_border_width(btn_row, 0, 0);
+	lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(btn_row, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(btn_row, 8, 0);
+
+	auto cancelBtn = GUI::createButton(btn_row, "取消", 120, 44);
+	lv_obj_set_style_bg_color(cancelBtn, LV_COLOR_MAKE(0x50, 0x50, 0x60), 0);
+	lv_obj_add_event_cb(cancelBtn, onHostnameCancelCb, LV_EVENT_CLICKED, this);
+	if (auto* l = lv_obj_get_child(cancelBtn, 0))
+		lv_obj_set_style_text_font(l, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+
+	auto confirmBtn = GUI::createButton(btn_row, "保存", 120, 44);
+	lv_obj_set_style_bg_color(confirmBtn, LV_COLOR_MAKE(0x00, 0x88, 0x00), 0);
+	lv_obj_add_event_cb(confirmBtn, onHostnameConfirmCb, LV_EVENT_CLICKED, this);
+	if (auto* l = lv_obj_get_child(confirmBtn, 0))
+		lv_obj_set_style_text_font(l, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+}
+
+void WifiSettingsApp::hideHostnameDialog()
+{
+	if (!m_hostnameDialog) return;
+
+	auto guard = display->lockGuard();
+
+	if (m_hostnameGroup) {
+		lv_group_del(m_hostnameGroup);
+		m_hostnameGroup = nullptr;
+	}
+
+	m_hostnameKeyboard = nullptr;
+	m_hostnameTa = nullptr;
+	lv_obj_del(m_hostnameDialog);
+	m_hostnameDialog = nullptr;
+}
+
+// ════════════════════════════════════════════════════════════════
 // 焦点导航
 // ════════════════════════════════════════════════════════════════
 
@@ -813,6 +1012,7 @@ void WifiSettingsApp::applyFocus()
 	clearFocus(m_backBtn);
 	clearFocus(m_wifiToggleBtn);
 	clearFocus(m_scanBtn);
+	clearFocus(m_hostnameRow);
 	clearFocus(m_disconnectBtn);
 	for (auto* row : m_scanRows) clearFocus(row);
 
@@ -834,8 +1034,12 @@ void WifiSettingsApp::applyFocus()
 		}
 		break;
 	case FOCUS_INFO:
-		focus(m_disconnectBtn);
+	{
+		lv_obj_t* targets[] = { m_hostnameRow, m_disconnectBtn };
+		if (m_focusInfoIdx >= 0 && m_focusInfoIdx < 2)
+			focus(targets[m_focusInfoIdx]);
 		break;
+	}
 	}
 }
 
@@ -863,9 +1067,14 @@ void WifiSettingsApp::activateFocus()
 	}
 	case FOCUS_INFO:
 	{
-		if (m_isConnected)
+		auto guard = display->lockGuard();
+		if (m_focusInfoIdx == 0)
 		{
-			auto guard = display->lockGuard();
+			// 主机名行 → 打开编辑弹窗
+			lv_obj_send_event(m_hostnameRow, LV_EVENT_CLICKED, nullptr);
+		}
+		else if (m_isConnected)
+		{
 			lv_obj_send_event(m_disconnectBtn, LV_EVENT_CLICKED, nullptr);
 		}
 		break;
@@ -920,6 +1129,42 @@ void WifiSettingsApp::navListDown()
 	applyFocus();
 }
 
+// ── 信息区导航（主机名行 ↔ 断开按钮） ──
+
+void WifiSettingsApp::navInfoUp()
+{
+	auto guard = display->lockGuard();
+	if (m_focusInfoIdx > 0)
+	{
+		m_focusInfoIdx--;
+	}
+	else
+	{
+		// 从主机名行向上 → 回到列表末尾 或 标题行
+		if (!m_scanRows.empty())
+		{
+			m_focusGroup = FOCUS_LIST;
+			m_focusListIdx = (int8_t)m_scanRows.size() - 1;
+		}
+		else
+		{
+			m_focusGroup = FOCUS_TITLE;
+		}
+	}
+	applyFocus();
+}
+
+void WifiSettingsApp::navInfoDown()
+{
+	auto guard = display->lockGuard();
+	if (m_focusInfoIdx < 1)
+	{
+		m_focusInfoIdx++;
+	}
+	// 已在底部（断开按钮），不再向下
+	applyFocus();
+}
+
 // ════════════════════════════════════════════════════════════════
 // 手柄输入
 // ════════════════════════════════════════════════════════════════
@@ -938,13 +1183,19 @@ void WifiSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 	uint16_t newPress = state.buttons & ~m_prevButtons;
 	m_prevButtons = state.buttons;
 
-	// ── 密码弹窗中 ──
-	if (m_passwordDialog)
+	// ── 弹窗中 ──
+	if (m_passwordDialog || m_hostnameDialog)
 	{
+		bool isPwd = (m_passwordDialog != nullptr);
+		auto& dialogGroup = isPwd ? m_dialogGroup : m_hostnameGroup;
+
 		// B 键取消
 		if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 		{
-			hidePasswordDialog();
+			if (isPwd)
+				hidePasswordDialog();
+			else
+				hideHostnameDialog();
 			if (auto guard = display->lockGuard())
 				applyFocus();
 			return;
@@ -957,13 +1208,12 @@ void WifiSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 		{
 			if (auto guard = display->lockGuard())
 			{
-				// btnmatrix 不处理 LV_EVENT_CLICKED，直接发送 VALUE_CHANGED
-				// 触发键盘处理当前选中按钮（输入字符/切换模式/删除等）
-				if (m_keyboard) {
-					uint16_t btn_id = lv_btnmatrix_get_selected_btn(m_keyboard);
+				auto* kb = isPwd ? m_keyboard : m_hostnameKeyboard;
+				if (kb) {
+					uint16_t btn_id = lv_btnmatrix_get_selected_btn(kb);
 					if (btn_id != LV_BUTTONMATRIX_BUTTON_NONE) {
 						uint32_t id = btn_id;
-						lv_obj_send_event(m_keyboard, LV_EVENT_VALUE_CHANGED, &id);
+						lv_obj_send_event(kb, LV_EVENT_VALUE_CHANGED, &id);
 					}
 				}
 			}
@@ -991,8 +1241,8 @@ void WifiSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 
 			if (auto guard = display->lockGuard())
 			{
-				if (m_dialogGroup)
-					lv_group_send_data(m_dialogGroup, key);
+				if (dialogGroup)
+					lv_group_send_data(dialogGroup, key);
 			}
 		}
 		return;
@@ -1059,15 +1309,11 @@ void WifiSettingsApp::onGamepadInput(uint8_t playerId, const GamepadState& state
 	case FOCUS_INFO:
 		if (lyUp)
 		{
-			auto g = display->lockGuard();
-			if (!m_scanRows.empty())
-			{
-				m_focusGroup = FOCUS_LIST;
-				m_focusListIdx = (int8_t)m_scanRows.size() - 1;
-			}
-			else
-				m_focusGroup = FOCUS_TITLE;
-			applyFocus();
+			navInfoUp();
+		}
+		if (lyDown)
+		{
+			navInfoDown();
 		}
 		break;
 	}
@@ -1170,4 +1416,118 @@ void WifiSettingsApp::onKeyboardReadyCb(lv_event_t* e)
 
 	const char* password = lv_textarea_get_text(self->m_passwordTa);
 	self->doConnect(self->m_pwdTargetIdx, password);
+}
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string WifiSettingsApp::getAiContext()
+{
+	std::string ctx = "当前在 WiFi 设置。\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- title(0-1)\t返回/扫描\n"
+		"- list(0-" + std::to_string(m_scanResults.empty() ? 0 : (int)m_scanResults.size() - 1) + ")\tAP 列表\n"
+		"- info(0-1)\t主机名/断开\n\n";
+
+	ctx += "扫描到 " + std::to_string(m_scanResults.size()) + " 个 AP\n";
+	ctx += m_isConnected ? "WiFi: 已连接\n" : "WiFi: 未连接\n";
+	ctx += std::string("mDNS 主机名: ") + mdnsGetHostname() + "\n";
+
+	const char* groupName = "";
+	switch (m_focusGroup) {
+		case FOCUS_TITLE: groupName = "title"; break;
+		case FOCUS_LIST:  groupName = "list"; break;
+		case FOCUS_INFO:  groupName = "info"; break;
+	}
+	ctx += std::string("焦点@") + groupName;
+	if (m_focusGroup == FOCUS_TITLE) ctx += ":" + std::to_string(m_focusTitleIdx);
+	else if (m_focusGroup == FOCUS_LIST) ctx += ":" + std::to_string(m_focusListIdx);
+	else if (m_focusGroup == FOCUS_INFO) ctx += ":" + std::to_string(m_focusInfoIdx);
+	ctx += "\n";
+	return ctx;
+}
+
+void WifiSettingsApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (target.group == "title" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_TITLE;
+		m_focusTitleIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "list" && target.index >= 0 && (size_t)target.index < m_scanRows.size()) {
+		m_focusGroup = FOCUS_LIST;
+		m_focusListIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "info" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_INFO;
+		m_focusInfoIdx = (int8_t)target.index;
+		applyFocus();
+	}
+}
+
+void WifiSettingsApp::onAiActivate()
+{
+	activateFocus();
+}
+
+// ════════════════════════════════════════════════════════════════
+// mDNS 主机名回调
+// ════════════════════════════════════════════════════════════════
+
+void WifiSettingsApp::onHostnameRowCb(lv_event_t* e)
+{
+	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
+	self->m_focusGroup = FOCUS_INFO;
+	self->m_focusInfoIdx = 0;
+	self->showHostnameDialog();
+}
+
+void WifiSettingsApp::onHostnameConfirmCb(lv_event_t* e)
+{
+	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
+	if (!self->m_hostnameTa) return;
+
+	// 复制 hostname（dialog 关闭后 textarea 被删除）
+	char* hostname = strdup(lv_textarea_get_text(self->m_hostnameTa));
+	self->hideHostnameDialog();
+
+	// 在独立 Task 中执行 mDNS 设置（网络操作，不阻塞 LVGL）
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* pair = static_cast<std::pair<WifiSettingsApp*, char*>*>(param);
+			pair->first->doSetHostname(pair->second);
+			free(pair->second);
+			delete pair;
+			return Task::infinityTime;
+		}, "setHostname", new std::pair(self, hostname), 0, Task::Affinity::None);
+}
+
+void WifiSettingsApp::onHostnameCancelCb(lv_event_t* e)
+{
+	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
+	self->hideHostnameDialog();
+	if (auto guard = self->display->lockGuard())
+		self->applyFocus();
+}
+
+void WifiSettingsApp::onHostnameKeyboardReadyCb(lv_event_t* e)
+{
+	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
+	if (!self->m_hostnameTa) return;
+
+	// 键盘 Enter → 同确认按钮
+	char* hostname = strdup(lv_textarea_get_text(self->m_hostnameTa));
+	self->hideHostnameDialog();
+
+	Task::addTask([](void* param) -> TickType_t
+		{
+			auto* pair = static_cast<std::pair<WifiSettingsApp*, char*>*>(param);
+			pair->first->doSetHostname(pair->second);
+			free(pair->second);
+			delete pair;
+			return Task::infinityTime;
+		}, "setHostname", new std::pair(self, hostname), 0, Task::Affinity::None);
 }

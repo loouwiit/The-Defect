@@ -1344,3 +1344,70 @@ void BleSettingsApp::doMove(uint8_t from, uint8_t to)
 
 	ESP_LOGI(TAG, "移动完成，焦点移至 P%u", to);
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string BleSettingsApp::getAiContext()
+{
+	std::string ctx = "当前在蓝牙手柄设置。\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- title(0-1)\t返回/扫描\n"
+		"- list(0-" + std::to_string(m_localScanResults.empty() ? 0 : (int)m_localScanResults.size() - 1) + ")\t扫描到的设备列表\n"
+		"- slots(0-3)\t已连接手柄槽位\n"
+		"- cardBtns(0-1)\t槽位卡片内的移动/断开按钮\n"
+		"- save(0)\t保存配对按钮\n\n";
+
+	ctx += "扫描到 " + std::to_string(m_localScanResults.size()) + " 台设备\n";
+	ctx += "已连接 " + std::to_string(BleGamepad::instance().connectedCount()) + " 个手柄\n";
+
+	// 当前焦点
+	const char* groupName = "";
+	switch (m_focusGroup) {
+		case FOCUS_TITLE:     groupName = "title"; break;
+		case FOCUS_LIST:      groupName = "list"; break;
+		case FOCUS_SLOTS:     groupName = "slots"; break;
+		case FOCUS_CARD_BTNS: groupName = "cardBtns"; break;
+		case FOCUS_SAVE:      groupName = "save"; break;
+	}
+	ctx += std::string("焦点@") + groupName;
+	if (m_focusGroup == FOCUS_LIST) ctx += ":" + std::to_string(m_focusListIdx);
+	else if (m_focusGroup == FOCUS_TITLE) ctx += ":" + std::to_string(m_focusTitleIdx);
+	else if (m_focusGroup == FOCUS_SLOTS) ctx += ":" + std::to_string(m_focusSlotsIdx);
+	else if (m_focusGroup == FOCUS_CARD_BTNS) ctx += ":" + std::to_string(m_focusBtnIdx);
+	ctx += "\n";
+	return ctx;
+}
+
+void BleSettingsApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (target.group == "title" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_TITLE;
+		m_focusTitleIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "list" && target.index >= 0 && (size_t)target.index < m_scanRows.size()) {
+		m_focusGroup = FOCUS_LIST;
+		m_focusListIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "slots" && target.index >= 0 && target.index < MaxPlayers) {
+		m_focusGroup = FOCUS_SLOTS;
+		m_focusSlotsIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "cardBtns" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_CARD_BTNS;
+		m_focusBtnIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "save" && target.index == 0) {
+		m_focusGroup = FOCUS_SAVE;
+		applyFocus();
+	}
+}
+
+void BleSettingsApp::onAiActivate()
+{
+	activateFocus();
+}

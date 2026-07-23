@@ -577,3 +577,54 @@ void TetrisRoomApp::onStartBtnCb(lv_event_t* e)
 			return Task::infinityTime;
 		}, "tetrisRoomStart", self, 0, Task::Affinity::None);
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string TetrisRoomApp::getAiContext()
+{
+	std::string ctx = "当前在俄罗斯方块房间。\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- back(0)\t返回\n"
+		"- players(0-2)\t1P/2P/3P\n"
+		"- bottom(0-1)\t手柄设置/开始游戏\n\n";
+
+	ctx += "当前选择: " + std::to_string(m_selectedPlayers) + "P\n";
+
+	const char* groupName = "";
+	switch (m_focusGroup) {
+		case FOCUS_BACK:    groupName = "back"; break;
+		case FOCUS_PLAYERS: groupName = "players"; break;
+		case FOCUS_BOTTOM:  groupName = "bottom"; break;
+	}
+	ctx += std::string("焦点@") + groupName;
+	if (m_focusGroup == FOCUS_PLAYERS) ctx += ":" + std::to_string(m_focusPlayersIdx);
+	else if (m_focusGroup == FOCUS_BOTTOM) ctx += ":" + std::to_string(m_focusBottomIdx);
+	ctx += "\n";
+	return ctx;
+}
+
+void TetrisRoomApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (target.group == "back" && target.index == 0) {
+		m_focusGroup = FOCUS_BACK;
+		applyFocus();
+	} else if (target.group == "players" && target.index >= 0 && target.index <= 2) {
+		m_focusGroup = FOCUS_PLAYERS;
+		m_focusPlayersIdx = (int8_t)target.index;
+		applyFocus();
+	} else if (target.group == "bottom" && target.index >= 0 && target.index <= 1) {
+		m_focusGroup = FOCUS_BOTTOM;
+		m_focusBottomIdx = (int8_t)target.index;
+		applyFocus();
+	}
+}
+
+void TetrisRoomApp::onAiActivate()
+{
+	activateFocus();
+}

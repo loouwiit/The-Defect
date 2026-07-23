@@ -51,6 +51,9 @@ void FruitNinjaApp::init()
 	m_logic.reset();
 	m_logic.setState(FruitNinjaLogic::State::Playing);
 
+	// 注册退出按钮
+	lv_obj_add_event_cb(m_renderer.getExitBtn(), btnExitCb, LV_EVENT_CLICKED, this);
+
 	// 注册触屏事件
 	lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_add_event_cb(screen, onTouchCb, LV_EVENT_PRESSED, this);
@@ -61,7 +64,7 @@ void FruitNinjaApp::init()
 
 	// 启动游戏循环
 	running = true;
-	m_thread = Thread{ gameLoop, "fruitNinja", this, Thread::Priority::Normal, 8192 };
+	m_thread = Thread{ gameLoop, "fruitNinja", this, Thread::Priority::Normal, 32768 };
 }
 
 // ============================================================
@@ -304,6 +307,23 @@ void FruitNinjaApp::btnRestartCb(lv_event_t* e)
 		app->replaceWith(new FruitNinjaApp(app->display, app->m_mode, app->m_playerCount));
 		return Task::infinityTime;
 		}, "restartFruitNinja", self, 0, Task::Affinity::None);
+}
+
+void FruitNinjaApp::btnExitCb(lv_event_t* e)
+{
+	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+	{
+		ESP_LOGI(TAG, "多次点击，已过滤");
+		return;
+	}
+	self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
+
+	Task::addTask([](void* p) -> TickType_t {
+		static_cast<FruitNinjaApp*>(p)->popApp();
+		return Task::infinityTime;
+		}, "exitFruitNinja", self, 0, Task::Affinity::None);
 }
 
 void FruitNinjaApp::btnBackCb(lv_event_t* e)

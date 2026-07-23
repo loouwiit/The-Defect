@@ -18,20 +18,31 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 
 ### 🤖 AI Agent — 自然语言操控设备
 
-集成 OpenAI 兼容 API，用户通过触屏输入自然语言，AI 自主规划并执行操作：
+集成 OpenAI 兼容 API，用户通过触屏或手柄输入自然语言，AI 自主规划并执行操作：
 
 - **系统层浮动窗**：驻留 `lv_layer_sys`，不占用 App 栈，底层 App 不受影响
-- **顶部下滑唤出**：在任意界面从屏幕顶部下滑即可呼出 AI 助手
-- **可拖拽窗口**：浮动窗可任意拖动位置，点击聊天区可收起键盘扩大视野
-- **11 个系统级工具**：开关应用、调亮度/音量、WiFi 连接、设备信息等
-- **App 自定义工具**：各 App 通过 `getAiContext()` / `executeAiAction()` 暴露专属操作
-- **Agent 循环**：AI 调用工具 → 系统采集数据 → 自动下一轮 → AI 综合回复
+- **多种唤出方式**：顶部下滑 / 手柄组合键(Y+X+B) / 桌面 AI 卡片
+- **可拖拽窗口**：浮动窗可任意拖动位置，附带 LVGL 虚拟键盘（支持拼音中文输入）
+- **13 个系统操作**：开关应用、焦点导航(select/activate)、调亮度/音量、WiFi 连接、设备信息、关机等
+- **焦点系统集成**：所有 App 接入 `onAiSelect()` / `onAiActivate()`，AI 可通过焦点组导航操作任意界面
+- **多轮协作**：AI 通过 `nextRound` 自主控制多轮交互，跨 App 探索（如打开时间设置 → 同步时间）
+- **长期记忆**：AI 通过 `memory` 字段自行维护跨对话的用户偏好
+- **对话历史**：保留最近 5 轮对话，超出的由 AI 自主写入长期记忆
+- **App 自定义动作**：各 App 通过 `getAiContext()` / `executeAiAction()` 暴露专属操作
 - **多模型兼容**：OpenAI / Ollama / DeepSeek 等，配置即用
 
 ```
-用户输入 → HTTPS → LLM → JSON actions → AiExecutor → 系统/App 操作
-                                          ↓ (如需数据)
-                                  采集结果 → 下一轮 LLM → 回复用户
+用户输入 + 5轮历史 + 长期记忆
+  ↓
+① LLM 推理 → 返回 JSON actions
+  ↓
+② AiExecutor 顺序执行
+  ├─ system actions（亮度、导航、select/activate 等）
+  └─ App::onAiSelect/onAiActivate（焦点操控）
+  ↓
+③ 如需继续（nextRound=true）→ 重刷 {app_context} → 回到 ①
+  ↓ (最多 5 轮)
+④ 更新 memory + 对话历史
 ```
 
 ### 🖥️ 主机 + 协处理器分离架构
@@ -103,6 +114,7 @@ ESP32-C6 (协处理器)
 ### 设置
 - **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
 - **WiFi 配置** — AP 扫描、密码输入、连接状态
+- **多主机管理** — mDNS 局域网发现、主机列表、连接入口
 - **时间设置** — 手动调时 / SNTP 自动同步
 - **电源管理** — 电量显示、关机 Deep-sleep
 
@@ -111,7 +123,8 @@ ESP32-C6 (协处理器)
 - **Web 触控注入** — 通过浏览器远程触摸操作
 - **音频播放** — 多流混音，MP3/AAC/FLAC/WAV 解码
 - **CPU 监控** — 串口实时任务利用率采样
-- **mDNS** — `esp32p4.local` 自动发现
+- **mDNS** — `esp32p4.local` 自动发现，支持自定义主机名（NVS 持久化，运行时热重启）
+- **设备发现** — 通过 `_p4console._tcp` 服务类型枚举局域网内其他游戏主机
 - **WiFi AP** — 断开时自动切换到热点模式
 
 ---
@@ -120,15 +133,17 @@ ESP32-C6 (协处理器)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     App 层 (12 Apps)                      │
+│                     App 层                                │
 │  DesktopApp │ Tetris │ FruitNinja │ Snake │ ChineseChess  │
-│  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt    │
+│  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt   |
+│  ConsoleManagerment  │   AiAgent     |  testApp           |
 ├───────────────────────┬──────────────────────────────────┤
 │     AppStackManager   │         网络服务                  │
 │  ├─ Stack 0 (桌面)    │  ├─ HTTP Server (port 80)        │
 │  ├─ Stack 1..N (游戏) │  ├─ WS Server  (port 8080)       │
 │  └─ 异步删除 + 去重   │  ├─ ScreenStream (MJPEG)         │
-│                       │  └─ mDNS (_http, _ws)            │
+│                       │  ├─ mDNS (_http, _ws, _p4console)│
+│                       │  └─ Discovery (设备枚举)         │
 ├──────────┬────────────┴────────────┬─────────────────────┤
 │ 显示/输入 │     WiFi / BLE         │      存储            │
 │ Display  │  ├─ STA/AP 双模 + NAT  │ FAT (16MB)          │
@@ -170,8 +185,8 @@ ESP32-C6 (协处理器)
 | 基础设施 | Task / Mutex / GPIO / IIC | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
-| 应用 | 13 个 App（+AI 助手） | `main/app/*/` |
-| 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS | `main/wifi/` `main/server/` `main/wsServer/` |
+| 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
+| 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS / Discovery | `main/wifi/` `main/server/` `main/wsServer/` `main/discovery/` |
 | 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
 | 外设 | BLE Gamepad / Battery / CPU Monitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
 | GUI | 色板 + 工厂方法 | `main/gui/` |

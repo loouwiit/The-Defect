@@ -418,3 +418,36 @@ void FruitNinjaRoom::onStartCb(lv_event_t* e)
 		return Task::infinityTime;
 		}, "startFruitNinja", params, 0, Task::Affinity::None);
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string FruitNinjaRoom::getAiContext()
+{
+	std::string ctx = "当前在水果忍者大厅。\n"
+		"焦点组为空（select 时无需指定 text，直接设 value 即可）：\n"
+		"  0=返回, 1=经典模式, 2=街机模式, 3=单人游戏, 4=双人游戏, 5=开始\n\n";
+
+	ctx += std::string("当前模式: ") + (m_classicSelected ? "经典" : "街机") + "\n";
+	ctx += std::string("当前人数: ") + (m_1PSelected ? "1P" : "2P") + "\n";
+	ctx += "焦点@:" + std::to_string(m_focusIdx) + "\n";
+	return ctx;
+}
+
+void FruitNinjaRoom::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	int idx = target.index;
+	if (target.group.empty() && idx >= 0 && idx <= 5) {
+		m_focusIdx = (int8_t)idx;
+		applyFocus();
+	}
+}
+
+void FruitNinjaRoom::onAiActivate()
+{
+	activateFocus();
+}

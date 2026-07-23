@@ -9,6 +9,14 @@ class AppStackManager;
 struct AiAction;   // 前向声明，完整定义在 aiAgent/aiProtocol.hpp
 
 /**
+ * @brief AI select 动作的目标
+ */
+struct AiSelectTarget {
+    std::string group;   // 焦点组名（如 "cards"、"buttons"），空=当前组
+    int index{};         // 组内索引，-1=不改变
+};
+
+/**
  * @brief Base application class
  *
  * Represents an "app" that can be applied to the display. Manages an LVGL screen object and provides an interface for initialization and cleanup. Derived classes can implement specific UI and behavior.
@@ -37,6 +45,10 @@ public:
 	virtual std::string getAiContext() { return ""; }
 	/** @brief 执行 AI 发来的 app_custom 动作，true=已处理，false=交系统执行器兜底 */
 	virtual bool executeAiAction(const AiAction& action) { (void)action; return false; }
+	/** @brief AI select：聚焦到目标的组和索引 */
+	virtual void onAiSelect(const AiSelectTarget& target) { (void)target; }
+	/** @brief AI activate：触发当前聚焦的元素 */
+	virtual void onAiActivate() {}
 
 	// ── 栈生命周期钩子（由 AppStackManager 调用） ──
 	/** @brief App 成为前台活跃（已 visible） */

@@ -7,6 +7,7 @@
 #include "app/wifiSettingsApp/wifiSettingsApp.hpp"
 #include "app/timeSettingsApp/timeSettingsApp.hpp"
 #include "app/powerManagementApp/powerManagementApp.hpp"
+#include "app/consoleManager/consoleManagerApp.hpp"
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
@@ -249,6 +250,30 @@ void DesktopApp::buildUi()
 	lv_obj_set_style_outline_color(m_brightnessLabel, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_set_style_outline_pad(m_brightnessLabel, 2, LV_STATE_FOCUSED);
 
+	// 多主机管理
+	m_consoleLabel = GUI::createLabel(status_row, LV_SYMBOL_DRIVE);
+	lv_obj_set_style_text_color(m_consoleLabel, GUI::Color::TEXT, 0);
+	lv_obj_set_style_text_font(m_consoleLabel, LV_FONT_DEFAULT, 0);
+	lv_obj_set_style_pad_right(m_consoleLabel, 16, 0);
+	lv_obj_add_flag(m_consoleLabel, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(m_consoleLabel, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		self->m_focusGroup = FOCUS_STATUS;
+		self->m_focusStatusIdx = 6;
+		Task::addTask([](void* param) -> TickType_t
+			{
+				auto* app = static_cast<DesktopApp*>(param);
+				if (app->getManager()) {
+					auto* consoleApp = new ConsoleManagerApp(app->getDisplay());
+					app->getManager()->pushToNewStack(consoleApp);
+				}
+				return Task::infinityTime;
+			}, "openConsoleManager", self, 0, Task::Affinity::NotAssigned);
+		}, LV_EVENT_CLICKED, this);
+	lv_obj_set_style_outline_width(m_consoleLabel, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_consoleLabel, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_consoleLabel, 2, LV_STATE_FOCUSED);
+
 	m_batteryLabel = GUI::createLabel(status_row, LV_SYMBOL_BATTERY_FULL);
 	lv_obj_set_style_text_font(m_batteryLabel, LV_FONT_DEFAULT, 0);
 	lv_obj_add_flag(m_batteryLabel, LV_OBJ_FLAG_CLICKABLE);
@@ -394,6 +419,7 @@ void DesktopApp::applyFocus()
 	clearFocus(m_bluetoothLabel);
 	clearFocus(m_volumeLabel);
 	clearFocus(m_brightnessLabel);
+	clearFocus(m_consoleLabel);
 	clearFocus(m_batteryLabel);
 	for (auto* card : m_gameCards) clearFocus(card);
 	clearFocus(m_startBtn);
@@ -421,8 +447,8 @@ void DesktopApp::applyFocus()
 
 	case FOCUS_STATUS:
 	{
-		lv_obj_t* targets[] = { m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_batteryLabel };
-		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < 6)
+		lv_obj_t* targets[] = { m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_consoleLabel, m_batteryLabel };
+		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < 7)
 			focus(targets[m_focusStatusIdx]);
 		break;
 	}
@@ -443,7 +469,7 @@ void DesktopApp::activateFocus()
 
 	case FOCUS_STATUS:
 	{
-		lv_obj_t* target[]{ m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_batteryLabel };
+		lv_obj_t* target[]{ m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_consoleLabel ,m_batteryLabel };
 		auto guard = display->lockGuard();
 		lv_obj_send_event(target[m_focusStatusIdx],
 			LV_EVENT_CLICKED, nullptr);
@@ -558,21 +584,23 @@ void DesktopApp::startGame()
 std::string DesktopApp::getAiContext()
 {
 	std::string ctx = "当前在桌面（主菜单）。\n"
-		"可用 open_app 打开的应用：\n"
-		"- snake(index = 0)\n"
-		"- fruitNinja(index = 1)\n"
-		"- tetris(index = 2)\n"
-		"- doudizhu(斗地主, index = 3)\n"
-		"- chineseChess(index = 4)\n"
-		"- timeSettings\n"
-		"- wifiSettings\n"
-		"- bleSettings\n"
-		"- powerManagement\n\n"
-		"桌面自定义命令：\n"
-		"- select_card	选中游戏卡片, value: 卡片id(0-4)	{\"action\":\"select_card\",\"value\":2}\n"
-		"- launch: 启动当前选中的游戏\n";
+		"可用 open_app 打开的应用（用 text 指定名称）：\n"
+		"- snake, fruitNinja, tetris\n"
+		"- doudizhu, chineseChess\n"
+		"- timeSettings, wifiSettings, bleSettings, powerManagement\n\n"
+		"可用焦点组（select 的 text 参数）：\n"
+		"- cards(0-4)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess）\n"
+		"- status(0-6)\t状态栏（时间/WiFi/蓝牙/音量/亮度/多主机/电池）\n"
+		"- buttons(0)\t开始游戏按钮\n\n";
 
-	ctx += "当前卡片位置:" + std::to_string(m_focusCardsIdx);
+	// 当前焦点
+	ctx += "焦点@";
+	switch (m_focusGroup) {
+	case FOCUS_CARDS:  ctx += "cards:" + std::to_string(m_focusCardsIdx); break;
+	case FOCUS_BOTTOM: ctx += "buttons:0"; break;
+	case FOCUS_STATUS: ctx += "status:" + std::to_string(m_focusStatusIdx); break;
+	}
+	ctx += "\n";
 
 	return ctx;
 }
@@ -580,8 +608,8 @@ std::string DesktopApp::getAiContext()
 bool DesktopApp::executeAiAction(const AiAction& action)
 {
 	// ── open_app: 打开游戏或设置 ──
-	if (action.type == AiActionType::OpenApp && !action.appName.empty()) {
-		App* app = AppFactory::create(action.appName, display);
+	if (action.type == AiActionType::OpenApp && !action.text.empty()) {
+		App* app = AppFactory::create(action.text, display);
 		if (app) {
 			m_manager->pushToNewStack(app);
 			return true;
@@ -589,38 +617,37 @@ bool DesktopApp::executeAiAction(const AiAction& action)
 		return true;  // 已消费（即便名称无效也阻止系统兜底）
 	}
 
-	// ── desktop_action: 桌面自定义命令 ──
-	bool isSelectCard = (action.command == "select_card") || (action.actionStr == "select_card");
-	if (action.type == AiActionType::UnknownAction && isSelectCard) {
-		// AI 有时把 value 放顶层 intValue，有时放 params 字典里
-		int idx = action.intValue;
-		auto it = action.params.find("value");
-		if (it != action.params.end())
-			idx = std::atoi(it->second.c_str());
-		if (idx >= 0 && idx < GAME_COUNT) {
-			auto guard = display->lockGuard();
-			m_focusGroup = FOCUS_CARDS;
-			m_focusCardsIdx = static_cast<int8_t>(idx);
-			updateSelectionLabels();
-			applyFocus();
-			ESP_LOGI(TAG, "AI 选中卡片 %d: %s", idx, GAME_NAMES[idx]);
-			return true;
-		}
-		return false;
-	}
+	return false;  // Select/Activate 等交给系统执行器
+}
 
-	bool isLaunch = (action.command == "launch") || (action.actionStr == "launch");
-	if (action.type == AiActionType::UnknownAction && isLaunch) {
-		Task::addTask([](void* param) -> TickType_t {
-			auto* self = static_cast<DesktopApp*>(param);
-			self->m_focusGroup = FOCUS_BOTTOM;
-			self->startGame();
-			return Task::infinityTime;
-			}, "aiLaunch", this, 0, Task::Affinity::None);
-		return true;
-	}
+void DesktopApp::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
 
-	return false;  // 交系统执行器兜底
+	if (target.group == "cards" && target.index >= 0 && target.index < GAME_COUNT) {
+		m_focusGroup = FOCUS_CARDS;
+		m_focusCardsIdx = static_cast<int8_t>(target.index);
+		updateSelectionLabels();
+		applyFocus();
+		ESP_LOGI(TAG, "AI select cards %d: %s", target.index, GAME_NAMES[target.index]);
+	}
+	else if (target.group == "buttons" && target.index == 0) {
+		m_focusGroup = FOCUS_BOTTOM;
+		applyFocus();
+		ESP_LOGI(TAG, "AI select buttons");
+	}
+	else if (target.group == "status" && target.index >= 0 && target.index <= 6) {
+		m_focusGroup = FOCUS_STATUS;
+		m_focusStatusIdx = static_cast<int8_t>(target.index);
+		applyFocus();
+		ESP_LOGI(TAG, "AI select status %d", target.index);
+	}
+}
+
+void DesktopApp::onAiActivate()
+{
+	activateFocus();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -733,7 +760,7 @@ void DesktopApp::onGamepadInput(uint8_t playerId, const GamepadState& state)
 				m_focusStatusIdx--;
 				applyFocus();
 			}
-			if (lxRight && m_focusStatusIdx < 5)
+			if (lxRight && m_focusStatusIdx < 6)
 			{
 				m_focusStatusIdx++;
 				applyFocus();

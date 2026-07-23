@@ -257,3 +257,34 @@ void ChineseChessRoom::onForeground()
 	applyFocus();
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI 能力
+// ════════════════════════════════════════════════════════════════
+
+std::string ChineseChessRoom::getAiContext()
+{
+	std::string ctx = "当前在中国象棋大厅。\n"
+		"焦点组为空（select 时无需指定 text，直接设 value 即可）：\n"
+		"  0=返回, 1=人机对战, 2=双人对战\n\n";
+
+	ctx += "焦点@:" + std::to_string(m_focusIdx) + "\n";
+	return ctx;
+}
+
+void ChineseChessRoom::onAiSelect(const AiSelectTarget& target)
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	int idx = target.index;
+	if (target.group.empty() && idx >= 0 && idx <= 2) {
+		m_focusIdx = (int8_t)idx;
+		applyFocus();
+	}
+}
+
+void ChineseChessRoom::onAiActivate()
+{
+	activateFocus();
+}

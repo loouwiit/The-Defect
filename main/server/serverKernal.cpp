@@ -9,6 +9,7 @@
 #include "wifi/http.hpp"
 #include "wifi/socketStreamWindow.hpp"
 #include "wifi/wifi.hpp"
+#include "wifi/mdns.hpp"
 
 #include "buildinHtml/file.hpp"
 #include "storage/fat.hpp"
@@ -411,6 +412,24 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		return;
 	}
 
+	// ── API: 读取 mDNS 配置 ──
+	if (stringCompare((char*)uri, strlen(uri), "/api/mdnsConfig", 15))
+	{
+		const char* hostname = mdnsGetHostname();
+		char body[256];
+		int n = snprintf(body, sizeof(body),
+			"{\"hostname\":\"%s\",\"instance\":\"%s Game Console\"}",
+			hostname, hostname);
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+		respond.setBody(body);
+		respond.setBodyLenght(n);
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		return;
+	}
+
 	HttpContentType contentType = getContentTypeFromPath(uri);
 	HttpRespond respond;
 
@@ -694,6 +713,48 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			}
 
 			sendOk(socketStream);
+		}
+
+		cJSON_Delete(root);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/mdnsConfig", 15))
+	{
+		// 读取 POST body（JSON）
+		size_t bodyLen = request.getBodyLenght();
+		char* body = new char[bodyLen + 1];
+		socketStream.read(body, bodyLen + 1);
+		body[bodyLen] = '\0';
+
+		cJSON* root = cJSON_Parse(body);
+		delete[] body;
+
+		if (!root) {
+			sendBadRequest(socketStream);
+			return;
+		}
+
+		cJSON* hostnameJson = cJSON_GetObjectItem(root, "hostname");
+		if (hostnameJson && cJSON_IsString(hostnameJson) && hostnameJson->valuestring)
+		{
+			if (mdnsSetHostname(hostnameJson->valuestring))
+			{
+				sendOk(socketStream);
+			}
+			else
+			{
+				HttpRespond respond;
+				respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+				respond.setStatus(HttpStatus::BadRequest);
+				respond.setReason(HttpReason::BadRequest);
+				const char* errMsg = "主机名无效（仅允许字母、数字、连字符）";
+				respond.setBody((void*)errMsg);
+				respond.setBodyLenght(strlen(errMsg));
+				respond.send(socketStream);
+			}
+		}
+		else
+		{
+			sendBadRequest(socketStream);
 		}
 
 		cJSON_Delete(root);

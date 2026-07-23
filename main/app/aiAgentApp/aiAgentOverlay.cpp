@@ -5,12 +5,8 @@
 #include "aiAgent/aiClient.hpp"
 #include "aiAgent/aiParser.hpp"
 #include "aiAgent/aiExecutor.hpp"
-#include "battery/batteryManager.hpp"
+#include "aiAgent/aiSystemInfo.hpp"
 #include "bleGamepad/bleGamepad.hpp"
-
-// wifi 前向声明（避免包含 wifi.hpp 触发默认参数重定义）
-bool wifiIsConnect();
-esp_ip4_addr_t wifiStationGetIp();
 
 #include <esp_log.h>
 #include <cstring>
@@ -25,67 +21,66 @@ static constexpr char TAG[] = "AiAgentOverlay";
 
 const char* DEFAULT_SYSTEM_PROMPT = R"(
 你是一个 ESP32-P4 游戏主机的 AI 助手。
-必须以 JSON 返回操作指令。每个 action 对象中，"action" 指定操作类型，其余字段为参数。
+请严格以 JSON 格式返回操作指令。
 
-JSON 字段说明：
-- text:     通用文本（respond_text 的回复内容）
-- app:      应用名（open_app 的目标应用）
-- value:    数值参数（亮度/音量值 0-100）
-- command:  自定义命令名（透传给前台 App）
-- params:   扩展参数字典
+重要：必须始终使用 {"actions":[...]} 数组形式，即使只有一个操作也要放在数组中。系统会依次执行对应操作。
+
+顶层可选字段（与 actions 同级）：
+- memory:    长期记忆字符串，需要更新时写入
+- nextRound: true/false，设为 true 时系统会执行下一轮并带上新的系统信息（如果有）
+
+在 JSON 顶层添加 "nextRound": true 可以触发多轮操作。如果不需要继续，省略 nextRound 或设为 false 即可。
+
+每个 action 对象的通用字段：
+- action:   操作类型（必填）
+- text:     字符串参数（app名、焦点组名、回复内容、文件路径等）
+- value:    数值参数（亮度、音量、焦点索引等）
+- params:   扩展参数字典（复杂结构用 JSON 对象）
 
 可用系统操作：
 - respond_text	回复文字	{"action":"respond_text","text":"你好"}
-- open_app	打开应用	{"action":"open_app","app":"tetris"}
-- navigate_back	返回上一级	{"action":"navigate_back"}
-- navigate_home	回桌面	{"action":"navigate_home"}
+- open_app	打开应用	{"action":"open_app","text":"tetris"}
+- navigate_back	返回上一级App	{"action":"navigate_back"}
+- navigate_home	返回桌面	{"action":"navigate_home"}
 - set_brightness	调亮度	{"action":"set_brightness","value":50}
 - set_volume	调音量	{"action":"set_volume","value":70}
 - play_audio	播放音频	{"action":"play_audio","text":"/path/file.mp3"}
 - wifi_connect	连接WiFi	{"action":"wifi_connect","params":{"ssid":"...","password":"..."}}
-- system_info	获取设备信息	{"action":"system_info"}
-- show_notification	通知	{"action":"show_notification","text":"内容","params":{"type":"info"}}
+- system_info	获取设备信息（需搭配nextRound）	{"action":"system_info"}
 - power_off	关机	{"action":"power_off"}
+- select	移动焦点到指定元素	{"action":"select","text":"groupName","value":2}
+- activate	触发当前焦点的元素	{"action":"activate"}
 
-当前应用的自定义操作由 {app_context} 提供。
+示例——选中启动卡片并回复消息：
+{"actions":[{"action":"select","text":"cards","value":2},{"action":"activate"},{"action":"respond_text","text":"已激活2号卡片"}]}
 
-未识别的 action 会自动透传给前台 App 处理。
+示例——聚焦到状态栏的0号元素并启动：
+{"actions":[{"action":"select","text":"status","value":0},{"action":"activate"}]}
 
-多个操作示例：
-{"actions":[{"action":"open_app","app":"tetris"},{"action":"respond_text","text":"已打开"}]}
+示例——单个回复操作：
+{"actions":[{"action":"respond_text","text":"你好"}]}
 
-注意：JSON 必须合法，不能包含多余文字。请通过respond_text来进行回复文字内容。
+示例——打开时间设置，并激活下一轮以在获取时间设置内的信息之后再进行后续操作（如修改时间）：
+{"actions":[{"action":"navigate_home"},{"action":"open_app","text":"timeSettings"}],"nextRound":true}
+
+不同的 app 中可用操作不一样，可用应用也不一样，在新 app 中无法使用旧 app 中的操作。有时需要先切换 app 再进行对应操作。
+
+若用户请求的功能不在当前 app 中，也不在系统操作列表中，请尝试查找是否有相关 app（如电源管理、WiFi 设置等，desktop中会有大部分app的接口），然后切换到可能的app中并设置nextRound=true，在下一轮获取该 app 的界面信息后再继续。
+例如：用户要求"重启"，系统没有直接的重启操作，但 powerManagement 应用内有重启按钮。
+→ 先 {"actions":[{"action":"navigate_home"},{"action":"open_app","text":"powerManagement"}],"nextRound":true}
+→ 下一轮会显示 powerManagement 的焦点组（如 buttons(0-1)=关机/重启），再进行 select+activate。
+
+系统只保留最近 5 轮对话，超过的会被丢弃。
+如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。
+
+{memory_context}
 
 {app_context}
+
+注意：JSON 必须合法，不能包含多余文字，所有字段名和字符串值使用双引号。
 )";
 
-// ============================================================
-//  System Info 采集
-// ============================================================
 
-static std::string collectSystemInfo()
-{
-	std::string info;
-	int batPct = BatteryManager::instance().getPercent();
-	if (batPct >= 0) {
-		info += "- 电池电量: " + std::to_string(batPct) + "%";
-		info += BatteryManager::instance().isCharging() ? " (充电中)" : "";
-		info += "\n";
-	}
-	if (wifiIsConnect()) {
-		esp_ip4_addr_t ip = wifiStationGetIp();
-		char ipStr[16];
-		snprintf(ipStr, sizeof(ipStr), IPSTR, IP2STR(&ip));
-		info += "- IP 地址: " + std::string(ipStr) + "\n";
-		info += "- WiFi: 已连接\n";
-	}
-	else {
-		info += "- WiFi: 未连接\n";
-	}
-	info += "- 屏幕分辨率: 720×1280\n";
-	info += "- 型号: ESP32-P4\n";
-	return info;
-}
 
 // ============================================================
 //  单例
@@ -233,6 +228,12 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_flex_grow(title, 1);
 	lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
+	// 中/EN 模式指示器（默认中文）
+	m_modeLabel = lv_label_create(m_titleBar);
+	lv_label_set_text(m_modeLabel, "中");
+	lv_obj_set_style_text_font(m_modeLabel, smlFont, 0);
+	lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
+
 	// 标题栏不应拦截拖动事件：清除点击标志，让事件穿透到容器
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICK_FOCUSABLE);
@@ -313,25 +314,80 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_text_font(sendLabel, smlFont, 0);
 	lv_obj_center(sendLabel);
 
-	// ── 键盘（调大按键：增加高度 + 缩小间隙） ──
+	// ── 拼音 IME + 键盘 ──
+	// 1) 先创建键盘（确保它在候选面板之前）
 	m_keyboard = lv_keyboard_create(m_container);
-	lv_obj_set_width(m_keyboard, lv_pct(100));
-	lv_obj_set_height(m_keyboard, 220);
+
+	// 2) 创建 IME（构造时会创建候选面板，位于键盘之后）
+	m_pinyinIme = lv_ime_pinyin_create(m_container);
+	lv_obj_set_style_text_font(m_pinyinIme, smlFont, 0);  // 自动传播到候选面板
+
+	// 3) 关联 IME ↔ 键盘
+	lv_ime_pinyin_set_keyboard(m_pinyinIme, m_keyboard);
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
+
+	// 4) 获取候选面板，移到键盘前面（IME 构造时它在键盘之后）
+	m_candPanel = lv_ime_pinyin_get_cand_panel(m_pinyinIme);
+	lv_obj_move_to_index(m_candPanel, lv_obj_get_index(m_keyboard));
+	lv_obj_set_height(m_candPanel, 44);
+	lv_obj_set_width(m_candPanel, lv_pct(100));
+	lv_obj_set_style_pad_row(m_candPanel, 4, 0);
+	// IME 析构时会删除候选面板，我们将其移入 container 后 lv_ime_pinyin 解引时不会失效
+	// 因为 lv_ime_pinyin 内部有有效性检查
+	// 恢复 CLICK_FOCUSABLE（IME 构造时移除了它，游戏手柄导航需要）
+	lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+	// 候选面板加入游戏手柄组
+	lv_group_add_obj(m_gamepadGroup, m_candPanel);
+	// IME 对象隐藏且不参与布局
+	lv_obj_add_flag(m_pinyinIme, LV_OBJ_FLAG_IGNORE_LAYOUT);
+
+	// 5) 候选面板选中候选字后延迟切焦点回键盘（翻页< >不切）
+	lv_obj_add_event_cb(m_candPanel, [](lv_event_t* e) {
+		if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+		auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+		if (!self->m_keyboard) return;
+		// 跳过翻页按钮（idx=0:'<', idx=CAND_NUM+1:'>'）
+		uint32_t btnId = lv_buttonmatrix_get_selected_button(self->m_candPanel);
+		if (btnId == 0 || btnId == (LV_IME_PINYIN_CAND_TEXT_NUM + 1)) return;
+		Task::addTask([](void* p) -> TickType_t {
+			auto* s = static_cast<AiAgentOverlay*>(p);
+			if (auto g = s->m_display->lockGuard()) {
+				lv_group_focus_obj(s->m_keyboard);
+			}
+			return Task::infinityTime;
+		}, "kbdFocus", self, 0, Task::Affinity::None);
+		}, LV_EVENT_VALUE_CHANGED, this);
+
+	// 6) 候选面板暗色主题样式
+	lv_obj_set_style_bg_opa(m_candPanel, LV_OPA_30, 0);
+	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
+	lv_obj_set_style_bg_opa(m_candPanel, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_text_color(m_candPanel, GUI::Color::TEXT, LV_PART_ITEMS);
+	lv_obj_set_style_text_color(m_candPanel, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_radius(m_candPanel, 6, LV_PART_ITEMS);
+	lv_obj_set_style_border_width(m_candPanel, 0, 0);
+	lv_obj_set_style_border_width(m_candPanel, 0, LV_PART_ITEMS);
+
+	// 6) 键盘通用样式（使用默认键盘 map，不改动按钮布局）
+	lv_obj_set_width(m_keyboard, lv_pct(100));
+	lv_obj_set_height(m_keyboard, 180);  // 原 220px，让 40px 给候选面板
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x1a, 0x1a, 0x2e), 0);
 	lv_obj_set_style_pad_row(m_keyboard, 3, 0);
 	lv_obj_set_style_pad_column(m_keyboard, 3, 0);
 	lv_group_add_obj(m_gamepadGroup, m_keyboard);
-	// 键盘按键焦点高亮（btnmatrix 按键是 LV_PART_ITEMS，不是主部件）
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
 	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
 	lv_obj_set_style_text_color(m_keyboard, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
 	lv_obj_set_style_bg_color(m_keyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
 	lv_obj_set_style_bg_opa(m_keyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
+
+	// 8) 拦截键盘图标按钮（LV_SYMBOL_KEYBOARD / LV_SYMBOL_CLOSE）作为中/EN 切换
+	lv_obj_add_event_cb(m_keyboard, kbExtraBtnCb, LV_EVENT_VALUE_CHANGED, this);
 	lv_obj_add_event_cb(m_keyboard, onKeyboardReadyCb, LV_EVENT_READY, this);
-	// 设键盘为默认焦点
+
+	// 9) 设键盘为默认焦点
 	lv_group_focus_obj(m_keyboard);
-	// 调试：输出键盘状态确认焦点是否生效
 	ESP_LOGI(TAG, "键盘焦点已设置，group=%p obj=%p", (void*)m_gamepadGroup, (void*)m_keyboard);
 
 	// ── 初始隐藏 ──
@@ -352,6 +408,9 @@ void AiAgentOverlay::show()
 	lv_obj_clear_flag(m_keyboard, LV_OBJ_FLAG_HIDDEN);
 
 	lv_textarea_set_cursor_pos(m_inputField, LV_TEXTAREA_CURSOR_LAST);
+	lv_keyboard_set_textarea(m_keyboard, m_inputField);
+
+	// 连接到键盘（IME 回调始终注册，只需重新关联 textarea）
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
 
 	updateContextHint();
@@ -416,6 +475,8 @@ void AiAgentOverlay::setKeyboardVisible(bool visible)
 		lv_keyboard_set_textarea(m_keyboard, nullptr);
 		lv_obj_add_flag(m_keyboard, LV_OBJ_FLAG_IGNORE_LAYOUT);
 		lv_obj_add_flag(m_keyboard, LV_OBJ_FLAG_HIDDEN);
+		// 隐藏候选面板
+		if (m_candPanel) lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
 	}
 }
 
@@ -486,6 +547,18 @@ void AiAgentOverlay::onSend()
 
 	ESP_LOGI(TAG, "用户输入: %s", input.c_str());
 
+	// 先模拟 OK 按钮让 IME 清空内部状态（之后恢复焦点位置）
+	// OK 会触发 READY→onSend 递归，但 m_nextActionTime 防重会拦截
+	if (m_isChineseMode && m_candPanel) {
+		auto guard = m_display->lockGuard();
+		lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
+		uint32_t oldSel = lv_buttonmatrix_get_selected_button(m_keyboard);
+		uint32_t okBtnId = 39;
+		lv_buttonmatrix_set_selected_button(m_keyboard, okBtnId);
+		lv_obj_send_event(m_keyboard, LV_EVENT_VALUE_CHANGED, &okBtnId);
+		lv_buttonmatrix_set_selected_button(m_keyboard, oldSel);
+	}
+
 	// 断开键盘 → 清空输入框 → 移除焦点
 	{
 		auto guard = m_display->lockGuard();
@@ -535,6 +608,9 @@ void AiAgentOverlay::onSend()
 		}
 	}
 
+	// 保存原始模板（含占位符），供 agent 循环重建用
+	m_systemPromptTemplate = systemPrompt;
+
 	// 替换 {app_context}
 	{
 		size_t pos = systemPrompt.find("{app_context}");
@@ -547,10 +623,29 @@ void AiAgentOverlay::onSend()
 		}
 	}
 
+	// 替换 {memory_context}
+	{
+		size_t pos = systemPrompt.find("{memory_context}");
+		if (pos != std::string::npos) {
+			systemPrompt.replace(pos, 16,
+				m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
+		}
+		else if (!m_memoryText.empty()) {
+			systemPrompt += "长期记忆：\n" + m_memoryText;
+		}
+	}
+
 	m_lastSystemPrompt = systemPrompt;
 
-	// 发送请求
-	HttpClient::send(m_config, systemPrompt, input,
+	// 构建对话历史
+	std::vector<std::pair<std::string, std::string>> history;
+	history.reserve(m_history.size());
+	for (const auto& [role, content] : m_history) {
+		history.push_back({ role, content });
+	}
+
+	// 发送请求（带历史上下文）
+	HttpClient::sendWithHistory(m_config, systemPrompt, input, history,
 		[this](bool success, const std::string& responseText, const std::string& errorMsg)
 		{
 			auto* ctx = new AiSendCtx{ this, responseText, errorMsg, success };
@@ -622,8 +717,8 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 		addChatEntry("AI", execResult.summary);
 	}
 
-	// ── 3. Agent 循环 ──
-	if (m_followUpCount < MAX_FOLLOW_UP) {
+	// ── 3. Agent 循环（由 AI 的 nextRound 字段控制是否继续） ──
+	if (response.nextRound && m_followUpCount < MAX_FOLLOW_UP) {
 		std::string observations;
 		for (const auto& action : response.actions) {
 			if (action.type == AiActionType::SystemInfo) {
@@ -631,46 +726,98 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 			}
 		}
 
-		if (!observations.empty()) {
-			m_followUpCount++;
-			ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
-			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
-			setLoading(true);
+		m_followUpCount++;
+		ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
+		setLoading(true);
 
-			std::vector<std::pair<std::string, std::string>> history;
-			history.push_back({ "user", m_lastUserInput });
-			{
-				cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
-				if (root) {
-					cJSON* choices = cJSON_GetObjectItem(root, "choices");
-					if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
-						cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
-						cJSON* content = cJSON_GetObjectItem(msg, "content");
-						if (cJSON_IsString(content) && content->valuestring) {
-							history.push_back({ "assistant", content->valuestring });
-						}
-					}
-					cJSON_Delete(root);
-				}
+		// 从原始模板重建 system prompt，带上新 App 上下文
+		{
+			std::string newPrompt = m_systemPromptTemplate;
+			std::string newCtx;
+			auto* nextApp = m_display->getActiveApp();
+			if (nextApp) newCtx = nextApp->getAiContext();
+
+			// 替换 {app_context}
+			size_t pos = newPrompt.find("{app_context}");
+			if (pos != std::string::npos) {
+				newPrompt.replace(pos, 13,
+					newCtx.empty() ? "当前 App 无自定义操作" : newCtx);
 			}
 
-			HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
-				"[工具返回数据]\n" + observations + "\n请根据以上内容继续或向用户进行总结。",
-				history,
-				[this](bool ok, const std::string& resp, const std::string& err) {
-					auto* ctx = new AiSendCtx{ this, resp, err, ok };
-					Task::addTask([](void* p) -> TickType_t {
-						auto* c = static_cast<AiSendCtx*>(p);
-						c->self->onAiResponse(c->ok, c->text, c->err);
-						delete c;
-						return Task::infinityTime;
-						}, "aiFup", ctx, 0, Task::Affinity::None);
-				});
-			return;
+			// 替换 {memory_context}
+			pos = newPrompt.find("{memory_context}");
+			if (pos != std::string::npos) {
+				newPrompt.replace(pos, 16,
+					m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
+			}
+
+			m_lastSystemPrompt = newPrompt;
 		}
+
+		// 构建 follow-up 消息
+		std::string followUpMsg;
+		if (!observations.empty()) {
+			followUpMsg += "[工具返回数据]\n" + observations + "\n\n请根据以上数据继续或向用户进行总结。";
+			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
+		} else {
+			followUpMsg += "已执行上一轮的指令，请继续完成用户的需求。如果已完成目标，请回复用户。";
+			addChatEntry(">>", "(继续执行...)");
+		}
+
+		std::vector<std::pair<std::string, std::string>> history;
+		history.push_back({ "user", m_lastUserInput });
+		{
+			cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
+			if (root) {
+				cJSON* choices = cJSON_GetObjectItem(root, "choices");
+				if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
+					cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
+					cJSON* content = cJSON_GetObjectItem(msg, "content");
+					if (cJSON_IsString(content) && content->valuestring) {
+						history.push_back({ "assistant", content->valuestring });
+					}
+				}
+				cJSON_Delete(root);
+			}
+		}
+
+		HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
+			followUpMsg, history,
+			[this](bool ok, const std::string& resp, const std::string& err) {
+				auto* ctx = new AiSendCtx{ this, resp, err, ok };
+				Task::addTask([](void* p) -> TickType_t {
+					auto* c = static_cast<AiSendCtx*>(p);
+					c->self->onAiResponse(c->ok, c->text, c->err);
+					delete c;
+					return Task::infinityTime;
+					}, "aiFup", ctx, 0, Task::Affinity::None);
+			});
+		return;
 	}
 
 	m_followUpCount = 0;
+
+	// ── 4. 更新长期记忆 ──
+	if (!response.memory.empty()) {
+		m_memoryText = response.memory;
+		ESP_LOGI(TAG, "记忆已更新: %s", response.memory.c_str());
+	}
+
+	// ── 5. 记录对话历史 ──
+	std::string replyForHistory = replyText;
+	if (replyForHistory.empty()) {
+		replyForHistory = execResult.summary;
+	}
+	if (!replyForHistory.empty() && !m_lastUserInput.empty()) {
+		m_history.push_back({ "user", m_lastUserInput });
+		m_history.push_back({ "assistant", replyForHistory });
+		// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮
+		while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
+			m_history.erase(m_history.begin());
+			m_history.erase(m_history.begin());
+		}
+		ESP_LOGI(TAG, "对话历史: %zu 轮", m_history.size() / 2);
+	}
 }
 
 // ============================================================
@@ -714,17 +861,48 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 
 		// ── 按钮（边沿触发，优先于方向） ──
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_X)) {
-			Task::addTask([](void* arg) -> TickType_t {
-				auto* s = static_cast<AiAgentOverlay*>(arg);
-				if (auto g = s->m_display->lockGuard())
-					s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
-				return Task::infinityTime;
-			}, "gpKbd", self, 0, Task::Affinity::None);
+			bool candVisible = self->m_candPanel &&
+				!lv_obj_has_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN);
+			if (candVisible) {
+				// 有候选字：在键盘和候选面板间切换焦点
+				lv_obj_t* focused = lv_group_get_focused(self->m_gamepadGroup);
+				if (focused == self->m_keyboard)
+					lv_group_focus_obj(self->m_candPanel);
+				else
+					lv_group_focus_obj(self->m_keyboard);
+			} else {
+				// 无候选字：切换键盘显隐（原行为）
+				Task::addTask([](void* arg) -> TickType_t {
+					auto* s = static_cast<AiAgentOverlay*>(arg);
+					if (auto g = s->m_display->lockGuard())
+						s->setKeyboardVisible(lv_obj_has_flag(s->m_keyboard, LV_OBJ_FLAG_HIDDEN));
+					return Task::infinityTime;
+					}, "gpKbd", self, 0, Task::Affinity::None);
+			}
 			return;
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
-			data->key = LV_KEY_ESC;
-			data->state = LV_INDEV_STATE_PRESSED;
+			// B 键 → 退格删除
+			if (self->m_isChineseMode && self->m_keyboard && !kbdHidden) {
+				// 中文模式：让键盘+IME 处理（键盘删字 + IME 更新候选）
+				// 暂存原焦点位置，执行退格后恢复
+				Task::addTask([](void* arg) -> TickType_t {
+					auto* s = static_cast<AiAgentOverlay*>(arg);
+					if (auto g = s->m_display->lockGuard()) {
+						uint32_t oldSel = lv_buttonmatrix_get_selected_button(s->m_keyboard);
+						uint32_t bsId = 11;  // 退格键在标准键盘 btnmatrix 中的索引
+						lv_buttonmatrix_set_selected_button(s->m_keyboard, bsId);
+						lv_obj_send_event(s->m_keyboard, LV_EVENT_VALUE_CHANGED, &bsId);
+						// 恢复原焦点位置（set_selected_button 内部会做越界检查）
+						lv_buttonmatrix_set_selected_button(s->m_keyboard, oldSel);
+					}
+					return Task::infinityTime;
+				}, "gpBS", self, 0, Task::Affinity::None);
+			} else {
+				// 英文模式或键盘隐藏：直接删
+				if (self->m_inputField)
+					lv_textarea_delete_char(self->m_inputField);
+			}
 			return;
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
@@ -737,7 +915,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			Task::addTask([](void* arg) -> TickType_t {
 				static_cast<AiAgentOverlay*>(arg)->onSend();
 				return Task::infinityTime;
-			}, "gpSend", self, 0, Task::Affinity::None);
+				}, "gpSend", self, 0, Task::Affinity::None);
 			return;
 		}
 
@@ -753,21 +931,75 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 			}
 		}
 		else {
-			if (gs.lx < center - deadZone) {
-				data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
+			// 检查焦点是否在候选面板上
+			bool candFocused = self->m_candPanel &&
+				(lv_group_get_focused(self->m_gamepadGroup) == self->m_candPanel);
+
+			if (candFocused) {
+				// 候选面板：左右选字，上下翻页
+				if ((gs.ly < center - deadZone || gs.ly > center + deadZone) &&
+					xTaskGetTickCount() < self->m_nextPageFlipTime) {
+					// 冷却中，跳过
+				}
+				else if (gs.ly < center - deadZone) {
+					self->m_nextPageFlipTime = xTaskGetTickCount() + PAGE_FLIP_COOLDOWN;
+					// 上 ← 上一页
+					Task::addTask([](void* p) -> TickType_t {
+						auto pair = static_cast<std::pair<AiAgentOverlay*, lv_obj_t*>*>(p);
+						if (auto g = pair->first->m_display->lockGuard()) {
+							uint32_t b = 0;
+							lv_buttonmatrix_set_selected_button(pair->second, b);
+							lv_obj_send_event(pair->second, LV_EVENT_VALUE_CHANGED, &b);
+							// pinyin_page_proc 更新了 cand_str 但没重绘，强制刷新
+							lv_obj_invalidate(pair->second);
+						}
+						delete pair;
+						return Task::infinityTime;
+					}, "pgUp", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
+					handled = true;
+				}
+				else if (gs.ly > center + deadZone) {
+					self->m_nextPageFlipTime = xTaskGetTickCount() + PAGE_FLIP_COOLDOWN;
+					Task::addTask([](void* p) -> TickType_t {
+						auto pair = static_cast<std::pair<AiAgentOverlay*, lv_obj_t*>*>(p);
+						if (auto g = pair->first->m_display->lockGuard()) {
+							uint32_t b = LV_IME_PINYIN_CAND_TEXT_NUM + 1;
+							lv_buttonmatrix_set_selected_button(pair->second, b);
+							lv_obj_send_event(pair->second, LV_EVENT_VALUE_CHANGED, &b);
+							lv_obj_invalidate(pair->second);
+						}
+						delete pair;
+						return Task::infinityTime;
+					}, "pgDn", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
+					handled = true;
+				}
+				else if (gs.lx < center - deadZone) {
+					data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.lx > center + deadZone) {
+					data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
 			}
-			else if (gs.lx > center + deadZone) {
-				data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
-			}
-			else if (gs.ly < center - deadZone) {
-				data->key = LV_KEY_UP;    data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
-			}
-			else if (gs.ly > center + deadZone) {
-				data->key = LV_KEY_DOWN;  data->state = LV_INDEV_STATE_PRESSED;
-				handled = true;
+			else {
+				// 键盘：btnmatrix 内部导航
+				if (gs.lx < center - deadZone) {
+					data->key = LV_KEY_LEFT;  data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.lx > center + deadZone) {
+					data->key = LV_KEY_RIGHT; data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.ly < center - deadZone) {
+					data->key = LV_KEY_UP;    data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
+				else if (gs.ly > center + deadZone) {
+					data->key = LV_KEY_DOWN;  data->state = LV_INDEV_STATE_PRESSED;
+					handled = true;
+				}
 			}
 		}
 	}
@@ -846,6 +1078,59 @@ void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
 			self->m_gestureTracking = false;
 			self->requestShow();
 		}
+	}
+}
+
+// ============================================================
+//  中英文切换
+// ============================================================
+
+void AiAgentOverlay::setChineseMode(bool enable)
+{
+	if (m_isChineseMode == enable) return;
+	m_isChineseMode = enable;
+
+	// 清理 IME 中间状态（候选面板 + 输入缓冲）
+	lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
+	// 触发键盘 OK 键来清空 IME 内部 ta_count 等状态
+	// 断开再重连 textarea 让 IME 重置
+	if (m_keyboard && m_inputField) {
+		lv_keyboard_set_textarea(m_keyboard, nullptr);
+		lv_keyboard_set_textarea(m_keyboard, m_inputField);
+	}
+
+	if (enable) {
+		lv_label_set_text(m_modeLabel, "中");
+		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
+		ESP_LOGI(TAG, "切换到中文输入");
+	} else {
+		lv_label_set_text(m_modeLabel, "EN");
+		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
+		ESP_LOGI(TAG, "切换到英文输入");
+	}
+}
+
+void AiAgentOverlay::kbExtraBtnCb(lv_event_t* e)
+{
+	if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+
+	auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+	if (!self || !self->m_keyboard) return;
+
+	uint32_t btnId = lv_buttonmatrix_get_selected_button(self->m_keyboard);
+	if (btnId == LV_BUTTONMATRIX_BUTTON_NONE) return;
+
+	const char* txt = lv_buttonmatrix_get_button_text(self->m_keyboard, btnId);
+	if (!txt) return;
+
+	// 检测键盘图标按钮（LV_SYMBOL_KEYBOARD / LV_SYMBOL_CLOSE）按下
+	if (lv_strcmp(txt, LV_SYMBOL_KEYBOARD) == 0 || lv_strcmp(txt, LV_SYMBOL_CLOSE) == 0) {
+		self->setChineseMode(!self->m_isChineseMode);
+	}
+
+	// 英文模式下：隐藏 IME 可能弹出的候选面板
+	if (!self->m_isChineseMode) {
+		lv_obj_add_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN);
 	}
 }
 
