@@ -25,8 +25,8 @@ void VirtualGamepad::start(Display* display)
 {
 	m_display = display;
 
-	m_thread = Thread{ dispatchTask, "vGamepadDisp", this, Thread::Priority::High, 8192 };
-	ESP_LOGI(TAG, "dispatch task started (60fps)");
+	m_thread = Thread{ dispatchTask, "vGamepadDisp", this, Thread::Priority::Veryhigh, 32768 };
+	ESP_LOGI(TAG, "dispatch task started");
 }
 
 void VirtualGamepad::inject(int8_t hostId, int8_t playerId, const GamepadState& state)

@@ -10,10 +10,7 @@
 
 // 前置声明 esp_event_base_t (esp_event_base.h 定义)
 typedef const char* esp_event_base_t;
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "freertos/task.h"
+#include "task/task.hpp"
 
 // 前置声明 NimBLE 类型
 struct ble_gap_event;
@@ -92,7 +89,7 @@ private:
     mutable Mutex m_mutex;
 
     QueueHandle_t m_inputQueue{};
-    TaskHandle_t m_processTask{};
+    Thread m_thread{};
 
     bool m_scanning{ false };
     bool m_running{ false };

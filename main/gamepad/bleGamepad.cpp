@@ -586,10 +586,8 @@ bool BleGamepad::initNimble()
 	}
 
 	// 创建输入处理任务
-	BaseType_t res = xTaskCreatePinnedToCore(
-		processTask, "bleGamepad", 32768, this, 5, &m_processTask,
-		tskNO_AFFINITY);
-	if (res != pdPASS) {
+	m_thread = Thread{ processTask, "bleGamepad", this, Thread::Priority::Veryhigh, 4096 };
+	if (!m_thread.isRunning()) {
 		ESP_LOGE(TAG, "Failed to create process task");
 		return false;
 	}
@@ -632,10 +630,8 @@ void BleGamepad::stop()
 
 	disconnectAll();
 
-	if (m_processTask) {
-		vTaskDelete(m_processTask);
-		m_processTask = nullptr;
-	}
+	m_thread = {};
+
 	if (m_inputQueue) {
 		vQueueDelete(m_inputQueue);
 		m_inputQueue = nullptr;
