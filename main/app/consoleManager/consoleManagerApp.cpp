@@ -292,43 +292,43 @@ void ConsoleManagerApp::doConnect(size_t index)
 	m_testSeq = 0;
 
 	m_testClient->setOnConnected([this]()
-	{
-		ESP_LOGI(TAG, "/ws/test 已连接");
+		{
+			ESP_LOGI(TAG, "/ws/test 已连接");
 
-		// 连接成功后立即发送第一条 test 消息
-		char buf[32];
-		int n = snprintf(buf, sizeof(buf), "test %d", ++m_testSeq);
-		if (n > 0)
-			m_testClient->sendText(buf, (size_t)n);
-	});
+			// 连接成功后立即发送第一条 test 消息
+			char buf[32];
+			int n = snprintf(buf, sizeof(buf), "test %d", ++m_testSeq);
+			if (n > 0)
+				m_testClient->sendText(buf, (size_t)n);
+		});
 
 	m_testClient->setOnMessage([this](const char* data, size_t len)
-	{
-		ESP_LOGI(TAG, "/ws/test 收到回复: %.*s", (int)len, data);
-
-		// 收到回复后延迟 2 秒再发下一条
-		// 用 Task::addTask 避免在 WS Task 中长时间停留
-		Task::addTask([](void* param) -> TickType_t
 		{
-			auto* app = static_cast<ConsoleManagerApp*>(param);
-			if (!app->m_testClient || !app->m_testClient->isConnected())
-				return Task::infinityTime;
+			ESP_LOGI(TAG, "/ws/test 收到回复: %.*s", (int)len, data);
 
-			char buf[32];
-			int n = snprintf(buf, sizeof(buf), "test %d", ++app->m_testSeq);
-			if (n > 0)
-			{
-				app->m_testClient->sendText(buf, (size_t)n);
-				ESP_LOGI(TAG, "/ws/test 发送: %s", buf);
-			}
-			return Task::infinityTime;
-		}, "wsTestSend", this, pdMS_TO_TICKS(2000), Task::Affinity::None);
-	});
+			// 收到回复后延迟 2 秒再发下一条
+			// 用 Task::addTask 避免在 WS Task 中长时间停留
+			Task::addTask([](void* param) -> TickType_t
+				{
+					auto* app = static_cast<ConsoleManagerApp*>(param);
+					if (!app->m_testClient || !app->m_testClient->isConnected())
+						return Task::infinityTime;
+
+					char buf[32];
+					int n = snprintf(buf, sizeof(buf), "test %d", ++app->m_testSeq);
+					if (n > 0)
+					{
+						app->m_testClient->sendText(buf, (size_t)n);
+						ESP_LOGI(TAG, "/ws/test 发送: %s", buf);
+					}
+					return Task::infinityTime;
+				}, "wsTestSend", this, pdMS_TO_TICKS(2000), Task::Affinity::None);
+		});
 
 	m_testClient->setOnDisconnected([this]()
-	{
-		ESP_LOGW(TAG, "/ws/test 连接断开");
-	});
+		{
+			ESP_LOGW(TAG, "/ws/test 连接断开");
+		});
 
 	char uri[64];
 	snprintf(uri, sizeof(uri), "/ws/test");
@@ -612,6 +612,11 @@ void ConsoleManagerApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const G
 void ConsoleManagerApp::onScanBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<ConsoleManagerApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+		return;
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
 	self->m_focusGroup = FOCUS_TITLE;
 	self->m_focusTitleIdx = 1;
 
@@ -625,6 +630,11 @@ void ConsoleManagerApp::onScanBtnCb(lv_event_t* e)
 void ConsoleManagerApp::onConnectBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<ConsoleManagerApp*>(lv_event_get_user_data(e));
+
+	if (xTaskGetTickCount() < self->m_nextActionTime)
+		return;
+	self->m_nextActionTime = xTaskGetTickCount() + 500;
+
 	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
 	size_t idx = (size_t)(uintptr_t)lv_obj_get_user_data(btn);
 	self->m_focusGroup = FOCUS_LIST;
