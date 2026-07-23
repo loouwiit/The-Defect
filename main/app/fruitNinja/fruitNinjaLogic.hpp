@@ -87,6 +87,9 @@ public:
 	/** @brief 手柄输入：方向+按钮匹配。返回 true=切片成功 */
 	bool handleGamepadInput(int player, Direction dir, Button btn);
 
+	/** @brief 触屏输入：划动线段检测。返回 true=至少一个水果被切片 */
+	bool handleSwipe(int player, float x1, float y1, float x2, float y2);
+
 	/** @brief 触屏输入：点按坐标。返回 true=切片成功 */
 	bool handleTouch(int player, float tx, float ty);
 
@@ -98,6 +101,9 @@ public:
 
 	/** @brief 水果碰撞体半径 */
 	static float getFruitRadius(FruitType type);
+
+	/** @brief 线段与圆相交检测（用于划动判定） */
+	static bool lineIntersectsCircle(float x1, float y1, float x2, float y2, float cx, float cy, float r);
 
 	/** @brief 方向→箭头字符 */
 	static const char* dirToArrow(Direction d);

@@ -38,6 +38,10 @@ private:
 	int m_playerCount;
 	Thread m_thread;
 
+	// ── 触摸跟踪 ──
+	lv_point_t m_prevTouch{};
+	bool m_touching = false;
+
 	// ── 输入状态 ──
 	uint16_t m_prevButtons[MaxPlayers]{};
 
@@ -55,7 +59,9 @@ private:
 
 	// ── 内部方法 ──
 	static void gameLoop(void* param);
-	static void onTouchCb(lv_event_t* e);
+	static void onTouchPressedCb(lv_event_t* e);
+	static void onTouchMovingCb(lv_event_t* e);
+	static void onTouchReleasedCb(lv_event_t* e);
 
 	static void btnRestartCb(lv_event_t* e);
 	static void btnExitCb(lv_event_t* e);

@@ -133,7 +133,38 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 	lv_obj_set_style_text_color(exitLbl, lv_color_hex(0xffffffff), 0);
 	lv_obj_center(exitLbl);
 
-	ESP_LOGI(TAG, "对象池创建完成: %d fruits, %d particles", MAX_FRUITS, MAX_PARTICLES);
+	// ── 白刃轨迹线（三层叠加，不用 shadow 避免矩形白框） ──
+	// 中层发光（半透白 14px）
+	m_bladeGlow = lv_line_create(parent);
+	lv_obj_set_style_line_width(m_bladeGlow, 14, 0);
+	lv_obj_set_style_line_color(m_bladeGlow, lv_color_hex(0x44ffffff), 0);
+	lv_obj_set_style_line_rounded(m_bladeGlow, true, 0);
+	lv_obj_set_style_bg_opa(m_bladeGlow, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(m_bladeGlow, 0, 0);
+	lv_obj_remove_flag(m_bladeGlow, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(m_bladeGlow, LV_OBJ_FLAG_HIDDEN);
+
+	// 外层光晕（半透白 24px）
+	m_bladeLine = lv_line_create(parent);
+	lv_obj_set_style_line_width(m_bladeLine, 24, 0);
+	lv_obj_set_style_line_color(m_bladeLine, lv_color_hex(0x18ffffff), 0);
+	lv_obj_set_style_line_rounded(m_bladeLine, true, 0);
+	lv_obj_set_style_bg_opa(m_bladeLine, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(m_bladeLine, 0, 0);
+	lv_obj_remove_flag(m_bladeLine, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(m_bladeLine, LV_OBJ_FLAG_HIDDEN);
+
+	// 刃芯（最上层，4px 白色实线）
+	m_bladeCore = lv_line_create(parent);
+	lv_obj_set_style_line_width(m_bladeCore, 4, 0);
+	lv_obj_set_style_line_color(m_bladeCore, lv_color_hex(0xccffffff), 0);
+	lv_obj_set_style_line_rounded(m_bladeCore, true, 0);
+	lv_obj_set_style_bg_opa(m_bladeCore, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(m_bladeCore, 0, 0);
+	lv_obj_remove_flag(m_bladeCore, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(m_bladeCore, LV_OBJ_FLAG_HIDDEN);
+
+	ESP_LOGI(TAG, "对象池创建完成: %d fruits, %d particles, blade trail", MAX_FRUITS, MAX_PARTICLES);
 }
 
 // ============================================================
@@ -254,6 +285,9 @@ void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 
 	// ── HUD ──
 	updateHUD(lv_obj_get_parent(m_scoreLabel), logic);
+
+	// ── 白刃轨迹 ──
+	updateBladeTrail();
 }
 
 // ============================================================
@@ -322,7 +356,7 @@ void FruitNinjaRenderer::updateHUD(lv_obj_t* parent, const FruitNinjaLogic& logi
 
 	// 底部操作提示
 	lv_label_set_text(m_hintLabel,
-		"\u2190\u2191\u2192\u2193 + A/B/X/Y \u2261  \u21bb \u89e6\u5c4f\u70b9\u6309");
+		"\u2190\u2191\u2192\u2193 + A/B/X/Y \u2261  \u21bb \u89e6\u5c4f\u5212\u52a8");
 	lv_obj_align(m_hintLabel, LV_ALIGN_BOTTOM_MID, 0, -4);
 	lv_obj_clear_flag(m_hintLabel, LV_OBJ_FLAG_HIDDEN);
 }
@@ -403,4 +437,143 @@ void FruitNinjaRenderer::hideGameOver()
 	lv_obj_add_flag(m_gameOverTitle, LV_OBJ_FLAG_HIDDEN);
 	lv_obj_add_flag(m_gameOverScore, LV_OBJ_FLAG_HIDDEN);
 	// restart/back buttons are deleted/destroyed by the caller
+}
+
+// ============================================================
+// 白刃轨迹 — 触摸开始
+// ============================================================
+
+void FruitNinjaRenderer::handleTouchStart(float x, float y)
+{
+	m_isTouching = true;
+	clearTrail();
+	addTrailPoint(x, y);
+}
+
+// ============================================================
+// 白刃轨迹 — 添加点
+// ============================================================
+
+void FruitNinjaRenderer::addTrailPoint(float x, float y)
+{
+	if (m_trailCount >= MAX_TRAIL_POINTS)
+	{
+		// 环形缓冲满时覆盖最旧的点
+		m_trailHead = (m_trailHead + 1) % MAX_TRAIL_POINTS;
+	}
+	else
+	{
+		m_trailHead = m_trailCount;
+		m_trailCount++;
+	}
+
+	auto& pt = m_trailBuffer[m_trailHead];
+	pt.x = x;
+	pt.y = y;
+	pt.opacity = 255;
+
+	m_trailDirty = true;
+}
+
+// ============================================================
+// 白刃轨迹 — 触摸结束
+// ============================================================
+
+void FruitNinjaRenderer::handleTouchEnd()
+{
+	m_isTouching = false;
+}
+
+// ============================================================
+// 白刃轨迹 — 老化
+// ============================================================
+
+void FruitNinjaRenderer::ageTrail(float dt)
+{
+	float fadeRate = m_isTouching ? TRAIL_FADE_ACTIVE : TRAIL_FADE_RELEASE;
+	if (fadeRate <= 0.0f) return; // 触摸中不老化
+
+	float fadeAmount = dt * fadeRate;
+	uint8_t fadeStep = (fadeAmount > 255.0f) ? 255 : static_cast<uint8_t>(fadeAmount);
+	if (fadeStep < 1) fadeStep = 1;
+
+	bool changed = false;
+	int newCount = 0;
+	for (int i = 0; i < m_trailCount; i++)
+	{
+		auto& pt = m_trailBuffer[i];
+		if (pt.opacity <= fadeStep)
+		{
+			pt.opacity = 0;
+			changed = true;
+		}
+		else
+		{
+			pt.opacity -= fadeStep;
+			if (i != newCount)
+				m_trailBuffer[newCount] = pt;
+			newCount++;
+		}
+	}
+	if (newCount != m_trailCount)
+	{
+		m_trailCount = newCount;
+		changed = true;
+	}
+	if (changed)
+		m_trailDirty = true;
+}
+
+// ============================================================
+// 白刃轨迹 — 清空
+// ============================================================
+
+void FruitNinjaRenderer::clearTrail()
+{
+	m_trailCount = 0;
+	m_trailHead = 0;
+}
+
+// ============================================================
+// 白刃轨迹 — 更新 LVGL 线对象
+// ============================================================
+
+void FruitNinjaRenderer::updateBladeTrail()
+{
+	if (m_trailCount < 2)
+	{
+		lv_obj_add_flag(m_bladeLine, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(m_bladeGlow, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(m_bladeCore, LV_OBJ_FLAG_HIDDEN);
+		return;
+	}
+
+	// 脏标记优化：只有当轨迹点真正变化时才重建 lv_line 点阵
+	if (m_trailDirty)
+	{
+		m_trailDirty = false;
+
+		static lv_point_precise_t pts[MAX_TRAIL_POINTS];
+
+		for (int i = 0; i < m_trailCount; i++)
+		{
+			pts[i].x = static_cast<lv_value_precise_t>(m_trailBuffer[i].x);
+			pts[i].y = static_cast<lv_value_precise_t>(m_trailBuffer[i].y);
+		}
+
+		// 三层线共享同一组点
+		lv_line_set_points(m_bladeLine, pts, m_trailCount);
+		lv_line_set_points(m_bladeGlow, pts, m_trailCount);
+		lv_line_set_points(m_bladeCore, pts, m_trailCount);
+	}
+
+	// 每帧更新透明度（渐隐动画需要）
+	uint8_t oldestOpa = m_trailBuffer[0].opacity;
+	lv_obj_set_style_opa(m_bladeCore, oldestOpa, 0);
+	lv_obj_set_style_opa(m_bladeLine, oldestOpa * 2 / 3, 0);
+	lv_obj_set_style_opa(m_bladeGlow, oldestOpa / 3, 0);
+
+	lv_obj_clear_flag(m_bladeLine, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_clear_flag(m_bladeGlow, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_clear_flag(m_bladeCore, LV_OBJ_FLAG_HIDDEN);
 }
