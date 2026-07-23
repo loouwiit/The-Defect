@@ -287,6 +287,13 @@
 			<span>帧: <span class="val" id="vSent">0</span></span>
 		</div>
 
+		<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px;color:#888">
+			<span>死区:</span>
+			<input type="range" id="deadZoneSlider" min="0" max="60" value="13"
+				style="flex:1;max-width:120px;accent-color:#4fc3f7">
+			<span id="deadZoneLabel">13</span>
+		</div>
+
 		<div id="joystickArea">
 			<div id="joystickKnob"></div>
 		</div>
@@ -527,10 +534,16 @@
 
 			// 映射到 0-255，中心 128
 			// Y 轴：上=0（dy负），下=255（dy正）
-			state.lx = Math.round(128 + (dx / MAX_DIST) * 127);
-			state.ly = Math.round(128 + (dy / MAX_DIST) * 127);
-			state.lx = Math.max(0, Math.min(255, state.lx));
-			state.ly = Math.max(0, Math.min(255, state.ly));
+			let rawLx = Math.round(128 + (dx / MAX_DIST) * 127);
+			let rawLy = Math.round(128 + (dy / MAX_DIST) * 127);
+
+			// 每轴独立死区：在死区内 snap 到 128
+			const deadZone = parseInt(document.getElementById('deadZoneSlider').value);
+			if (Math.abs(rawLx - 128) <= deadZone) rawLx = 128;
+			if (Math.abs(rawLy - 128) <= deadZone) rawLy = 128;
+
+			state.lx = Math.max(0, Math.min(255, rawLx));
+			state.ly = Math.max(0, Math.min(255, rawLy));
 
 			sendFrame();  // 变化时立即发送
 		}
@@ -640,7 +653,20 @@
 		// ============================================================
 		document.getElementById('hostInput').value = location.hostname;
 
-		console.log('虚拟手柄已加载 — 连接 /ws/input 发送 10 字节 GamepadState 帧');
+		// ============================================================
+		//  死区滑块
+		// ============================================================
+		document.getElementById('deadZoneSlider').addEventListener('input', (e) => {
+			document.getElementById('deadZoneLabel').textContent = e.target.value;
+			// 如果摇杆在中心，立即刷新状态
+			if (!stickActive) {
+				state.lx = 128;
+				state.ly = 128;
+				scheduleSend();
+			}
+		});
+
+		console.log('虚拟手柄已加载 — 连接 /ws/input 发送 11 字节 GamepadState 帧');
 	</script>
 </body>
 
