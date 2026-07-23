@@ -39,6 +39,7 @@ reserces/
 │   ├── index.css
 │   ├── screen/      ← 屏幕串流 Web 查看器
 │   ├── tetris/      ← Tetris 网页客户端
+│   ├── gamepad/     ← 虚拟手柄 Web 客户端（/ws/input 测试）
 │   └── wifi/        ← WiFi 网页配置
 └── system/          ← 系统文件（字体等）
     └── NotoSC.ttf   ← 全局默认字体
@@ -54,7 +55,7 @@ reserces/
 | | Mutex | `main/mutex/` | FreeRTOS `xSemaphoreCreateMutex` RAII 封装 (`Mutex` + `Lock`) |
 | | GPIO | `main/gpio/` | GPIO 装饰器封装，`=` / `bool` / `int` 运算符重载，ISR 注册 |
 | | IIC | `main/iic/` | I²C 主控总线 (`IIC`) + 设备封装 (`IICDevice`)，自动端口选择 |
-| | VirtualGamepad | `main/host/virtualGamepad.hpp` | 统一手柄输入抽象层，60fps Dispatch Task + hostMask 掩码过滤 |
+| | VirtualGamepad | `main/gamepad/virtualGamepad.hpp` | 统一手柄输入抽象层，60fps Dispatch + hostMask 掩码 + 远程转发 |
 | **显示/输入** | Display | `main/display/display.hpp` | ILI9881C 初始化 + LVGL 适配层，`LockGuard` RAII（递归锁） |
 | | ILI9881c | `main/display/ili9881c.cpp` | 面板驱动（MIPI DSI），背光亮度控制 |
 | | FontLoader | `main/display/font.cpp` | FreeType 字体加载，3 字号全局默认字体，VFS 驱动器 'F' |
@@ -78,6 +79,9 @@ reserces/
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
 | | TestApp | `main/app/testApp/` | 测试用 App |
 | | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理（mDNS 发现其他主机） |
+| **跨主机联机** | HostManager | `main/host/` | 联机基础设施（角色管理、连接池、InputHost fd 映射） |
+| | WsClient | `main/websocket/wsClient.hpp` | 通用 WebSocket 客户端封装，`sendText` / `sendBinary` |
+| | wsInputHandler | `main/host/wsInputHandler.cpp` | `/ws/input` handler，接收 11 字节 GamepadState 帧 → VirtualGamepad |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
@@ -222,7 +226,7 @@ ES8311 编解码器、GT911 触摸均通过 IIC 通信。
 
 ### VirtualGamepad — 统一手柄输入抽象层
 
-**模块路径**: `main/host/virtualGamepad.hpp`
+**模块路径**: `main/gamepad/virtualGamepad.hpp`
 
 系统层单例，汇集所有手柄输入源（本地 BLE + 远程客户端），
 在专用 Dispatch Task 中以固定 60fps 全量分发到活跃 App。
@@ -231,35 +235,111 @@ ES8311 编解码器、GT911 触摸均通过 IIC 通信。
 class VirtualGamepad {
 public:
     static VirtualGamepad& instance();
-    void start(Display* display);                      // 启动分发 Task
-    void inject(int8_t hostId, int8_t playerId, const GamepadState& state);  // 注入输入
-    void resetPlayer(int8_t hostId, int8_t playerId);   // 复位到中立状态（断开时）
+    void start(Display* display);
+    /// 统一注入（hostId: 0=本机, 1-3=远程设备。按掩码过滤后 dispatchTask 分发）
+    void inject(int8_t hostId, int8_t playerId, const GamepadState& state);
+    void resetPlayer(int8_t hostId, int8_t playerId);
     void setHostMask(int8_t hostId, uint8_t playerMask);
     void setAllMasks(const uint8_t masks[4]);
+
+    // ── 远程转发（从机模式）──
+    /// 设置转发目标后，inject(0, ...) 自动序列化 11 字节帧发到远程主机
+    void setRemoteForwarder(WsClient* client);
+    void clearRemoteForwarder();
 };
 ```
 
 **架构**:
 ```
-BLE Task  → inject(0, p, state)                ← 仅写入
-WS Task   → inject(hostId, p, state)           ← 仅写入（远程）
-                                                  ↓
-[Dispatch Task @60fps] → onGamepadInput(h, p, state) → App
+BLE Task  → inject(0, p, state)     ← 本机
+WS Task   → inject(hostId, p, state) ← 远程（来自 /ws/input）
+                                              ↓
+VirtualGamepad:
+  ├── m_states[hostId][playerId] = state  (存储)
+  ├── 有 remoteForwarder? → 序列化 11 字节 → 远程主机 /ws/input
+  └── dispatchTask() @60fps → app->onGamepadInput(hostId, playerId, state)
 ```
 
 | 特性 | 说明 |
 |------|------|
-| inject() | 轻量 struct copy，任何 Task 可调用 |
+| inject(hostId, ...) | hostId=0 本机，1-3 远程；数据包自描述，无需 fd 映射 |
 | 分发频率 | 固定 60fps (16ms)，独立 Dispatch Task |
 | 全量更新 | 每次遍历所有掩码启用的 (hostId, playerId) |
 | 掩码默认 | `{0x0F, 0, 0, 0}` 仅本机 4 手柄全开 |
 | AI Overlay | `isVisible()` 时跳过分发，AI 独占输入 |
-| resetPlayer | 断开时复位到中性状态，防止 stale 残留 |
+| setRemoteForwarder | 从机模式：本机输入自动转发到远程主机 |
+| inject 去重 | 状态未变化时不转发，避免 TCP 缓冲区堆积 |
+
+**`onGamepadInput` 签名变更**:
+```cpp
+// 旧
+virtual void onGamepadInput(uint8_t playerId, const GamepadState& state);
+// 新 — hostId 插最前，playerId 位置不变，函数体零改动
+virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state);
+```
 
 **集成点**:
 - BleGamepad::processTask → `inject(0, playerId, state)` 代替直接调 App
 - BleGamepad::start 末尾 → `VirtualGamepad::instance().start(display)`
 - BLE_GAP_EVENT_DISCONNECT → `resetPlayer(0, playerId)`
+
+### `/ws/input` — 远程手柄输入通道
+
+**模块路径**: `main/host/wsInputHandler.cpp`
+
+接收 11 字节二进制帧，解析后注入 VirtualGamepad。
+
+**协议格式**:
+| 偏移 | 大小 | 字段 |
+|------|------|------|
+| 0 | 1 | `hostId` — 设备号 (0=本机保留, 1-3=远程) |
+| 1 | 1 | `localPlayer` — 设备上的手柄编号 (0-3) |
+| 2-3 | 2 | `buttons` — uint16 小端序 |
+| 4 | 1 | `lx` |
+| 5 | 1 | `ly` |
+| 6 | 1 | `rx` |
+| 7 | 1 | `ry` |
+| 8 | 1 | `lt` |
+| 9 | 1 | `rt` |
+| 10 | 1 | `dpad` |
+
+- 握手时自动注册 fd → hostId 追踪，断开时 `resetPlayer(hostId, *)` 清理
+- 数据包自描述 hostId，无需额外连接跟踪表
+
+### InputHost — 远程设备连接跟踪
+
+**模块路径**: `main/host/inputHost.hpp`
+
+3 槽位 fd→hostId 映射表，供 `/ws/console` 管理通道使用（后续设计）。
+当前由 `/ws/input` handler 用于断开清理。
+
+```cpp
+class InputHost {
+    static InputHost& instance();
+    int  registerClient(int fd, const char* hostname);  // 返回 hostId 1-3, -1 满
+    void unregisterClient(int fd);
+    int  getHostIdByFd(int fd) const;
+};
+```
+
+### WsClient — 通用 WebSocket 客户端
+
+**模块路径**: `main/websocket/wsClient.hpp`
+
+薄封装 `esp_websocket_client`，供从机连接远程主机。
+
+```cpp
+class WsClient {
+    bool connect(const char* host, uint16_t port, const char* uri);
+    void disconnect();
+    bool isConnected();
+    bool sendText(const char* data, size_t len);
+    bool sendBinary(const uint8_t* data, size_t len);
+    void setOnMessage(std::function<void(const char*, size_t)> cb);
+    void setOnConnected(std::function<void()> cb);
+    void setOnDisconnected(std::function<void()> cb);
+};
+```
 
 ---
 

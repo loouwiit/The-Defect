@@ -143,9 +143,12 @@ ESP32-C6 (协处理器)
 │  ├─ Stack 1..N (游戏) │  ├─ Dispatch Task @60fps         │
 │  └─ 异步删除 + 去重   │  └─ hostMask 掩码过滤            │
 │                       ├──────────────────────────────────┤
-│                       │         网络服务                  │
 │                       │  ├─ HTTP Server (port 80)        │
 │                       │  ├─ WS Server  (port 8080)       │
+│                       │  │  ├─ /ws/touch  触控注入       │
+│                       │  │  ├─ /ws/input  手柄透传       │
+│                       │  │  ├─ /ws/stream 屏幕串流       │
+│                       │  │  └─ /ws/console 设备管理      │
 │                       │  ├─ ScreenStream (MJPEG)         │
 │                       │  ├─ mDNS (_http, _ws, _p4console)│
 │                       │  └─ Discovery (设备枚举)         │
@@ -187,7 +190,8 @@ ESP32-C6 (协处理器)
 | 层次 | 模块 | 路径 |
 |------|------|------|
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
-| 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/host/` |
+| 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/gamepad/` |
+| 跨主机联机 | HostManager / InputHost / wsInputHandler / WsClient | `main/host/` `main/websocket/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
@@ -272,7 +276,7 @@ reserces/
 │   ├── display/              ← LVGL 适配 + ILI9881c + 字体
 │   ├── gpio/                 ← GPIO 封装
 │   ├── gui/                  ← GUI 辅助类
-│   ├── host/                 ← VirtualGamepad (统一手柄输入抽象层)
+│   ├── host/                 ← 跨主机联机 (InputHost / wsInputHandler)
 │   ├── iic/                  ← I²C 总线
 │   ├── monitor/              ← CPU 监视器
 │   ├── mutex/                ← RAII 互斥锁
@@ -282,6 +286,7 @@ reserces/
 │   ├── task/                 ← 协程调度器
 │   ├── touch/                ← GT911 触摸
 │   ├── virtualIndev/         ← 虚拟触摸注入
+│   ├── websocket/            ← WsClient 通用 WebSocket 客户端
 │   ├── wifi/                 ← WiFi / mDNS / TCP Socket
 │   └── wsServer/             ← WebSocket 服务器
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
