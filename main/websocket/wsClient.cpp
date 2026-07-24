@@ -6,6 +6,8 @@
 #include "wsClient.hpp"
 #include <esp_log.h>
 #include <esp_websocket_client.h>
+#include <esp_transport.h>
+#include <sys/socket.h>
 #include <cstring>
 
 static constexpr char TAG[] = "WsClient";
@@ -51,6 +53,8 @@ bool WsClient::connect(const char* host, uint16_t port, const char* uri)
 	cfg.reconnect_timeout_ms = 5000;
 	cfg.network_timeout_ms = 10000;
 	cfg.disable_auto_reconnect = true;
+	cfg.disable_pingpong_discon = true;   // 禁用 ping 超时断连，小包场景更稳定
+	cfg.ping_interval_sec = 0;            // 不主动发送 ping
 
 	m_client = esp_websocket_client_init(&cfg);
 	if (!m_client)
@@ -139,9 +143,23 @@ void WsClient::handleEvent(int32_t eventId, esp_websocket_event_data_t* data)
 	switch (eventId)
 	{
 	case WEBSOCKET_EVENT_CONNECTED:
+	{
 		ESP_LOGI(TAG, "connected");
+		// 获取底层 socket fd，设置 TCP_NODELAY 禁用 Nagle
+		esp_transport_handle_t transport = esp_websocket_client_get_transport(m_client);
+		if (transport)
+		{
+			int sock = esp_transport_get_socket(transport);
+			if (sock >= 0)
+			{
+				int flag = 1;
+				setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+				ESP_LOGI(TAG, "TCP_NODELAY enabled on fd=%d", sock);
+			}
+		}
 		if (m_onConnected) m_onConnected();
 		break;
+	}
 
 	case WEBSOCKET_EVENT_DISCONNECTED:
 		ESP_LOGI(TAG, "disconnected");

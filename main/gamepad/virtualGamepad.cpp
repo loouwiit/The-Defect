@@ -86,13 +86,21 @@ void VirtualGamepad::setRemoteForwarder(WsClient* client)
 {
 	m_remoteForwarder = client;
 	if (client)
-		ESP_LOGI(TAG, "remote forwarder set");
+	{
+		m_forwarderRunning = true;
+		m_forwardThread = Thread{ forwarderTask, "vGamepadFwd", this, Thread::Priority::Normal, 4096 };
+		ESP_LOGI(TAG, "remote forwarder set, forwarder thread started");
+	}
 	else
+	{
+		m_forwarderRunning = false;
 		ESP_LOGI(TAG, "remote forwarder cleared");
+	}
 }
 
 void VirtualGamepad::clearRemoteForwarder()
 {
+	m_forwarderRunning = false;
 	m_remoteForwarder = nullptr;
 	ESP_LOGI(TAG, "remote forwarder cleared");
 }
@@ -139,27 +147,6 @@ void VirtualGamepad::dispatchTask(void* arg)
 			}
 		}
 
-		// 从机模式：转发本机增量到远程主机
-		if (self.m_remoteForwarder && self.m_remoteForwarder->isConnected() && self.deSpeed >= 1) {
-			self.deSpeed = 0;
-			for (int p = 0; p < 4; p++) {
-				const auto& state = self.m_states[0][p];
-				auto& last = self.m_lastForwarded[p];
-				if (last.buttons != state.buttons ||
-					last.lx != state.lx || last.ly != state.ly ||
-					last.dpad != state.dpad)
-				{
-					last = state;
-					uint8_t buf[11];
-					self.packFrame(buf, HostManager::instance().getMySlot(), p, state);
-					if (self.m_remoteForwarder->sendBinary(buf, 11))
-						ESP_LOGI(TAG, "dispatching");
-					else ESP_LOGW(TAG, "blocked");
-				}
-			}
-		}
-		else self.deSpeed++;
-
 		// 保持 ~60fps
 		TickType_t elapsed = xTaskGetTickCount() - startTick;
 		TickType_t delay = pdMS_TO_TICKS(16);
@@ -167,5 +154,51 @@ void VirtualGamepad::dispatchTask(void* arg)
 			vTaskDelay(delay - elapsed);
 		else
 			vTaskDelay(1);
+	}
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Forwarder Task — 独立线程异步转发本机输入到远程主机
+//  Normal 优先级，可安全阻塞，不影响 dispatch 的 60fps 本地分发
+// ════════════════════════════════════════════════════════════════
+
+void VirtualGamepad::forwarderTask(void* arg)
+{
+	static_cast<VirtualGamepad*>(arg)->forwarderLoop();
+	vTaskDelete(nullptr);
+}
+
+void VirtualGamepad::forwarderLoop()
+{
+	while (m_forwarderRunning)
+	{
+		if (m_remoteForwarder && m_remoteForwarder->isConnected())
+		{
+			int8_t slot = HostManager::instance().getMySlot();
+			if (slot >= 0)
+			{
+				for (int p = 0; p < 4; p++)
+				{
+					const auto& state = m_states[0][p];
+					auto& last = m_lastForwarded[p];
+
+					// 去重：仅状态变化时发送
+					if (last.buttons != state.buttons ||
+						last.lx != state.lx || last.ly != state.ly ||
+						last.dpad != state.dpad)
+					{
+						last = state;
+						uint8_t buf[11];
+						packFrame(buf, slot, p, state);
+						m_remoteForwarder->sendBinary(buf, 11, portMAX_DELAY);
+						ESP_LOGI(TAG, "forwarded H%d P%d: btn=0x%04X lx=%d ly=%d dpad=%d",
+							slot, p, state.buttons, state.lx, state.ly, state.dpad);
+					}
+				}
+			}
+		}
+
+		// ~60fps 轮询，不忙等
+		vTaskDelay(pdMS_TO_TICKS(16));
 	}
 }

@@ -59,10 +59,13 @@ private:
 	~VirtualGamepad() = default;
 	VirtualGamepad(const VirtualGamepad&) = delete;
 
-	/// 打包 hostId + GamepadState 到 11 字节缓冲区（供 inject 转发用）
+	/// 打包 hostId + GamepadState 到 11 字节缓冲区
 	static void packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state);
 
+	/// 独立转发线程：将本机输入异步发送到远程主机
 	static void dispatchTask(void* arg);
+	static void forwarderTask(void* arg);
+	void forwarderLoop();
 
 	Display* m_display = nullptr;
 
@@ -75,10 +78,11 @@ private:
 	// 默认：仅本机 4 个手柄全开
 	uint8_t m_hostMask[4] = { 0x0F, 0x07, 0x07, 0x07 };
 
-	// ── 远程转发目标（从机模式）──
+	// ── 远程转发（独立线程，不阻塞 dispatch）──
 	WsClient* m_remoteForwarder = nullptr;
+	Thread m_forwardThread{};
+	bool m_forwarderRunning = false;
 
 	// ── 上次转发的状态（用于去重）──
 	GamepadState m_lastForwarded[4]{};
-	uint8_t deSpeed{};
 };
