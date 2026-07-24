@@ -42,6 +42,9 @@ public:
 	/// 查询某输入源的最新状态
 	const GamepadState& getState(int8_t hostId, int8_t playerId) const;
 
+	/// 查询某主机的掩码
+	uint8_t getHostMask(int8_t hostId) const;
+
 	// ── 远程转发（从机模式）──
 
 	/// 设置远程转发目标（由 HostManager 连接成功后调用）

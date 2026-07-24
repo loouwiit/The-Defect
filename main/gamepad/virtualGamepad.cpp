@@ -71,6 +71,12 @@ void VirtualGamepad::setAllMasks(const uint8_t masks[4])
 		m_hostMask[i] = masks[i];
 }
 
+uint8_t VirtualGamepad::getHostMask(int8_t hostId) const
+{
+	if (hostId < 0 || hostId >= 4) return 0;
+	return m_hostMask[hostId];
+}
+
 void VirtualGamepad::resetPlayer(int8_t hostId, int8_t playerId)
 {
 	if (hostId < 0 || hostId >= 4 || playerId < 0 || playerId >= 4)

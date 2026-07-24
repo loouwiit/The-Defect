@@ -4,6 +4,7 @@
  */
 
 #include "hostManager.hpp"
+#include "gamepad/virtualGamepad.hpp"
 #include "websocket/wsClient.hpp"
 #include <esp_log.h>
 #include <cstring>
@@ -221,7 +222,16 @@ void HostManager::swapSlots(int slotA, int slotB)
 	m_slots[slotB] = tmp;
 	m_slots[slotA].slotId = slotA;
 	m_slots[slotB].slotId = slotB;
-	ESP_LOGI(TAG, "swapped slot %d <-> %d", slotA, slotB);
+
+	// 同时交换 VirtualGamepad 的掩码
+	auto& vg = VirtualGamepad::instance();
+	uint8_t maskA = vg.getHostMask(slotA);
+	uint8_t maskB = vg.getHostMask(slotB);
+	vg.setHostMask(slotA, maskB);
+	vg.setHostMask(slotB, maskA);
+
+	ESP_LOGI(TAG, "swapped slot %d <-> %d (masks: 0x%02X <-> 0x%02X)",
+			 slotA, slotB, maskA, maskB);
 	notifySlotUpdate();
 }
 
