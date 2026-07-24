@@ -69,8 +69,7 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 	}
 
 	/* ── 数据阶段 ── */
-	httpd_ws_frame_t wsPkt;
-	memset(&wsPkt, 0, sizeof(wsPkt));
+	httpd_ws_frame_t wsPkt{};
 	wsPkt.type = HTTPD_WS_TYPE_BINARY;
 
 	/* 获取帧长度 */

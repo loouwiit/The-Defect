@@ -40,10 +40,10 @@ public:
 	bool isConnected() const;
 
 	/// 发送 UTF-8 文本帧
-	bool sendText(const char* data, size_t len);
+	int sendText(const char* data, size_t len, TickType_t blockTime = 0);
 
 	/// 发送二进制帧
-	bool sendBinary(const uint8_t* data, size_t len);
+	int sendBinary(const uint8_t* data, size_t len, TickType_t blockTime = 0);
 
 	// ── 事件回调（WS Task 上下文中触发）──
 

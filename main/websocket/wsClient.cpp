@@ -99,7 +99,7 @@ bool WsClient::isConnected() const
 //  发送
 // ============================================================
 
-bool WsClient::sendText(const char* data, size_t len)
+int WsClient::sendText(const char* data, size_t len, TickType_t blockTime)
 {
 	if (!isConnected())
 	{
@@ -107,12 +107,10 @@ bool WsClient::sendText(const char* data, size_t len)
 		return false;
 	}
 
-	esp_err_t ret = esp_websocket_client_send_text(
-		m_client, data, len, pdMS_TO_TICKS(1000));
-	return ret == ESP_OK;
+	return esp_websocket_client_send_text(m_client, data, len, blockTime);
 }
 
-bool WsClient::sendBinary(const uint8_t* data, size_t len)
+int WsClient::sendBinary(const uint8_t* data, size_t len, TickType_t blockTime)
 {
 	if (!isConnected())
 	{
@@ -121,9 +119,7 @@ bool WsClient::sendBinary(const uint8_t* data, size_t len)
 	}
 
 	// esp_websocket_client_send_bin 接受 const char*，底层数据不变
-	esp_err_t ret = esp_websocket_client_send_bin(
-		m_client, reinterpret_cast<const char*>(data), len, pdMS_TO_TICKS(1000));
-	return ret == ESP_OK;
+	return esp_websocket_client_send_bin(m_client, reinterpret_cast<const char*>(data), len, blockTime);
 }
 
 // ============================================================

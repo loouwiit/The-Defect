@@ -80,4 +80,5 @@ private:
 
 	// ── 上次转发的状态（用于去重）──
 	GamepadState m_lastForwarded[4]{};
+	uint8_t deSpeed{};
 };

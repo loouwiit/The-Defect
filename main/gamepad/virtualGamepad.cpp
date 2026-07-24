@@ -99,16 +99,16 @@ void VirtualGamepad::clearRemoteForwarder()
 
 void VirtualGamepad::packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state)
 {
-	buf[0]  = (uint8_t)hostId;
-	buf[1]  = (uint8_t)playerId;
-	buf[2]  = (uint8_t)(state.buttons & 0xFF);
-	buf[3]  = (uint8_t)(state.buttons >> 8);
-	buf[4]  = state.lx;
-	buf[5]  = state.ly;
-	buf[6]  = state.rx;
-	buf[7]  = state.ry;
-	buf[8]  = state.lt;
-	buf[9]  = state.rt;
+	buf[0] = (uint8_t)hostId;
+	buf[1] = (uint8_t)playerId;
+	buf[2] = (uint8_t)(state.buttons & 0xFF);
+	buf[3] = (uint8_t)(state.buttons >> 8);
+	buf[4] = state.lx;
+	buf[5] = state.ly;
+	buf[6] = state.rx;
+	buf[7] = state.ry;
+	buf[8] = state.lt;
+	buf[9] = state.rt;
 	buf[10] = state.dpad;
 }
 
@@ -139,8 +139,9 @@ void VirtualGamepad::dispatchTask(void* arg)
 			}
 		}
 
-		// 从机模式：60fps 统一转发本机 (hostId=0) 变化到远程主机
-		if (self.m_remoteForwarder && self.m_remoteForwarder->isConnected()) {
+		// 从机模式：转发本机增量到远程主机
+		if (self.m_remoteForwarder && self.m_remoteForwarder->isConnected() && self.deSpeed >= 1) {
+			self.deSpeed = 0;
 			for (int p = 0; p < 4; p++) {
 				const auto& state = self.m_states[0][p];
 				auto& last = self.m_lastForwarded[p];
@@ -151,10 +152,13 @@ void VirtualGamepad::dispatchTask(void* arg)
 					last = state;
 					uint8_t buf[11];
 					self.packFrame(buf, HostManager::instance().getMySlot(), p, state);
-					self.m_remoteForwarder->sendBinary(buf, 11);
+					if (self.m_remoteForwarder->sendBinary(buf, 11))
+						ESP_LOGI(TAG, "dispatching");
+					else ESP_LOGW(TAG, "blocked");
 				}
 			}
 		}
+		else self.deSpeed++;
 
 		// 保持 ~60fps
 		TickType_t elapsed = xTaskGetTickCount() - startTick;
