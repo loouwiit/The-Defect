@@ -1078,6 +1078,8 @@ void BleGamepad::movePlayer(uint8_t from, uint8_t to)
 		std::swap(m_devices[from], m_devices[to]);
 		m_devices[from].playerId = from;
 		m_devices[to].playerId = to;
+		VirtualGamepad::instance().resetPlayer(0, from);
+		VirtualGamepad::instance().resetPlayer(0, to);
 		ESP_LOGI(TAG, "  交换完成: P%u(%s) ↔ P%u(%s)",
 			from, m_devices[from].name, to, m_devices[to].name);
 	}
@@ -1086,6 +1088,7 @@ void BleGamepad::movePlayer(uint8_t from, uint8_t to)
 		m_devices[to] = m_devices[from];
 		m_devices[to].playerId = to;
 		m_devices[from] = {};
+		VirtualGamepad::instance().resetPlayer(0, from);
 		ESP_LOGI(TAG, "  移动完成: %s → P%u", m_devices[to].name, to);
 	}
 }
