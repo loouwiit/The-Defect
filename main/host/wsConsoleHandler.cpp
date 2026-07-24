@@ -88,8 +88,7 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 	}
 
 	/* ── 接收帧 ── */
-	httpd_ws_frame_t wsPkt;
-	memset(&wsPkt, 0, sizeof(wsPkt));
+	httpd_ws_frame_t wsPkt{};
 	wsPkt.type = HTTPD_WS_TYPE_TEXT;
 
 	esp_err_t ret = httpd_ws_recv_frame(req, &wsPkt, 0);
