@@ -157,6 +157,8 @@ void VirtualGamepad::forwarderTask(void* arg)
 	auto& self = *static_cast<VirtualGamepad*>(arg);
 	self.forwarderLoop();
 	self.m_forwardThread = {};
+	while (true)
+		vTaskDelay(1000);
 }
 
 void VirtualGamepad::forwarderLoop()
