@@ -5,7 +5,7 @@
 #include "display/display.hpp"
 #include "task/task.hpp"
 
-class WsClient;  // forward decl, 避免循环包含
+class FastWsClient;  // forward decl, 避免循环包含
 
 /**
  * @brief 统一手柄输入抽象层
@@ -45,8 +45,8 @@ public:
 	// ── 远程转发（从机模式）──
 
 	/// 设置远程转发目标（由 HostManager 连接成功后调用）
-	/// 此后 inject(0, ...) 会自动序列化并转发到该客户端
-	void setRemoteForwarder(WsClient* client);
+	/// 使用 FastWsClient 避免 esp_websocket_client 内部缓冲
+	void setRemoteForwarder(FastWsClient* client);
 
 	/// 清除远程转发（断开时调用）
 	void clearRemoteForwarder();
@@ -59,8 +59,13 @@ private:
 	~VirtualGamepad() = default;
 	VirtualGamepad(const VirtualGamepad&) = delete;
 
-	/// 打包 hostId + GamepadState 到 11 字节缓冲区（供 inject 转发用）
+	/// 打包 hostId + GamepadState 到 11 字节缓冲区
 	static void packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state);
+
+	/// 打包 4 玩家到 42 字节帧（批量转发，避免 Nagle 问题）
+	static void packBatchedFrame(uint8_t buf[42], int8_t hostId,
+		const GamepadState states[4], const GamepadState lastForwarded[4],
+		uint8_t& outPlayerMask);
 
 	static void dispatchTask(void* arg);
 
@@ -75,8 +80,8 @@ private:
 	// 默认：仅本机 4 个手柄全开
 	uint8_t m_hostMask[4] = { 0x0F, 0x07, 0x07, 0x07 };
 
-	// ── 远程转发目标（从机模式）──
-	WsClient* m_remoteForwarder = nullptr;
+	// ── 远程转发目标（从机模式，FastWsClient 避免内部缓冲）──
+	FastWsClient* m_remoteForwarder = nullptr;
 
 	// ── 上次转发的状态（用于去重）──
 	GamepadState m_lastForwarded[4]{};

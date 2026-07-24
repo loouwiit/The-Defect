@@ -24,8 +24,8 @@
 
 static constexpr char TAG[] = "WSInput";
 
-// 二进制帧大小：11 字节（hostId + GamepadState）
-static constexpr size_t FRAME_SIZE = 11;
+static constexpr size_t FRAME_SIZE_OLD = 11;    // 单玩家帧（Web 客户端兼容）
+static constexpr size_t FRAME_SIZE_BATCH = 42;  // 批量帧（P4 从机）
 
 // 轻量 fd→hostId 追踪，用于断开时 resetPlayer
 static struct {
@@ -82,8 +82,8 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 		return ret;
 	}
 
-	/* 只接受 11 字节二进制帧 */
-	if (wsPkt.len != FRAME_SIZE)
+	/* 接受 11 字节（旧单玩家）或 42 字节（新批量）帧 */
+	if (wsPkt.len != FRAME_SIZE_OLD && wsPkt.len != FRAME_SIZE_BATCH)
 	{
 		if (wsPkt.len > 0)
 		{
@@ -94,13 +94,12 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 				httpd_ws_recv_frame(req, &wsPkt, wsPkt.len);
 				heap_caps_free(discard);
 			}
-			ESP_LOGW(TAG, "discarded invalid frame of size %d", wsPkt.len);
 		}
 		return ESP_OK;
 	}
 
 	/* 分配缓冲区 */
-	uint8_t* buf = (uint8_t*)heap_caps_malloc(FRAME_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	uint8_t* buf = (uint8_t*)heap_caps_malloc(wsPkt.len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 	if (!buf)
 	{
 		ESP_LOGE(TAG, "OOM");
@@ -108,45 +107,47 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 	}
 
 	wsPkt.payload = buf;
-	ret = httpd_ws_recv_frame(req, &wsPkt, FRAME_SIZE);
+	ret = httpd_ws_recv_frame(req, &wsPkt, wsPkt.len);
 	if (ret != ESP_OK)
 	{
 		heap_caps_free(buf);
 		return ret;
 	}
 
-	/* ── 解析 11 字节帧 ── */
-	int8_t hostId      = (int8_t)buf[0];
-	int8_t localPlayer = (int8_t)buf[1];
-	GamepadState state;
-	state.buttons = (uint16_t)(buf[2] | (buf[3] << 8));
-	state.lx = buf[4];
-	state.ly = buf[5];
-	state.rx = buf[6];
-	state.ry = buf[7];
-	state.lt = buf[8];
-	state.rt = buf[9];
-	state.dpad = buf[10];
-
-	heap_caps_free(buf);
-
-	/* ── 追踪 fd → hostId，用于断开清理 ── */
 	int fd = httpd_req_to_sockfd(req);
-	trackFd(fd, hostId);
 
-	ESP_LOGI(TAG, "recv from %d: hostId=%d, localPlayer=%d, buttons=0x%04X, lx=%d, ly=%d, rx=%d, ry=%d, lt=%d, rt=%d, dpad=%d",
-		fd, hostId, localPlayer, state.buttons,
-		state.lx, state.ly, state.rx, state.ry,
-		state.lt, state.rt, state.dpad);
-
-	/* ── 注入 ── */
-	if (hostId < 0 || hostId >= 4)
-	{
-		ESP_LOGW(TAG, "invalid hostId=%d", hostId);
-		return ESP_OK;
+	if (wsPkt.len == FRAME_SIZE_BATCH) {
+		/* 42 字节批量帧（P4 从机） */
+		int8_t hostId = (int8_t)buf[0];
+		uint8_t playerMask = buf[1];
+		trackFd(fd, hostId);
+		ESP_LOGI(TAG, "recv: hostId=%d, mask=0x%02X", hostId, playerMask);
+		for (int p = 0; p < 4; p++) {
+			if (!(playerMask & (1 << p))) continue;
+			int off = 2 + p * 10;
+			GamepadState state{};
+			state.buttons = (uint16_t)(buf[off + 1] | (buf[off + 2] << 8));
+			state.lx = buf[off + 3]; state.ly = buf[off + 4];
+			state.rx = buf[off + 5]; state.ry = buf[off + 6];
+			state.lt = buf[off + 7]; state.rt = buf[off + 8];
+			state.dpad = buf[off + 9];
+			VirtualGamepad::instance().inject(hostId, p, state);
+		}
+	} else {
+		/* 11 字节帧（Web 客户端 gamepad.html） */
+		int8_t hostId = (int8_t)buf[0];
+		int8_t localPlayer = (int8_t)buf[1];
+		trackFd(fd, hostId);
+		GamepadState state{};
+		state.buttons = (uint16_t)(buf[2] | (buf[3] << 8));
+		state.lx = buf[4]; state.ly = buf[5];
+		state.rx = buf[6]; state.ry = buf[7];
+		state.lt = buf[8]; state.rt = buf[9];
+		state.dpad = buf[10];
+		ESP_LOGD(TAG, "web recv: hostId=%d, localPlayer=%d", hostId, localPlayer);
+		VirtualGamepad::instance().inject(hostId, localPlayer, state);
 	}
 
-	VirtualGamepad::instance().inject(hostId, localPlayer, state);
-
+	heap_caps_free(buf);
 	return ESP_OK;
 }

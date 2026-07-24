@@ -5,6 +5,7 @@
 #include <cstring>
 
 class WsClient;
+class FastWsClient;
 
 /**
  * @brief 跨主机连接管理器 — 单例
@@ -105,6 +106,7 @@ private:
 	static constexpr int POOL_SIZE = 4;
 	WsEntry m_wsPool[POOL_SIZE]{};
 	WsClient* m_consoleClient = nullptr;  // /ws/console 连接
+	FastWsClient* m_inputClient = nullptr; // /ws/input 快速连接
 
 	WsClient* createOrGetWsClient(const char* uri);
 

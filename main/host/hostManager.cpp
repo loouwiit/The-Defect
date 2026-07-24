@@ -5,6 +5,7 @@
 
 #include "hostManager.hpp"
 #include "gamepad/virtualGamepad.hpp"
+#include "websocket/fastWsClient.hpp"
 #include "websocket/wsClient.hpp"
 #include <esp_log.h>
 #include <cstring>
@@ -56,7 +57,11 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 
 		// 清理转发器
 		VirtualGamepad::instance().clearRemoteForwarder();
-		ESP_LOGI(TAG, "remote forwarder cleared");
+
+		if (m_inputClient) {
+			delete m_inputClient;
+			m_inputClient = nullptr;
+		}
 
 		// 清理连接池
 		for (auto& e : m_wsPool) {
@@ -85,14 +90,18 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 					m_isClient = true;
 					ESP_LOGI(TAG, "registered as slot %d", m_mySlot);
 
-					// 建立 /ws/input 通道并设置转发目标
-					auto* wsInput = createOrGetWsClient("/ws/input");
-					if (wsInput) {
-						VirtualGamepad::instance().setRemoteForwarder(wsInput);
-						ESP_LOGI(TAG, "remote forwarder set via /ws/input");
-					}
+				// 建立 /ws/input 通道（使用 FastWsClient 避免内部缓冲）
+				m_inputClient = new FastWsClient();
+				if (m_inputClient->connect(m_remoteIp, m_remotePort, "/ws/input")) {
+					VirtualGamepad::instance().setRemoteForwarder(m_inputClient);
+					ESP_LOGI(TAG, "remote forwarder set via FastWsClient /ws/input");
+				} else {
+					ESP_LOGE(TAG, "FastWsClient connect /ws/input failed");
+					delete m_inputClient;
+					m_inputClient = nullptr;
+				}
 
-					if (m_onRoleChange) m_onRoleChange(true);
+				if (m_onRoleChange) m_onRoleChange(true);
 				}
 			}
 			else if (strcmp(type, "client_joined") == 0) {

@@ -1,6 +1,6 @@
 idf_component_register(SRCS "main.cpp"
                             "iic/iic.cpp"
-                            "wifi/wifi.cpp" "wifi/slave.cpp" "wifi/mdns.cpp" "wifi/socketStream.cpp" "wifi/socketStreamWindow.cpp" "wifi/http.cpp" "websocket/wsClient.cpp"
+                            "wifi/wifi.cpp" "wifi/slave.cpp" "wifi/mdns.cpp" "wifi/socketStream.cpp" "wifi/socketStreamWindow.cpp" "wifi/http.cpp" "websocket/wsClient.cpp" "websocket/fastWsClient.cpp"
                             "display/display.cpp" "display/ili9881c.cpp" "display/font.cpp"
                             "touch/touch.cpp"
                             "audio/ES8311.cpp" "audio/Audio.cpp"

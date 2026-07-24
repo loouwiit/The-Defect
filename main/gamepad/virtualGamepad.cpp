@@ -1,6 +1,6 @@
 #include "virtualGamepad.hpp"
 #include "host/hostManager.hpp"
-#include "websocket/wsClient.hpp"
+#include "websocket/fastWsClient.hpp"
 #include "app/app.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "freertos/FreeRTOS.h"
@@ -82,7 +82,7 @@ const GamepadState& VirtualGamepad::getState(int8_t hostId, int8_t playerId) con
 //  远程转发
 // ════════════════════════════════════════════════════════════════
 
-void VirtualGamepad::setRemoteForwarder(WsClient* client)
+void VirtualGamepad::setRemoteForwarder(FastWsClient* client)
 {
 	m_remoteForwarder = client;
 	if (client)
@@ -95,6 +95,34 @@ void VirtualGamepad::clearRemoteForwarder()
 {
 	m_remoteForwarder = nullptr;
 	ESP_LOGI(TAG, "remote forwarder cleared");
+}
+
+void VirtualGamepad::packBatchedFrame(uint8_t buf[42], int8_t hostId,
+	const GamepadState states[4], const GamepadState lastForwarded[4],
+	uint8_t& outPlayerMask)
+{
+	buf[0] = (uint8_t)hostId;
+	uint8_t mask = 0;
+	for (int p = 0; p < 4; p++) {
+		const auto& s = states[p];
+		const auto& l = lastForwarded[p];
+		if (s.buttons == l.buttons && s.lx == l.lx && s.ly == l.ly && s.dpad == l.dpad)
+			continue;
+		mask |= (1 << p);
+		int off = 2 + p * 10;
+		buf[off + 0] = (uint8_t)p;  // localPlayer
+		buf[off + 1] = (uint8_t)(s.buttons & 0xFF);
+		buf[off + 2] = (uint8_t)(s.buttons >> 8);
+		buf[off + 3] = s.lx;
+		buf[off + 4] = s.ly;
+		buf[off + 5] = s.rx;
+		buf[off + 6] = s.ry;
+		buf[off + 7] = s.lt;
+		buf[off + 8] = s.rt;
+		buf[off + 9] = s.dpad;
+	}
+	buf[1] = mask;
+	outPlayerMask = mask;
 }
 
 void VirtualGamepad::packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state)
@@ -141,17 +169,17 @@ void VirtualGamepad::dispatchTask(void* arg)
 
 		// 从机模式：60fps 统一转发本机 (hostId=0) 变化到远程主机
 		if (self.m_remoteForwarder && self.m_remoteForwarder->isConnected()) {
-			for (int p = 0; p < 4; p++) {
-				const auto& state = self.m_states[0][p];
-				auto& last = self.m_lastForwarded[p];
-				if (last.buttons != state.buttons ||
-					last.lx != state.lx || last.ly != state.ly ||
-					last.dpad != state.dpad)
-				{
-					last = state;
-					uint8_t buf[11];
-					self.packFrame(buf, HostManager::instance().getMySlot(), p, state);
-					self.m_remoteForwarder->sendBinary(buf, 11);
+			uint8_t buf[42];
+			uint8_t playerMask = 0;
+			self.packBatchedFrame(buf, HostManager::instance().getMySlot(),
+				self.m_states[0], self.m_lastForwarded, playerMask);
+			if (playerMask) {
+				ESP_LOGI(TAG, "forwarding to remote: playerMask=0x%02X", playerMask);
+				self.m_remoteForwarder->sendBinary(buf, 42);
+				// 更新 lastForwarded
+				for (int p = 0; p < 4; p++) {
+					if (playerMask & (1 << p))
+						self.m_lastForwarded[p] = self.m_states[0][p];
 				}
 			}
 		}
