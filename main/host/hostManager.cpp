@@ -54,9 +54,7 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 	m_consoleClient->setOnDisconnected([this]() {
 		ESP_LOGI(TAG, "console channel disconnected");
 
-		// 清理转发器
-		VirtualGamepad::instance().clearRemoteForwarder();
-		ESP_LOGI(TAG, "remote forwarder cleared");
+		VirtualGamepad::instance().stopForwarder();
 
 		// 清理连接池
 		for (auto& e : m_wsPool) {
@@ -85,12 +83,8 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 					m_isClient = true;
 					ESP_LOGI(TAG, "registered as slot %d", m_mySlot);
 
-					// 建立 /ws/input 通道并设置转发目标
-					auto* wsInput = createOrGetWsClient("/ws/input");
-					if (wsInput) {
-						VirtualGamepad::instance().setRemoteForwarder(wsInput);
-						ESP_LOGI(TAG, "remote forwarder set via /ws/input");
-					}
+					// 启动 UDP 转发线程
+					VirtualGamepad::instance().startForwarder();
 
 					if (m_onRoleChange) m_onRoleChange(true);
 				}

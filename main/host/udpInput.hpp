@@ -23,5 +23,13 @@
  */
 void udpInputStart();
 
-/// 发送 11 字节 UDP 帧到目标主机
-bool udpInputSend(const char* host, uint16_t port, const uint8_t* data, size_t len);
+/// 创建 UDP 发送 socket（持久复用，不要每次发送都创建）
+/// 返回 socket fd，失败返回 -1
+int udpInputCreateSocket(const char* host, uint16_t port);
+
+/// 通过已有 socket 发送 11 字节帧（不关闭 socket）
+/// sock 由 udpInputCreateSocket() 创建
+bool udpInputSend(int sock, const uint8_t* data, size_t len);
+
+/// 关闭 UDP 发送 socket
+void udpInputCloseSocket(int sock);

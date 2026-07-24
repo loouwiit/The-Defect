@@ -5,8 +5,6 @@
 #include "display/display.hpp"
 #include "task/task.hpp"
 
-class WsClient;  // forward decl, 避免循环包含
-
 /**
  * @brief 统一手柄输入抽象层
  *
@@ -42,17 +40,13 @@ public:
 	/// 查询某输入源的最新状态
 	const GamepadState& getState(int8_t hostId, int8_t playerId) const;
 
-	// ── 远程转发（从机模式）──
+	// ── 远程转发（从机模式，UDP）──
 
-	/// 设置远程转发目标（由 HostManager 连接成功后调用）
-	/// 此后 inject(0, ...) 会自动序列化并转发到该客户端
-	void setRemoteForwarder(WsClient* client);
+	/// 启动转发线程（由 HostManager 注册成功后调用）
+	void startForwarder();
 
-	/// 清除远程转发（断开时调用）
-	void clearRemoteForwarder();
-
-	/// 当前是否正在远程转发
-	bool hasRemoteForwarder() const { return m_remoteForwarder != nullptr; }
+	/// 停止转发线程（断开连接时调用）
+	void stopForwarder();
 
 private:
 	VirtualGamepad() = default;
@@ -79,7 +73,6 @@ private:
 	uint8_t m_hostMask[4] = { 0x0F, 0x07, 0x07, 0x07 };
 
 	// ── 远程转发（独立线程，不阻塞 dispatch）──
-	WsClient* m_remoteForwarder = nullptr;
 	Thread m_forwardThread{};
 	bool m_forwarderRunning = false;
 

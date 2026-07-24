@@ -29,34 +29,53 @@ static constexpr size_t FRAME_SIZE = 11;
 //  发送
 // ════════════════════════════════════════════════════════════════
 
-bool udpInputSend(const char* host, uint16_t port, const uint8_t* data, size_t len)
+int udpInputCreateSocket(const char* host, uint16_t port)
 {
-	if (!host || !data || len != FRAME_SIZE)
-		return false;
+	if (!host)
+		return -1;
 
 	int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (sock < 0)
 	{
 		ESP_LOGW(TAG, "socket create failed: errno=%d", errno);
-		return false;
+		return -1;
 	}
 
+	// 预连接目标地址：后续 sendto 可用更快路径
 	struct sockaddr_in dest{};
 	dest.sin_family = AF_INET;
 	dest.sin_port = htons(port);
 	inet_pton(AF_INET, host, &dest.sin_addr);
 
-	ssize_t sent = sendto(sock, data, len, 0,
-		(struct sockaddr*)&dest, sizeof(dest));
+	// connect 后可用 send() 代替 sendto()，略快
+	if (connect(sock, (struct sockaddr*)&dest, sizeof(dest)) < 0)
+	{
+		ESP_LOGW(TAG, "connect failed: errno=%d", errno);
+		close(sock);
+		return -1;
+	}
 
-	close(sock);
+	return sock;
+}
 
+bool udpInputSend(int sock, const uint8_t* data, size_t len)
+{
+	if (sock < 0 || !data || len != FRAME_SIZE)
+		return false;
+
+	ssize_t sent = send(sock, data, len, 0);
 	if (sent != (ssize_t)len)
 	{
-		ESP_LOGW(TAG, "sendto failed: sent=%d, errno=%d", sent, errno);
+		ESP_LOGW(TAG, "send failed: sent=%d, errno=%d", sent, errno);
 		return false;
 	}
 	return true;
+}
+
+void udpInputCloseSocket(int sock)
+{
+	if (sock >= 0)
+		close(sock);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -161,7 +180,7 @@ static void udpListenerTask(void* arg)
 			}
 		}
 
-		ESP_LOGI(TAG, "Received UDP packet from %s:%d", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+		ESP_LOGD(TAG, "Received UDP packet from %s:%d", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
 
 		if (hostId >= 0 && hostId < 4)
 			VirtualGamepad::instance().inject(hostId, localPlayer, state);

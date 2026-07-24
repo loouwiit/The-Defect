@@ -218,6 +218,12 @@ void wifiStart()
 		return;
 	}
 	esp_wifi_start();
+
+	esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
+	if (err == ESP_OK) {
+		ESP_LOGI("WiFi", "Successfully disabled Wi-Fi Power Save");
+	}
+
 	wifiStarted = true;
 	wifiStationWantConnect = false;
 	ip = { 0 };

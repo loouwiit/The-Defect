@@ -1,7 +1,6 @@
 #include "virtualGamepad.hpp"
 #include "host/hostManager.hpp"
 #include "host/udpInput.hpp"
-#include "websocket/wsClient.hpp"
 #include "app/app.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "freertos/FreeRTOS.h"
@@ -83,27 +82,17 @@ const GamepadState& VirtualGamepad::getState(int8_t hostId, int8_t playerId) con
 //  远程转发
 // ════════════════════════════════════════════════════════════════
 
-void VirtualGamepad::setRemoteForwarder(WsClient* client)
+void VirtualGamepad::startForwarder()
 {
-	m_remoteForwarder = client;
-	if (client)
-	{
-		m_forwarderRunning = true;
-		m_forwardThread = Thread{ forwarderTask, "vGamepadFwd", this, Thread::Priority::Normal, 4096 };
-		ESP_LOGI(TAG, "remote forwarder set, forwarder thread started");
-	}
-	else
-	{
-		m_forwarderRunning = false;
-		ESP_LOGI(TAG, "remote forwarder cleared");
-	}
+	m_forwarderRunning = true;
+	m_forwardThread = Thread{ forwarderTask, "vGamepadFwd", this, Thread::Priority::RealTime, 4096 };
+	ESP_LOGI(TAG, "forwarder thread started");
 }
 
-void VirtualGamepad::clearRemoteForwarder()
+void VirtualGamepad::stopForwarder()
 {
 	m_forwarderRunning = false;
-	m_remoteForwarder = nullptr;
-	ESP_LOGI(TAG, "remote forwarder cleared");
+	ESP_LOGI(TAG, "forwarder stopped");
 }
 
 void VirtualGamepad::packFrame(uint8_t buf[11], int8_t hostId, int8_t playerId, const GamepadState& state)
@@ -165,42 +154,68 @@ void VirtualGamepad::dispatchTask(void* arg)
 
 void VirtualGamepad::forwarderTask(void* arg)
 {
-	static_cast<VirtualGamepad*>(arg)->forwarderLoop();
-	vTaskDelete(nullptr);
+	auto& self = *static_cast<VirtualGamepad*>(arg);
+	self.forwarderLoop();
+	self.m_forwardThread = {};
 }
 
 void VirtualGamepad::forwarderLoop()
 {
+	int sock = -1;
+	bool needCreateSocket = true;
+
 	while (m_forwarderRunning)
 	{
 		const char* hostIp = HostManager::instance().getRemoteIp();
 		if (hostIp && hostIp[0])
 		{
-			int8_t slot = HostManager::instance().getMySlot();
-			if (slot >= 0)
+			// 需要时创建持久 socket（只创建一次，后续复用）
+			if (needCreateSocket)
 			{
-				for (int p = 0; p < 4; p++)
-				{
-					const auto& state = m_states[0][p];
-					auto& last = m_lastForwarded[p];
+				if (sock >= 0) udpInputCloseSocket(sock);
+				sock = udpInputCreateSocket(hostIp, 8082);
+				needCreateSocket = false;
+				if (sock < 0)
+					ESP_LOGW(TAG, "create socket failed, will retry");
+			}
 
-					// 去重：仅状态变化时发送
-					if (last.buttons != state.buttons ||
-						last.lx != state.lx || last.ly != state.ly ||
-						last.dpad != state.dpad)
+			if (sock >= 0)
+			{
+				int8_t slot = HostManager::instance().getMySlot();
+				if (slot >= 0)
+				{
+					for (int p = 0; p < 4; p++)
 					{
-						last = state;
-						uint8_t buf[11];
-						packFrame(buf, slot, p, state);
-						udpInputSend(hostIp, 8082, buf, 11);
-						ESP_LOGI(TAG, "forwarded H%d P%d: btn=0x%04X lx=%d ly=%d dpad=%d",
-							slot, p, state.buttons, state.lx, state.ly, state.dpad);
+						const auto& state = m_states[0][p];
+						auto& last = m_lastForwarded[p];
+
+						if (last.buttons != state.buttons ||
+							last.lx != state.lx || last.ly != state.ly ||
+							last.dpad != state.dpad)
+						{
+							last = state;
+							uint8_t buf[11];
+							packFrame(buf, slot, p, state);
+							udpInputSend(sock, buf, 11);
+						}
 					}
 				}
 			}
 		}
+		else
+		{
+			// 没有远程主机，关闭 socket
+			needCreateSocket = true;
+			if (sock >= 0)
+			{
+				udpInputCloseSocket(sock);
+				sock = -1;
+			}
+		}
 
-		// ~60fps 轮询，不忙等
-		vTaskDelay(pdMS_TO_TICKS(16));
+		vTaskDelay(pdMS_TO_TICKS(33));
 	}
+
+	if (sock >= 0)
+		udpInputCloseSocket(sock);
 }
