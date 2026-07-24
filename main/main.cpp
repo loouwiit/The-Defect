@@ -27,6 +27,9 @@
 #include "screenStream/screenStream.hpp"
 #include "virtualIndev/virtualIndev.hpp"
 #include "websocket/wsServer.hpp"
+#include "host/wsInputHandler.hpp"
+#include "host/wsConsoleHandler.hpp"
+#include "host/udpInput.hpp"
 #include "wifi/mdns.hpp"
 #include "virtualIndev/wsTouchHandler.hpp"
 #include "screenStream/wsStreamHandler.hpp"
@@ -249,6 +252,10 @@ extern "C" void app_main(void)
 	wsServerRegisterWs("/ws/input", wsInputHandler);
 	wsServerRegisterWs("/ws/console", wsConsoleHandler);
 	ESP_LOGI(TAG, "wsServerStart done");
+
+	// UDP 游戏手柄输入（端口 8082，替代 WebSocket 的低延迟方案）
+	udpInputStart();
+	ESP_LOGI(TAG, "udpInputStart done");
 
 	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
 	while (true)

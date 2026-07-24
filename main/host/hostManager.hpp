@@ -44,6 +44,8 @@ public:
 	bool isConnectedToHost() const { return m_consoleClient != nullptr; }
 	int  getMySlot() const         { return m_mySlot; }
 	const char* getRemoteHostname() const { return m_remoteHostname; }
+	const char* getRemoteIp() const       { return m_remoteIp; }
+	uint16_t    getRemotePort() const     { return m_remotePort; }
 
 	/// 获取 WebSocket 连接（从机调用）
 	/// uri 示例: "/ws/tetris", "/ws/snake"

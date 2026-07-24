@@ -1,5 +1,6 @@
 #include "virtualGamepad.hpp"
 #include "host/hostManager.hpp"
+#include "host/udpInput.hpp"
 #include "websocket/wsClient.hpp"
 #include "app/app.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
@@ -172,7 +173,8 @@ void VirtualGamepad::forwarderLoop()
 {
 	while (m_forwarderRunning)
 	{
-		if (m_remoteForwarder && m_remoteForwarder->isConnected())
+		const char* hostIp = HostManager::instance().getRemoteIp();
+		if (hostIp && hostIp[0])
 		{
 			int8_t slot = HostManager::instance().getMySlot();
 			if (slot >= 0)
@@ -190,7 +192,7 @@ void VirtualGamepad::forwarderLoop()
 						last = state;
 						uint8_t buf[11];
 						packFrame(buf, slot, p, state);
-						m_remoteForwarder->sendBinary(buf, 11, portMAX_DELAY);
+						udpInputSend(hostIp, 8082, buf, 11);
 						ESP_LOGI(TAG, "forwarded H%d P%d: btn=0x%04X lx=%d ly=%d dpad=%d",
 							slot, p, state.buttons, state.lx, state.ly, state.dpad);
 					}
