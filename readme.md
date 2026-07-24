@@ -137,21 +137,25 @@ ESP32-C6 (协处理器)
 │  DesktopApp │ Tetris │ FruitNinja │ Snake │ ChineseChess  │
 │  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt   |
 │  ConsoleManagerment  │   AiAgent     |  testApp           |
-├───────────────────────┬──────────────────────────────────┤
-│     AppStackManager   │     VirtualGamepad               │
-│  ├─ Stack 0 (桌面)    │  ├─ inject (BLE/远程)            │
-│  ├─ Stack 1..N (游戏) │  ├─ Dispatch Task @60fps         │
-│  └─ 异步删除 + 去重   │  └─ hostMask 掩码过滤            │
-│                       ├──────────────────────────────────┤
-│                       │  ├─ HTTP Server (port 80)        │
-│                       │  ├─ WS Server  (port 8080)       │
-│                       │  │  ├─ /ws/touch  触控注入       │
-│                       │  │  ├─ /ws/input  手柄透传       │
-│                       │  │  ├─ /ws/stream 屏幕串流       │
-│                       │  │  └─ /ws/console 设备管理      │
-│                       │  ├─ ScreenStream (MJPEG)         │
-│                       │  ├─ mDNS (_http, _ws, _p4console)│
-│                       │  └─ Discovery (设备枚举)         │
+├───────────┬─────────────────────────┬───────────────────────────────┤
+│  AppStackManager     │  VirtualGamepad                  │
+│  ├─ Stack 0 (桌面)    │  ├─ inject (BLE/远程/WEB)       │
+│  ├─ Stack 1..N (游戏) │  ├─ Dispatch Task @60fps        │
+│  └─ 异步删除 + 去重   │  ├─ hostMask 掩码过滤            │
+│                      │  └─ Forwarder Thread (UDP 从机)  │
+│                      ├─────────────────────────────────┤
+│                      │  ├─ HostManager (角色/槽位管理)  │
+│                      │  ├─ HTTP Server (port 80)        │
+│                      │  ├─ WS Server  (port 8080)       │
+│                      │  │  ├─ /ws/touch  触控注入       │
+│                      │  │  ├─ /ws/input  手柄透传(Web)  │
+│                      │  │  ├─ /ws/stream 屏幕串流       │
+│                      │  │  └─ /ws/console 设备管理      │
+│                      │  ├─ UDP Server (port 8082)       │
+│                      │  │  └─ P4→P4 低延迟手柄转发      │
+│                      │  ├─ ScreenStream (MJPEG)         │
+│                      │  ├─ mDNS (_http, _ws, _p4console)│
+│                      │  └─ Discovery (设备枚举)         │
 ├──────────┬────────────┴────────────┬─────────────────────┤
 │ 显示/输入 │     WiFi / BLE         │      存储            │
 │ Display  │  ├─ STA/AP 双模 + NAT  │ FAT (16MB)          │
@@ -191,7 +195,7 @@ ESP32-C6 (协处理器)
 |------|------|------|
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
 | 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/gamepad/` |
-| 跨主机联机 | HostManager / InputHost / wsInputHandler / WsClient | `main/host/` `main/websocket/` |
+| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient | `main/host/` `main/websocket/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
@@ -218,7 +222,7 @@ idf.py build
 
 ### 补丁
 
-项目依赖 3 个对 managed_components 的补丁：
+项目依赖 4 个对 managed_components 的补丁：
 
 ```bash
 bash patches/apply.sh
@@ -259,7 +263,8 @@ reserces/
 | 服务 | 端口 | 协议 | 说明 |
 |------|------|------|------|
 | HTTP | 80 | TCP | 网页服务 + 屏幕串流 |
-| WebSocket | 8080 | TCP | 游戏通信 + 触控注入 |
+| WebSocket | 8080 | TCP | 触控注入 + 游戏通信 (Web) + 设备管理 |
+| UDP | 8082 | UDP | P4→P4 低延迟手柄输入转发 |
 | mDNS | 5353 | UDP | 服务发现 (`esp32p4.local`) |
 
 ---
@@ -276,7 +281,7 @@ reserces/
 │   ├── display/              ← LVGL 适配 + ILI9881c + 字体
 │   ├── gpio/                 ← GPIO 封装
 │   ├── gui/                  ← GUI 辅助类
-│   ├── host/                 ← 跨主机联机 (InputHost / wsInputHandler)
+│   ├── host/                 ← 跨主机联机 (HostManager / wsInputHandler / wsConsoleHandler / udpInput)
 │   ├── iic/                  ← I²C 总线
 │   ├── monitor/              ← CPU 监视器
 │   ├── mutex/                ← RAII 互斥锁

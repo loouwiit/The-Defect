@@ -79,9 +79,11 @@ reserces/
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
 | | TestApp | `main/app/testApp/` | 测试用 App |
 | | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理（mDNS 发现其他主机） |
-| **跨主机联机** | HostManager | `main/host/` | 联机基础设施（角色管理、连接池、InputHost fd 映射） |
+| **跨主机联机** | HostManager | `main/host/hostManager.hpp` | 角色管理（主机/从机）、4 槽位管理、WsClient 连接池 |
+| | wsConsoleHandler | `main/host/wsConsoleHandler.cpp` | `/ws/console` 管理通道（注册/槽位分配/广播/心跳） |
+| | wsInputHandler | `main/host/wsInputHandler.cpp` | `/ws/input` WebSocket 入口（Web 客户端用）→ VirtualGamepad |
+| | udpInput | `main/host/udpInput.cpp` | UDP 端口 8082 监听 + 发送（P4→P4 低延迟输入转发，持久 socket，零 TIME_WAIT）|
 | | WsClient | `main/websocket/wsClient.hpp` | 通用 WebSocket 客户端封装，`sendText` / `sendBinary` |
-| | wsInputHandler | `main/host/wsInputHandler.cpp` | `/ws/input` handler，接收 11 字节 GamepadState 帧 → VirtualGamepad |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
@@ -102,7 +104,7 @@ reserces/
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
-| **补丁** | Patches | `patches/` | 3 个 patch：帧回调 / PPA 队列 / SRM macro bypass |
+| **补丁** | Patches | `patches/` | 4 个 patch：帧回调 / PPA 队列 / SRM macro bypass / WS client expose transport |
 
 ---
 
@@ -242,21 +244,21 @@ public:
     void setHostMask(int8_t hostId, uint8_t playerMask);
     void setAllMasks(const uint8_t masks[4]);
 
-    // ── 远程转发（从机模式）──
-    /// 设置转发目标后，inject(0, ...) 自动序列化 11 字节帧发到远程主机
-    void setRemoteForwarder(WsClient* client);
-    void clearRemoteForwarder();
+    // ── 远程转发（从机模式，UDP）──
+    void startForwarder();    // 启动独立 Thread 通过 UDP 转发本机输入
+    void stopForwarder();
 };
 ```
 
 **架构**:
 ```
 BLE Task  → inject(0, p, state)     ← 本机
-WS Task   → inject(hostId, p, state) ← 远程（来自 /ws/input）
+UDP Task  → inject(hostId, p, state) ← 远程（来自 UDP 端口 8082）
+WS Task   → inject(hostId, p, state) ← 远程（来自 /ws/input，Web 客户端）
                                               ↓
 VirtualGamepad:
   ├── m_states[hostId][playerId] = state  (存储)
-  ├── 有 remoteForwarder? → 序列化 11 字节 → 远程主机 /ws/input
+  ├── forwarderThread @60fps UDP → 远程主机端口 8082（从机模式）
   └── dispatchTask() @60fps → app->onGamepadInput(hostId, playerId, state)
 ```
 
@@ -265,16 +267,15 @@ VirtualGamepad:
 | inject(hostId, ...) | hostId=0 本机，1-3 远程；数据包自描述，无需 fd 映射 |
 | 分发频率 | 固定 60fps (16ms)，独立 Dispatch Task |
 | 全量更新 | 每次遍历所有掩码启用的 (hostId, playerId) |
-| 掩码默认 | `{0x0F, 0, 0, 0}` 仅本机 4 手柄全开 |
+| 掩码默认 | `{0x0F, 0x07, 0x07, 0x07}` 自动启用有输入的 host |
 | AI Overlay | `isVisible()` 时跳过分发，AI 独占输入 |
-| setRemoteForwarder | 从机模式：本机输入自动转发到远程主机 |
-| inject 去重 | 状态未变化时不转发，避免 TCP 缓冲区堆积 |
+| 从机转发 | forwarderThread（Normal 优先级）独立运行，不阻塞 dispatch |
+| 传输方式 | UDP（11 字节/帧），持久 socket `connect()` + `send()`，零创建开销 |
+| 注入去重 | 状态未变化时不转发 |
 
-**`onGamepadInput` 签名变更**:
+**`onGamepadInput` 签名**:
 ```cpp
-// 旧
-virtual void onGamepadInput(uint8_t playerId, const GamepadState& state);
-// 新 — hostId 插最前，playerId 位置不变，函数体零改动
+// hostId: 0=本机, 1-3=从机；playerId: 设备上的手柄编号 (0-3)
 virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state);
 ```
 
@@ -283,11 +284,11 @@ virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& 
 - BleGamepad::start 末尾 → `VirtualGamepad::instance().start(display)`
 - BLE_GAP_EVENT_DISCONNECT → `resetPlayer(0, playerId)`
 
-### `/ws/input` — 远程手柄输入通道
+### `/ws/input` — Web 客户端远程手柄输入通道
 
 **模块路径**: `main/host/wsInputHandler.cpp`
 
-接收 11 字节二进制帧，解析后注入 VirtualGamepad。
+接收 11 字节二进制帧（来自 Web 客户端 gamepad.html），解析后注入 VirtualGamepad。
 
 **协议格式**:
 | 偏移 | 大小 | 字段 |
@@ -303,8 +304,89 @@ virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& 
 | 9 | 1 | `rt` |
 | 10 | 1 | `dpad` |
 
-- 握手时自动注册 fd → hostId 追踪，断开时 `resetPlayer(hostId, *)` 清理
-- 数据包自描述 hostId，无需额外连接跟踪表
+- fd → hostId 追踪，断开时 `resetPlayer(hostId, *)` 清理
+- P4→P4 联机使用 UDP（端口 8082），不经过此通道
+
+### UDP Input — P4→P4 低延迟输入转发
+
+**模块路径**: `main/host/udpInput.cpp`
+
+两台 P4 设备间的手柄输入转发。发送方在 `forwarderThread` 中通过持久 UDP socket 发送 11 字节帧，
+接收方在后台 Task 中监听 UDP 端口 8082。
+
+```cpp
+// 发送方（从机 forwarderThread 自动调用）
+int sock = udpInputCreateSocket(host, 8082);   // 有 connect()
+udpInputSend(sock, buf, 11);                   // 用 send()，无连接创建开销
+udpInputCloseSocket(sock);
+
+// 接收方（udpInputStart() 在 main.cpp 中启动）
+// 后台 Task 监听端口 8082，recvfrom → VirtualGamepad::inject()
+```
+
+**协议格式**：与 `/ws/input` 相同（11 字节二进制帧）
+
+| 特性 | 说明 |
+|------|------|
+| 传输方式 | UDP，每个 datagram 原子到达，无 Nagle 缓冲 |
+| 丢包容忍 | 输入帧 60fps，丢一帧不影响后续 |
+| Socket 管理 | 持久 socket，`connect()` + `send()`，零 TIME_WAIT |
+| 接收方式 | 独立 Task，`recvfrom` 5 秒超时，自动清理断连 source |
+| 端口 | 8082（不同于 WS 的 8080）|
+
+### HostManager — 跨主机角色与连接管理
+
+**模块路径**: `main/host/hostManager.hpp`
+
+管理当前设备的角色（主机/从机）、4 设备槽位、WsClient 连接池。
+
+**角色模型**：
+
+| 角色 | 默认 | 触发 |
+|------|------|------|
+| 主机 (Host) | ✅ | 从未连接他人 |
+| 从机 (Client) | ❌ | 用户从 ConsoleManager 点击连接远程主机 |
+
+**槽位**（Slot 0=本机，Slot 1-3=从机）：
+
+```
+┌───┬───┬───┬───┐
+│ 0 │ 1 │ 2 │ 3 │
+│本机│ B │ --│ --│
+└───┴───┴───┴───┘
+```
+
+**API**：
+```cpp
+class HostManager {
+    bool isHost() const;
+    bool isClient() const;
+    int  getMySlot() const;
+
+    // 从机侧
+    bool connectToHost(const char* ip, uint16_t port, const char* hostname);
+    void disconnectFromHost();
+    WsClient* getWsConnection(const char* uri);
+
+    // 主机侧
+    struct ClientSlot { int slotId; char hostname[64]; bool connected; };
+    const ClientSlot* getSlots() const;
+};
+```
+
+### `/ws/console` — 设备管理通道
+
+**模块路径**: `main/host/wsConsoleHandler.cpp`
+
+从机注册到主机的管理通道，独立于游戏数据通道。
+
+| 消息 | 方向 | 说明 |
+|------|------|------|
+| `{"type":"register","hostname":"...","gamepad_count":N}` | 从机→主机 | 带手柄数注册 |
+| `{"type":"registered","slot":N}` | 主机→从机 | 分配槽位 |
+| `{"type":"client_joined","slot":N,...}` | 主机→* | 广播新设备 |
+| `{"type":"client_left","slot":N}` | 主机→* | 广播设备离开 |
+| `{"type":"slot_swap","a":N,"b":M}` | 任意→* | 交换槽位 |
 
 ### InputHost — 远程设备连接跟踪
 
@@ -1368,6 +1450,7 @@ CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1  # PPA 要求 SW draw unit 为 1
 | `0001-esp_lvgl_adapter-frame-ready-callback.patch` | `esp_lvgl_adapter` (4 文件) | Bridge 帧完成回调 → ScreenStream 零拷贝采集 |
 | `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` | `lvgl_ppa_accel_v9.c` | PPA fill/blend `max_pending_trans_num = 8`，防止队列溢出崩溃 |
 | `0003-esp_driver_ppa-sr_macro_bk_ro_bypass.patch` | `esp_driver_ppa` | PPA SRM (Scale-Rotate-Mirror) macro 旁路，修复旋转时的硬件 bug |
+| `0004-esp_websocket_client-expose-transport.patch` | `esp_websocket_client` (2 文件) | 暴露 `esp_websocket_client_get_transport()` 供 `wsClient.cpp` 获取 socket fd 设置 TCP_NODELAY |
 
 **使用**:
 ```bash
@@ -1447,6 +1530,7 @@ mdnsServiceAdd("_p4console", 80)       ← 设备发现专用服务
 // ── 服务器 ──
 serverStart()                           ← HTTP 端口 80
 wsServerStart()                         ← WebSocket 端口 8080
+udpInputStart()                         ← UDP 端口 8082（P4→P4 手柄透传）
 
 // ── 主循环 ──
 while (true) vTaskDelay(1000);

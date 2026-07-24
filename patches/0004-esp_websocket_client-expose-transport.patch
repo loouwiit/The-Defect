@@ -1,0 +1,39 @@
+--- a/include/esp_websocket_client.h	2026-06-30 00:00:00.000000000 +0800
++++ b/include/esp_websocket_client.h	2026-06-30 00:00:00.000000000 +0800
+@@ -488,5 +488,18 @@
+ esp_err_t esp_websocket_unregister_events(esp_websocket_client_handle_t client,
+                                           esp_websocket_event_id_t event,
+                                           esp_event_handler_t event_handler);
++
++/**
++ * @brief      Get the underlying WebSocket transport handle
++ *
++ * This function retrieves the transport handle associated with the websocket client.
++ * The transport can be used to access the underlying socket via esp_transport_get_socket().
++ *
++ * @param[in]  client  The client
++ *
++ * @return
++ *     - The transport handle, or NULL if not available
++ */
++esp_transport_handle_t esp_websocket_client_get_transport(esp_websocket_client_handle_t client);
++
+ #ifdef __cplusplus
+ }
+ #endif
+--- a/esp_websocket_client.c	2026-06-30 00:00:00.000000000 +0800
++++ b/esp_websocket_client.c	2026-06-30 00:00:00.000000000 +0800
+@@ -1653,5 +1653,13 @@
+     if (client == NULL) {
+         return ESP_ERR_INVALID_ARG;
+     }
+     return esp_event_handler_unregister_with(client->event_handle, WEBSOCKET_EVENTS, event, event_handler);
+ }
++
++esp_transport_handle_t esp_websocket_client_get_transport(esp_websocket_client_handle_t client)
++{
++    if (client == NULL) {
++        return NULL;
++    }
++    return client->transport;
++}
