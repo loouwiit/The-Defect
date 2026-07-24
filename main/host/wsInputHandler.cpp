@@ -94,6 +94,7 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 				httpd_ws_recv_frame(req, &wsPkt, wsPkt.len);
 				heap_caps_free(discard);
 			}
+			ESP_LOGW(TAG, "discarded invalid frame of size %d", wsPkt.len);
 		}
 		return ESP_OK;
 	}
@@ -132,6 +133,11 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 	/* ── 追踪 fd → hostId，用于断开清理 ── */
 	int fd = httpd_req_to_sockfd(req);
 	trackFd(fd, hostId);
+
+	ESP_LOGI(TAG, "recv from %d: hostId=%d, localPlayer=%d, buttons=0x%04X, lx=%d, ly=%d, rx=%d, ry=%d, lt=%d, rt=%d, dpad=%d",
+		fd, hostId, localPlayer, state.buttons,
+		state.lx, state.ly, state.rx, state.ry,
+		state.lt, state.rt, state.dpad);
 
 	/* ── 注入 ── */
 	if (hostId < 0 || hostId >= 4)

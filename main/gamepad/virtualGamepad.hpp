@@ -22,10 +22,10 @@ class VirtualGamepad {
 public:
 	static VirtualGamepad& instance();
 
-	/// 启动分发 Task（固定 60fps 独立线程）
+	/// 启动分发 Task
 	void start(Display* display);
 
-	/// 注入一帧手柄状态（轻量，仅 struct copy，可在任何 Task 调用）
+	/// 注入一帧手柄状态
 	void inject(int8_t hostId, int8_t playerId, const GamepadState& state);
 
 	// ── 掩码控制 ──
@@ -36,7 +36,7 @@ public:
 	/// 全量设置 4 个主机的掩码
 	void setAllMasks(const uint8_t masks[4]);
 
-	/// 复位某输入源到中立状态（断开连接时调用）
+	/// 复位某输入源到中立状态
 	void resetPlayer(int8_t hostId, int8_t playerId);
 
 	/// 查询某输入源的最新状态
@@ -73,7 +73,7 @@ private:
 
 	// hostMask[hostId] 的 bit[playerId] = 1 表示启用该输入源
 	// 默认：仅本机 4 个手柄全开
-	uint8_t m_hostMask[4] = { 0x0F, 0, 0, 0 };
+	uint8_t m_hostMask[4] = { 0x0F, 0x07, 0x07, 0x07 };
 
 	// ── 远程转发目标（从机模式）──
 	WsClient* m_remoteForwarder = nullptr;

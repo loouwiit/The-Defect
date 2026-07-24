@@ -4,9 +4,11 @@
  */
 
 #include "hostManager.hpp"
+#include "gamepad/virtualGamepad.hpp"
 #include "websocket/wsClient.hpp"
 #include <esp_log.h>
 #include <cstring>
+#include <cJSON.h>
 
 static constexpr char TAG[] = "HostManager";
 
@@ -47,10 +49,15 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 			R"({"type":"register","hostname":"%s","gamepad_count":4})",
 			hostname && hostname[0] ? hostname : "esp32p4");
 		m_consoleClient->sendText(regMsg, n);
-	});
+		});
 
 	m_consoleClient->setOnDisconnected([this]() {
 		ESP_LOGI(TAG, "console channel disconnected");
+
+		// 清理转发器
+		VirtualGamepad::instance().clearRemoteForwarder();
+		ESP_LOGI(TAG, "remote forwarder cleared");
+
 		// 清理连接池
 		for (auto& e : m_wsPool) {
 			if (e.client) { delete e.client; e.client = nullptr; }
@@ -60,51 +67,61 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 		m_isClient = false;
 		m_mySlot = -1;
 		if (m_onRoleChange) m_onRoleChange(false);
-	});
+		});
 
-	m_consoleClient->setOnMessage([this](const char* data, size_t len) {
-		// 简单 JSON 解析 — 只关心 type 字段
-		// 生产环境建议用 cJSON，这里用 strstr 简化
-		if (strstr(data, "\"type\":\"registered\"")) {
-			// {"type":"registered","slot":1}
-			const char* slotStr = strstr(data, "\"slot\":");
-			if (slotStr) {
-				m_mySlot = atoi(slotStr + 7);
-				m_isClient = true;
-				ESP_LOGI(TAG, "registered as slot %d", m_mySlot);
-				if (m_onRoleChange) m_onRoleChange(true);
+	m_consoleClient->setOnMessage([this](const char* data, size_t len)
+		{
+			cJSON* root = cJSON_Parse(data);
+			if (!root) { cJSON_Delete(root); return; }
+
+			cJSON* typeItem = cJSON_GetObjectItem(root, "type");
+			if (!typeItem || !cJSON_IsString(typeItem)) { cJSON_Delete(root); return; }
+			const char* type = typeItem->valuestring;
+
+			if (strcmp(type, "registered") == 0) {
+				cJSON* slotItem = cJSON_GetObjectItem(root, "slot");
+				if (slotItem && cJSON_IsNumber(slotItem)) {
+					m_mySlot = slotItem->valueint;
+					m_isClient = true;
+					ESP_LOGI(TAG, "registered as slot %d", m_mySlot);
+
+					// 建立 /ws/input 通道并设置转发目标
+					auto* wsInput = createOrGetWsClient("/ws/input");
+					if (wsInput) {
+						VirtualGamepad::instance().setRemoteForwarder(wsInput);
+						ESP_LOGI(TAG, "remote forwarder set via /ws/input");
+					}
+
+					if (m_onRoleChange) m_onRoleChange(true);
+				}
 			}
-		}
-		else if (strstr(data, "\"type\":\"client_joined\"")) {
-			// {"type":"client_joined","slot":1,"hostname":"esp32p4-a","gamepad_count":2}
-			int slot = -1, gp = 0;
-			char name[64] = {};
-			const char* s = strstr(data, "\"slot\":");
-			if (s) slot = atoi(s + 7);
-			const char* n = strstr(data, "\"hostname\":\"");
-			if (n) { n += 11; int i = 0; while (*n && *n != '"' && i < 63) name[i++] = *n++; name[i] = 0; }
-			const char* g = strstr(data, "\"gamepad_count\":");
-			if (g) gp = atoi(g + 16);
-			if (slot >= 1 && slot <= 3)
-				onClientRegistered(slot, name, "", gp);
-		}
-		else if (strstr(data, "\"type\":\"client_left\"")) {
-			int slot = -1;
-			const char* s = strstr(data, "\"slot\":");
-			if (s) slot = atoi(s + 7);
-			if (slot >= 1 && slot <= 3)
-				onClientDisconnected(slot);
-		}
-		else if (strstr(data, "\"type\":\"slot_swap\"")) {
-			int a = -1, b = -1;
-			const char* sa = strstr(data, "\"a\":");
-			if (sa) a = atoi(sa + 4);
-			const char* sb = strstr(data, "\"b\":");
-			if (sb) b = atoi(sb + 4);
-			if (a >= 0 && b >= 0 && a < 4 && b < 4)
-				swapSlots(a, b);
-		}
-	});
+			else if (strcmp(type, "client_joined") == 0) {
+				cJSON* slotItem = cJSON_GetObjectItem(root, "slot");
+				cJSON* hnItem = cJSON_GetObjectItem(root, "hostname");
+				cJSON* gpItem = cJSON_GetObjectItem(root, "gamepad_count");
+				int slot = slotItem && cJSON_IsNumber(slotItem) ? slotItem->valueint : -1;
+				if (slot >= 1 && slot <= 3) {
+					onClientRegistered(slot,
+						hnItem && cJSON_IsString(hnItem) ? hnItem->valuestring : "",
+						"",
+						gpItem && cJSON_IsNumber(gpItem) ? gpItem->valueint : 0);
+				}
+			}
+			else if (strcmp(type, "client_left") == 0) {
+				cJSON* slotItem = cJSON_GetObjectItem(root, "slot");
+				int slot = slotItem && cJSON_IsNumber(slotItem) ? slotItem->valueint : -1;
+				if (slot >= 1 && slot <= 3) onClientDisconnected(slot);
+			}
+			else if (strcmp(type, "slot_swap") == 0) {
+				cJSON* aItem = cJSON_GetObjectItem(root, "a");
+				cJSON* bItem = cJSON_GetObjectItem(root, "b");
+				int a = aItem && cJSON_IsNumber(aItem) ? aItem->valueint : -1;
+				int b = bItem && cJSON_IsNumber(bItem) ? bItem->valueint : -1;
+				if (a >= 0 && b >= 0 && a < 4 && b < 4) swapSlots(a, b);
+			}
+
+			cJSON_Delete(root);
+		});
 
 	bool ok = m_consoleClient->connect(ip, port, "/ws/console");
 	if (!ok)
@@ -191,7 +208,7 @@ WsClient* HostManager::getWsConnection(const char* uri)
 // ════════════════════════════════════════════════════════════════
 
 void HostManager::onClientRegistered(int slotId, const char* hostname,
-                                      const char* ip, int gamepadCount)
+	const char* ip, int gamepadCount)
 {
 	if (slotId < 0 || slotId >= 4) return;
 	auto& s = m_slots[slotId];
@@ -207,7 +224,7 @@ void HostManager::onClientRegistered(int slotId, const char* hostname,
 void HostManager::onClientDisconnected(int slotId)
 {
 	if (slotId < 0 || slotId >= 4) return;
-	m_slots[slotId] = {slotId, "", "", 0, false};
+	m_slots[slotId] = { slotId, "", "", 0, false };
 	ESP_LOGI(TAG, "slot %d disconnected", slotId);
 	notifySlotUpdate();
 }

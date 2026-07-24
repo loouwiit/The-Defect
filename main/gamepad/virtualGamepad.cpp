@@ -1,4 +1,5 @@
 #include "virtualGamepad.hpp"
+#include "host/hostManager.hpp"
 #include "websocket/wsClient.hpp"
 #include "app/app.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
@@ -38,20 +39,10 @@ void VirtualGamepad::inject(int8_t hostId, int8_t playerId, const GamepadState& 
 
 	m_states[hostId][playerId] = state;
 
-	// 从机模式：本机输入 (hostId=0) 只在实际变化时转发
-	if (hostId == 0 && m_remoteForwarder && m_remoteForwarder->isConnected())
-	{
-		// 去重：状态无变化就不发
-		auto& last = m_lastForwarded[playerId];
-		if (last.buttons == state.buttons &&
-			last.lx == state.lx && last.ly == state.ly &&
-			last.dpad == state.dpad)
-			return;
-		last = state;
-
-		uint8_t buf[11];
-		packFrame(buf, 0, playerId, state);
-		m_remoteForwarder->sendBinary(buf, 11);
+	// 自动启用有输入的 hostId（方便首次连接时开对应 slot）
+	if (!(m_hostMask[hostId] & (1 << playerId))) {
+		m_hostMask[hostId] |= (1 << playerId);
+		ESP_LOGI(TAG, "auto-enabled H%d P%d (mask 0x%02X)", hostId, playerId, m_hostMask[hostId]);
 	}
 }
 
@@ -144,6 +135,23 @@ void VirtualGamepad::dispatchTask(void* arg)
 							}
 						}
 					}
+				}
+			}
+		}
+
+		// 从机模式：60fps 统一转发本机 (hostId=0) 变化到远程主机
+		if (self.m_remoteForwarder && self.m_remoteForwarder->isConnected()) {
+			for (int p = 0; p < 4; p++) {
+				const auto& state = self.m_states[0][p];
+				auto& last = self.m_lastForwarded[p];
+				if (last.buttons != state.buttons ||
+					last.lx != state.lx || last.ly != state.ly ||
+					last.dpad != state.dpad)
+				{
+					last = state;
+					uint8_t buf[11];
+					self.packFrame(buf, HostManager::instance().getMySlot(), p, state);
+					self.m_remoteForwarder->sendBinary(buf, 11);
 				}
 			}
 		}
