@@ -39,7 +39,7 @@ namespace
 	constexpr uint32_t CURSOR_P0_BORDER = 0xddff4444;
 	constexpr uint32_t CURSOR_P1_BORDER = 0xdd4488ff;
 
-	constexpr int CURSOR_ACTIVE_BORDER_W   = 2;
+	constexpr int CURSOR_ACTIVE_BORDER_W = 2;
 	constexpr int CURSOR_INACTIVE_BORDER_W = 1;
 	constexpr lv_opa_t CURSOR_INACTIVE_OPA = LV_OPA_40;
 
@@ -117,8 +117,8 @@ void ChineseChessApp::deinit()
 
 void ChineseChessApp::onForeground()
 {
-	for (auto& pb : m_prevButtons) pb = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& pb : m_prevButtons) for (auto& i : pb) i = 0xFFFF;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	m_focusIdx = 0;
 	m_dirty = true;	m_prevSelX = -1;
@@ -182,7 +182,7 @@ void ChineseChessApp::createBoard(lv_obj_t* parent)
 		lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
 		lv_obj_set_style_border_width(line, 0, 0);
 		lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
-	};
+		};
 
 	// 上方九宫（黑方）
 	mkDiag(3, 0, 5, 2);
@@ -215,8 +215,8 @@ void ChineseChessApp::createPieces(lv_obj_t* parent)
 		{
 			// 圆形背景
 			m_pieceBg[x][y] = lv_obj_create(parent);
-	lv_obj_set_size(m_pieceBg[x][y], PIECE_SZ, PIECE_SZ);
-		lv_obj_set_style_radius(m_pieceBg[x][y], PIECE_RAD, 0);
+			lv_obj_set_size(m_pieceBg[x][y], PIECE_SZ, PIECE_SZ);
+			lv_obj_set_style_radius(m_pieceBg[x][y], PIECE_RAD, 0);
 			lv_obj_set_style_border_width(m_pieceBg[x][y], 1, 0);
 			lv_obj_set_style_border_color(m_pieceBg[x][y], lv_color_hex(0xff555555), 0);
 			lv_obj_set_style_border_opa(m_pieceBg[x][y], LV_OPA_30, 0);
@@ -227,10 +227,10 @@ void ChineseChessApp::createPieces(lv_obj_t* parent)
 			lv_obj_add_flag(m_pieceBg[x][y], LV_OBJ_FLAG_HIDDEN);
 
 			// 棋子文字（作为圆形背景的子对象，自动居中）
-		m_pieceText[x][y] = lv_label_create(m_pieceBg[x][y]);
-		lv_obj_set_style_text_font(m_pieceText[x][y],
-			FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
-		lv_obj_center(m_pieceText[x][y]);
+			m_pieceText[x][y] = lv_label_create(m_pieceBg[x][y]);
+			lv_obj_set_style_text_font(m_pieceText[x][y],
+				FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
+			lv_obj_center(m_pieceText[x][y]);
 			lv_obj_add_flag(m_pieceText[x][y], LV_OBJ_FLAG_HIDDEN);
 			lv_obj_remove_flag(m_pieceText[x][y], LV_OBJ_FLAG_CLICKABLE);
 		}
@@ -738,7 +738,7 @@ void ChineseChessApp::activateFocus()
 	switch (m_focusIdx)
 	{
 	case 0: lv_obj_send_event(m_restartBtn, LV_EVENT_CLICKED, nullptr); break;
-	case 1: lv_obj_send_event(m_backBtn,   LV_EVENT_CLICKED, nullptr); break;
+	case 1: lv_obj_send_event(m_backBtn, LV_EVENT_CLICKED, nullptr); break;
 	}
 }
 
@@ -759,8 +759,8 @@ void ChineseChessApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 	bool lyDown = (state.ly > center + deadZone);
 
 	// 边沿检测（每玩家独立）
-	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
-	m_prevButtons[playerId] = state.buttons;
+	uint16_t newPress = state.buttons & ~m_prevButtons[MaxHosts][playerId];
+	m_prevButtons[hostId][playerId] = state.buttons;
 
 	auto gameState = m_logic.getState();
 	uint8_t activeId = getActivePlayerId();
@@ -793,14 +793,14 @@ void ChineseChessApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		// 摇杆/方向导航焦点
 		if (!lxLeft && !lxRight && !lyUp && !lyDown)
 		{
-			m_nextMoveTime[playerId] = 0;
+			m_nextMoveTime[hostId][playerId] = 0;
 			return;
 		}
-		if (m_nextMoveTime[playerId] >= xTaskGetTickCount())
+		if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount())
 			return;
 
-		TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-		m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+		TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+		m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 		if (lyUp && m_focusIdx > 0)   m_focusIdx--;
 		if (lyDown && m_focusIdx < 1) m_focusIdx++;
@@ -816,10 +816,10 @@ void ChineseChessApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 	// ── 摇杆移动：任何玩家随时可移动自己的光标 ──
 	if (lxLeft || lxRight || lyUp || lyDown)
 	{
-		if (m_nextMoveTime[playerId] < xTaskGetTickCount())
+		if (m_nextMoveTime[hostId][playerId] < xTaskGetTickCount())
 		{
-			TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-			m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+			TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+			m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 			int newX = m_cursorX[playerId];
 			int newY = m_cursorY[playerId];
@@ -839,7 +839,7 @@ void ChineseChessApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 	}
 	else
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 	}
 
 	// ── B 键：返回上级（任意玩家均可退出） ──
@@ -849,7 +849,7 @@ void ChineseChessApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		Task::addTask([](void* p) -> TickType_t {
 			static_cast<ChineseChessApp*>(p)->popApp();
 			return Task::infinityTime;
-		}, "chessBack", this, 0, Task::Affinity::None);
+			}, "chessBack", this, 0, Task::Affinity::None);
 		return;
 	}
 

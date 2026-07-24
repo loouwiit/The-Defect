@@ -39,7 +39,7 @@ private:
 	Thread m_thread;
 
 	// ── 输入状态 ──
-	uint16_t m_prevButtons[MaxPlayers]{};
+	uint16_t m_prevButtons[MaxHosts][MaxPlayers]{};
 
 	// ── 焦点 / 去重 ──
 	TickType_t m_nextActionTime{};
@@ -49,7 +49,7 @@ private:
 	lv_obj_t* m_restartBtn{};
 	lv_obj_t* m_backBtn{};
 	int8_t m_focusIdx = 0;
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);
 	static constexpr TickType_t MOVE_DELAY = pdMS_TO_TICKS(120);
 

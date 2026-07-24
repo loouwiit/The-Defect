@@ -38,7 +38,7 @@ private:
 
 	// ── 焦点导航 ──
 	int8_t m_focusIdx = 0;
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons = 0;
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);

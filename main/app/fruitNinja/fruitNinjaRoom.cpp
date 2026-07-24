@@ -310,13 +310,13 @@ void FruitNinjaRoom::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 	// 摇杆归位判断
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (xTaskGetTickCount() < m_nextMoveTime[playerId]) return;
+	if (xTaskGetTickCount() < m_nextMoveTime[hostId][playerId]) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	if (lyUp && m_focusIdx > 0)   m_focusIdx--;
 	if (lyDown && m_focusIdx < 5) m_focusIdx++;
@@ -327,7 +327,7 @@ void FruitNinjaRoom::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 void FruitNinjaRoom::onForeground()
 {
 	m_prevButtons = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	applyFocus();
 }

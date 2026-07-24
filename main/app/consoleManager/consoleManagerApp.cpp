@@ -79,7 +79,7 @@ void ConsoleManagerApp::onForeground()
 	if (m_refreshTimer)
 		lv_timer_resume(m_refreshTimer);
 	m_prevButtons = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + 500;
 	ESP_LOGI(TAG, "前台");
 }
@@ -520,13 +520,13 @@ void ConsoleManagerApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const G
 	// ── 摇杆归位 ──
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	switch (m_focusGroup)
 	{

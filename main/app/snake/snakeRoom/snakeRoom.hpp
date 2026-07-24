@@ -43,9 +43,8 @@ private:
 	void createMenu(lv_obj_t* parent);
 
 	// 焦点导航
-	constexpr static size_t MaxPlayerCount = 4;
 	int8_t m_focusIdx = 0;
-	TickType_t m_nextMoveTime[MaxPlayerCount]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons = 0;  // 上一帧按钮状态（边沿检测）
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);

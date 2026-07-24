@@ -177,39 +177,39 @@ void SnakeGame::init()
 			int left, top_, right, bottom;
 			switch (align) {
 			case LV_ALIGN_BOTTOM_RIGHT:
-				left   = (cw - DPAD_SIZE - ox) / cs - MARGIN;
-				top_   = (ch - DPAD_SIZE - oy) / cs - MARGIN;
-				right  = (cw - ox) / cs + MARGIN;
+				left = (cw - DPAD_SIZE - ox) / cs - MARGIN;
+				top_ = (ch - DPAD_SIZE - oy) / cs - MARGIN;
+				right = (cw - ox) / cs + MARGIN;
 				bottom = (ch - oy) / cs + MARGIN;
 				break;
 			case LV_ALIGN_BOTTOM_LEFT:
-				left   = (ox) / cs - MARGIN;
-				top_   = (ch - DPAD_SIZE - oy) / cs - MARGIN;
-				right  = (ox + DPAD_SIZE) / cs + MARGIN;
+				left = (ox) / cs - MARGIN;
+				top_ = (ch - DPAD_SIZE - oy) / cs - MARGIN;
+				right = (ox + DPAD_SIZE) / cs + MARGIN;
 				bottom = (ch - oy) / cs + MARGIN;
 				break;
 			case LV_ALIGN_TOP_RIGHT:
-				left   = (cw - DPAD_SIZE - ox) / cs - MARGIN;
-				top_   = (oy) / cs - MARGIN;
-				right  = (cw - ox) / cs + MARGIN;
+				left = (cw - DPAD_SIZE - ox) / cs - MARGIN;
+				top_ = (oy) / cs - MARGIN;
+				right = (cw - ox) / cs + MARGIN;
 				bottom = (oy + DPAD_SIZE) / cs + MARGIN;
 				break;
 			case LV_ALIGN_TOP_LEFT:
-				left   = (ox) / cs - MARGIN;
-				top_   = (oy) / cs - MARGIN;
-				right  = (ox + DPAD_SIZE) / cs + MARGIN;
+				left = (ox) / cs - MARGIN;
+				top_ = (oy) / cs - MARGIN;
+				right = (ox + DPAD_SIZE) / cs + MARGIN;
 				bottom = (oy + DPAD_SIZE) / cs + MARGIN;
 				break;
 			default: return;
 			}
 			// 裁剪到网格边界
-			if (left  < 0) left = 0;
-			if (top_  < 0) top_ = 0;
+			if (left < 0) left = 0;
+			if (top_ < 0) top_ = 0;
 			if (right >= m_gridW) right = m_gridW - 1;
 			if (bottom >= m_gridH) bottom = m_gridH - 1;
 			if (left <= right && top_ <= bottom)
 				m_logic.addForbiddenZone(left, top_, right, bottom);
-		};
+			};
 
 		addZone(LV_ALIGN_BOTTOM_RIGHT, 16, 16);  // P1
 		if (m_playerCount >= 2)
@@ -709,7 +709,7 @@ void SnakeGame::onForeground()
 {
 	// 全置按下：下一帧 newPress = 0，跳过边沿检测
 	m_prevButtons = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for(auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	m_focusIdx = 0;
 	if (auto guard = display->lockGuard())
@@ -997,13 +997,13 @@ void SnakeGame::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 	// ── 摇杆归位判断 ──
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	if (gameState == SnakeGameLogic::State::Playing)
 	{

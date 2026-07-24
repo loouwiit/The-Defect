@@ -87,8 +87,8 @@ void FruitNinjaApp::deinit()
 
 void FruitNinjaApp::onForeground()
 {
-	for (auto& b : m_prevButtons) b = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& b : m_prevButtons) for (auto& i : b) i = 0xFFFF;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	m_focusIdx = 0;
 	if (auto guard = display->lockGuard())
@@ -184,8 +184,8 @@ void FruitNinjaApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gamep
 	bool lyDown = (state.ly > center + deadZone);
 
 	// 边沿检测
-	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
-	m_prevButtons[playerId] = state.buttons;
+	uint16_t newPress = state.buttons & ~m_prevButtons[hostId][playerId];
+	m_prevButtons[hostId][playerId] = state.buttons;
 
 	// GameOver 时：A/L3 → activate, B → back, 摇杆→导航
 	auto gameState = m_logic.getState();
@@ -216,13 +216,13 @@ void FruitNinjaApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gamep
 		// 摇杆导航
 		if (!lxLeft && !lxRight && !lyUp && !lyDown)
 		{
-			m_nextMoveTime[playerId] = 0;
+			m_nextMoveTime[hostId][playerId] = 0;
 			return;
 		}
-		if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+		if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-		TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-		m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+		TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+		m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 		if (lyUp && m_focusIdx > 0) m_focusIdx--;
 		if (lyDown && m_focusIdx < 1) m_focusIdx++;

@@ -146,7 +146,7 @@ private:
 
 	// ── 焦点导航组 ──
 	int8_t m_focusIdx = 0;
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
 

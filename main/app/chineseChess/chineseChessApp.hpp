@@ -52,9 +52,9 @@ private:
 	int m_cursorY[MaxPlayers]{7, 2};
 
 	// 输入去抖
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
-	uint16_t m_prevButtons[MaxPlayers]{};
+	uint16_t m_prevButtons[MaxHosts][MaxPlayers]{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = pdMS_TO_TICKS(300);
 	static constexpr TickType_t MOVE_DELAY = pdMS_TO_TICKS(120);
 	static constexpr TickType_t ACTION_DELAY = pdMS_TO_TICKS(400);

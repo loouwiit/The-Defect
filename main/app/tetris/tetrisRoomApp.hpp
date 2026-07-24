@@ -60,7 +60,7 @@ private:
 	FocusGroup m_focusGroup = FOCUS_PLAYERS;
 	int8_t m_focusPlayersIdx = 1;  // 0=1P, 1=2P, 2=3P
 	int8_t m_focusBottomIdx = 1;  // 0=settings, 1=start
-	TickType_t m_nextMoveTime[MaxPlayers] = {};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers] = {};
 	uint16_t m_prevButtons = 0;
 
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;

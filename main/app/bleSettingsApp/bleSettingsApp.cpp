@@ -171,7 +171,7 @@ void BleSettingsApp::refreshActivityIndicators()
 	TickType_t now = xTaskGetTickCount();
 	for (int i = 0; i < MaxPlayers; i++)
 	{
-		bool active = (now - m_lastActivityTime[i] < ACTIVITY_TIMEOUT);
+		bool active = (now - m_lastActivityTime[0][i] < ACTIVITY_TIMEOUT);
 		if (active != m_lastActivityStatus[i])
 		{
 			m_lastActivityStatus[i] = active;
@@ -987,7 +987,7 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 	const bool hasActivity = state.buttons != 0 || lxLeft || lxRight || lyUp || lyDown;
 
 	if (hasActivity)
-		m_lastActivityTime[playerId] = xTaskGetTickCount();
+		m_lastActivityTime[hostId][playerId] = xTaskGetTickCount();
 
 	// ── 返回 / 取消移动 / 退出卡片按钮层 ──
 	if (state.isPressed(GamepadButton::BTN_B))
@@ -1023,13 +1023,13 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 	// ── 摇杆归位判断 ──
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	// ── 移动模式：限制只在 4 个槽位间导航 ──
 	if (m_moveMode) {

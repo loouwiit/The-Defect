@@ -3,6 +3,7 @@
 #include <cstdint>
 
 static constexpr uint8_t MaxPlayers = 4;
+static constexpr uint8_t MaxHosts = 4;
 
 // 按钮位定义 — 与 C6 手柄固件 HID 报告描述符对齐
 enum GamepadButton : uint16_t {

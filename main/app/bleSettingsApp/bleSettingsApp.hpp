@@ -73,7 +73,7 @@ private:
 	int8_t m_moveSourceIdx{ -1 };
 
 	// ── 活动指示 ──
-	TickType_t m_lastActivityTime[MaxPlayers]{};
+	TickType_t m_lastActivityTime[MaxHosts][MaxPlayers]{};
 	bool m_lastActivityStatus[MaxPlayers]{};
 	static constexpr TickType_t ACTIVITY_TIMEOUT = pdMS_TO_TICKS(100);
 	static constexpr TickType_t ACTIVITY_REFRESH_MS = 20;
@@ -99,7 +99,7 @@ private:
 	int8_t m_focusListIdx{ 0 };    // 0..N-1 设备列表
 	int8_t m_focusSlotsIdx{ 0 };   // 0..3 槽位
 	int8_t m_focusBtnIdx{ 0 };     // 0=移动按钮, 1=断开按钮（FOCUS_CARD_BTNS 内）
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
 	static constexpr TickType_t MOVE_DELAY = 120;

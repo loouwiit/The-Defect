@@ -566,7 +566,7 @@ void PowerManagementApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const 
 
 	// 更新活动时间
 	const bool hasActivity = state.buttons != 0 || lxLeft || lxRight || lyUp || lyDown;
-	if (hasActivity)
+	if (hostId == 0 && hasActivity)
 		m_lastActivityTime[playerId] = xTaskGetTickCount();
 
 	// ── B 键：返回 / 退出 ──
@@ -592,13 +592,13 @@ void PowerManagementApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const 
 	// ── 摇杆归位判断 ──
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	switch (m_focusGroup)
 	{
@@ -736,9 +736,9 @@ std::string PowerManagementApp::getAiContext()
 
 	const char* groupName = "";
 	switch (m_focusGroup) {
-		case FOCUS_TITLE:  groupName = "title"; break;
-		case FOCUS_SLOTS:  groupName = "slots"; break;
-		case FOCUS_BUTTONS: groupName = "buttons"; break;
+	case FOCUS_TITLE:  groupName = "title"; break;
+	case FOCUS_SLOTS:  groupName = "slots"; break;
+	case FOCUS_BUTTONS: groupName = "buttons"; break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	if (m_focusGroup == FOCUS_SLOTS) ctx += ":" + std::to_string(m_focusSlotsIdx);
@@ -755,11 +755,13 @@ void PowerManagementApp::onAiSelect(const AiSelectTarget& target)
 	if (target.group == "title" && target.index == 0) {
 		m_focusGroup = FOCUS_TITLE;
 		applyFocus();
-	} else if (target.group == "slots" && target.index >= 0 && target.index < (int8_t)MaxPlayers) {
+	}
+	else if (target.group == "slots" && target.index >= 0 && target.index < (int8_t)MaxPlayers) {
 		m_focusGroup = FOCUS_SLOTS;
 		m_focusSlotsIdx = (int8_t)target.index;
 		applyFocus();
-	} else if (target.group == "buttons" && target.index >= 0 && target.index <= 1) {
+	}
+	else if (target.group == "buttons" && target.index >= 0 && target.index <= 1) {
 		m_focusGroup = FOCUS_BUTTONS;
 		m_focusBtnIdx = (int8_t)target.index;
 		applyFocus();

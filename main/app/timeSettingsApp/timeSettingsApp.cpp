@@ -77,7 +77,7 @@ void TimeSettingsApp::onForeground()
 	if (m_refreshTimer)
 		lv_timer_resume(m_refreshTimer);
 	m_prevButtons = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + 500;
 	ESP_LOGI(TAG, "前台");
 }
@@ -672,11 +672,11 @@ void TimeSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		}
 	}
 
-	if (!lxLeft && !lxRight && !lyUp && !lyDown) { m_nextMoveTime[playerId] = 0; return; }
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (!lxLeft && !lxRight && !lyUp && !lyDown) { m_nextMoveTime[hostId][playerId] = 0; return; }
+	if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t d = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + d;
+	TickType_t d = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + d;
 
 	switch (m_focusGroup)
 	{

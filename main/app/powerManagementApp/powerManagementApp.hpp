@@ -89,7 +89,7 @@ private:
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
 	int8_t m_focusBtnIdx{ 0 };       // 0=关机, 1=重启
 	int8_t m_focusSlotsIdx{ 0 };     // 0..3 槽位
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;

@@ -65,7 +65,7 @@ void TetrisRoomApp::onForeground()
 	refreshSlotStatus();
 
 	// 防抖重置
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_prevButtons = 0xFFFF;
 
 	m_nextActionTime = xTaskGetTickCount() + 500;
@@ -470,13 +470,13 @@ void TetrisRoomApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gamep
 	// 摇杆归位
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] > xTaskGetTickCount()) return;
+	if (m_nextMoveTime[hostId][playerId] > xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	// ── 二维焦点组导航 ──
 	switch (m_focusGroup)

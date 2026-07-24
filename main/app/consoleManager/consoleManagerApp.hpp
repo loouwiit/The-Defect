@@ -58,7 +58,7 @@ private:
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
 	int8_t m_focusTitleIdx{ 0 };   // 0=返回, 1=扫描
 	int8_t m_focusListIdx{ 0 };
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;

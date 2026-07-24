@@ -94,7 +94,7 @@ private:
 	int8_t m_focusTitleIdx{ 0 };    // 0=返回, 1=扫描
 	int8_t m_focusListIdx{ 0 };     // 0..N-1 AP 列表
 	int8_t m_focusInfoIdx{ 0 };     // 0=主机名行, 1=断开按钮
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;

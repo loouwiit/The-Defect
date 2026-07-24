@@ -76,7 +76,7 @@ private:
 	int8_t m_focusTitleIdx{ 0 };    // 0=返回
 	int8_t m_focusAdjustIdx{ 0 };   // 0=时−, 1=时+, 2=分−, 3=分+, 4=秒↺
 	int8_t m_focusSyncIdx{ 0 };     // 0=自动同步, 1=立即同步
-	TickType_t m_nextMoveTime[MaxPlayers]{};
+	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
 

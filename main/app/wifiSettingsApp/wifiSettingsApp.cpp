@@ -92,7 +92,7 @@ void WifiSettingsApp::onForeground()
 	if (m_refreshTimer)
 		lv_timer_resume(m_refreshTimer);
 	m_prevButtons = 0xFFFF;
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + 500;
 	ESP_LOGI(TAG, "前台");
 }
@@ -300,7 +300,7 @@ void WifiSettingsApp::buildUi()
 				break;
 			}
 		}
-	}, LV_EVENT_SCROLL_END, this);
+		}, LV_EVENT_SCROLL_END, this);
 
 	// 初始空状态提示
 	auto empty_hint = GUI::createLabel(m_scanListContainer, "点击“扫描”搜索附近的 WiFi");
@@ -826,7 +826,7 @@ void WifiSettingsApp::showPasswordDialog(size_t scanIndex)
 	lv_group_focus_obj(m_keyboard);
 
 	// 重置摇杆定时器，防弹窗打开时误触发方向导航
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 
 	// 按钮行
 	auto btn_row = lv_obj_create(card);
@@ -951,7 +951,7 @@ void WifiSettingsApp::showHostnameDialog()
 	lv_group_focus_obj(m_hostnameKeyboard);
 
 	// 重置摇杆定时器
-	for (auto& t : m_nextMoveTime) t = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 
 	// 按钮行
 	auto btn_row = lv_obj_create(card);
@@ -1224,14 +1224,14 @@ void WifiSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		{
 			if (!lxLeft && !lxRight && !lyUp && !lyDown)
 			{
-				m_nextMoveTime[playerId] = 0;
+				m_nextMoveTime[hostId][playerId] = 0;
 				return;
 			}
 
-			if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+			if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-			TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-			m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+			TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+			m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 			uint32_t key = 0;
 			if (lxLeft)  key = LV_KEY_LEFT;
@@ -1268,19 +1268,19 @@ void WifiSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
-			activateFocus();
+		activateFocus();
 	}
 
 	// ── 摇杆归位判断 ──
 	if (!lxLeft && !lxRight && !lyUp && !lyDown)
 	{
-		m_nextMoveTime[playerId] = 0;
+		m_nextMoveTime[hostId][playerId] = 0;
 		return;
 	}
-	if (m_nextMoveTime[playerId] >= xTaskGetTickCount()) return;
+	if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
 
-	TickType_t delay = (m_nextMoveTime[playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
-	m_nextMoveTime[playerId] = xTaskGetTickCount() + delay;
+	TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+	m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
 
 	switch (m_focusGroup)
 	{
@@ -1436,9 +1436,9 @@ std::string WifiSettingsApp::getAiContext()
 
 	const char* groupName = "";
 	switch (m_focusGroup) {
-		case FOCUS_TITLE: groupName = "title"; break;
-		case FOCUS_LIST:  groupName = "list"; break;
-		case FOCUS_INFO:  groupName = "info"; break;
+	case FOCUS_TITLE: groupName = "title"; break;
+	case FOCUS_LIST:  groupName = "list"; break;
+	case FOCUS_INFO:  groupName = "info"; break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	if (m_focusGroup == FOCUS_TITLE) ctx += ":" + std::to_string(m_focusTitleIdx);
@@ -1457,11 +1457,13 @@ void WifiSettingsApp::onAiSelect(const AiSelectTarget& target)
 		m_focusGroup = FOCUS_TITLE;
 		m_focusTitleIdx = (int8_t)target.index;
 		applyFocus();
-	} else if (target.group == "list" && target.index >= 0 && (size_t)target.index < m_scanRows.size()) {
+	}
+	else if (target.group == "list" && target.index >= 0 && (size_t)target.index < m_scanRows.size()) {
 		m_focusGroup = FOCUS_LIST;
 		m_focusListIdx = (int8_t)target.index;
 		applyFocus();
-	} else if (target.group == "info" && target.index >= 0 && target.index <= 1) {
+	}
+	else if (target.group == "info" && target.index >= 0 && target.index <= 1) {
 		m_focusGroup = FOCUS_INFO;
 		m_focusInfoIdx = (int8_t)target.index;
 		applyFocus();
