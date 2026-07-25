@@ -51,7 +51,8 @@ void AppStack::push(App* app)
 	}
 
 	app->setManager(m_manager);
-	app->init();
+	if (!app->running)
+		app->init();
 
 	m_stack.push_back(app);
 	m_display->applyApp(app);
