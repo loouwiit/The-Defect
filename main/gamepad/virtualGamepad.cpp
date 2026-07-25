@@ -38,12 +38,6 @@ void VirtualGamepad::inject(int8_t hostId, int8_t playerId, const GamepadState& 
 		return;
 
 	m_states[hostId][playerId] = state;
-
-	// 自动启用有输入的 hostId（方便首次连接时开对应 slot）
-	if (!(m_hostMask[hostId] & (1 << playerId))) {
-		m_hostMask[hostId] |= (1 << playerId);
-		ESP_LOGI(TAG, "auto-enabled H%d P%d (mask 0x%02X)", hostId, playerId, m_hostMask[hostId]);
-	}
 }
 
 // ════════════════════════════════════════════════════════════════

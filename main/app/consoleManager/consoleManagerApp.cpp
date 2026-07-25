@@ -86,6 +86,9 @@ void ConsoleManagerApp::init()
 		static_cast<ConsoleManagerApp*>(lv_timer_get_user_data(t))->refreshActivityIndicators();
 		}, ACTIVITY_REFRESH_MS, this);
 
+	// 同步初始掩码到 VirtualGamepad
+	applyMaskToVirtualGamepad();
+
 	ESP_LOGI(TAG, "多主机管理 App 初始化完成");
 }
 
