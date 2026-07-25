@@ -102,6 +102,13 @@ private:
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
 	static constexpr TickType_t MOVE_DELAY = 120;
 
+	// ── 活动指示 ──
+	TickType_t m_lastActivityTime[MaxHosts][MaxPlayers]{};
+	bool      m_lastActivityState[4]{};
+	lv_timer_t* m_activityTimer{};
+	static constexpr TickType_t ACTIVITY_TIMEOUT = pdMS_TO_TICKS(100);
+	static constexpr TickType_t ACTIVITY_REFRESH_MS = 20;
+
 	// ── 内部方法 ──
 	void buildHostView();
 	void buildClientView();
@@ -115,6 +122,7 @@ private:
 	void updateSlotCard(int slot, const HostManager::ClientSlot& info);
 	void updateMaskBtnStyle(int hostId, int player);
 	void applyMaskToVirtualGamepad();
+	void refreshActivityIndicators();
 	void onSlotClick(int slot);
 	void cancelSwapMode();
 	void onSwapSlot(int slotA, int slotB);

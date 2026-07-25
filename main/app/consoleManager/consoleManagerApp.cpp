@@ -82,6 +82,9 @@ void ConsoleManagerApp::init()
 
 	// 定时器
 	m_refreshTimer = lv_timer_create(timerCb, RefreshInterval, this);
+	m_activityTimer = lv_timer_create([](lv_timer_t* t) {
+		static_cast<ConsoleManagerApp*>(lv_timer_get_user_data(t))->refreshActivityIndicators();
+		}, ACTIVITY_REFRESH_MS, this);
 
 	ESP_LOGI(TAG, "多主机管理 App 初始化完成");
 }
@@ -96,6 +99,11 @@ void ConsoleManagerApp::deinit()
 	{
 		lv_timer_del(m_refreshTimer);
 		m_refreshTimer = nullptr;
+	}
+	if (m_activityTimer)
+	{
+		lv_timer_del(m_activityTimer);
+		m_activityTimer = nullptr;
 	}
 
 	// 清零槽位控件指针（下一个实例会重新创建）
@@ -116,6 +124,8 @@ void ConsoleManagerApp::onForeground()
 	auto guard = display->lockGuard();
 	if (m_refreshTimer)
 		lv_timer_resume(m_refreshTimer);
+	if (m_activityTimer)
+		lv_timer_resume(m_activityTimer);
 	m_prevButtons = 0xFFFF;
 	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + 500;
@@ -128,6 +138,8 @@ void ConsoleManagerApp::onBackground()
 	auto guard = display->lockGuard();
 	if (m_refreshTimer)
 		lv_timer_pause(m_refreshTimer);
+	if (m_activityTimer)
+		lv_timer_pause(m_activityTimer);
 	ESP_LOGI(TAG, "后台");
 }
 
@@ -562,6 +574,39 @@ void ConsoleManagerApp::doConnect(size_t index)
 // 槽位更新
 // ════════════════════════════════════════════════════════════════
 
+void ConsoleManagerApp::refreshActivityIndicators()
+{
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	static const lv_color_t activeBg = LV_COLOR_MAKE(0x45, 0x45, 0x60);
+	const auto* slots = HostManager::instance().getSlots();
+	TickType_t now = xTaskGetTickCount();
+
+	for (int i = 0; i < 4; i++)
+	{
+		if (!m_slotsUI[i].card) continue;
+		bool anyActive = false;
+		for (int p = 0; p < 4; p++)
+		{
+			if (now - m_lastActivityTime[i][p] < ACTIVITY_TIMEOUT)
+			{
+				anyActive = true;
+				break;
+			}
+		}
+		// Slot 0（本机）仅当有活动时变色
+		bool show = (i == 0) ? anyActive
+			: (anyActive && slots[i].connected);
+		if (show != m_lastActivityState[i])
+		{
+			m_lastActivityState[i] = show;
+			lv_obj_set_style_bg_color(m_slotsUI[i].card,
+				show ? activeBg : GUI::Color::CARD, 0);
+		}
+	}
+}
+
 void ConsoleManagerApp::updateSlotStatus()
 {
 	auto guard = display->lockGuard();
@@ -599,11 +644,11 @@ void ConsoleManagerApp::updateSlotCard(int slot, const HostManager::ClientSlot& 
 	{
 		// 清除交换模式残留的边框
 		lv_obj_set_style_border_width(w.card, 0, 0);
-		// 槽位背景色：连接=亮色，未连接=暗色
-		lv_color_t bg = info.connected
-			? lv_color_t LV_COLOR_MAKE(0x30, 0x50, 0x70)
-			: GUI::Color::CARD;
-		lv_obj_set_style_bg_color(w.card, bg, 0);
+		// 活动指示背景（由 refreshActivityIndicators 管理）
+		if (slot > 0 && info.connected && m_lastActivityState[slot])
+			lv_obj_set_style_bg_color(w.card, LV_COLOR_MAKE(0x45, 0x45, 0x60), 0);
+		else
+			lv_obj_set_style_bg_color(w.card, GUI::Color::CARD, 0);
 		lv_obj_set_style_border_width(w.card, 3, LV_STATE_FOCUSED);
 		lv_obj_set_style_border_color(w.card, lv_color_white(), LV_STATE_FOCUSED);
 	}
@@ -990,6 +1035,11 @@ void ConsoleManagerApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const G
 	bool lxRight = (state.lx > center + deadZone);
 	bool lyUp = (state.ly < center - deadZone);
 	bool lyDown = (state.ly > center + deadZone);
+
+	// ── 记录活动（用于 slot 底色活动指示）──
+	const bool hasActivity = state.buttons != 0 || lxLeft || lxRight || lyUp || lyDown;
+	if (hasActivity)
+		m_lastActivityTime[hostId][playerId] = xTaskGetTickCount();
 
 	// ── B：返回或取消交换 ──
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
