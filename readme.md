@@ -45,6 +45,16 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 ④ 更新 memory + 对话历史
 ```
 
+### 🌐 多主机跨局域联结机
+
+- **BLE 配对风格连接**：ConsoleManager 扫描局域网内主机，点击即成为从机
+- **1 主机 + ≤3 从机**：4 台 P4 设备互联，共享手柄输入
+- **标准化输入转发**：系统层 VirtualGamepad 统一管理，mask 掩码控制输入路由
+- **主机权威 mask**：主机决定各从机哪些手柄进入本地游戏，从机自动同步反码
+- **UDP 零拷贝转发**：从机→主机 11 字节 UDP 帧，持久 socket，60fps
+- **WebSocket 管理通道**：`/ws/console` 管理注册/心跳/全量 slots_update 广播
+- **槽位交换**：ConsoleManager 支持拖拽式交换，mask 随 slot 同步迁移
+
 ### 🖥️ 主机 + 协处理器分离架构
 
 ```
@@ -114,7 +124,7 @@ ESP32-C6 (协处理器)
 ### 设置
 - **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
 - **WiFi 配置** — AP 扫描、密码输入、连接状态
-- **多主机管理** — mDNS 局域网发现、主机列表、连接入口
+- **多主机管理** — BLE 配对风格界面，mDNS 发现 + 4 槽位 + 掩码控制 + 交换
 - **时间设置** — 手动调时 / SNTP 自动同步
 - **电源管理** — 电量显示、关机 Deep-sleep
 
@@ -136,15 +146,20 @@ ESP32-C6 (协处理器)
 │                     App 层                                │
 │  DesktopApp │ Tetris │ FruitNinja │ Snake │ ChineseChess  │
 │  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt   |
-│  ConsoleManagerment  │   AiAgent     |  testApp           |
+│  ConsoleManagerApp   │   AiAgent     |  testApp           |
 ├───────────┬─────────────────────────┬───────────────────────────────┤
 │  AppStackManager     │  VirtualGamepad                  │
-│  ├─ Stack 0 (桌面)    │  ├─ inject (BLE/远程/WEB)       │
+│  ├─ Stack 0 (桌面)    │  ├─ inject (BLE/远程/WS/UDP)     │
 │  ├─ Stack 1..N (游戏) │  ├─ Dispatch Task @60fps        │
-│  └─ 异步删除 + 去重   │  ├─ hostMask 掩码过滤            │
+│  └─ 异步删除 + 去重   │  ├─ hostMask 掩码过滤 + 广播    │
 │                      │  └─ Forwarder Thread (UDP 从机)  │
-│                      ├─────────────────────────────────┤
-│                      │  ├─ HostManager (角色/槽位管理)  │
+│  ConsoleManagerApp   ├─────────────────────────────────┤
+│  ├─ mDNS 扫描         │  ├─ HostManager                 │
+│  ├─ 4 槽位 + 交换     │  │  ├─ 角色 (主机/从机)         │
+│  ├─ mask 控制 (P0-P3) │  │  ├─ 槽位管理 + mask 下发     │
+│  └─ 主机/从机双视图   │  │  └─ WsClient 连接池          │
+│                      │  ├─ wsConsoleHandler            │
+│                      │  │  └─ /ws/console slots_update │
 │                      │  ├─ HTTP Server (port 80)        │
 │                      │  ├─ WS Server  (port 8080)       │
 │                      │  │  ├─ /ws/touch  触控注入       │
@@ -195,7 +210,7 @@ ESP32-C6 (协处理器)
 |------|------|------|
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
 | 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/gamepad/` |
-| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient | `main/host/` `main/websocket/` |
+| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient / ConsoleManagerApp | `main/host/` `main/websocket/` `main/app/consoleManager/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |

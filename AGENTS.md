@@ -79,11 +79,12 @@ reserces/
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
 | | TestApp | `main/app/testApp/` | 测试用 App |
 | | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理（mDNS 发现其他主机） |
-| **跨主机联机** | HostManager | `main/host/hostManager.hpp` | 角色管理（主机/从机）、4 槽位管理、WsClient 连接池 |
-| | wsConsoleHandler | `main/host/wsConsoleHandler.cpp` | `/ws/console` 管理通道（注册/槽位分配/广播/心跳） |
+| **跨主机联机** | HostManager | `main/host/hostManager.hpp` | 角色管理（主机/从机）、4 槽位管理、WsClient 连接池、mask 下发 |
+| | wsConsoleHandler | `main/host/wsConsoleHandler.cpp` | `/ws/console` 管理通道（注册/全量 slots_update 广播/心跳） |
 | | wsInputHandler | `main/host/wsInputHandler.cpp` | `/ws/input` WebSocket 入口（Web 客户端用）→ VirtualGamepad |
-| | udpInput | `main/host/udpInput.cpp` | UDP 端口 8082 监听 + 发送（P4→P4 低延迟输入转发，持久 socket，零 TIME_WAIT）|
+| | udpInput | `main/host/udpInput.cpp` | UDP 端口 8082 监听 + 发送（P4→P4 低延迟输入转发） |
 | | WsClient | `main/websocket/wsClient.hpp` | 通用 WebSocket 客户端封装，`sendText` / `sendBinary` |
+| | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理 UI（BLE 配对风格，4 槽位 + mask 控制 + 交换） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
@@ -264,14 +265,15 @@ VirtualGamepad:
 
 | 特性 | 说明 |
 |------|------|
-| inject(hostId, ...) | hostId=0 本机，1-3 远程；数据包自描述，无需 fd 映射 |
+| inject(hostId, ...) | hostId=0 本机，1-3 远程；仅存状态，不修改 mask |
 | 分发频率 | 固定 60fps (16ms)，独立 Dispatch Task |
-| 全量更新 | 每次遍历所有掩码启用的 (hostId, playerId) |
-| 掩码默认 | `{0x0F, 0x07, 0x07, 0x07}` 自动启用有输入的 host |
+| 全量更新 | 每次遍历 `m_hostMask` 启用的 (hostId, playerId) |
+| 掩码默认 | `{0x0F, 0x00, 0x00, 0x00}`（仅本机 P0-P3 启用） |
+| 掩码来源 | 主机由 ConsoleManager UI 控制；从机接收主机下发的反码 |
 | AI Overlay | `isVisible()` 时跳过分发，AI 独占输入 |
-| 从机转发 | forwarderThread（Normal 优先级）独立运行，不阻塞 dispatch |
+| 从机转发 | forwarderThread 后检查 `~m_hostMask[0] & 0x0F` 决定转发哪些玩家到主机 |
 | 传输方式 | UDP（11 字节/帧），持久 socket `connect()` + `send()`，零创建开销 |
-| 注入去重 | 状态未变化时不转发 |
+| 注入去重 | 状态未变化时不转发（forwarder 侧有 `m_lastForwarded` 去重） |
 
 **`onGamepadInput` 签名**:
 ```cpp
@@ -279,10 +281,16 @@ VirtualGamepad:
 virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state);
 ```
 
+**掩码语义**（由 ConsoleManager 控制，wsConsoleHandler 广播到从机）：
+- **主机侧**: `m_hostMask[hostId]` 的 bit[playerId] = 1 → 该输入进入本地游戏
+- **从机侧**: 收到主机 mask 后存为**反码**，`m_hostMask[0]` bit=1 → 留在本地处理；bit=0 → forwarder 取反后转发到主机
+- 同一手柄输入不会同时被本地和远程消费（mask 互斥）
+
 **集成点**:
 - BleGamepad::processTask → `inject(0, playerId, state)` 代替直接调 App
 - BleGamepad::start 末尾 → `VirtualGamepad::instance().start(display)`
 - BLE_GAP_EVENT_DISCONNECT → `resetPlayer(0, playerId)`
+- ConsoleManager::applyMaskToVirtualGamepad → 触发 `wsConsoleBroadcastSlotsUpdate`
 
 ### `/ws/input` — Web 客户端远程手柄输入通道
 
@@ -338,14 +346,14 @@ udpInputCloseSocket(sock);
 
 **模块路径**: `main/host/hostManager.hpp`
 
-管理当前设备的角色（主机/从机）、4 设备槽位、WsClient 连接池。
+管理当前设备的角色（主机/从机）、4 设备槽位、WsClient 连接池、mask 下发。
 
 **角色模型**：
 
 | 角色 | 默认 | 触发 |
 |------|------|------|
 | 主机 (Host) | ✅ | 从未连接他人 |
-| 从机 (Client) | ❌ | 用户从 ConsoleManager 点击连接远程主机 |
+| 从机 (Client) | ❌ | 用户从 ConsoleManager 点击连接远程主机，**放弃自身主机资格** |
 
 **槽位**（Slot 0=本机，Slot 1-3=从机）：
 
@@ -356,21 +364,50 @@ udpInputCloseSocket(sock);
 └───┴───┴───┴───┘
 ```
 
+**从机连接流程**：
+```
+从机→主机:  WS connect /ws/console
+从机→主机:  {"type":"register","hostname":"esp32p4-b","gamepad_count":2}
+主机→从机:  {"type":"registered","slot":1}
+主机→所有:  slots_update（全量槽位 + mask 广播）
+```
+
 **API**：
 ```cpp
 class HostManager {
+    static HostManager& instance();
+
+    // ── 角色 ──
     bool isHost() const;
     bool isClient() const;
     int  getMySlot() const;
 
-    // 从机侧
-    bool connectToHost(const char* ip, uint16_t port, const char* hostname);
+    // ── 从机侧 ──
+    bool connectToHost(const char* ip, uint16_t port = 8080, const char* hostname = nullptr);
     void disconnectFromHost();
-    WsClient* getWsConnection(const char* uri);
+    bool isConnectedToHost() const;
+    const char* getRemoteHostname() const;
+    WsClient* getWsConnection(const char* uri);   // 连接池，同 URI 复用
 
-    // 主机侧
-    struct ClientSlot { int slotId; char hostname[64]; bool connected; };
+    // ── 主机侧 ──
+    struct ClientSlot {
+        int slotId; char hostname[64]; char ip[16];
+        int gamepadCount; bool connected;
+    };
     const ClientSlot* getSlots() const;
+
+    // ── 主机 mask ──
+    void setHostMask(const uint8_t mask[4]);
+    const uint8_t* getHostMask() const;
+
+    // ── 事件回调 ──
+    void setOnSlotUpdate(std::function<void(const ClientSlot* slots)> cb);
+    void setOnRoleChange(std::function<void(bool isClient)> cb);
+
+    // ── 内部（由 wsConsoleHandler 调用）──
+    void onClientRegistered(int slotId, const char* hostname, const char* ip, int gamepadCount);
+    void onClientDisconnected(int slotId);
+    void swapSlots(int slotA, int slotB);  // 同时交换 mask
 };
 ```
 
@@ -378,15 +415,26 @@ class HostManager {
 
 **模块路径**: `main/host/wsConsoleHandler.cpp`
 
-从机注册到主机的管理通道，独立于游戏数据通道。
+从机注册到主机的管理通道，独立于游戏数据通道。**所有状态变更使用全量 `slots_update` 广播**（不增量）。
 
 | 消息 | 方向 | 说明 |
 |------|------|------|
-| `{"type":"register","hostname":"...","gamepad_count":N}` | 从机→主机 | 带手柄数注册 |
+| `{"type":"register","hostname":"...","gamepad_count":N}` | 从机→主机 | 注册带手柄数 |
 | `{"type":"registered","slot":N}` | 主机→从机 | 分配槽位 |
-| `{"type":"client_joined","slot":N,...}` | 主机→* | 广播新设备 |
-| `{"type":"client_left","slot":N}` | 主机→* | 广播设备离开 |
-| `{"type":"slot_swap","a":N,"b":M}` | 任意→* | 交换槽位 |
+| `{"type":"slots_update","slots":[...]}` | 主机→所有 | **全量**槽位+mask 广播（替代增量消息） |
+| `{"type":"ping"}/{"type":"pong"}` | 双向 | 心跳 |
+
+**`slots_update` 格式**（每槽带 `mask` 字段）：
+```json
+{"type":"slots_update","slots":[
+  {"slot":0,"hostname":"esp32p4-a","connected":true,"gamepad_count":0,"mask":15},
+  {"slot":1,"hostname":"esp32p4-b","connected":true,"gamepad_count":2,"mask":3},
+  {"slot":2,"hostname":"","connected":false,"gamepad_count":0,"mask":0},
+  {"slot":3,"hostname":"","connected":false,"gamepad_count":0,"mask":0}
+]}
+```
+
+触发时机：register / disconnect / swap / mask 变化 → 全量广播一次。
 
 ### InputHost — 远程设备连接跟踪
 
@@ -1010,9 +1058,14 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 - 通过 mDNS 发现其他主机，列表展示（hostname + IP:port）
 - 桌面状态栏图标（索引 6）进入
 - 支持手动扫描
-- 手柄焦点导航（FOCUS_TITLE / FOCUS_LIST）
+- **BLE 配对风格界面**：4 槽位 + P0-P3 掩码按钮 + 交换/断开
+- **访问/从机双视图**：连接后自动切换
+- **每槽掩码控制**：4 个小按钮决定该 (hostId, playerId) 对是否进入本地 App
+- **交换模式**：点击 [交换] → ←→ 选择目标槽 → A 确认 → 主机交换 hostId + mask 并广播
+- **活动指示**：手柄输入时槽位底色变亮（同 BleSettingsApp）
+- 槽位交换同时交换 **mask**，从机通过 hostname 匹配自动更新 `m_mySlot`
+- 聚焦导航：CARD → MASK → ACTIONS 三阶层级
 - AI 入口：`open_app("consoleManager")`
-- 延迟销毁：扫描中退出时保持 `deletable=false`，扫完后自动放行
 
 ---
 
