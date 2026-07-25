@@ -116,6 +116,7 @@ private:
 	void updateMaskBtnStyle(int hostId, int player);
 	void applyMaskToVirtualGamepad();
 	void onSlotClick(int slot);
+	void cancelSwapMode();
 	void onSwapSlot(int slotA, int slotB);
 	void onDisconnectSlot(int slot);
 

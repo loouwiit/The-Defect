@@ -579,20 +579,43 @@ void ConsoleManagerApp::updateSlotCard(int slot, const HostManager::ClientSlot& 
 
 	lv_label_set_text(w.nameLabel, info.connected ? info.hostname : "--");
 
-	// 槽位背景色：连接=亮色，未连接=暗色
-	lv_color_t bg = info.connected
-		? lv_color_t LV_COLOR_MAKE(0x30, 0x50, 0x70)
-		: GUI::Color::CARD;
-	lv_obj_set_style_bg_color(w.card, bg, 0);
+	// ── 交换模式视觉反馈 ──
+	if (m_swapMode)
+	{
+		if (slot == m_swapSourceSlot)
+		{
+			// 源槽位：橙色边框
+			lv_obj_set_style_border_color(w.card, LV_COLOR_MAKE(0xFF, 0xA0, 0x00), 0);
+			lv_obj_set_style_border_width(w.card, 3, 0);
+		}
+		else if (slot > 0)
+		{
+			// 其他槽位（含空）：蓝色边框，空槽位可移动
+			lv_obj_set_style_border_color(w.card, LV_COLOR_MAKE(0x00, 0x88, 0xFF), 0);
+			lv_obj_set_style_border_width(w.card, 3, 0);
+		}
+	}
+	else
+	{
+		// 清除交换模式残留的边框
+		lv_obj_set_style_border_width(w.card, 0, 0);
+		// 槽位背景色：连接=亮色，未连接=暗色
+		lv_color_t bg = info.connected
+			? lv_color_t LV_COLOR_MAKE(0x30, 0x50, 0x70)
+			: GUI::Color::CARD;
+		lv_obj_set_style_bg_color(w.card, bg, 0);
+		lv_obj_set_style_border_width(w.card, 3, LV_STATE_FOCUSED);
+		lv_obj_set_style_border_color(w.card, lv_color_white(), LV_STATE_FOCUSED);
+	}
 
 	// 掩码按钮状态恢复
 	for (int p = 0; p < 4; p++)
 		updateMaskBtnStyle(slot, p);
 
-	// 操作按钮显隐（Slot 0 没有，空槽隐藏操作按钮）
+	// 操作按钮（交换模式隐藏，Slot 0 没有）
 	if (slot > 0)
 	{
-		bool hasClient = info.connected;
+		bool hasClient = info.connected && !m_swapMode;
 		if (w.swapBtn)
 			lv_obj_set_style_bg_opa(w.swapBtn, hasClient ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
 		if (w.disconnectBtn)
@@ -641,15 +664,30 @@ void ConsoleManagerApp::onSlotClick(int slot)
 	// 暂未使用（槽位点击暂不处理）
 }
 
+void ConsoleManagerApp::cancelSwapMode()
+{
+	if (!m_swapMode) return;
+	m_swapMode = false;
+	m_swapSourceSlot = -1;
+	updateSlotStatus();
+	applyFocus();
+	ESP_LOGI(TAG, "交换已取消");
+}
+
 void ConsoleManagerApp::onSwapSlot(int slotA, int slotB)
 {
-	if (slotA == slotB || slotA < 0 || slotA > 3 || slotB < 0 || slotB > 3)
+	if (slotA == slotB || slotA < 1 || slotB < 1 || slotA > 3 || slotB > 3)
+	{
+		cancelSwapMode();
 		return;
+	}
 
 	ESP_LOGI(TAG, "交换槽位: %d ↔ %d", slotA, slotB);
 	HostManager::instance().swapSlots(slotA, slotB);
 	m_swapMode = false;
 	m_swapSourceSlot = -1;
+	updateSlotStatus();
+	applyFocus();
 }
 
 void ConsoleManagerApp::onDisconnectSlot(int slot)
@@ -757,10 +795,21 @@ void ConsoleManagerApp::activateFocus()
 		switch (m_slotNavLevel)
 		{
 		case SLOT_CARD:
-			// 进入 SLOT_MASK
-			m_slotNavLevel = SLOT_MASK;
-			m_focusMaskCol = 0;
-			applyFocus();
+			if (m_swapMode)
+			{
+				// 交换模式中 A → 执行交换
+				if (m_focusSlotIdx != m_swapSourceSlot)
+					onSwapSlot(m_swapSourceSlot, m_focusSlotIdx);
+				else
+					cancelSwapMode();
+			}
+			else
+			{
+				// 进入 SLOT_MASK
+				m_slotNavLevel = SLOT_MASK;
+				m_focusMaskCol = 0;
+				applyFocus();
+			}
 			break;
 		case SLOT_MASK:
 			if (m_focusMaskCol >= 0 && m_focusMaskCol < 4)
@@ -789,7 +838,12 @@ void ConsoleManagerApp::navUp()
 		else { m_focusGroup = FOCUS_TITLE; applyFocus(); }
 		break;
 	case FOCUS_SLOTS:
-		if (m_slotNavLevel == SLOT_CARD)
+		if (m_swapMode)
+		{
+			// 交换模式中 ↑ → 取消交换
+			cancelSwapMode();
+		}
+		else if (m_slotNavLevel == SLOT_CARD)
 		{
 			m_focusGroup = FOCUS_LIST;
 			applyFocus();
@@ -833,7 +887,11 @@ void ConsoleManagerApp::navDown()
 		else { m_focusGroup = FOCUS_SLOTS; m_focusSlotIdx = 0; m_slotNavLevel = SLOT_CARD; applyFocus(); }
 		break;
 	case FOCUS_SLOTS:
-		if (m_slotNavLevel == SLOT_CARD)
+		if (m_swapMode)
+		{
+			// 交换模式：只允许 ←→ 切换槽位，↓ 不生效
+		}
+		else if (m_slotNavLevel == SLOT_CARD)
 		{
 			m_slotNavLevel = SLOT_MASK;
 			m_focusMaskCol = 0;
@@ -841,7 +899,6 @@ void ConsoleManagerApp::navDown()
 		}
 		else if (m_slotNavLevel == SLOT_MASK)
 		{
-			// 如果有动作按钮 → 进入；否则回到 CARD
 			if (m_focusSlotIdx > 0 && m_slotsUI[m_focusSlotIdx].swapBtn)
 			{
 				m_slotNavLevel = SLOT_ACTIONS;
@@ -934,10 +991,14 @@ void ConsoleManagerApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const G
 	bool lyUp = (state.ly < center - deadZone);
 	bool lyDown = (state.ly > center + deadZone);
 
-	// ── B：返回 ──
+	// ── B：返回或取消交换 ──
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 	{
-		if (m_nextActionTime < xTaskGetTickCount())
+		if (m_swapMode)
+		{
+			cancelSwapMode();
+		}
+		else if (m_nextActionTime < xTaskGetTickCount())
 		{
 			m_nextActionTime = xTaskGetTickCount() + 500;
 			Task::addTask([](void* param) -> TickType_t {
@@ -1048,31 +1109,17 @@ void ConsoleManagerApp::onSwapBtnCb(lv_event_t* e)
 	auto* self = static_cast<ConsoleManagerApp*>(lv_event_get_user_data(e));
 	if (xTaskGetTickCount() < self->m_nextActionTime) return;
 	self->m_nextActionTime = xTaskGetTickCount() + 500;
-	lv_obj_t* btn = (lv_obj_t*)lv_event_get_target(e);
-	int slot = (int)(uintptr_t)lv_obj_get_user_data(btn);
 
-	if (!self->m_swapMode)
-	{
-		// 进入交换等待模式
-		self->m_swapMode = true;
-		self->m_swapSourceSlot = (int8_t)slot;
-		ESP_LOGI(TAG, "交换模式: 选择源 Slot %d", slot);
-	}
-	else
-	{
-		if (slot == self->m_swapSourceSlot)
-		{
-			// 取消交换
-			self->m_swapMode = false;
-			self->m_swapSourceSlot = -1;
-			ESP_LOGI(TAG, "交换已取消");
-		}
-		else
-		{
-			// 执行交换
-			self->onSwapSlot(self->m_swapSourceSlot, slot);
-		}
-	}
+	// 进入交换模式
+	self->m_swapMode = true;
+	lv_obj_t* btn = (lv_obj_t*)lv_event_get_target(e);
+	self->m_swapSourceSlot = (int8_t)(uintptr_t)lv_obj_get_user_data(btn);
+
+	// 切换到 SLOT_CARD 层级，方便摇杆选目标
+	self->m_slotNavLevel = SLOT_CARD;
+	self->updateSlotStatus();
+	self->applyFocus();
+	ESP_LOGI(TAG, "交换模式: 源 Slot %d，请选择目标槽位", self->m_swapSourceSlot);
 }
 
 void ConsoleManagerApp::onDisconnectBtnCb(lv_event_t* e)
