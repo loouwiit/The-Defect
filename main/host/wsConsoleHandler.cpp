@@ -61,18 +61,31 @@ static void broadcastExcept(const char* json, size_t len, int excludeFd)
 	}
 }
 
-/// 广播到所有客户端
-static void broadcastAll(const char* json, size_t len) {
-	broadcastExcept(json, len, -1);
-}
-
-// ── JSON 辅助 ──
-static char* makeJson(const char* type) {
+// ── 全量 slots_update ──
+static void broadcastSlotsUpdate(int excludeFd)
+{
 	cJSON* root = cJSON_CreateObject();
-	cJSON_AddStringToObject(root, "type", type);
-	char* s = cJSON_PrintUnformatted(root);
+	cJSON_AddStringToObject(root, "type", "slots_update");
+
+	cJSON* slotsArr = cJSON_CreateArray();
+	const auto* slots = HostManager::instance().getSlots();
+	for (int i = 0; i < 4; i++)
+	{
+		cJSON* slot = cJSON_CreateObject();
+		cJSON_AddNumberToObject(slot, "slot", slots[i].slotId);
+		cJSON_AddStringToObject(slot, "hostname", slots[i].hostname);
+		cJSON_AddBoolToObject(slot, "connected", slots[i].connected);
+		cJSON_AddNumberToObject(slot, "gamepad_count", slots[i].gamepadCount);
+		cJSON_AddItemToArray(slotsArr, slot);
+	}
+	cJSON_AddItemToObject(root, "slots", slotsArr);
+
+	char* str = cJSON_PrintUnformatted(root);
 	cJSON_Delete(root);
-	return s;
+	if (!str) return;
+
+	broadcastExcept(str, strlen(str), excludeFd);
+	cJSON_free(str);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -97,19 +110,9 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 		int hostId = findHostIdByFd(fd);
 
 		if (hostId > 0) {
-			// 清理 InputHost
 			InputHost::instance().unregisterClient(fd);
-			// 通知 HostManager
 			HostManager::instance().onClientDisconnected(hostId);
-			// 广播离开
-			char* msg = makeJson("client_left");
-			cJSON* root = cJSON_Parse(msg);
-			cJSON_AddNumberToObject(root, "slot", hostId);
-			char* updated = cJSON_PrintUnformatted(root);
-			cJSON_Delete(root);
-			cJSON_free(msg);
-			broadcastAll(updated, strlen(updated));
-			cJSON_free(updated);
+			broadcastSlotsUpdate(fd);
 			ESP_LOGI(TAG, "hostId=%d disconnected (fd=%d)", hostId, fd);
 		}
 		removeClient(fd);
@@ -179,16 +182,8 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 		HostManager::instance().onClientRegistered(
 			hostId, hostname, "", gamepadCount);
 
-		// 广播 joined
-		cJSON* joined = cJSON_CreateObject();
-		cJSON_AddStringToObject(joined, "type", "client_joined");
-		cJSON_AddNumberToObject(joined, "slot", hostId);
-		cJSON_AddStringToObject(joined, "hostname", hostname);
-		cJSON_AddNumberToObject(joined, "gamepad_count", gamepadCount);
-		char* joinedStr = cJSON_PrintUnformatted(joined);
-		cJSON_Delete(joined);
-		broadcastAll(joinedStr, strlen(joinedStr));
-		cJSON_free(joinedStr);
+		// 全量广播 slots_update
+		broadcastSlotsUpdate(-1);
 
 		ESP_LOGI(TAG, "%s registered as hostId=%d (fd=%d, %d gamepads)",
 				 hostname, hostId, fd, gamepadCount);
@@ -207,10 +202,8 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 		if (a && b && cJSON_IsNumber(a) && cJSON_IsNumber(b)) {
 			int sa = a->valueint, sb = b->valueint;
 			HostManager::instance().swapSlots(sa, sb);
-			// 广播给所有客户端
-			char* swapMsg = cJSON_PrintUnformatted(root);
-			broadcastAll(swapMsg, strlen(swapMsg));
-			cJSON_free(swapMsg);
+			// 全量广播 slots_update
+			broadcastSlotsUpdate(-1);
 		}
 	}
 
