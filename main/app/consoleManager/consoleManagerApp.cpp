@@ -88,11 +88,19 @@ void ConsoleManagerApp::init()
 
 void ConsoleManagerApp::deinit()
 {
+	// 清除 HostManager 回调（防止二次进入时旧回调访问野指针）
+	HostManager::instance().setOnSlotUpdate(nullptr);
+	HostManager::instance().setOnRoleChange(nullptr);
+
 	if (m_refreshTimer)
 	{
 		lv_timer_del(m_refreshTimer);
 		m_refreshTimer = nullptr;
 	}
+
+	// 清零槽位控件指针（下一个实例会重新创建）
+	for (auto& w : m_slotsUI)
+		w = SlotWidgets{};
 
 	running = false;
 	deletable = !m_scanActive;
@@ -337,8 +345,6 @@ void ConsoleManagerApp::buildSlotCards()
 			lv_obj_set_style_bg_opa(ph2, LV_OPA_TRANSP, 0);
 		}
 
-		// 初始样式
-		updateSlotCard(s, HostManager::instance().getSlots()[s]);
 	}
 }
 
@@ -558,6 +564,7 @@ void ConsoleManagerApp::doConnect(size_t index)
 
 void ConsoleManagerApp::updateSlotStatus()
 {
+	auto guard = display->lockGuard();
 	const auto* slots = HostManager::instance().getSlots();
 	for (int i = 0; i < 4; i++)
 		updateSlotCard(i, slots[i]);
