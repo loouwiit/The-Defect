@@ -6,6 +6,8 @@
 #include "hostManager.hpp"
 #include "gamepad/virtualGamepad.hpp"
 #include "websocket/wsClient.hpp"
+#include "host/wsConsoleHandler.hpp"
+#include "wifi/mdns.hpp"
 #include <esp_log.h>
 #include <cstring>
 #include <cJSON.h>
@@ -172,23 +174,57 @@ void HostManager::setHostMask(const uint8_t mask[4])
 
 void HostManager::disconnectFromHost()
 {
+	// 第一步：通知主机我要优雅离开
 	if (m_consoleClient)
 	{
+		const char* msg = R"({"type":"unregister"})";
+		m_consoleClient->sendText(msg, strlen(msg));
+		vTaskDelay(pdMS_TO_TICKS(50));  // 等消息发出去
+
 		m_consoleClient->disconnect();
 		delete m_consoleClient;
 		m_consoleClient = nullptr;
 	}
+
+	// 第二步：清理各游戏 WS 连接池
 	for (auto& e : m_wsPool) {
-		if (e.client) { delete e.client; e.client = nullptr; }
+		if (e.client) {
+			e.client->disconnect();
+			delete e.client;
+			e.client = nullptr;
+		}
 		e.uri[0] = '\0';
 	}
+
+	// 第三步：重置本机槽位（断开后本机是独立主机）
+	{
+		const char* myHostname = mdnsGetConfiguredHostname();
+		m_slots[0] = {0, "", "", 0, true};
+		if (myHostname)
+			strncpy(m_slots[0].hostname, myHostname, sizeof(m_slots[0].hostname) - 1);
+	}
+	for (int i = 1; i < 4; i++)
+		m_slots[i] = {i, "", "", 0, false};
+
+	// 第四步：重置角色与连接信息
 	m_isClient = false;
 	m_mySlot = -1;
 	m_remoteHostname[0] = '\0';
 	m_remoteIp[0] = '\0';
+
 	notifySlotUpdate();
 	if (m_onRoleChange) m_onRoleChange(false);
 	ESP_LOGI(TAG, "disconnected, restored host role");
+}
+
+void HostManager::disconnectClient(int slotId)
+{
+	if (slotId < 1 || slotId > 3)
+	{
+		ESP_LOGW(TAG, "invalid slot %d for disconnect", slotId);
+		return;
+	}
+	wsConsoleDisconnectSlot(slotId);
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -89,6 +89,9 @@ public:
 	/// 断开某槽位（主机检测到断开后调用）
 	void onClientDisconnected(int slotId);
 
+	/// 主机强制断开某个从机
+	void disconnectClient(int slotId);
+
 	/// 交换两个槽位（主机收到 swap 请求后调用）
 	void swapSlots(int slotA, int slotB);
 

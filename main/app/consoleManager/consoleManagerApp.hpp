@@ -74,7 +74,6 @@ private:
 	// ── 从机视图 ──
 	lv_obj_t* m_connectedInfoLabel{};
 	lv_obj_t* m_disconnectBtn{};
-
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
 
@@ -83,6 +82,7 @@ private:
 		FOCUS_TITLE,
 		FOCUS_LIST,
 		FOCUS_SLOTS,
+		FOCUS_CLIENT,   // 从机视图：返回/断开
 	};
 	enum SlotNavLevel : int8_t {
 		SLOT_CARD,    // 选哪个槽位 (←→ 切换)
@@ -92,6 +92,7 @@ private:
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
 	int8_t m_focusTitleIdx{ 0 };
 	int8_t m_focusListIdx{ 0 };
+	int8_t m_focusClientIdx{ 0 };   // 从机视图：0=返回, 1=断开
 	int8_t m_focusSlotIdx{ 0 };        // 当前聚焦的槽位 (0-3)
 	int8_t m_focusMaskCol{ 0 };         // 掩码列
 	int8_t m_focusActionIdx{ 0 };       // 动作按钮索引 (0=交换, 1=断开)
@@ -113,6 +114,7 @@ private:
 	void buildHostView();
 	void buildClientView();
 	void applyViewMode();
+	void buildTopBar();
 	void buildSlotCards();
 	void refreshUi();
 	void updateScanList();

@@ -47,6 +47,11 @@ void ConsoleManagerApp::init()
 	lv_obj_set_style_bg_color(screen, GUI::Color::BG, 0);
 	lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 	lv_obj_set_style_pad_all(screen, 0, 0);
+	lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
+
+	// ── 共享顶部栏（双视图共用，始终可见） ──
+	buildTopBar();
 
 	// 构建双视图
 	buildHostView();
@@ -151,19 +156,10 @@ void ConsoleManagerApp::onBackground()
 // 视图构建
 // ════════════════════════════════════════════════════════════════
 
-/// 创建主机视图（扫描列表 + 4 槽位）
-void ConsoleManagerApp::buildHostView()
+/// 创建共享顶部栏（返回按钮，双视图共用）
+void ConsoleManagerApp::buildTopBar()
 {
-	m_hostView = lv_obj_create(screen);
-	lv_obj_set_size(m_hostView, lv_pct(100), lv_pct(100));
-	lv_obj_set_style_border_width(m_hostView, 0, 0);
-	lv_obj_set_style_bg_opa(m_hostView, LV_OPA_TRANSP, 0);
-	lv_obj_set_layout(m_hostView, LV_LAYOUT_FLEX);
-	lv_obj_set_flex_flow(m_hostView, LV_FLEX_FLOW_COLUMN);
-	lv_obj_set_style_pad_all(m_hostView, 0, 0);
-
-	// ── 顶部栏 ──
-	auto top_bar = GUI::createFlex(m_hostView, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
+	auto top_bar = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
 	lv_obj_set_style_pad_all(top_bar, 8, 0);
 	lv_obj_set_style_pad_left(top_bar, 16, 0);
 	lv_obj_set_style_pad_right(top_bar, 16, 0);
@@ -185,6 +181,20 @@ void ConsoleManagerApp::buildHostView()
 	lv_obj_set_style_border_width(m_scanBtn, 3, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_scanBtn, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_add_event_cb(m_scanBtn, onScanBtnCb, LV_EVENT_CLICKED, this);
+}
+
+/// 创建主机视图（扫描列表 + 4 槽位）
+void ConsoleManagerApp::buildHostView()
+{
+	m_hostView = lv_obj_create(screen);
+	lv_obj_set_width(m_hostView, lv_pct(100));
+	lv_obj_set_height(m_hostView, 0);
+	lv_obj_set_flex_grow(m_hostView, 1);
+	lv_obj_set_style_border_width(m_hostView, 0, 0);
+	lv_obj_set_style_bg_opa(m_hostView, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(m_hostView, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(m_hostView, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_style_pad_all(m_hostView, 0, 0);
 
 	// ── 扫描列表 ──
 	auto list_section = GUI::createFlex(m_hostView, LV_FLEX_FLOW_COLUMN, lv_pct(100), LV_SIZE_CONTENT);
@@ -368,7 +378,9 @@ void ConsoleManagerApp::buildSlotCards()
 void ConsoleManagerApp::buildClientView()
 {
 	m_clientView = lv_obj_create(screen);
-	lv_obj_set_size(m_clientView, lv_pct(100), lv_pct(100));
+	lv_obj_set_width(m_clientView, lv_pct(100));
+	lv_obj_set_height(m_clientView, 0);
+	lv_obj_set_flex_grow(m_clientView, 1);
 	lv_obj_set_style_border_width(m_clientView, 0, 0);
 	lv_obj_set_style_bg_opa(m_clientView, LV_OPA_TRANSP, 0);
 	lv_obj_add_flag(m_clientView, LV_OBJ_FLAG_HIDDEN);
@@ -391,6 +403,9 @@ void ConsoleManagerApp::buildClientView()
 	m_disconnectBtn = GUI::createButton(m_clientView, "断开连接", 160, 48);
 	lv_obj_set_style_bg_color(m_disconnectBtn, LV_COLOR_MAKE(0x80, 0x30, 0x30), 0);
 	lv_obj_set_style_radius(m_disconnectBtn, 12, 0);
+	lv_obj_set_style_outline_width(m_disconnectBtn, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_color(m_disconnectBtn, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_pad(m_disconnectBtn, 3, LV_STATE_FOCUSED);
 	lv_obj_set_style_pad_top(m_disconnectBtn, 24, 0);
 	lv_obj_add_event_cb(m_disconnectBtn, onDisconnectBtnCb, LV_EVENT_CLICKED, this);
 }
@@ -411,14 +426,31 @@ void ConsoleManagerApp::applyViewMode()
 			HostManager::instance().getRemoteHostname(),
 			HostManager::instance().getMySlot());
 		lv_label_set_text(m_connectedInfoLabel, buf);
+
+		// 从机聚焦：返回按钮
+		m_focusGroup = FOCUS_CLIENT;
+		m_focusClientIdx = 0;
+		lv_obj_add_flag(m_scanBtn, LV_OBJ_FLAG_HIDDEN);
+		applyFocus();
 	}
 	else
 	{
 		lv_obj_clear_flag(m_hostView, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_add_flag(m_clientView, LV_OBJ_FLAG_HIDDEN);
 
-		// 恢复主机模式：从 m_maskState 同步 mask
-		applyMaskToVirtualGamepad();
+		// 恢复主机模式：显示扫描按钮
+		lv_obj_clear_flag(m_scanBtn, LV_OBJ_FLAG_HIDDEN);
+
+		// 重置聚焦到顶部栏
+		m_focusGroup = FOCUS_TITLE;
+		m_focusTitleIdx = 0;
+		m_focusListIdx = 0;
+		m_focusSlotIdx = 0;
+		m_slotNavLevel = SLOT_CARD;
+		m_swapMode = false;
+		m_swapSourceSlot = -1;
+		updateSlotStatus();
+		applyFocus();
 	}
 }
 
@@ -738,8 +770,7 @@ void ConsoleManagerApp::onSwapSlot(int slotA, int slotB)
 	}
 
 	ESP_LOGI(TAG, "交换槽位: %d ↔ %d", slotA, slotB);
-	HostManager::instance().swapSlots(slotA, slotB);
-	wsConsoleBroadcastSlotsUpdate();
+	wsConsoleHandleSlotSwap(slotA, slotB);
 	m_swapMode = false;
 	m_swapSourceSlot = -1;
 	updateSlotStatus();
@@ -754,10 +785,16 @@ void ConsoleManagerApp::onDisconnectSlot(int slot)
 		HostManager::instance().disconnectFromHost();
 		applyViewMode();
 	}
+	else if (slot > 0 && HostManager::instance().isHost())
+	{
+		ESP_LOGI(TAG, "主机断开 Slot %d", slot);
+		HostManager::instance().disconnectClient(slot);
+		updateSlotStatus();
+		applyMaskToVirtualGamepad();
+	}
 	else
 	{
-		// 主机断开某个从机（暂未实现）
-		ESP_LOGI(TAG, "主机断开 Slot %d（待实现）", slot);
+		ESP_LOGW(TAG, "无法断开 Slot %d", slot);
 	}
 }
 
@@ -775,6 +812,7 @@ void ConsoleManagerApp::applyFocus()
 
 	clear(m_backBtn);
 	clear(m_scanBtn);
+	clear(m_disconnectBtn);
 	for (auto* r : m_scanRows) clear(r);
 	for (int s = 0; s < 4; s++) {
 		clear(m_slotsUI[s].card);
@@ -823,6 +861,14 @@ void ConsoleManagerApp::applyFocus()
 			}
 		}
 		break;
+
+	case FOCUS_CLIENT:
+	{
+		lv_obj_t* targets[] = { m_backBtn, m_disconnectBtn };
+		if (m_focusClientIdx >= 0 && m_focusClientIdx < 2 && targets[m_focusClientIdx])
+			focus(targets[m_focusClientIdx]);
+		break;
+	}
 	}
 }
 
@@ -882,6 +928,14 @@ void ConsoleManagerApp::activateFocus()
 		}
 		break;
 	}
+
+	case FOCUS_CLIENT:
+	{
+		lv_obj_t* targets[] = { m_backBtn, m_disconnectBtn };
+		if (m_focusClientIdx >= 0 && m_focusClientIdx < 2 && targets[m_focusClientIdx])
+			lv_obj_send_event(targets[m_focusClientIdx], LV_EVENT_CLICKED, nullptr);
+		break;
+	}
 	}
 }
 
@@ -915,6 +969,9 @@ void ConsoleManagerApp::navUp()
 			applyFocus();
 		}
 		break;
+	case FOCUS_CLIENT:
+		if (m_focusClientIdx > 0) { m_focusClientIdx--; applyFocus(); }
+		break;
 	case FOCUS_TITLE: break;
 	}
 }
@@ -924,7 +981,13 @@ void ConsoleManagerApp::navDown()
 	switch (m_focusGroup)
 	{
 	case FOCUS_TITLE:
-		if (!m_scanRows.empty() && !m_consoles.empty())
+		if (HostManager::instance().isClient())
+		{
+			m_focusGroup = FOCUS_CLIENT;
+			m_focusClientIdx = 0;
+			applyFocus();
+		}
+		else if (!m_scanRows.empty() && !m_consoles.empty())
 		{
 			m_focusGroup = FOCUS_LIST;
 			m_focusListIdx = 0;
@@ -973,6 +1036,10 @@ void ConsoleManagerApp::navDown()
 			applyFocus();
 		}
 		break;
+
+	case FOCUS_CLIENT:
+		if (m_focusClientIdx < 1) { m_focusClientIdx++; applyFocus(); }
+		break;
 	}
 }
 
@@ -999,6 +1066,7 @@ void ConsoleManagerApp::navLeft()
 		}
 		break;
 	case FOCUS_LIST:
+	case FOCUS_CLIENT:
 		break;
 	}
 }
@@ -1026,6 +1094,7 @@ void ConsoleManagerApp::navRight()
 		}
 		break;
 	case FOCUS_LIST:
+	case FOCUS_CLIENT:
 		break;
 	}
 }
@@ -1223,6 +1292,8 @@ std::string ConsoleManagerApp::getAiContext()
 	case FOCUS_TITLE: groupName = "title"; break;
 	case FOCUS_LIST:  groupName = "list"; break;
 	case FOCUS_SLOTS: groupName = "slots"; break;
+	case FOCUS_CLIENT:
+		break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	ctx += "\n";

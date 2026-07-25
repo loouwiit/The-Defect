@@ -84,6 +84,19 @@ int InputHost::getHostIdByFd(int fd) const
 	return -1;
 }
 
+void InputHost::swapHostIds(int hostIdA, int hostIdB)
+{
+	int idxA = hostIdA - 1;
+	int idxB = hostIdB - 1;
+	if (idxA < 0 || idxA >= MAX_SLOTS || idxB < 0 || idxB >= MAX_SLOTS)
+		return;
+
+	Slot tmp = m_slots[idxA];
+	m_slots[idxA] = m_slots[idxB];
+	m_slots[idxB] = tmp;
+	ESP_LOGI(TAG, "swapped hostId %d <-> %d", hostIdA, hostIdB);
+}
+
 bool InputHost::hasFreeSlot() const
 {
 	for (int i = 0; i < MAX_SLOTS; i++)

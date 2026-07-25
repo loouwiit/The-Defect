@@ -9,6 +9,7 @@
 #include <esp_http_server.h>
 #include <esp_heap_caps.h>
 #include <cstring>
+#include <unistd.h>
 
 static constexpr char TAG[] = "wsServer";
 
@@ -146,6 +147,13 @@ esp_err_t wsServerBroadcastText(const char* data, size_t len)
 
 	heap_caps_free(fds);
 	return ESP_OK;
+}
+
+void wsServerCloseClient(int fd)
+{
+	if (!s_server || fd < 0) return;
+	httpd_sess_trigger_close(s_server, fd);
+	ESP_LOGI(TAG, "closed client fd=%d", fd);
 }
 
 

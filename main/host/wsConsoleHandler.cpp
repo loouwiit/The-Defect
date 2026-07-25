@@ -197,14 +197,22 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 		wsServerSendText(fd, s, strlen(s));
 		cJSON_free(s);
 	}
+	else if (strcmp(type, "unregister") == 0) {
+		int hostId = findHostIdByFd(fd);
+		if (hostId > 0) {
+			ESP_LOGI(TAG, "client hostId=%d unregistered gracefully", hostId);
+			InputHost::instance().unregisterClient(fd);
+			HostManager::instance().onClientDisconnected(hostId);
+			broadcastSlotsUpdate(-1);
+		}
+		removeClient(fd);
+	}
 	else if (strcmp(type, "slot_swap") == 0) {
 		cJSON* a = cJSON_GetObjectItem(root, "a");
 		cJSON* b = cJSON_GetObjectItem(root, "b");
 		if (a && b && cJSON_IsNumber(a) && cJSON_IsNumber(b)) {
 			int sa = a->valueint, sb = b->valueint;
-			HostManager::instance().swapSlots(sa, sb);
-			// 全量广播 slots_update
-			broadcastSlotsUpdate(-1);
+			wsConsoleHandleSlotSwap(sa, sb);
 		}
 	}
 
@@ -214,5 +222,59 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 
 void wsConsoleBroadcastSlotsUpdate()
 {
+	broadcastSlotsUpdate(-1);
+}
+
+void wsConsoleDisconnectSlot(int slotId)
+{
+	if (slotId < 1 || slotId > 3) return;
+
+	for (int i = 0; i < MAX_CONSOLE_CLIENTS; i++)
+	{
+		if (s_clients[i].hostId == slotId && s_clients[i].fd > 0)
+		{
+			int fd = s_clients[i].fd;
+			ESP_LOGI(TAG, "host disconnecting slot %d (fd=%d)", slotId, fd);
+
+			// 先清理状态
+			InputHost::instance().unregisterClient(fd);
+			HostManager::instance().onClientDisconnected(slotId);
+			broadcastSlotsUpdate(-1);
+			removeClient(fd);
+
+			// 关闭连接
+			wsServerCloseClient(fd);
+			return;
+		}
+	}
+	ESP_LOGW(TAG, "slot %d: no client found to disconnect", slotId);
+}
+
+void wsConsoleHandleSlotSwap(int slotA, int slotB)
+{
+	if (slotA == slotB || slotA < 1 || slotA > 3 || slotB < 1 || slotB > 3)
+	{
+		ESP_LOGW(TAG, "invalid swap: %d <-> %d", slotA, slotB);
+		return;
+	}
+
+	ESP_LOGI(TAG, "slot swap: %d <-> %d", slotA, slotB);
+
+	// 1. 交换 HostManager 的槽位信息 + mask
+	HostManager::instance().swapSlots(slotA, slotB);
+
+	// 2. 交换 s_clients 的 hostId 追踪
+	for (int i = 0; i < MAX_CONSOLE_CLIENTS; i++) {
+		if (s_clients[i].hostId == slotA) s_clients[i].hostId = -1;
+		else if (s_clients[i].hostId == slotB) s_clients[i].hostId = slotA;
+	}
+	for (int i = 0; i < MAX_CONSOLE_CLIENTS; i++) {
+		if (s_clients[i].hostId == -1) s_clients[i].hostId = slotB;
+	}
+
+	// 3. 交换 InputHost 的 fd→hostId 映射
+	InputHost::instance().swapHostIds(slotA, slotB);
+
+	// 4. 全量广播
 	broadcastSlotsUpdate(-1);
 }

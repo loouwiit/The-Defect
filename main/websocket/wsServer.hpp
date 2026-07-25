@@ -57,3 +57,9 @@ esp_err_t wsServerSendText(int fd, const char* data, size_t len);
  * @return ESP_OK 成功
  */
 esp_err_t wsServerBroadcastText(const char* data, size_t len);
+
+/**
+ * @brief 关闭指定客户端的 WebSocket 连接
+ * @param fd 客户端 socket fd
+ */
+void wsServerCloseClient(int fd);

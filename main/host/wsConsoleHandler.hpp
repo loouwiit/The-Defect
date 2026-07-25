@@ -22,3 +22,9 @@ esp_err_t wsConsoleHandler(httpd_req_t* req);
 
 /// 广播 slots_update 到所有客户端（mask 变化时由 ConsoleManager 触发）
 void wsConsoleBroadcastSlotsUpdate();
+
+/// 主机强制断开指定槽位的从机
+void wsConsoleDisconnectSlot(int slotId);
+
+/// 交换两个槽位（同步更新 s_clients + InputHost + HostManager + 广播）
+void wsConsoleHandleSlotSwap(int slotA, int slotB);

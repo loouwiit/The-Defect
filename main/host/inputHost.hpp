@@ -23,6 +23,9 @@ public:
 	/// 根据 fd 查询 hostId，-1 表示未找到
 	int getHostIdByFd(int fd) const;
 
+	/// 交换两个 hostId 的映射关系（槽位交换时调用）
+	void swapHostIds(int hostIdA, int hostIdB);
+
 	/// 判断是否有空闲槽位
 	bool hasFreeSlot() const;
 
