@@ -75,6 +75,11 @@ public:
 		m_onRoleChange = std::move(cb);
 	}
 
+	// ── 主机 mask（由 ConsoleManager 设置，wsConsoleHandler 广播）──
+
+	void setHostMask(const uint8_t mask[4]);
+	const uint8_t* getHostMask() const { return m_hostMask; }
+
 	// ── 内部：由 wsConsoleHandler 调用 ──
 
 	/// 注册/更新某槽位（主机收到 register 后调用）
@@ -117,6 +122,9 @@ private:
 		{2, "",    "", 0, false},
 		{3, "",    "", 0, false},
 	};
+
+	// ── 主机 mask ──
+	uint8_t m_hostMask[4] = {0x0F, 0x00, 0x00, 0x00};
 
 	// ── 事件 ──
 	std::function<void(const ClientSlot* slots)> m_onSlotUpdate;

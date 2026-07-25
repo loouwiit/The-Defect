@@ -76,6 +76,7 @@ static void broadcastSlotsUpdate(int excludeFd)
 		cJSON_AddStringToObject(slot, "hostname", slots[i].hostname);
 		cJSON_AddBoolToObject(slot, "connected", slots[i].connected);
 		cJSON_AddNumberToObject(slot, "gamepad_count", slots[i].gamepadCount);
+		cJSON_AddNumberToObject(slot, "mask", HostManager::instance().getHostMask()[i]);
 		cJSON_AddItemToArray(slotsArr, slot);
 	}
 	cJSON_AddItemToObject(root, "slots", slotsArr);
@@ -209,4 +210,9 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 
 	cJSON_Delete(root);
 	return ESP_OK;
+}
+
+void wsConsoleBroadcastSlotsUpdate()
+{
+	broadcastSlotsUpdate(-1);
 }

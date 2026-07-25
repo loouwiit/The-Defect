@@ -180,8 +180,11 @@ void VirtualGamepad::forwarderLoop()
 				int8_t slot = HostManager::instance().getMySlot();
 				if (slot >= 0)
 				{
+					// m_hostMask[0] 在从机侧是反码（主机想要的→0），取反得主机期望的转发 mask
+					uint8_t forwardMask = (~m_hostMask[0]) & 0x0F;
 					for (int p = 0; p < 4; p++)
 					{
+						if (!(forwardMask & (1 << p))) continue;
 						const auto& state = m_states[0][p];
 						auto& last = m_lastForwarded[p];
 

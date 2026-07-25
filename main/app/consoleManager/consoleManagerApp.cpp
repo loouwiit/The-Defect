@@ -5,6 +5,7 @@
 #include "task/task.hpp"
 #include "wifi/wifi.hpp"
 #include "host/hostManager.hpp"
+#include "host/wsConsoleHandler.hpp"
 #include "discovery/discovery.hpp"
 #include "gamepad/virtualGamepad.hpp"
 #include "wifi/mdns.hpp"
@@ -415,6 +416,9 @@ void ConsoleManagerApp::applyViewMode()
 	{
 		lv_obj_clear_flag(m_hostView, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_add_flag(m_clientView, LV_OBJ_FLAG_HIDDEN);
+
+		// 恢复主机模式：从 m_maskState 同步 mask
+		applyMaskToVirtualGamepad();
 	}
 }
 
@@ -701,6 +705,9 @@ void ConsoleManagerApp::applyMaskToVirtualGamepad()
 			if (m_maskState[h][p])
 				hostMask[h] |= (1 << p);
 	VirtualGamepad::instance().setAllMasks(hostMask);
+	HostManager::instance().setHostMask(hostMask);
+	// 广播 mask 到所有从机
+	wsConsoleBroadcastSlotsUpdate();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -732,6 +739,7 @@ void ConsoleManagerApp::onSwapSlot(int slotA, int slotB)
 
 	ESP_LOGI(TAG, "交换槽位: %d ↔ %d", slotA, slotB);
 	HostManager::instance().swapSlots(slotA, slotB);
+	wsConsoleBroadcastSlotsUpdate();
 	m_swapMode = false;
 	m_swapSourceSlot = -1;
 	updateSlotStatus();

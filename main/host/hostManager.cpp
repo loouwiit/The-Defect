@@ -89,29 +89,57 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 					if (m_onRoleChange) m_onRoleChange(true);
 				}
 			}
-			else if (strcmp(type, "client_joined") == 0) {
-				cJSON* slotItem = cJSON_GetObjectItem(root, "slot");
-				cJSON* hnItem = cJSON_GetObjectItem(root, "hostname");
-				cJSON* gpItem = cJSON_GetObjectItem(root, "gamepad_count");
-				int slot = slotItem && cJSON_IsNumber(slotItem) ? slotItem->valueint : -1;
-				if (slot >= 1 && slot <= 3) {
-					onClientRegistered(slot,
-						hnItem && cJSON_IsString(hnItem) ? hnItem->valuestring : "",
-						"",
-						gpItem && cJSON_IsNumber(gpItem) ? gpItem->valueint : 0);
+			else if (strcmp(type, "slots_update") == 0) {
+				cJSON* slotsArr = cJSON_GetObjectItem(root, "slots");
+				if (!slotsArr || !cJSON_IsArray(slotsArr)) { cJSON_Delete(root); return; }
+
+				uint8_t hostMask[4] = {};
+				int idx = 0;
+				cJSON* slotItem;
+				cJSON_ArrayForEach(slotItem, slotsArr) {
+					if (idx >= 4) break;
+					cJSON* s = cJSON_GetObjectItem(slotItem, "slot");
+					cJSON* hn = cJSON_GetObjectItem(slotItem, "hostname");
+					cJSON* con = cJSON_GetObjectItem(slotItem, "connected");
+					cJSON* gp = cJSON_GetObjectItem(slotItem, "gamepad_count");
+					cJSON* mk = cJSON_GetObjectItem(slotItem, "mask");
+					int slotId = s && cJSON_IsNumber(s) ? s->valueint : -1;
+					if (slotId >= 0 && slotId < 4) {
+						m_slots[slotId].connected = con && cJSON_IsBool(con) ? cJSON_IsTrue(con) : false;
+						if (hn && cJSON_IsString(hn))
+							strncpy(m_slots[slotId].hostname, hn->valuestring, sizeof(m_slots[slotId].hostname) - 1);
+						if (gp && cJSON_IsNumber(gp))
+							m_slots[slotId].gamepadCount = gp->valueint;
+						if (mk && cJSON_IsNumber(mk))
+							hostMask[slotId] = (uint8_t)mk->valueint;
+					}
+					idx++;
 				}
-			}
-			else if (strcmp(type, "client_left") == 0) {
-				cJSON* slotItem = cJSON_GetObjectItem(root, "slot");
-				int slot = slotItem && cJSON_IsNumber(slotItem) ? slotItem->valueint : -1;
-				if (slot >= 1 && slot <= 3) onClientDisconnected(slot);
-			}
-			else if (strcmp(type, "slot_swap") == 0) {
-				cJSON* aItem = cJSON_GetObjectItem(root, "a");
-				cJSON* bItem = cJSON_GetObjectItem(root, "b");
-				int a = aItem && cJSON_IsNumber(aItem) ? aItem->valueint : -1;
-				int b = bItem && cJSON_IsNumber(bItem) ? bItem->valueint : -1;
-				if (a >= 0 && b >= 0 && a < 4 && b < 4) swapSlots(a, b);
+
+				// 交换后重新定位自己的 slot：匹配 hostname
+				int myNewSlot = -1;
+				for (int i = 0; i < 4; i++) {
+					if (m_slots[i].connected && m_remoteHostname[0] &&
+						strcmp(m_slots[i].hostname, m_remoteHostname) == 0) {
+						myNewSlot = i;
+						break;
+					}
+				}
+				if (myNewSlot >= 0) {
+					if (myNewSlot != m_mySlot)
+						ESP_LOGI(TAG, "slot relocated: %d → %d", m_mySlot, myNewSlot);
+					m_mySlot = myNewSlot;
+				}
+
+				// 应用主机下发的 mask：从机本地 mask = 反码
+				uint8_t myMask[4] = {0, 0, 0, 0};
+				if (m_mySlot >= 0 && m_mySlot < 4)
+					myMask[0] = (~hostMask[m_mySlot]) & 0x0F;
+				VirtualGamepad::instance().setAllMasks(myMask);
+				for (int i = 0; i < 4; i++)
+					m_hostMask[i] = myMask[i];
+
+				if (m_onSlotUpdate) m_onSlotUpdate(m_slots);
 			}
 
 			cJSON_Delete(root);
@@ -134,6 +162,12 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 
 	ESP_LOGI(TAG, "connecting to %s:%u ...", ip, port);
 	return true;
+}
+
+void HostManager::setHostMask(const uint8_t mask[4])
+{
+	for (int i = 0; i < 4; i++)
+		m_hostMask[i] = mask[i];
 }
 
 void HostManager::disconnectFromHost()
@@ -232,7 +266,12 @@ void HostManager::swapSlots(int slotA, int slotB)
 	m_slots[slotB] = tmp;
 	m_slots[slotA].slotId = slotA;
 	m_slots[slotB].slotId = slotB;
-	ESP_LOGI(TAG, "swapped slot %d <-> %d", slotA, slotB);
+	// swap 的同时交换 mask
+	uint8_t maskTmp = m_hostMask[slotA];
+	m_hostMask[slotA] = m_hostMask[slotB];
+	m_hostMask[slotB] = maskTmp;
+	ESP_LOGI(TAG, "swapped slot %d <-> %d (mask %02X <-> %02X)", slotA, slotB,
+		m_hostMask[slotA], m_hostMask[slotB]);
 	notifySlotUpdate();
 }
 
