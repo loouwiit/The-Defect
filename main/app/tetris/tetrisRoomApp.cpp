@@ -71,6 +71,11 @@ void TetrisRoomApp::onForeground()
 	m_nextActionTime = xTaskGetTickCount() + 500;
 }
 
+void TetrisRoomApp::onBackground()
+{
+	m_nextActionTime = xTaskGetTickCount() + 500;
+}
+
 // ════════════════════════════════════════════════════════════════
 //  UI 构建
 // ════════════════════════════════════════════════════════════════
@@ -406,7 +411,7 @@ void TetrisRoomApp::startGame()
 		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", m_nextActionTime - xTaskGetTickCount());
 		return;
 	}
-	m_nextActionTime = xTaskGetTickCount() + 500;
+	m_nextActionTime = Task::infinityTime; // 初始化时间超过500ms
 
 	ESP_LOGI(TAG, "开始游戏: %d 人", m_selectedPlayers);
 
@@ -417,7 +422,17 @@ void TetrisRoomApp::startGame()
 	}
 
 	// push TetrisApp 到当前栈（不创建新栈，游戏结束后回到大厅）
-	m_manager->push(new TetrisApp(display, m_selectedPlayers));
+	Task::addTask([](void* param)->TickType_t
+		{
+			auto& self = *static_cast<TetrisRoomApp*>(param);
+			auto* tetrisApp = new TetrisApp(self.display, self.m_selectedPlayers);
+			tetrisApp->init();
+			ESP_LOGI(TAG, "tetris inited");
+			self.m_manager->push(tetrisApp);
+			ESP_LOGI(TAG, "tetris started");
+			self.m_nextActionTime = xTaskGetTickCount() + 500;
+			return Task::infinityTime;
+		}, "start tetris", this);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -570,12 +585,7 @@ void TetrisRoomApp::onSettingsBtnCb(lv_event_t* e)
 void TetrisRoomApp::onStartBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<TetrisRoomApp*>(lv_event_get_user_data(e));
-	Task::addTask([](void* param) -> TickType_t
-		{
-			auto* room = static_cast<TetrisRoomApp*>(param);
-			room->startGame();
-			return Task::infinityTime;
-		}, "tetrisRoomStart", self, 0, Task::Affinity::None);
+	self->startGame();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -594,9 +604,9 @@ std::string TetrisRoomApp::getAiContext()
 
 	const char* groupName = "";
 	switch (m_focusGroup) {
-		case FOCUS_BACK:    groupName = "back"; break;
-		case FOCUS_PLAYERS: groupName = "players"; break;
-		case FOCUS_BOTTOM:  groupName = "bottom"; break;
+	case FOCUS_BACK:    groupName = "back"; break;
+	case FOCUS_PLAYERS: groupName = "players"; break;
+	case FOCUS_BOTTOM:  groupName = "bottom"; break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	if (m_focusGroup == FOCUS_PLAYERS) ctx += ":" + std::to_string(m_focusPlayersIdx);
@@ -613,11 +623,13 @@ void TetrisRoomApp::onAiSelect(const AiSelectTarget& target)
 	if (target.group == "back" && target.index == 0) {
 		m_focusGroup = FOCUS_BACK;
 		applyFocus();
-	} else if (target.group == "players" && target.index >= 0 && target.index <= 2) {
+	}
+	else if (target.group == "players" && target.index >= 0 && target.index <= 2) {
 		m_focusGroup = FOCUS_PLAYERS;
 		m_focusPlayersIdx = (int8_t)target.index;
 		applyFocus();
-	} else if (target.group == "bottom" && target.index >= 0 && target.index <= 1) {
+	}
+	else if (target.group == "bottom" && target.index >= 0 && target.index <= 1) {
 		m_focusGroup = FOCUS_BOTTOM;
 		m_focusBottomIdx = (int8_t)target.index;
 		applyFocus();

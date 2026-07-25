@@ -210,13 +210,13 @@ void TetrisApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 		lyDown = (state.dpad == 4 || state.dpad == 3 || state.dpad == 5);
 	}
 
-	uint16_t newPress = state.buttons & ~m_prevButtons[playerId];
-	m_prevButtons[playerId] = state.buttons;
+	uint16_t newPress = state.buttons & ~m_prevButtons[hostId][playerId];
+	m_prevButtons[hostId][playerId] = state.buttons;
 
 	// ── L3 长按 500ms → 退出游戏（优先于游戏内操作） ──
 	constexpr uint16_t BTN_EXIT = static_cast<uint16_t>(GamepadButton::BTN_L3);
-	auto& held = m_exitBtnHeld[playerId];
-	auto& heldTime = m_exitBtnTime[playerId];
+	auto& held = m_exitBtnHeld[hostId][playerId];
+	auto& heldTime = m_exitBtnTime[hostId][playerId];
 	if (state.buttons & BTN_EXIT) {
 		if (!held) {
 			held = true;
@@ -280,12 +280,13 @@ void TetrisApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 	if (playerId >= m_playerCount) return;
 	auto& p = m_players[playerId];
 
-	p.keyLeft = lxLeft;
-	p.keyRight = lxRight;
-	p.keySoft = lyDown;
+	// 连续输入存到 per-(hostId, playerId) 缓冲区，gameLoop 始端 OR 合并
+	m_hostInput[hostId][playerId].left  = lxLeft;
+	m_hostInput[hostId][playerId].right = lxRight;
+	m_hostInput[hostId][playerId].soft  = lyDown;
 
 	// 摇杆上推 → 切换攻击目标（边沿触发）
-	if (lyUp && !m_lastLyUp[playerId]) {
+	if (lyUp && !m_lastLyUp[hostId][playerId]) {
 		int next = p.attackTarget();
 		if (next < 0) next = playerId;  // 从自身开始搜索
 		// 找下一个存活的非自身玩家
@@ -298,7 +299,7 @@ void TetrisApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 
 		p.setAttackTarget(next == playerId ? -1 : next);
 	}
-	m_lastLyUp[playerId] = lyUp;
+	m_lastLyUp[hostId][playerId] = lyUp;
 
 	// A → 逆时针旋转
 	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A))
@@ -425,6 +426,19 @@ void TetrisApp::gameLoop()
 
 	while (running) {
 		TickType_t now = xTaskGetTickCount();
+
+		// ── 0. 合并多 host 连续输入（OR） ──
+		for (int i = 0; i < m_playerCount; i++) {
+			bool left = false, right = false, soft = false;
+			for (int h = 0; h < MaxHosts; h++) {
+				left  |= m_hostInput[h][i].left;
+				right |= m_hostInput[h][i].right;
+				soft  |= m_hostInput[h][i].soft;
+			}
+			m_players[i].keyLeft  = left;
+			m_players[i].keyRight = right;
+			m_players[i].keySoft  = soft;
+		}
 
 		// ── 1. 消费网络数据 ──
 		tetrisNetUpdate();

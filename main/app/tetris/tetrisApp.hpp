@@ -74,11 +74,21 @@ private:
     // ============================================================
     //  手柄输入状态
     // ============================================================
-    uint16_t m_prevButtons[MAX_PLAYERS] = {};
-    bool     m_lastLyUp[MAX_PLAYERS] = {};
+    uint16_t m_prevButtons[MaxHosts][MAX_PLAYERS] = {};
+    bool     m_lastLyUp[MaxHosts][MAX_PLAYERS] = {};
+    bool     m_exitBtnHeld[MaxHosts][MAX_PLAYERS] = {};
+    TickType_t m_exitBtnTime[MaxHosts][MAX_PLAYERS] = {};
     TickType_t m_hardDropCooldown[MAX_PLAYERS] = {};
-    bool     m_exitBtnHeld[MAX_PLAYERS] = {};
-    TickType_t m_exitBtnTime[MAX_PLAYERS] = {};
+
+    // ============================================================
+    //  多 host 输入合并（每 (hostId, playerId) 连续输入暂存）
+    // ============================================================
+    struct HostContinuousInput {
+        bool left  = false;
+        bool right = false;
+        bool soft  = false;
+    };
+    HostContinuousInput m_hostInput[MaxHosts][MAX_PLAYERS]{};
 
     static constexpr TickType_t EXIT_HOLD_MS = 500;
 
