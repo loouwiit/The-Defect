@@ -28,6 +28,9 @@ bool tetrisTcpHostStart(uint16_t port, const TetrisTcpHostCallbacks& cb);
 /// 停止 TCP 游戏服务器
 void tetrisTcpHostStop();
 
+/// 设置当前游戏的玩家数（影响 join_ack 中的 player_count 字段）
+void tetrisTcpHostSetPlayerCount(int count);
+
 /// 是否有已连接的 TCP 客户端
 bool tetrisTcpHostHasClients();
 

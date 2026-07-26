@@ -33,6 +33,7 @@ struct TcpClient {
 static struct {
 	bool started = false;
 	int  listenSock = -1;
+	int  playerCount = 0;   // 当前游戏玩家数，用于 join_ack
 	TcpClient clients[MAX_TCP_CLIENTS]{};
 	TetrisTcpHostCallbacks cb;
 	TaskHandle_t acceptTask = nullptr;
@@ -88,6 +89,7 @@ static void tcpRecvTask(void* arg)
 								cJSON_AddStringToObject(ack, "type", "join_ack");
 								cJSON_AddNumberToObject(ack, "player_id", target);
 								cJSON_AddNumberToObject(ack, "target", target);
+								cJSON_AddNumberToObject(ack, "player_count", s.playerCount);
 								char* ackStr = cJSON_PrintUnformatted(ack);
 								if (ackStr) {
 									char sendBuf[1024];
@@ -264,6 +266,12 @@ void tetrisTcpHostStop()
 
 	s.started = false;
 	ESP_LOGI(TAG, "TCP game server stopped");
+}
+
+void tetrisTcpHostSetPlayerCount(int count)
+{
+	s.playerCount = count;
+	ESP_LOGI(TAG, "player count set to %d", count);
 }
 
 bool tetrisTcpHostHasClients()

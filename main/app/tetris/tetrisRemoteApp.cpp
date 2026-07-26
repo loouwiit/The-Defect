@@ -140,10 +140,22 @@ void TetrisRemoteApp::renderTick()
 		vTaskDelay(0);
 	}
 
-	// ── 同步所有玩家状态到渲染器 ──
+	// ── 检测玩家数变化，动态调整渲染器 ──
 	int count = m_client.getPlayerCount();
-	if (count > 0) m_renderCount = count;
+	if (count != m_renderCount && count > 0) {
+		m_renderCount = count;
+		int playerW = SCREEN_W / count;
+		ESP_LOGI(TAG, "adjusting to %d players, width=%d", count, playerW);
+		for (int i = 0; i < MAX_RENDER_PLAYERS; i++) {
+			if (i < count) {
+				lv_obj_clear_flag(m_renderers[i]->getContainer(), LV_OBJ_FLAG_HIDDEN);
+			} else {
+				lv_obj_add_flag(m_renderers[i]->getContainer(), LV_OBJ_FLAG_HIDDEN);
+			}
+		}
+	}
 
+	// ── 同步所有玩家状态到渲染器 ──
 	for (int i = 0; i < m_renderCount; i++) {
 		if (m_client.hasNewState(i)) {
 			m_remoteStates[i] = m_client.getPlayerState(i);

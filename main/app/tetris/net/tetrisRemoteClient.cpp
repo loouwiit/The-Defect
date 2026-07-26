@@ -239,6 +239,11 @@ void TetrisRemoteClient::processLine(const char* line)
 			m_playerId = p->valueint;
 			ESP_LOGI(TAG, "joined as player %d", m_playerId);
 		}
+		cJSON* pc = cJSON_GetObjectItem(root, "player_count");
+		if (pc && cJSON_IsNumber(pc) && pc->valueint > 0) {
+			m_playerCount = pc->valueint;
+			ESP_LOGI(TAG, "game has %d players", m_playerCount);
+		}
 	}
 	else if (strcmp(tag, TetrisMsgTag::SNAPSHOT) == 0) {
 		cJSON* pItem = cJSON_GetObjectItem(root, "p");

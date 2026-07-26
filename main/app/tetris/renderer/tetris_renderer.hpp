@@ -61,6 +61,7 @@ public:
     // ============================================================
 
     int cellSize() const { return m_cellSize; }
+    lv_obj_t* getContainer() { return m_container; }
 
 private:
     Display*       m_display{};

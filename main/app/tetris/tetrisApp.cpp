@@ -150,6 +150,7 @@ void TetrisApp::init()
 	tcpCb.onJoin   = hostCb.onJoin;
 	tcpCb.onInput  = hostCb.onInput;
 	tetrisTcpHostStart(8083, tcpCb);
+	tetrisTcpHostSetPlayerCount(m_playerCount);
 
 	// ── 全局 Game Over UI（初始隐藏） ──
 	createGameOverUI();
