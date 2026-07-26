@@ -1,11 +1,13 @@
 #include "tetrisRoomApp.hpp"
 #include "tetrisApp.hpp"
+#include "tetrisRemoteApp.hpp"
 #include "gui/gui.hpp"
 #include "app/appStackManager.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "gamepad/bleGamepad.hpp"
 #include "display/font.hpp"
 #include "task/task.hpp"
+#include "host/hostManager.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -36,6 +38,16 @@ TetrisRoomApp::~TetrisRoomApp() = default;
 void TetrisRoomApp::init()
 {
 	App::init();
+
+	// ── 从机模式：跳过本地 UI，直接进入远程游戏 ──
+	if (HostManager::instance().isClient()) {
+		// 在下一个 tick 执行 pushRemote，避免在 init 中操作栈
+		ESP_LOGI(TAG, "client mode, jump to remote game");
+		Task::addTask([](void* param) -> TickType_t {
+			static_cast<TetrisRoomApp*>(param)->startRemoteGame();
+			return Task::infinityTime;
+			}, "tetrisRemoteStart", this, 1000, Task::Affinity::None);
+	}
 
 	auto guard = display->lockGuard();
 	if (!guard)
@@ -433,6 +445,27 @@ void TetrisRoomApp::startGame()
 			self.m_nextActionTime = xTaskGetTickCount() + 500;
 			return Task::infinityTime;
 		}, "start tetris", this);
+}
+
+void TetrisRoomApp::startRemoteGame()
+{
+	if (!m_manager) {
+		ESP_LOGE(TAG, "startRemoteGame: no manager");
+		return;
+	}
+
+	ESP_LOGI(TAG, "start remote game, host=%s (TCP 8083)",
+		HostManager::instance().getRemoteIp());
+
+	Task::addTask([](void* param) -> TickType_t {
+		auto& self = *static_cast<TetrisRoomApp*>(param);
+		auto* app = new TetrisRemoteApp(self.display,
+			HostManager::instance().getRemoteIp(),
+			8083,  // TCP 游戏端口
+			HostManager::instance().getMySlot());
+		self.m_manager->push(app);
+		return Task::infinityTime;
+		}, "startRemoteTetris", this, 0, Task::Affinity::None);
 }
 
 // ════════════════════════════════════════════════════════════════

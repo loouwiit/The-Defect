@@ -3,6 +3,7 @@
 #include "app/app.hpp"
 #include "gamepad/gamepadState.hpp"
 #include "audio/Audio.hpp"
+#include "host/hostManager.hpp"
 
 /**
  * @brief 俄罗斯方块房间 / 选人界面
@@ -75,8 +76,11 @@ private:
 	void refreshSlotStatus();
 	void updateActivity();
 
-	/** @brief 启动游戏 */
+	/** @brief 启动本地游戏 */
 	void startGame();
+
+	/** @brief 启动远程游戏（从机模式） */
+	void startRemoteGame();
 
 	static void onBackBtnCb(lv_event_t* e);
 	static void onPlayerBtnCb(lv_event_t* e);

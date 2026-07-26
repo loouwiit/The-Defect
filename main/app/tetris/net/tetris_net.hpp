@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <cJSON.h>
 #include "websocket/wsServer.hpp"
 #include "app/tetris/gameLogic/gameState.hpp"
 
@@ -92,3 +93,10 @@ bool tetrisNetClientIsConnected();
 
 /// 发送按键事件
 void tetrisNetClientSendInput(const char* key, bool down);
+
+// ============================================================
+//  JSON 序列化工具（供 TetrisRemoteClient 使用）
+// ============================================================
+
+/// 反序列化 JSON snapshot → GameState
+bool gameStateFromJson(const cJSON* root, GameState& out);

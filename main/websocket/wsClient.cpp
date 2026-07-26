@@ -53,8 +53,7 @@ bool WsClient::connect(const char* host, uint16_t port, const char* uri)
 	cfg.reconnect_timeout_ms = 5000;
 	cfg.network_timeout_ms = 10000;
 	cfg.disable_auto_reconnect = true;
-	cfg.disable_pingpong_discon = true;   // 禁用 ping 超时断连，小包场景更稳定
-	cfg.ping_interval_sec = 0;            // 不主动发送 ping
+	// 保留默认 ping 配置 (ping_interval_sec=10)，让 WS 连接保持稳定
 
 	m_client = esp_websocket_client_init(&cfg);
 	if (!m_client)
@@ -108,10 +107,14 @@ int WsClient::sendText(const char* data, size_t len, TickType_t blockTime)
 	if (!isConnected())
 	{
 		ESP_LOGW(TAG, "not connected, cannot send");
-		return false;
+		return -1;
 	}
 
-	return esp_websocket_client_send_text(m_client, data, len, blockTime);
+	int ret = esp_websocket_client_send_text(m_client, data, len, blockTime);
+	if (ret < 0) {
+		ESP_LOGE(TAG, "sendText failed: %d, errno=%d", ret, errno);
+	}
+	return ret;
 }
 
 int WsClient::sendBinary(const uint8_t* data, size_t len, TickType_t blockTime)
@@ -119,11 +122,14 @@ int WsClient::sendBinary(const uint8_t* data, size_t len, TickType_t blockTime)
 	if (!isConnected())
 	{
 		ESP_LOGW(TAG, "not connected, cannot send");
-		return false;
+		return -1;
 	}
 
-	// esp_websocket_client_send_bin 接受 const char*，底层数据不变
-	return esp_websocket_client_send_bin(m_client, reinterpret_cast<const char*>(data), len, blockTime);
+	int ret = esp_websocket_client_send_bin(m_client, reinterpret_cast<const char*>(data), len, blockTime);
+	if (ret < 0) {
+		ESP_LOGE(TAG, "sendBinary failed: %d, errno=%d", ret, errno);
+	}
+	return ret;
 }
 
 // ============================================================
@@ -146,17 +152,17 @@ void WsClient::handleEvent(int32_t eventId, esp_websocket_event_data_t* data)
 	{
 		ESP_LOGI(TAG, "connected");
 		// 获取底层 socket fd，设置 TCP_NODELAY 禁用 Nagle
-		esp_transport_handle_t transport = esp_websocket_client_get_transport(m_client);
-		if (transport)
-		{
-			int sock = esp_transport_get_socket(transport);
-			if (sock >= 0)
-			{
-				int flag = 1;
-				setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-				ESP_LOGI(TAG, "TCP_NODELAY enabled on fd=%d", sock);
-			}
-		}
+		// esp_transport_handle_t transport = esp_websocket_client_get_transport(m_client);
+		// if (transport)
+		// {
+		// 	int sock = esp_transport_get_socket(transport);
+		// 	if (sock >= 0)
+		// 	{
+		// 		int flag = 1;
+		// 		setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+		// 		ESP_LOGI(TAG, "TCP_NODELAY enabled on fd=%d", sock);
+		// 	}
+		// }
 		if (m_onConnected) m_onConnected();
 		break;
 	}
@@ -174,8 +180,13 @@ void WsClient::handleEvent(int32_t eventId, esp_websocket_event_data_t* data)
 		break;
 
 	case WEBSOCKET_EVENT_ERROR:
-		ESP_LOGW(TAG, "error");
+	{
+		// 尝试获取更多错误信息
+		int sock_err = 0;
+		socklen_t opt_len = sizeof(sock_err);
+		ESP_LOGW(TAG, "error event (errno=%d)", errno);
 		break;
+	}
 
 	case WEBSOCKET_EVENT_CLOSED:
 		ESP_LOGI(TAG, "closed");

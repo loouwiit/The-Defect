@@ -112,7 +112,7 @@ static cJSON* gameStateToJson(const GameState& state, int playerIndex)
     return root;
 }
 
-static bool gameStateFromJson(const cJSON* root, GameState& out)
+bool gameStateFromJson(const cJSON* root, GameState& out)
 {
     // board
     cJSON* boardArr = cJSON_GetObjectItem(root, "b");

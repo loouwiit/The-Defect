@@ -1,4 +1,5 @@
 #include "tetrisApp.hpp"
+#include "app/tetris/net/tetrisTcpHost.hpp"
 #include "display/font.hpp"
 #include "gui/gui.hpp"
 #include <esp_log.h>
@@ -144,12 +145,18 @@ void TetrisApp::init()
 		};
 	tetrisNetInit(true, hostCb, {});
 
+	// 启动 TCP 游戏服务器（P4-to-P4，端口 8083）
+	TetrisTcpHostCallbacks tcpCb;
+	tcpCb.onJoin   = hostCb.onJoin;
+	tcpCb.onInput  = hostCb.onInput;
+	tetrisTcpHostStart(8083, tcpCb);
+
 	// ── 全局 Game Over UI（初始隐藏） ──
 	createGameOverUI();
 
 	// 启动游戏线程
 	m_gameThread = new Thread(gameLoopTask, "tetrisGame", this,
-		Thread::Priority::Normal, 4096);
+		Thread::Priority::Normal, 8192);
 
 	// 启动渲染 Task（daemon 线程 30fps，不阻塞游戏逻辑）
 	m_renderTask = Task::addTask(renderTaskFn, "tetrisRender",
@@ -159,6 +166,7 @@ void TetrisApp::init()
 void TetrisApp::deinit()
 {
 	tetrisNetDeinit();
+	tetrisTcpHostStop();
 
 	// 先停渲染 Task（它访问 m_renderers[] 和 m_gameStates[]）
 	if (m_renderTask) {
@@ -487,11 +495,20 @@ void TetrisApp::gameLoop()
 		}
 
 		// ── 5. 发送 snapshot 给远程客户端（20fps） ──
-		int remoteFd = tetrisNetHostGetFirstClientFd();
-		if (remoteFd >= 0 && now - snapTick >= pdMS_TO_TICKS(50)) {
-			int target = tetrisNetHostGetClientTarget();
-			if (target < 0 || target >= m_playerCount) target = 0;
-			tetrisNetHostSendSnapshot(remoteFd, target, m_gameStates[target]);
+		if (now - snapTick >= pdMS_TO_TICKS(50)) {
+			// WS 客户端
+			int remoteFd = tetrisNetHostGetFirstClientFd();
+			if (remoteFd >= 0) {
+				int target = tetrisNetHostGetClientTarget();
+				if (target < 0 || target >= m_playerCount) target = 0;
+				tetrisNetHostSendSnapshot(remoteFd, target, m_gameStates[target]);
+			}
+
+			// TCP 客户端（P4-to-P4）
+			if (tetrisTcpHostHasClients()) {
+				tetrisTcpHostBroadcastSnapshot(0, m_gameStates[0]);
+			}
+
 			snapTick = now;
 		}
 
