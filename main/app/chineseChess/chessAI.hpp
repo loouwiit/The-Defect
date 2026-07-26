@@ -1,21 +1,28 @@
 #pragma once
 
 #include "chessLogic.hpp"
+#include "transpositionTable.hpp"
+#include "openingBook.hpp"
+#include "esp_timer.h"
 #include <algorithm>
 #include <limits>
+#include <cstdint>
 
 /**
- * @brief 中国象棋 AI 引擎（Minimax + Alpha-Beta 剪枝）
+ * @brief 中国象棋 AI 引擎 v2
  *
- * 策略：
- *   - 搜索深度 3 层（含 Alpha-Beta 剪枝）
- *   - 评估函数 = 子力价值 + 位置价值
- *   - 走法排序：吃子优先（MVV-LVA），提高剪枝效率
+ * 核心技术：
+ *   - 迭代加深（Iterative Deepening）+ 时间控制（~800ms）
+ *   - Alpha-Beta 剪枝 + 置换表（Transposition Table）
+ *   - 杀手启发式（Killer Heuristic）
+ *   - 空着剪枝（Null Move Pruning）
+ *   - 高质量评估：子力 + 位置价值表 + 活动性 + 将安全性 + 兵种配合
+ *   - 开局库优先
  */
 class ChessAI
 {
 public:
-	ChessAI(int depth = 3);
+	ChessAI();
 	~ChessAI() = default;
 
 	/**
@@ -26,48 +33,106 @@ public:
 	ChessLogic::Move getMove(ChessLogic& logic);
 
 private:
-	int m_depth;
+	// ── 搜索参数 ──
+	static constexpr int   MAX_DEPTH       = 8;
+	static constexpr int   NULL_MOVE_R     = 2;     // 空着剪枝缩减深度
+	static constexpr int   MIN_NULL_DEPTH  = 3;     // 启用空着剪枝的最小深度
+	static constexpr int   KILLER_SLOTS    = 2;     // 每层杀手走法数
+	static constexpr int   TIME_LIMIT_MS   = 600;   // 搜索时间目标
+	static constexpr int   TIME_MAX_MS     = 1200;  // 搜索时间上限
 
 	// ── 子力基础价值 ──
-	static constexpr int VALUE_GENERAL = 100000;
-	static constexpr int VALUE_CHARIOT = 900;
-	static constexpr int VALUE_CANNON  = 450;
-	static constexpr int VALUE_HORSE   = 400;
+	static constexpr int VALUE_GENERAL  = 100000;
+	static constexpr int VALUE_CHARIOT  = 900;
+	static constexpr int VALUE_CANNON   = 450;
+	static constexpr int VALUE_HORSE    = 400;
 	static constexpr int VALUE_ELEPHANT = 200;
-	static constexpr int VALUE_ADVISOR = 200;
-	static constexpr int VALUE_SOLDIER = 100;
+	static constexpr int VALUE_ADVISOR  = 200;
+	static constexpr int VALUE_SOLDIER  = 100;
+
+	// ── 活动性/配合加成系数 ──
+	static constexpr int MOBILITY_FACTOR     = 4;    // 每多一个合法走法加分
+	static constexpr int KING_DEFENSE_FACTOR = 15;   // 将周围防御棋子加分
+	static constexpr int THREAT_FACTOR       = 8;    // 威胁对方高分值棋子加分
+
+	// ── 组件 ──
+	TranspositionTable m_tt;
+	OpeningBook        m_book;
+
+	// 杀手走法表：m_killers[ply][slot]，ply = MAX_DEPTH - depth
+	// 值编码：fromEnc << 16 | toEnc
+	uint32_t m_killers[MAX_DEPTH][KILLER_SLOTS]{};
+
+	// 时间追踪
+	uint64_t m_searchStartUs = 0;  // esp_timer_get_time() 起始
+	bool     m_timeout = false;
+
+	// 搜索统计
+	int      m_nodesSearched = 0;
+
+	// ═════════════════════════════════════════════════════════
+	// 评估函数
+	// ═════════════════════════════════════════════════════════
 
 	/** @brief 获取棋子基础价值 */
-	int pieceValue(ChessLogic::PieceType type) const;
+	static int pieceValue(ChessLogic::PieceType type);
 
-	/**
-	 * @brief 评估函数
-	 * @param logic 棋盘
-	 * @return 分数（正 = 对 AI/黑方有利，负 = 对玩家/红方有利）
-	 */
+	/** @brief 位置价值表评估 */
+	static int positionValue(ChessLogic::PieceType type, ChessLogic::Side side, int x, int y);
+
+	/** @brief 主评估函数 */
 	int evaluate(const ChessLogic& logic) const;
 
-	/**
-	 * @brief 位置价值加成
-	 * @param type 棋子类型
-	 * @param side 所属方
-	 * @param x, y 坐标
-	 */
-	int positionBonus(ChessLogic::PieceType type, ChessLogic::Side side, int x, int y) const;
+	// ═════════════════════════════════════════════════════════
+	// 搜索
+	// ═════════════════════════════════════════════════════════
+
+	/** @brief Alpha-Beta 搜索（含空着剪枝、置换表、杀手启发式） */
+	int alphaBeta(ChessLogic& logic, int depth, int alpha, int beta,
+				  ChessLogic::Side side, int ply, bool canNullMove);
+
+	/** @brief 静态搜索（只吃子走法，解决地平线效应） */
+	int quiescence(ChessLogic& logic, int alpha, int beta,
+				   ChessLogic::Side side, int ply);
 
 	/**
-	 * @brief Minimax + Alpha-Beta
-	 * @param logic 棋盘（会被修改，调用方负责 undo）
-	 * @param depth 剩余深度
-	 * @param alpha
-	 * @param beta
-	 * @param side 当前走棋方
-	 * @return 评估分
+	 * @brief 收集走法并排序
+	 * @param logic 棋盘
+	 * @param side 走棋方
+	 * @param ttBestEnc TT 中的最佳走法编码
+	 * @param ply 当前层
+	 * @param[out] moves 走法列表
 	 */
-	int minimax(ChessLogic& logic, int depth, int alpha, int beta, ChessLogic::Side side) const;
+	void getOrderedMoves(ChessLogic& logic, ChessLogic::Side side,
+						 uint32_t ttBestEnc, int ply,
+						 std::vector<ChessLogic::Move>& moves);
 
-	/**
-	 * @brief 走法排序分（吃子价值高的排前面）
-	 */
+	/** @brief 走法 MVV-LVA 排序分 */
 	int moveScore(const ChessLogic& logic, int fromX, int fromY, int toX, int toY) const;
+
+	/** @brief 检查是否超时 */
+	inline bool isTimeout()
+	{
+		if (m_timeout) return true;
+		if (m_nodesSearched++ % 1024 == 0)
+		{
+			uint64_t elapsed = esp_timer_get_time() - m_searchStartUs;
+			if (elapsed > static_cast<uint64_t>(TIME_MAX_MS) * 1000)
+				m_timeout = true;
+		}
+		return m_timeout;
+	}
+
+	/** @brief 编码走法 (fromEnc << 16 | toEnc) */
+	static uint32_t moveEncode(int fromX, int fromY, int toX, int toY)
+	{
+		return (static_cast<uint32_t>(fromX * 10 + fromY) << 16)
+			 | static_cast<uint32_t>(toX * 10 + toY);
+	}
+
+	/** @brief 编码走法（用 Move 结构） */
+	static uint32_t moveEncode(const ChessLogic::Move& m)
+	{
+		return moveEncode(m.from.x, m.from.y, m.to.x, m.to.y);
+	}
 };

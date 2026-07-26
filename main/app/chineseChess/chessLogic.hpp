@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <array>
+#include <random>
 
 /**
  * @brief 中国象棋核心逻辑（纯数据，无 LVGL 依赖）
@@ -144,10 +145,37 @@ public:
 	static constexpr int BOARD_W = 9;
 	static constexpr int BOARD_H = 10;
 
+	// ═════════════════════════════════════════════════════════
+	// Zobrist Hashing（置换表用）
+	// ═════════════════════════════════════════════════════════
+
+	/** @brief 获取当前棋盘的 Zobrist hash */
+	uint64_t getHash() const { return m_hash; }
+
+	/** @brief 计算当前棋盘的 Zobrist hash（全量重算，仅 reset 使用） */
+	uint64_t computeHash() const;
+
+	/** @brief 初始化 Zobrist 随机数表（线程安全惰性初始化） */
+	static void initZobrist();
+
 private:
+
+	// Zobrist 随机数表
+	// s_zobristPiece[side][type][x][y]
+	static uint64_t s_zobristPiece[2][7][BOARD_W][BOARD_H];
+	// s_zobristSide[side]: 0=Red, 1=Black
+	static uint64_t s_zobristSide[2];
+	static bool s_zobristInitialized;
+
+	// 缓存的 Zobrist hash
+	uint64_t m_hash = 0;
 	// ── 棋盘数据 ──
 	// m_board[x][y]，[0][0] 为左上角
 	std::array<std::array<Piece, BOARD_H>, BOARD_W> m_board{};
+
+	// ── 走棋历史扩展（记录 hash，用于 AI undo 时恢复） ──
+	// m_hashHistory[i] = undo 前的 hash
+	mutable std::vector<uint64_t> m_hashHistory;
 
 	State m_state = State::Waiting;
 	Side m_turn = Side::Red;

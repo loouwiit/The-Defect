@@ -54,9 +54,11 @@ void FruitNinjaApp::init()
 	// 注册退出按钮
 	lv_obj_add_event_cb(m_renderer.getExitBtn(), btnExitCb, LV_EVENT_CLICKED, this);
 
-	// 注册触屏事件
+	// 注册触屏事件（划动切水果）
 	lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_event_cb(screen, onTouchCb, LV_EVENT_PRESSED, this);
+	lv_obj_add_event_cb(screen, onTouchPressedCb, LV_EVENT_PRESSED, this);
+	lv_obj_add_event_cb(screen, onTouchMovingCb, LV_EVENT_PRESSING, this);
+	lv_obj_add_event_cb(screen, onTouchReleasedCb, LV_EVENT_RELEASED, this);
 
 	ESP_LOGI(TAG, "启动 FruitNinja: mode=%s, players=%d",
 		(m_mode == FruitNinjaLogic::GameMode::Classic) ? "Classic" : "Arcade",
@@ -121,6 +123,7 @@ void FruitNinjaApp::gameLoop(void* param)
 		// 渲染
 		if (auto guard = self.display->lockGuard())
 		{
+			self.m_renderer.ageTrail(TICK_MS / 1000.0f);
 			self.m_renderer.render(self.m_logic);
 
 			// GameOver 检测
@@ -149,24 +152,75 @@ void FruitNinjaApp::gameLoop(void* param)
 }
 
 // ============================================================
-// 触屏输入
+// 触屏输入 — 划动开始
 // ============================================================
 
-void FruitNinjaApp::onTouchCb(lv_event_t* e)
+void FruitNinjaApp::onTouchPressedCb(lv_event_t* e)
 {
 	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
 	if (!self || self->m_logic.getState() != FruitNinjaLogic::State::Playing)
 		return;
 
-	lv_point_t p;
-	lv_indev_get_point(lv_indev_active(), &p);
+	lv_indev_get_point(lv_indev_active(), &self->m_prevTouch);
+	self->m_touching = true;
 
-	// 确定玩家（2P 分屏：左半 / 右半）
+	// 确定玩家（2P 分屏），仅用于记录起点，不做分屏限制
+	self->m_renderer.handleTouchStart(
+		static_cast<float>(self->m_prevTouch.x),
+		static_cast<float>(self->m_prevTouch.y));
+}
+
+// ============================================================
+// 触屏输入 — 划动中
+// ============================================================
+
+void FruitNinjaApp::onTouchMovingCb(lv_event_t* e)
+{
+	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
+	if (!self || !self->m_touching || self->m_logic.getState() != FruitNinjaLogic::State::Playing)
+		return;
+
+	lv_point_t cur;
+	lv_indev_get_point(lv_indev_active(), &cur);
+
+	// 最小移动距离过滤（抖动抑制）
+	int dx = cur.x - self->m_prevTouch.x;
+	int dy = cur.y - self->m_prevTouch.y;
+	if (dx * dx + dy * dy < 4) // <2px 忽略
+		return;
+
+	// 确定玩家
 	int player = 0;
-	if (self->m_playerCount >= 2 && p.x >= FruitNinjaLogic::SCREEN_W / 2)
+	if (self->m_playerCount >= 2 && cur.x >= FruitNinjaLogic::SCREEN_W / 2)
 		player = 1;
 
-	self->m_logic.handleTouch(player, static_cast<float>(p.x), static_cast<float>(p.y));
+	// 划动碰撞检测（线段-圆）
+	self->m_logic.handleSwipe(player,
+		static_cast<float>(self->m_prevTouch.x),
+		static_cast<float>(self->m_prevTouch.y),
+		static_cast<float>(cur.x),
+		static_cast<float>(cur.y));
+
+	// 记录轨迹点
+	self->m_renderer.addTrailPoint(
+		static_cast<float>(cur.x),
+		static_cast<float>(cur.y));
+
+	self->m_prevTouch = cur;
+}
+
+// ============================================================
+// 触屏输入 — 划动结束
+// ============================================================
+
+void FruitNinjaApp::onTouchReleasedCb(lv_event_t* e)
+{
+	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
+	if (!self || !self->m_touching)
+		return;
+
+	self->m_touching = false;
+	self->m_renderer.handleTouchEnd();
 }
 
 // ============================================================

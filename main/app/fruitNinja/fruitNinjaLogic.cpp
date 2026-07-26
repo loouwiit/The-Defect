@@ -295,7 +295,136 @@ bool FruitNinjaLogic::handleGamepadInput(int player, Direction dir, Button btn)
 }
 
 // ============================================================
-// 触屏输入处理
+// 线段与圆相交检测
+// ============================================================
+
+bool FruitNinjaLogic::lineIntersectsCircle(float x1, float y1, float x2, float y2, float cx, float cy, float r)
+{
+	// 向量 AB = B - A, AC = C - A
+	float abx = x2 - x1;
+	float aby = y2 - y1;
+	float acx = cx - x1;
+	float acy = cy - y1;
+
+	// 线段长度平方
+	float ab2 = abx * abx + aby * aby;
+	if (ab2 < 0.0001f)
+	{
+		// 线段退化为点，用点-圆检测
+		float dx = cx - x1;
+		float dy = cy - y1;
+		return (dx * dx + dy * dy) <= r * r;
+	}
+
+	// 投影参数 t，夹紧到 [0,1]
+	float t = (acx * abx + acy * aby) / ab2;
+	t = (t < 0.0f) ? 0.0f : (t > 1.0f) ? 1.0f : t;
+
+	// 线段上最近点
+	float px = x1 + t * abx;
+	float py = y1 + t * aby;
+
+	// 圆心到最近点的距离
+	float dx = cx - px;
+	float dy = cy - py;
+	return (dx * dx + dy * dy) <= r * r;
+}
+
+// ============================================================
+// 触屏划动输入处理（一刀可切多个水果）
+// ============================================================
+
+bool FruitNinjaLogic::handleSwipe(int player, float x1, float y1, float x2, float y2)
+{
+	if (m_state != State::Playing) return false;
+	if (player < 0 || player >= m_playerCount) return false;
+
+	bool anySliced = false;
+
+	for (int i = 0; i < m_fruitCount; i++)
+	{
+		auto& f = m_fruits[i];
+		if (!f.active || f.sliced) continue;
+		if (f.player != player) continue;
+
+		float r = getFruitRadius(f.type);
+		if (!lineIntersectsCircle(x1, y1, x2, y2, f.x, f.y, r))
+			continue;
+
+		// 划动命中！切片
+		f.sliced = true;
+		anySliced = true;
+
+		if (f.type == FruitType::Bomb)
+		{
+			// 炸弹特殊处理
+			if (m_mode == GameMode::Classic)
+			{
+				m_lives[player]--;
+				if (m_lives[player] <= 0)
+				{
+					m_lives[player] = 0;
+					m_state = State::GameOver;
+				}
+			}
+			else
+			{
+				m_scores[player] -= 10;
+				if (m_scores[player] < 0) m_scores[player] = 0;
+			}
+			f.active = false;
+			spawnParticles(f.x, f.y, 255, 80, 80, 12);
+			continue;
+		}
+
+		// 正常水果：加分
+		switch (f.type)
+		{
+		case FruitType::Watermelon: m_scores[player] += 20; break;
+		case FruitType::Apple:      m_scores[player] += 15; break;
+		case FruitType::Orange:     m_scores[player] += 10; break;
+		case FruitType::Banana:     m_scores[player] += 5;  break;
+		default: break;
+		}
+
+		// 初始化两半飞离动画
+		float fr = getFruitRadius(f.type);
+		f.h1x = f.x - fr / 2;
+		f.h1y = f.y;
+		f.h1vx = -randFloat(80, 200);
+		f.h1vy = randFloat(-200, -50);
+		f.h2x = f.x + fr / 2;
+		f.h2y = f.y;
+		f.h2vx = randFloat(80, 200);
+		f.h2vy = randFloat(-200, -50);
+
+		// 水果颜色粒子
+		auto colorOf = [](FruitType t) -> uint8_t {
+			switch (t) {
+			case FruitType::Watermelon: return 0;
+			case FruitType::Apple:      return 255;
+			case FruitType::Orange:     return 255;
+			case FruitType::Banana:     return 255;
+			default: return 200;
+			}
+		};
+		spawnParticles(f.x, f.y, colorOf(f.type), 200, 80, 8);
+	}
+
+	// 一刀至少切了一个水果才调整生成间隔
+	if (anySliced)
+	{
+		int totalScore = m_scores[0] + m_scores[1];
+		m_spawnInterval = BASE_SPAWN_INTERVAL - (totalScore / 30) * 0.05f;
+		if (m_spawnInterval < MIN_SPAWN_INTERVAL)
+			m_spawnInterval = MIN_SPAWN_INTERVAL;
+	}
+
+	return anySliced;
+}
+
+// ============================================================
+// 触屏输入处理（单点点击，兼容保留）
 // ============================================================
 
 bool FruitNinjaLogic::handleTouch(int player, float tx, float ty)

@@ -407,7 +407,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 			lv_obj_set_size(btn, S, S);
 			lv_obj_set_style_radius(btn, R, 0);
 			lv_obj_set_style_bg_color(btn, lv_color_hex(bgColor), 0);
-			lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+			lv_obj_set_style_bg_opa(btn, LV_OPA_30, 0);
 			lv_obj_set_style_border_width(btn, 1, 0);
 			lv_obj_set_style_border_color(btn, lv_color_hex(0x44ffffff), 0);
 			lv_obj_set_style_border_opa(btn, LV_OPA_50, 0);
@@ -429,7 +429,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	m_pad1 = lv_obj_create(parent);
 	lv_obj_set_size(m_pad1, W, H);
 	lv_obj_set_style_bg_color(m_pad1, lv_color_hex(Color::DPAD_BG), 0);
-	lv_obj_set_style_bg_opa(m_pad1, LV_OPA_COVER, 0);
+	lv_obj_set_style_bg_opa(m_pad1, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(m_pad1, 0, 0);
 	lv_obj_set_style_radius(m_pad1, 20, 0);
 	lv_obj_set_style_pad_all(m_pad1, 0, 0);
@@ -445,6 +445,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	lv_obj_set_size(m_p1Pause, 36, 36);
 	lv_obj_set_style_radius(m_p1Pause, 18, 0);
 	lv_obj_set_style_bg_color(m_p1Pause, lv_color_hex(0x66444455), 0);
+	lv_obj_set_style_bg_opa(m_p1Pause, LV_OPA_40, 0);
 	lv_obj_set_style_border_width(m_p1Pause, 1, 0);
 	lv_obj_set_style_border_color(m_p1Pause, lv_color_hex(0x44ffffff), 0);
 	lv_obj_set_style_outline_width(m_p1Pause, 0, LV_STATE_FOCUSED);
@@ -459,7 +460,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	m_pad2 = lv_obj_create(parent);
 	lv_obj_set_size(m_pad2, W, H);
 	lv_obj_set_style_bg_color(m_pad2, lv_color_hex(Color::DPAD_BG), 0);
-	lv_obj_set_style_bg_opa(m_pad2, LV_OPA_COVER, 0);
+	lv_obj_set_style_bg_opa(m_pad2, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(m_pad2, 0, 0);
 	lv_obj_set_style_radius(m_pad2, 20, 0);
 	lv_obj_set_style_pad_all(m_pad2, 0, 0);
@@ -475,7 +476,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	m_pad3 = lv_obj_create(parent);
 	lv_obj_set_size(m_pad3, W, H);
 	lv_obj_set_style_bg_color(m_pad3, lv_color_hex(Color::DPAD_BG), 0);
-	lv_obj_set_style_bg_opa(m_pad3, LV_OPA_COVER, 0);
+	lv_obj_set_style_bg_opa(m_pad3, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(m_pad3, 0, 0);
 	lv_obj_set_style_radius(m_pad3, 20, 0);
 	lv_obj_set_style_pad_all(m_pad3, 0, 0);
@@ -491,7 +492,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	m_pad4 = lv_obj_create(parent);
 	lv_obj_set_size(m_pad4, W, H);
 	lv_obj_set_style_bg_color(m_pad4, lv_color_hex(Color::DPAD_BG), 0);
-	lv_obj_set_style_bg_opa(m_pad4, LV_OPA_COVER, 0);
+	lv_obj_set_style_bg_opa(m_pad4, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(m_pad4, 0, 0);
 	lv_obj_set_style_radius(m_pad4, 20, 0);
 	lv_obj_set_style_pad_all(m_pad4, 0, 0);
