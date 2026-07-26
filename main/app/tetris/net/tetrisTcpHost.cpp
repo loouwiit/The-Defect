@@ -30,13 +30,21 @@ struct TcpClient {
 	size_t lineLen = 0;
 };
 
+static constexpr int SNAP_PLAYERS = 3;
+
 static struct {
 	bool started = false;
 	int  listenSock = -1;
-	int  playerCount = 0;   // 当前游戏玩家数，用于 join_ack
+	int  playerCount = 0;
 	TcpClient clients[MAX_TCP_CLIENTS]{};
 	TetrisTcpHostCallbacks cb;
 	TaskHandle_t acceptTask = nullptr;
+	TaskHandle_t sendTask = nullptr;
+
+	// ── 异步发送缓冲（游戏循环写，Send Task 读） ──
+	GameState snapStates[SNAP_PLAYERS]{};
+	int  snapPlayerCount = 0;
+	volatile bool snapPending = false;
 } s;
 
 } // anonymous namespace
@@ -130,6 +138,100 @@ static void tcpRecvTask(void* arg)
 		client->sock = -1;
 	}
 	ESP_LOGI(TAG, "tcp recv task end");
+	vTaskDelete(nullptr);
+}
+
+// ============================================================
+//  发送任务 — 异步序列化 + TCP send，不阻塞游戏循环
+// ============================================================
+
+static void sendSnapshotToClient(int sock, int playerIndex, const GameState& state)
+{
+	cJSON* root = cJSON_CreateObject();
+	cJSON_AddStringToObject(root, "type", "snapshot");
+	cJSON_AddNumberToObject(root, "p", playerIndex);
+
+	cJSON* boardArr = cJSON_CreateArray();
+	for (int y = 0; y < BOARD_VISIBLE_H; y++) {
+		int row = Board::yToRow(y);
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			cJSON_AddItemToArray(boardArr,
+				cJSON_CreateNumber(state.board.data()[row * BOARD_WIDTH + x]));
+		}
+	}
+	cJSON_AddItemToObject(root, "b", boardArr);
+
+	if (state.currentPieceType != PieceType::NONE) {
+		char pt[2] = { pieceTypeToChar(state.currentPieceType), '\0' };
+		cJSON_AddStringToObject(root, "pt", pt);
+		cJSON_AddNumberToObject(root, "px", state.currentPieceX);
+		cJSON_AddNumberToObject(root, "py", state.currentPieceY);
+		cJSON_AddNumberToObject(root, "pr", static_cast<int>(state.currentPieceRotation));
+	}
+
+	cJSON_AddNumberToObject(root, "gx", state.ghostPieceX);
+	cJSON_AddNumberToObject(root, "gy", state.ghostPieceY);
+
+	cJSON* nextArr = cJSON_CreateArray();
+	for (int i = 0; i < 4; i++) {
+		char t[2] = { pieceTypeToChar(state.nextPieces[i]), '\0' };
+		cJSON_AddItemToArray(nextArr, cJSON_CreateString(t));
+	}
+	cJSON_AddItemToObject(root, "n", nextArr);
+
+	if (state.holdPiece != PieceType::NONE) {
+		char t[2] = { pieceTypeToChar(state.holdPiece), '\0' };
+		cJSON_AddStringToObject(root, "h", t);
+	}
+
+	cJSON_AddNumberToObject(root, "sc", state.score);
+	cJSON_AddNumberToObject(root, "lv", state.level);
+	cJSON_AddNumberToObject(root, "ln", state.totalLines);
+	cJSON_AddNumberToObject(root, "cb", state.combo);
+	cJSON_AddNumberToObject(root, "g", state.pendingGarbage);
+	cJSON_AddNumberToObject(root, "gf", state.garbageFlash);
+	cJSON_AddNumberToObject(root, "at", state.attackTarget);
+	cJSON_AddBoolToObject(root, "go", state.gameOver);
+	cJSON_AddBoolToObject(root, "ac", state.active);
+
+	char* jsonStr = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+	if (!jsonStr) return;
+
+	char sendBuf[MSG_MAX_LEN + 16];
+	int slen = snprintf(sendBuf, sizeof(sendBuf), "%s\n", jsonStr);
+	cJSON_free(jsonStr);
+
+	send(sock, sendBuf, slen, 0);
+}
+
+static void sendAllSnapshots()
+{
+	int count = s.snapPlayerCount;
+	if (count <= 0) return;
+
+	// 遍历所有客户端，逐个发送
+	for (int ci = 0; ci < MAX_TCP_CLIENTS; ci++) {
+		if (!s.clients[ci].active) continue;
+		for (int pi = 0; pi < count; pi++) {
+			sendSnapshotToClient(s.clients[ci].sock, pi, s.snapStates[pi]);
+		}
+	}
+}
+
+static void sendTaskFn(void* arg)
+{
+	ESP_LOGI(TAG, "send task started (20fps)");
+
+	while (s.started && s.listenSock >= 0) {
+		if (s.snapPending) {
+			s.snapPending = false;
+			sendAllSnapshots();
+		}
+		vTaskDelay(pdMS_TO_TICKS(50));  // 20fps
+	}
+
+	ESP_LOGI(TAG, "send task ended");
 	vTaskDelete(nullptr);
 }
 
@@ -233,6 +335,8 @@ bool tetrisTcpHostStart(uint16_t port, const TetrisTcpHostCallbacks& cb)
 
 	xTaskCreate(acceptTask, "tcpGameAccept", 4096,
 		(void*)(uintptr_t)port, tskIDLE_PRIORITY + 2, &s.acceptTask);
+	xTaskCreate(sendTaskFn, "tcpGameSend", 8192,
+		nullptr, tskIDLE_PRIORITY + 2, &s.sendTask);
 
 	ESP_LOGI(TAG, "TCP game server started on port %d", port);
 	return true;
@@ -261,8 +365,8 @@ void tetrisTcpHostStop()
 		s.listenSock = -1;
 	}
 
-	// 等 task 退出
-	vTaskDelay(pdMS_TO_TICKS(100));
+	// 等所有 task 退出
+	vTaskDelay(pdMS_TO_TICKS(150));
 
 	s.started = false;
 	ESP_LOGI(TAG, "TCP game server stopped");
@@ -282,76 +386,11 @@ bool tetrisTcpHostHasClients()
 	return false;
 }
 
-void tetrisTcpHostBroadcastSnapshot(int playerIndex, const GameState& state)
+void tetrisTcpHostPushSnapshots(const GameState* states, int playerCount)
 {
-	// 序列化 JSON
-	cJSON* root = cJSON_CreateObject();
-	cJSON_AddStringToObject(root, "type", "snapshot");
-	cJSON_AddNumberToObject(root, "p", playerIndex);
+	if (playerCount > SNAP_PLAYERS) playerCount = SNAP_PLAYERS;
 
-	// board: 20 可见行 × 10 列
-	cJSON* boardArr = cJSON_CreateArray();
-	for (int y = 0; y < BOARD_VISIBLE_H; y++) {
-		int row = Board::yToRow(y);
-		for (int x = 0; x < BOARD_WIDTH; x++) {
-			cJSON_AddItemToArray(boardArr,
-				cJSON_CreateNumber(state.board.data()[row * BOARD_WIDTH + x]));
-		}
-	}
-	cJSON_AddItemToObject(root, "b", boardArr);
-
-	if (state.currentPieceType != PieceType::NONE) {
-		char pt[2] = { pieceTypeToChar(state.currentPieceType), '\0' };
-		cJSON_AddStringToObject(root, "pt", pt);
-		cJSON_AddNumberToObject(root, "px", state.currentPieceX);
-		cJSON_AddNumberToObject(root, "py", state.currentPieceY);
-		cJSON_AddNumberToObject(root, "pr", static_cast<int>(state.currentPieceRotation));
-	}
-
-	cJSON_AddNumberToObject(root, "gx", state.ghostPieceX);
-	cJSON_AddNumberToObject(root, "gy", state.ghostPieceY);
-
-	cJSON* nextArr = cJSON_CreateArray();
-	for (int i = 0; i < 4; i++) {
-		char t[2] = { pieceTypeToChar(state.nextPieces[i]), '\0' };
-		cJSON_AddItemToArray(nextArr, cJSON_CreateString(t));
-	}
-	cJSON_AddItemToObject(root, "n", nextArr);
-
-	if (state.holdPiece != PieceType::NONE) {
-		char t[2] = { pieceTypeToChar(state.holdPiece), '\0' };
-		cJSON_AddStringToObject(root, "h", t);
-	}
-
-	cJSON_AddNumberToObject(root, "sc", state.score);
-	cJSON_AddNumberToObject(root, "lv", state.level);
-	cJSON_AddNumberToObject(root, "ln", state.totalLines);
-	cJSON_AddNumberToObject(root, "cb", state.combo);
-	cJSON_AddNumberToObject(root, "g", state.pendingGarbage);
-	cJSON_AddNumberToObject(root, "gf", state.garbageFlash);
-	cJSON_AddNumberToObject(root, "at", state.attackTarget);
-	cJSON_AddBoolToObject(root, "go", state.gameOver);
-	cJSON_AddBoolToObject(root, "ac", state.active);
-
-	char* jsonStr = cJSON_PrintUnformatted(root);
-	cJSON_Delete(root);
-
-	if (!jsonStr) return;
-
-	char sendBuf[MSG_MAX_LEN + 16];
-	int slen = snprintf(sendBuf, sizeof(sendBuf), "%s\n", jsonStr);
-	cJSON_free(jsonStr);
-
-	// 发给所有活跃客户端
-	for (auto& c : s.clients) {
-		if (c.active) {
-			int ret = send(c.sock, sendBuf, slen, 0);
-			if (ret <= 0) {
-				ESP_LOGW(TAG, "send to client failed: %d", ret);
-			}
-		}
-	}
-
-	ESP_LOGD(TAG, "snapshot broadcast: %d bytes to %d client(s)",
-		slen, tetrisTcpHostHasClients());
+	memcpy(s.snapStates, states, playerCount * sizeof(GameState));
+	s.snapPlayerCount = playerCount;
+	s.snapPending = true;  // Send Task 会在下一 tick 拾取
 }

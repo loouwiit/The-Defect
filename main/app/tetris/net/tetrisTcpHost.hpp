@@ -34,5 +34,8 @@ void tetrisTcpHostSetPlayerCount(int count);
 /// 是否有已连接的 TCP 客户端
 bool tetrisTcpHostHasClients();
 
-/// 广播 snapshot 到所有 TCP 客户端
-void tetrisTcpHostBroadcastSnapshot(int playerIndex, const GameState& state);
+/// 推送最新快照（游戏循环调用，非阻塞 memcpy）
+/// 内部 Send Task 异步序列化+发送，不阻塞游戏循环
+/// @param states      所有玩家的 GameState 数组
+/// @param playerCount 玩家数
+void tetrisTcpHostPushSnapshots(const GameState* states, int playerCount);
