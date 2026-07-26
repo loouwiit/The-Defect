@@ -80,15 +80,14 @@ private:
     TickType_t m_exitBtnTime[MaxHosts][MAX_PLAYERS] = {};
     TickType_t m_hardDropCooldown[MAX_PLAYERS] = {};
 
+    /// 触屏专用 slot（索引=MaxHosts，不受 VirtualGamepad dispatch 覆盖）
+    static constexpr int TOUCH_SLOT = MaxHosts;
+
     // ============================================================
     //  多 host 输入合并（每 (hostId, playerId) 连续输入暂存）
+    //  定义见 tetris_renderer.hpp；[MaxHosts] 为触屏 slot
     // ============================================================
-    struct HostContinuousInput {
-        bool left  = false;
-        bool right = false;
-        bool soft  = false;
-    };
-    HostContinuousInput m_hostInput[MaxHosts][MAX_PLAYERS]{};
+    HostContinuousInput m_hostInput[MaxHosts + 1][MAX_PLAYERS]{};
 
     static constexpr TickType_t EXIT_HOLD_MS = 500;
 

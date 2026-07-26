@@ -63,6 +63,7 @@ void TetrisApp::init()
 		m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
 		m_renderers[i]->bindGameState(&m_gameStates[i]);
 		m_renderers[i]->bindPlayer(&m_players[i]);
+		m_renderers[i]->bindHostInput(&m_hostInput[TOUCH_SLOT][i]); // 触屏专用 slot
 		m_renderers[i]->setOnCycleTarget([this, i]() {
 			// 触屏点击攻击标签 → 切换目标
 			int next = m_players[i].attackTarget();
@@ -457,7 +458,7 @@ void TetrisApp::gameLoop()
 		// ── 0. 合并多 host 连续输入（OR） ──
 		for (int i = 0; i < m_playerCount; i++) {
 			bool left = false, right = false, soft = false;
-			for (int h = 0; h < MaxHosts; h++) {
+			for (int h = 0; h < MaxHosts + 1; h++) {
 				left  |= m_hostInput[h][i].left;
 				right |= m_hostInput[h][i].right;
 				soft  |= m_hostInput[h][i].soft;

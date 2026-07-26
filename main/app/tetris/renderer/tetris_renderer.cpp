@@ -449,9 +449,13 @@ void TetrisRenderer::onBtnPressed(lv_event_t* e)
 	auto* p = renderer->m_playerState;
 	if (!p) return;
 
-	if (btn == renderer->m_btnLeft)   { p->keyLeft = true; }
-	if (btn == renderer->m_btnRight)  { p->keyRight = true; }
-	if (btn == renderer->m_btnSoft)   { p->keySoft = true; }
+	// 连续输入写入 hostInput 缓冲区（经 OR 合并通道）
+	if (renderer->m_hostInputBuf) {
+		if (btn == renderer->m_btnLeft)   { renderer->m_hostInputBuf->left  = true; }
+		if (btn == renderer->m_btnRight)  { renderer->m_hostInputBuf->right = true; }
+		if (btn == renderer->m_btnSoft)   { renderer->m_hostInputBuf->soft  = true; }
+	}
+	// 边沿触发直接写 PlayerState（SET-only，天然 OR，不受合并影响）
 	if (btn == renderer->m_btnCW)     { p->keyCW = true; }
 	if (btn == renderer->m_btnCCW)    { p->keyCCW = true; }
 	if (btn == renderer->m_btnHard)   { p->keyHard = true; }
@@ -466,9 +470,12 @@ void TetrisRenderer::onBtnReleased(lv_event_t* e)
 	auto* p = renderer->m_playerState;
 	if (!p) return;
 
-	if (btn == renderer->m_btnLeft)   { p->keyLeft = false; p->dasTimer = 0; }
-	if (btn == renderer->m_btnRight)  { p->keyRight = false; p->arrTimer = 0; }
-	if (btn == renderer->m_btnSoft)   { p->keySoft = false; }
+	// 连续输入释放写入 hostInput 缓冲区（OR 合并后 processInput 自动重置 DAS）
+	if (renderer->m_hostInputBuf) {
+		if (btn == renderer->m_btnLeft)   { renderer->m_hostInputBuf->left  = false; }
+		if (btn == renderer->m_btnRight)  { renderer->m_hostInputBuf->right = false; }
+		if (btn == renderer->m_btnSoft)   { renderer->m_hostInputBuf->soft  = false; }
+	}
 }
 
 // ============================================================

@@ -7,6 +7,13 @@
 #include "app/tetris/gameLogic/gameState.hpp"
 #include "app/tetris/gameLogic/player_state.hpp"
 
+/// 每 (hostId, playerId) 连续输入暂存（供 gameLoop OR 合并）
+struct HostContinuousInput {
+    bool left  = false;
+    bool right = false;
+    bool soft  = false;
+};
+
 /**
  * @brief Tetris LVGL 渲染器
  *
@@ -43,6 +50,9 @@ public:
     /// 绑定 PlayerState（仅触屏按钮回调需要写输入）
     void bindPlayer(PlayerState* state) { m_playerState = state; }
 
+    /// 绑定 hostInput 缓冲区（连续输入走 OR 合并通道，hostId=0=本机触屏）
+    void bindHostInput(HostContinuousInput* buf) { m_hostInputBuf = buf; }
+
     /// 设置攻击目标切换回调（触屏点击攻击标签时调用）
     void setOnCycleTarget(std::function<void()> cb) { m_onCycleTarget = cb; }
 
@@ -67,6 +77,7 @@ private:
     Display*       m_display{};
     const GameState* m_gameState = nullptr;   // 渲染数据源
     PlayerState*   m_playerState = nullptr;    // 仅按钮回调用
+    HostContinuousInput* m_hostInputBuf = nullptr; // 连续输入缓冲区（触屏写到此）
     lv_obj_t*      m_container{};
     lv_obj_t*      m_boardContainer{};        // 棋盘容器（用于 overlay 定位）
     lv_obj_t*      m_gameOverOverlay{};       // GAME OVER 遮罩
