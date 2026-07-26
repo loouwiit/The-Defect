@@ -205,6 +205,10 @@ void TetrisRemoteClient::recvTaskFn(void* arg)
 		self->m_sock = -1;
 	}
 
+	// 重置状态，避免旧数据残留
+	self->m_playerId = -1;
+	self->m_playerCount = 0;
+
 	ESP_LOGW(TAG, "disconnected");
 	if (self->m_onDisconnected) {
 		self->m_onDisconnected();

@@ -8,8 +8,8 @@
 /**
  * @brief Tetris 远程游戏 App — 作为从机渲染远程主机的游戏画面
  *
- * 连接远程主机的 /ws/tetris，接收 snapshot 后在本地 LVGL 渲染。
- * 本地 BLE 手柄输入通过 sendInput() 转发到远程主机。
+ * 连接远程主机，接收 snapshot 后在本地 LVGL 渲染。
+ * 本地 BLE 手柄输入由系统层 VirtualGamepad 通过 UDP 自动转发。
  */
 class TetrisRemoteApp final : public App
 {
@@ -55,5 +55,4 @@ private:
 
 	// ── 输入去重 ──
 	uint16_t m_prevButtons = 0;
-	bool     m_lastLyUp = false;
 };

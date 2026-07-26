@@ -71,8 +71,15 @@ void TetrisRemoteApp::init()
 	m_renderTask = Task::addTask(renderTaskFn, "tetrisRemoteRender",
 	                             this, 33, Task::Affinity::None);
 
+	// ── 断连回调：更新状态标签 ──
+	m_client.setOnDisconnected([this]() {
+		if (auto g = display->lockGuard()) {
+			lv_label_set_text(m_statusLabel, "连接断开");
+			lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
+		}
+	});
+
 	// ── 在本地监听，等待主机连接（由主机发起 TCP 连接） ──
-	// 在后台 Task 中 accept，不阻塞 init
 	Task::addTask([](void* param) -> TickType_t {
 		auto* app = static_cast<TetrisRemoteApp*>(param);
 		if (!app->m_client.listen(8084)) {
@@ -116,7 +123,6 @@ void TetrisRemoteApp::deinit()
 void TetrisRemoteApp::onForeground()
 {
 	m_prevButtons = 0xFFFF;
-	m_lastLyUp = false;
 	ESP_LOGI(TAG, "onForeground");
 }
 
@@ -180,62 +186,19 @@ void TetrisRemoteApp::renderTick()
 
 void TetrisRemoteApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
-	// 只处理本机输入（hostId == 0 或 hostId == HostManager::getMySlot()）
-	// 简单起见：只要 isConnected() 就转发所有输入
-	if (!m_client.isConnected()) return;
+	// 输入已由系统层 VirtualGamepad 通过 UDP 自动转发到主机，
+	// 这里只处理本地 UI 操作。
 
-	constexpr uint8_t deadZone = 13;
-	constexpr uint8_t center = 128;
+	// 仅在连接断开时 B 可返回，防止误触退出游戏
+	if (!m_client.isConnected()) {
+		uint16_t newPress = state.buttons & ~m_prevButtons;
+		m_prevButtons = state.buttons;
 
-	bool lxLeft  = (state.lx < center - deadZone);
-	bool lxRight = (state.lx > center + deadZone);
-	bool lyUp    = (state.ly < center - deadZone);
-	bool lyDown  = (state.ly > center + deadZone);
-
-	uint16_t newPress = state.buttons & ~m_prevButtons;
-	m_prevButtons = state.buttons;
-
-	// B → 退出
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)) {
-		m_client.sendInput("exit", true);
-		return;
+		if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)) {
+			Task::addTask([](void* p) -> TickType_t {
+				static_cast<TetrisRemoteApp*>(p)->popApp();
+				return Task::infinityTime;
+			}, "remoteBack", this, 0, Task::Affinity::None);
+		}
 	}
-
-	// A → 逆时针旋转
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A))
-		m_client.sendInput("ccw", true);
-
-	// B → 顺时针旋转（但上面已处理退出）
-	// 只用 newPress 检测单独的 B 键按下做旋转，退出用长按
-	// 实际上保留 BTN_B 的旋转功能：
-	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_B)) &&
-	    !(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3))) {
-		// B 短按 = 顺时针旋转（非退出）
-		m_client.sendInput("cw", true);
-	}
-
-	// X → Hold
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_X))
-		m_client.sendInput("hold", true);
-
-	// Y → 硬降
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_Y))
-		m_client.sendInput("hard", true);
-
-	// L3 → 退出
-	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
-		m_client.sendInput("exit", true);
-		return;
-	}
-
-	// ── 摇杆方向（持续状态） ──
-	m_client.sendInput("left",  lxLeft);
-	m_client.sendInput("right", lxRight);
-	m_client.sendInput("soft",  lyDown);
-
-	// lyUp 边沿触发 → 切换攻击目标（由主机侧处理）
-	if (lyUp && !m_lastLyUp) {
-		m_client.sendInput("fw", true);  // "target up" 或 "attack switch"
-	}
-	m_lastLyUp = lyUp;
 }
