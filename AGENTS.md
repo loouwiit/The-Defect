@@ -85,6 +85,9 @@ reserces/
 | | udpInput | `main/host/udpInput.cpp` | UDP 端口 8082 监听 + 发送（P4→P4 低延迟输入转发） |
 | | WsClient | `main/websocket/wsClient.hpp` | 通用 WebSocket 客户端封装，`sendText` / `sendBinary` |
 | | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理 UI（BLE 配对风格，4 槽位 + mask 控制 + 交换） |
+| | **tetrisTcpHost** | `main/app/tetris/net/tetrisTcpHost.hpp` | Tetris TCP 游戏服务器（端口 8083），异步 send Task 20fps，主机→从机 snapshot |
+| | **TetrisRemoteClient** | `main/app/tetris/net/tetrisRemoteClient.hpp` | Tetris 远程客户端，listen 端口 8084 等待主机连接，recv Task 解析 snapshot |
+| | **TetrisRemoteApp** | `main/app/tetris/tetrisRemoteApp.hpp` | Tetris 远程游戏 App，全屏渲染远程主机画面，多玩家动态分屏 |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
@@ -904,16 +907,33 @@ class App {
 | `gameLogic/` | 游戏核心逻辑：`PlayerState`（单个玩家状态）、`TetrisClient`（输入/状态管理）、`GameState`（序列化快照） |
 | `renderer/` | LVGL 渲染器 (`tetris_renderer.cpp`)，将 GameState 绘制到屏幕 |
 | `net/` | WebSocket 网络层 (`tetris_net.cpp`)，Host/Client 模式，JSON 消息协议 |
+| `net/tetrisTcpHost.hpp/.cpp` | **TCP 游戏服务器**（端口 8083），异步 send Task 20fps，主机→从机 snapshot |
+| `net/tetrisRemoteClient.hpp/.cpp` | **Tetris 远程客户端**，listen 端口 8084 等待主机连接，recv Task 解析 snapshot |
 | `tetrisApp.cpp` | 主游戏 App |
-| `tetrisRoomApp.cpp` | 房间选择 App |
+| `tetrisRoomApp.cpp` | 房间选择 App（含远程模式跳转） |
+| `tetrisRemoteApp.cpp` | **远程游戏 App**，全屏渲染远程主机画面 |
 
-**消息协议** (JSON 文本帧, `ws://{host}:8080/ws/tetris`):
+**消息协议** (JSON 文本帧, `ws://{host}:8080/ws/tetris` 或 TCP `host:8083` / `client:8084`):
 | type | 方向 | 说明 |
 |------|------|------|
 | join | C→S | 加入游戏 |
-| join_ack | S→C | 分配 player_id |
+| join_ack | S→C | 分配 player_id, player_count |
 | input | C→S | 按键事件 |
 | snapshot | S→C | 完整 GameState |
+
+**跨主机联机流程**：
+```
+主机 TetrisApp::init()
+  ├── tetrisNetInit(true, ...)      — 启动 WS 服务器 :8080/ws/tetris（Web 客户端）
+  ├── tetrisTcpHostStart(8083)       — TCP 服务器 + 异步 send Task（20fps）
+  ├── tetrisTcpHostSetPlayerCount()  — 通知客户端游戏人数
+  └── tetrisTcpHostConnectToClient(ip, 8084)
+       └── TCP 连接从机 → 分配 s.clients[] slot + recv Task（接收 join/input）
+
+从机 TetrisRemoteApp::init()
+  ├── m_client.listen(8084)          — 监听等待主机连接
+  └── accept → sendJoin() → 收到 snapshot → TetrisRenderer::syncState()
+```
 
 ---
 

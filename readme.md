@@ -55,6 +55,12 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 - **WebSocket 管理通道**：`/ws/console` 管理注册/心跳/全量 slots_update 广播
 - **槽位交换**：ConsoleManager 支持拖拽式交换，mask 随 slot 同步迁移
 
+**Tetris 跨主机远程游玩**：
+- **主机连接从机**：主机 TetrisApp 通过 TCP 主动连接从机的 `TetrisRemoteApp`（端口 8084），避免时序问题
+- **异步 snapshot 发送**：游戏循环通过 `memcpy` 推送快照，专用 Send Task（20fps）异步序列化 JSON + TCP send，不阻塞游戏 60fps 帧率
+- **从机渲染**：`TetrisRemoteApp` 全屏渲染远程主机画面，支持 1-3 玩家动态分屏
+- **输入零配置**：从机 BLE 手柄输入经由 UDP 8082 + `VirtualGamepad` 自动转发到主机，`TetrisRemoteApp` 无需手动转发
+
 ### 🖥️ 主机 + 协处理器分离架构
 
 ```
@@ -210,7 +216,7 @@ ESP32-C6 (协处理器)
 |------|------|------|
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
 | 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/gamepad/` |
-| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient / ConsoleManagerApp | `main/host/` `main/websocket/` `main/app/consoleManager/` |
+| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient / ConsoleManagerApp / **tetrisTcpHost** / **TetrisRemoteClient** / **TetrisRemoteApp** | `main/host/` `main/websocket/` `main/app/consoleManager/` `main/app/tetris/net/` `main/app/tetris/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
@@ -280,6 +286,8 @@ reserces/
 | HTTP | 80 | TCP | 网页服务 + 屏幕串流 |
 | WebSocket | 8080 | TCP | 触控注入 + 游戏通信 (Web) + 设备管理 |
 | UDP | 8082 | UDP | P4→P4 低延迟手柄输入转发 |
+| **Tetris 游戏数据** | **8083** | **TCP** | **主机 TCP 服务端（接收旧式 WS 兼容连接）** |
+| **Tetris 远程游玩** | **8084** | **TCP** | **从机监听，主机主动连接（反客为主模式）** |
 | mDNS | 5353 | UDP | 服务发现 (`esp32p4.local`) |
 
 ---
