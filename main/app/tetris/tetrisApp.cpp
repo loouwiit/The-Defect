@@ -504,9 +504,11 @@ void TetrisApp::gameLoop()
 				tetrisNetHostSendSnapshot(remoteFd, target, m_gameStates[target]);
 			}
 
-			// TCP 客户端（P4-to-P4）
+			// TCP 客户端（P4-to-P4，广播所有玩家）
 			if (tetrisTcpHostHasClients()) {
-				tetrisTcpHostBroadcastSnapshot(0, m_gameStates[0]);
+				for (int i = 0; i < m_playerCount; i++) {
+					tetrisTcpHostBroadcastSnapshot(i, m_gameStates[i]);
+				}
 			}
 
 			snapTick = now;

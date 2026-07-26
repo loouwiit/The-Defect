@@ -32,15 +32,18 @@ public:
 	void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 
 private:
+	static constexpr int MAX_RENDER_PLAYERS = 3;
+
 	TetrisRemoteClient m_client;
-	TetrisRenderer*    m_renderer = nullptr;
+	TetrisRenderer*    m_renderers[MAX_RENDER_PLAYERS]{};
+	int                m_renderCount = 0;
 
 	char m_remoteHost[64];
 	uint16_t m_remotePort;
 	int  m_targetPlayer;
 
-	// 渲染器引用的 GameState（必须持久化，不能传局部变量）
-	GameState m_remoteState;
+	// 渲染器引用的 GameState（持久化，多玩家）
+	GameState m_remoteStates[MAX_RENDER_PLAYERS]{};
 
 	// ── 渲染 Task ──
 	Task* m_renderTask = nullptr;

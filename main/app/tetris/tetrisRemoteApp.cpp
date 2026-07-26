@@ -46,16 +46,20 @@ void TetrisRemoteApp::init()
 	lv_obj_set_style_bg_color(screen, LV_COLOR_MAKE(0x0D, 0x0D, 0x1A), 0);
 	lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
-	// ── Flex 行容器（与 TetrisApp 布局一致，让渲染器正确居中） ──
+	// ── Flex 行容器（与 TetrisApp 布局一致） ──
 	auto flexRow = lv_obj_create(screen);
 	lv_obj_remove_style_all(flexRow);
 	lv_obj_set_size(flexRow, SCREEN_W, SCREEN_H);
 	lv_obj_set_flex_flow(flexRow, LV_FLEX_FLOW_ROW);
 	lv_obj_set_scrollbar_mode(flexRow, LV_SCROLLBAR_MODE_OFF);
 
-	// ── 渲染器（单个玩家，全屏宽） ──
-	m_renderer = new TetrisRenderer(display, flexRow, SCREEN_W);
-	m_renderer->bindGameState(&m_remoteState);
+	// ── 渲染器（等宽分屏，最多 3 个玩家） ──
+	// 初始创建 3 个，后续根据实际玩家数动态隐藏/显示
+	int playerW = SCREEN_W / MAX_RENDER_PLAYERS;
+	for (int i = 0; i < MAX_RENDER_PLAYERS; i++) {
+		m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
+		m_renderers[i]->bindGameState(&m_remoteStates[i]);
+	}
 
 	// ── 连接状态标签（覆盖在 flexRow 上方） ──
 	m_statusLabel = GUI::createLabel(screen, "正在连接...");
@@ -92,8 +96,10 @@ void TetrisRemoteApp::deinit()
 		m_renderTask = nullptr;
 	}
 
-	delete m_renderer;
-	m_renderer = nullptr;
+	for (int i = 0; i < MAX_RENDER_PLAYERS; i++) {
+		delete m_renderers[i];
+		m_renderers[i] = nullptr;
+	}
 
 	App::deinit();
 	ESP_LOGI(TAG, "deinit");
@@ -134,16 +140,17 @@ void TetrisRemoteApp::renderTick()
 		vTaskDelay(0);
 	}
 
-	// ── 同步游戏状态到渲染器 ──
-	if (m_client.hasNewState()) {
-		m_remoteState = m_client.getGameState();
+	// ── 同步所有玩家状态到渲染器 ──
+	int count = m_client.getPlayerCount();
+	if (count > 0) m_renderCount = count;
 
-		if (m_renderer) {
-			m_renderer->bindGameState(&m_remoteState);
-			m_renderer->syncState();
+	for (int i = 0; i < m_renderCount; i++) {
+		if (m_client.hasNewState(i)) {
+			m_remoteStates[i] = m_client.getPlayerState(i);
+			m_renderers[i]->bindGameState(&m_remoteStates[i]);
+			m_renderers[i]->syncState();
+			m_client.consumeNewState(i);
 		}
-
-		m_client.consumeNewState();
 	}
 }
 

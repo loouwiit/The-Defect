@@ -33,14 +33,17 @@ public:
 	/// 发送按键到远程主机
 	void sendInput(const char* key, bool down);
 
-	/// 获取最新 GameState（线程安全，返回拷贝）
-	GameState getGameState() const;
+	/// 获取指定玩家的最新 GameState（线程安全，返回拷贝）
+	GameState getPlayerState(int player) const;
+
+	/// 获取已发现的玩家数
+	int getPlayerCount() const { return m_playerCount; }
 
 	/// 是否有新状态
-	bool hasNewState() const { return m_hasNewState; }
+	bool hasNewState(int player) const;
 
 	/// 消费新状态标志
-	void consumeNewState() { m_hasNewState = false; }
+	void consumeNewState(int player);
 
 	/// 获取已分配的 player id
 	int getPlayerId() const { return m_playerId; }
@@ -58,9 +61,12 @@ private:
 	TaskHandle_t m_recvTask = nullptr;
 	volatile bool m_running = false;
 
+	static constexpr int MAX_REMOTE_PLAYERS = 3;
+
 	mutable Mutex m_mutex;
-	GameState m_state;
-	bool m_hasNewState = false;
+	GameState m_states[MAX_REMOTE_PLAYERS]{};
+	bool m_hasNewState[MAX_REMOTE_PLAYERS]{};
+	int  m_playerCount = 0;
 
 	int m_playerId = -1;
 	int m_targetPlayer = 0;

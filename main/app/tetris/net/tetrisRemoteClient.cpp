@@ -83,8 +83,32 @@ void TetrisRemoteClient::disconnect()
 		m_recvTask = nullptr;
 	}
 
+	for (auto& ns : m_hasNewState) ns = false;
+}
+
+// ============================================================
+//  状态访问
+// ============================================================
+
+GameState TetrisRemoteClient::getPlayerState(int player) const
+{
 	Lock lock(m_mutex);
-	m_hasNewState = false;
+	if (player >= 0 && player < MAX_REMOTE_PLAYERS)
+		return m_states[player];
+	return GameState{};
+}
+
+bool TetrisRemoteClient::hasNewState(int player) const
+{
+	if (player >= 0 && player < MAX_REMOTE_PLAYERS)
+		return m_hasNewState[player];
+	return false;
+}
+
+void TetrisRemoteClient::consumeNewState(int player)
+{
+	if (player >= 0 && player < MAX_REMOTE_PLAYERS)
+		m_hasNewState[player] = false;
 }
 
 // ============================================================
@@ -138,16 +162,6 @@ void TetrisRemoteClient::sendJoin()
 		}
 		cJSON_free(str);
 	}
-}
-
-// ============================================================
-//  获取状态
-// ============================================================
-
-GameState TetrisRemoteClient::getGameState() const
-{
-	Lock lock(m_mutex);
-	return m_state;
 }
 
 // ============================================================
@@ -227,13 +241,18 @@ void TetrisRemoteClient::processLine(const char* line)
 		}
 	}
 	else if (strcmp(tag, TetrisMsgTag::SNAPSHOT) == 0) {
+		cJSON* pItem = cJSON_GetObjectItem(root, "p");
+		int player = pItem && cJSON_IsNumber(pItem) ? pItem->valueint : 0;
+		if (player < 0 || player >= MAX_REMOTE_PLAYERS) player = 0;
+
 		GameState state;
 		if (gameStateFromJson(root, state)) {
 			Lock lock(m_mutex);
-			m_state = state;
-			m_hasNewState = true;
-			ESP_LOGD(TAG, "snapshot received: score=%d lines=%d go=%d",
-				state.score, state.totalLines, state.gameOver);
+			m_states[player] = state;
+			m_hasNewState[player] = true;
+			if (player + 1 > m_playerCount) m_playerCount = player + 1;
+			ESP_LOGD(TAG, "snapshot P%d: score=%d lines=%d go=%d",
+				player, state.score, state.totalLines, state.gameOver);
 		}
 	}
 
