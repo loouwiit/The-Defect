@@ -11,6 +11,7 @@
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
+#include "app/luaGameApp/luaGameApp.hpp"
 
 #include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
@@ -33,6 +34,7 @@ const char* DesktopApp::GAME_NAMES[] =
 	"俄罗斯方块",
 	"斗地主",
 	"中国象棋",
+	"Lua 测试",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
@@ -42,6 +44,7 @@ const char* DesktopApp::GAME_DESCS[] =
 	"经典俄罗斯方块，消除行数得分！",
 	"三人斗地主，比拼牌技！",
 	"中国象棋，楚河汉界对弈！",
+	"Lua 脚本引擎测试 — 运行 test_display.lua",
 };
 
 const char* DesktopApp::GAME_ICONS[] =
@@ -51,6 +54,7 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/tetris.jpg",
 	"F:system/desktop/douDiZhu.jpg",
 	"F:system/desktop/chess.jpg",
+	"F:system/desktop/lua.jpg",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -569,6 +573,11 @@ void DesktopApp::startGame()
 		m_manager->pushToNewStack(new ChineseChessRoom(display));
 		break;
 
+	case 5:
+		// Lua 脚本引擎测试
+		m_manager->pushToNewStack(new LuaGameApp(display, "/root/lua/test_display.lua"));
+		break;
+
 	default:
 		// 未实现的游戏 — TestApp 占位
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
@@ -589,7 +598,7 @@ std::string DesktopApp::getAiContext()
 		"- doudizhu, chineseChess\n"
 		"- timeSettings, wifiSettings, bleSettings, powerManagement\n\n"
 		"可用焦点组（select 的 text 参数）：\n"
-		"- cards(0-4)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess）\n"
+		"- cards(0-5)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaGame）\n"
 		"- status(0-6)\t状态栏（时间/WiFi/蓝牙/音量/亮度/多主机/电池）\n"
 		"- buttons(0)\t开始游戏按钮\n\n";
 
