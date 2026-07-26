@@ -23,35 +23,45 @@ TetrisRemoteClient::~TetrisRemoteClient()
 //  TCP 连接 / 断开
 // ============================================================
 
-bool TetrisRemoteClient::connect(const char* host, uint16_t port, int targetPlayer)
+bool TetrisRemoteClient::listen(int port)
 {
-	m_targetPlayer = targetPlayer;
-
-	// 创建 socket
-	m_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (m_sock < 0) {
+	// 创建 listen socket
+	int listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (listenSock < 0) {
 		ESP_LOGE(TAG, "socket create failed: %d", errno);
 		return false;
 	}
 
-	// 连接
+	int opt = 1;
+	setsockopt(listenSock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
 	struct sockaddr_in addr = {};
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = INADDR_ANY;
 
-	struct hostent* he = gethostbyname(host);
-	if (he && he->h_addr_list[0]) {
-		memcpy(&addr.sin_addr, he->h_addr_list[0], sizeof(addr.sin_addr));
-	} else {
-		inet_pton(AF_INET, host, &addr.sin_addr);
+	if (bind(listenSock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+		ESP_LOGE(TAG, "bind port %d failed: %d", port, errno);
+		close(listenSock);
+		return false;
 	}
 
-	ESP_LOGI(TAG, "connecting to %s:%d (target=%d)...", host, port, targetPlayer);
+	if (::listen(listenSock, 1) < 0) {
+		ESP_LOGE(TAG, "listen failed: %d", errno);
+		close(listenSock);
+		return false;
+	}
 
-	if (::connect(m_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-		ESP_LOGE(TAG, "connect failed: %d", errno);
-		close(m_sock);
-		m_sock = -1;
+	ESP_LOGI(TAG, "listening on port %d, waiting for host...", port);
+
+	// 阻塞等待主机连接
+	struct sockaddr_in peer;
+	socklen_t peerLen = sizeof(peer);
+	m_sock = accept(listenSock, (struct sockaddr*)&peer, &peerLen);
+	close(listenSock);  // 不再接受其他连接
+
+	if (m_sock < 0) {
+		ESP_LOGE(TAG, "accept failed: %d", errno);
 		return false;
 	}
 
@@ -59,11 +69,14 @@ bool TetrisRemoteClient::connect(const char* host, uint16_t port, int targetPlay
 	int flag = 1;
 	setsockopt(m_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
+	char peerStr[16];
+	inet_ntop(AF_INET, &peer.sin_addr, peerStr, sizeof(peerStr));
+	ESP_LOGI(TAG, "accepted connection from host %s", peerStr);
+
 	// 启动接收 Task
 	m_running = true;
 	xTaskCreate(recvTaskFn, "tetrisTcpRecv", 4096, this, tskIDLE_PRIORITY + 3, &m_recvTask);
 
-	ESP_LOGI(TAG, "TCP connected to %s:%d", host, port);
 	return true;
 }
 

@@ -9,7 +9,7 @@
 #include <cJSON.h>
 
 static constexpr char TAG[] = "TetrisTcpHost";
-static constexpr int MAX_TCP_CLIENTS = 3;
+static constexpr int MAX_TCP_CLIENTS = 6;  // 3 入站 + 3 出站
 static constexpr int LINE_BUF_SIZE = 2048;
 constexpr int MSG_MAX_LEN   = 4096;
 
@@ -205,17 +205,33 @@ static void sendSnapshotToClient(int sock, int playerIndex, const GameState& sta
 	send(sock, sendBuf, slen, 0);
 }
 
+static void sendSnapshotsTo(int sock, int count)
+{
+	for (int pi = 0; pi < count; pi++) {
+		sendSnapshotToClient(sock, pi, s.snapStates[pi]);
+	}
+}
+
+// 主机主动连接从机的 socket（反客为主模式）
+static constexpr int MAX_OUT_SOCKS = 3;
+static int s_outboundSocks[MAX_OUT_SOCKS] = {-1, -1, -1};
+static int s_outboundCount = 0;
+
 static void sendAllSnapshots()
 {
 	int count = s.snapPlayerCount;
 	if (count <= 0) return;
 
-	// 遍历所有客户端，逐个发送
+	// 发给 TCP server 接入的客户端
 	for (int ci = 0; ci < MAX_TCP_CLIENTS; ci++) {
-		if (!s.clients[ci].active) continue;
-		for (int pi = 0; pi < count; pi++) {
-			sendSnapshotToClient(s.clients[ci].sock, pi, s.snapStates[pi]);
-		}
+		if (s.clients[ci].active)
+			sendSnapshotsTo(s.clients[ci].sock, count);
+	}
+
+	// 发给主机主动连接的客户端（反客为主模式）
+	for (int oi = 0; oi < s_outboundCount; oi++) {
+		if (s_outboundSocks[oi] >= 0)
+			sendSnapshotsTo(s_outboundSocks[oi], count);
 	}
 }
 
@@ -393,4 +409,50 @@ void tetrisTcpHostPushSnapshots(const GameState* states, int playerCount)
 	memcpy(s.snapStates, states, playerCount * sizeof(GameState));
 	s.snapPlayerCount = playerCount;
 	s.snapPending = true;  // Send Task 会在下一 tick 拾取
+}
+
+// ============================================================
+//  主机主动连接从机（反客为主）
+// ============================================================
+
+int tetrisTcpHostConnectToClient(const char* ip, uint16_t port)
+{
+	int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sock < 0) return -1;
+
+	struct sockaddr_in addr = {};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	inet_pton(AF_INET, ip, &addr.sin_addr);
+
+	if (::connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+		ESP_LOGE(TAG, "connect to %s:%d failed: %d", ip, port, errno);
+		close(sock);
+		return -1;
+	}
+
+	int flag = 1;
+	setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
+	// 分配一个 TcpClient 槽位 + recv task（处理客户端发来的 join/input）
+	int slot = -1;
+	for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
+		if (!s.clients[i].active) { slot = i; break; }
+	}
+	if (slot >= 0) {
+		auto& c = s.clients[slot];
+		c = {};
+		c.sock = sock;
+		c.active = true;
+		xTaskCreate(tcpRecvTask, "tcpOutRecv", 4096, &c,
+			tskIDLE_PRIORITY + 3, &c.recvTask);
+		ESP_LOGI(TAG, "connected to %s:%d (slot=%d)", ip, port, slot);
+	} else {
+		// 无空槽时 fallback：仅存到 outbound 数组发 snapshot
+		if (s_outboundCount < MAX_OUT_SOCKS) {
+			s_outboundSocks[s_outboundCount++] = sock;
+			ESP_LOGI(TAG, "connected to %s:%d (outbound #%d)", ip, port, s_outboundCount);
+		}
+	}
+	return sock;
 }

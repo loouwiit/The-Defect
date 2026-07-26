@@ -11,8 +11,80 @@
 #include <esp_heap_caps.h>
 #include <cstring>
 #include <cJSON.h>
+#include <lwip/sockets.h>
 
 static constexpr char TAG[] = "WSConsole";
+
+// ── fd → IP 缓存（握手时获取，后续直接使用）──
+static constexpr int MAX_IP_CACHE = 16;
+static struct {
+	int fd;
+	char ip[17];
+} s_ipCache[MAX_IP_CACHE] = {};
+static int s_ipCacheCount = 0;
+
+/// 缓存 fd 对应的 IP（兼容 IPv4-mapped IPv6）
+static void cachePeerIp(int fd)
+{
+	struct sockaddr_storage peer;
+	socklen_t peerLen = sizeof(peer);
+	if (getpeername(fd, (struct sockaddr*)&peer, &peerLen) != 0) {
+		ESP_LOGW(TAG, "getpeername(fd=%d) failed: errno=%d", fd, errno);
+		return;
+	}
+	for (int i = 0; i < s_ipCacheCount; i++) {
+		if (s_ipCache[i].fd == fd) return;
+	}
+	if (s_ipCacheCount < MAX_IP_CACHE) {
+		auto& c = s_ipCache[s_ipCacheCount++];
+		c.fd = fd;
+
+		if (peer.ss_family == AF_INET) {
+			inet_ntop(AF_INET,
+			          &((struct sockaddr_in*)&peer)->sin_addr,
+			          c.ip, sizeof(c.ip));
+		}
+#if CONFIG_LWIP_IPV6
+		else if (peer.ss_family == AF_INET6) {
+			struct sockaddr_in6* s6 = (struct sockaddr_in6*)&peer;
+			if (IN6_IS_ADDR_V4MAPPED(&s6->sin6_addr)) {
+				inet_ntop(AF_INET,
+				          s6->sin6_addr.s6_addr + 12,
+				          c.ip, sizeof(c.ip));
+			} else {
+				inet_ntop(AF_INET6,
+				          &s6->sin6_addr,
+				          c.ip, sizeof(c.ip));
+			}
+		}
+#endif
+		else {
+			snprintf(c.ip, sizeof(c.ip), "unknown");
+		}
+
+		ESP_LOGI(TAG, "cached fd=%d -> %s", fd, c.ip);
+	}
+}
+
+/// 从缓存获取 IP
+static const char* getCachedIp(int fd)
+{
+	for (int i = 0; i < s_ipCacheCount; i++) {
+		if (s_ipCache[i].fd == fd) return s_ipCache[i].ip;
+	}
+	return "";
+}
+
+/// 清理缓存的 fd
+static void removeCachedIp(int fd)
+{
+	for (int i = 0; i < s_ipCacheCount; i++) {
+		if (s_ipCache[i].fd == fd) {
+			s_ipCache[i] = s_ipCache[--s_ipCacheCount];
+			return;
+		}
+	}
+}
 
 // ── 已连接的客户端列表（用于广播）──
 static constexpr int MAX_CONSOLE_CLIENTS = 8;
@@ -97,7 +169,9 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 {
 	/* ── 握手 ── */
 	if (req->method == HTTP_GET) {
-		ESP_LOGI(TAG, "WebSocket handshake /ws/console");
+		int fd = httpd_req_to_sockfd(req);
+		cachePeerIp(fd);
+		ESP_LOGI(TAG, "WebSocket handshake /ws/console (fd=%d)", fd);
 		return ESP_OK;
 	}
 
@@ -151,11 +225,12 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 		int gamepadCount = gp && cJSON_IsNumber(gp) ? gp->valueint : 0;
 
 		// 先检查是否已注册（重连场景）
+		const char* peerIp = getCachedIp(fd);
 		int existingHostId = findHostIdByFd(fd);
 		if (existingHostId > 0) {
 			// 已注册，更新信息
 			HostManager::instance().onClientRegistered(
-				existingHostId, hostname, "", gamepadCount);
+				existingHostId, hostname, peerIp, gamepadCount);
 			cJSON_Delete(root);
 			return ESP_OK;
 		}
@@ -181,7 +256,7 @@ esp_err_t wsConsoleHandler(httpd_req_t* req)
 
 		// 更新 HostManager
 		HostManager::instance().onClientRegistered(
-			hostId, hostname, "", gamepadCount);
+			hostId, hostname, getCachedIp(fd), gamepadCount);
 
 		// 全量广播 slots_update
 		broadcastSlotsUpdate(-1);

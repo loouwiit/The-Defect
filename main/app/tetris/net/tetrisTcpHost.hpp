@@ -39,3 +39,9 @@ bool tetrisTcpHostHasClients();
 /// @param states      所有玩家的 GameState 数组
 /// @param playerCount 玩家数
 void tetrisTcpHostPushSnapshots(const GameState* states, int playerCount);
+
+/// 主机主动连接到从机的 TCP 服务器
+/// @param ip   从机 IP
+/// @param port 从机端口 (8084)
+/// @return 连接的 socket fd，-1 失败
+int tetrisTcpHostConnectToClient(const char* ip, uint16_t port);

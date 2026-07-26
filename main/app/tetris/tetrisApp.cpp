@@ -3,6 +3,7 @@
 #include "display/font.hpp"
 #include "gui/gui.hpp"
 #include <esp_log.h>
+#include "host/hostManager.hpp"
 
 
 // ============================================================
@@ -151,6 +152,23 @@ void TetrisApp::init()
 	tcpCb.onInput  = hostCb.onInput;
 	tetrisTcpHostStart(8083, tcpCb);
 	tetrisTcpHostSetPlayerCount(m_playerCount);
+
+	// 主机主动连接所有已连接的从机（反客为主，避免时序问题）
+	if (HostManager::instance().isHost()) {
+		const auto* slots = HostManager::instance().getSlots();
+		ESP_LOGI(TAG, "HostManager slots: 0=%s 1=%s 2=%s 3=%s",
+			slots[0].connected ? slots[0].hostname : "-",
+			slots[1].connected ? slots[1].hostname : "-",
+			slots[2].connected ? slots[2].hostname : "-",
+			slots[3].connected ? slots[3].hostname : "-");
+		for (int i = 1; i < 4; i++) {
+			if (slots[i].connected && slots[i].ip[0]) {
+				ESP_LOGI(TAG, "connecting to client %s (%s, slot %d)...",
+					slots[i].hostname, slots[i].ip, i);
+				tetrisTcpHostConnectToClient(slots[i].ip, 8084);
+			}
+		}
+	}
 
 	// ── 全局 Game Over UI（初始隐藏） ──
 	createGameOverUI();

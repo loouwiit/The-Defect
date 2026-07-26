@@ -21,8 +21,8 @@ public:
 	TetrisRemoteClient();
 	~TetrisRemoteClient();
 
-	/// 连接远程 Tetris Host（TCP 端口 8083）
-	bool connect(const char* host, uint16_t port = 8083, int targetPlayer = 0);
+	/// 在本地监听端口等待主机连接（反客为主：由主机发起 TCP）
+	bool listen(int port = 8084);
 
 	/// 断开连接
 	void disconnect();

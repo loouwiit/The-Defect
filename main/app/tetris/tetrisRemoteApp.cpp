@@ -71,20 +71,28 @@ void TetrisRemoteApp::init()
 	m_renderTask = Task::addTask(renderTaskFn, "tetrisRemoteRender",
 	                             this, 33, Task::Affinity::None);
 
-	// ── 连接远程主机（TCP 同步连接，不阻塞） ──
-	if (!m_client.connect(m_remoteHost, m_remotePort, m_targetPlayer)) {
-		ESP_LOGE(TAG, "TCP connect failed");
-		// 显示连接失败状态
-		lv_label_set_text(m_statusLabel, "连接失败");
-		lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
-	}
+	// ── 在本地监听，等待主机连接（由主机发起 TCP 连接） ──
+	// 在后台 Task 中 accept，不阻塞 init
+	Task::addTask([](void* param) -> TickType_t {
+		auto* app = static_cast<TetrisRemoteApp*>(param);
+		if (!app->m_client.listen(8084)) {
+			ESP_LOGE(TAG, "TCP listen failed");
+			if (auto g = app->display->lockGuard()) {
+				lv_label_set_text(app->m_statusLabel, "连接失败");
+				lv_obj_set_style_text_color(app->m_statusLabel, GUI::Color::DANGER, 0);
+			}
+			return Task::infinityTime;
+		}
+		// 主机已连接，发送 join
+		app->m_client.sendJoin();
+		if (auto g = app->display->lockGuard()) {
+			lv_label_set_text(app->m_statusLabel, "已连接");
+			lv_obj_set_style_text_color(app->m_statusLabel, GUI::Color::SUCCESS, 0);
+		}
+		return Task::infinityTime;
+	}, "tetrisListen", this, 0, Task::Affinity::None);
 
-	// 连接成功后发 join（TCP 连接是同步的，连接成功 = 已就绪）
-	vTaskDelay(pdMS_TO_TICKS(100));  // 等接收 Task 启动
-	m_client.sendJoin();
-
-	ESP_LOGI(TAG, "init done, connecting to %s:%d (target=%d)",
-	         m_remoteHost, m_remotePort, m_targetPlayer);
+	ESP_LOGI(TAG, "init done, waiting for host connection on port 8084");
 }
 
 void TetrisRemoteApp::deinit()
