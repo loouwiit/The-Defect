@@ -212,26 +212,14 @@ static void sendSnapshotsTo(int sock, int count)
 	}
 }
 
-// 主机主动连接从机的 socket（反客为主模式）
-static constexpr int MAX_OUT_SOCKS = 3;
-static int s_outboundSocks[MAX_OUT_SOCKS] = {-1, -1, -1};
-static int s_outboundCount = 0;
-
 static void sendAllSnapshots()
 {
 	int count = s.snapPlayerCount;
 	if (count <= 0) return;
 
-	// 发给 TCP server 接入的客户端
 	for (int ci = 0; ci < MAX_TCP_CLIENTS; ci++) {
 		if (s.clients[ci].active)
 			sendSnapshotsTo(s.clients[ci].sock, count);
-	}
-
-	// 发给主机主动连接的客户端（反客为主模式）
-	for (int oi = 0; oi < s_outboundCount; oi++) {
-		if (s_outboundSocks[oi] >= 0)
-			sendSnapshotsTo(s_outboundSocks[oi], count);
 	}
 }
 
@@ -448,11 +436,9 @@ int tetrisTcpHostConnectToClient(const char* ip, uint16_t port)
 			tskIDLE_PRIORITY + 3, &c.recvTask);
 		ESP_LOGI(TAG, "connected to %s:%d (slot=%d)", ip, port, slot);
 	} else {
-		// 无空槽时 fallback：仅存到 outbound 数组发 snapshot
-		if (s_outboundCount < MAX_OUT_SOCKS) {
-			s_outboundSocks[s_outboundCount++] = sock;
-			ESP_LOGI(TAG, "connected to %s:%d (outbound #%d)", ip, port, s_outboundCount);
-		}
+		ESP_LOGW(TAG, "no free slot for outbound connection, closing");
+		close(sock);
+		return -1;
 	}
 	return sock;
 }

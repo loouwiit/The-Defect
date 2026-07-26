@@ -232,7 +232,6 @@ void TetrisRemoteClient::processRecvData(const char* data, size_t len)
 
 void TetrisRemoteClient::processLine(const char* line)
 {
-	ESP_LOGV(TAG, "recv: %s", line);
 	cJSON* root = cJSON_Parse(line);
 	if (!root) {
 		ESP_LOGW(TAG, "JSON parse failed: %s", line);
