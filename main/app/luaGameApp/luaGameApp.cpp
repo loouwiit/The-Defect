@@ -149,7 +149,10 @@ void LuaGameApp::deinit()
 
     // 等待 Task 退出
     while (m_thread.isRunning())
+    {
+        ESP_LOGI(TAG, "等待Lua线程退出...");
         vTaskDelay(pdMS_TO_TICKS(20));
+    }
 
     App::deinit();
 }
@@ -210,11 +213,9 @@ void LuaGameApp::loopTaskFunc(void* param)
         vTaskDelayUntil(&self->m_lastWakeTime, pdMS_TO_TICKS(16));
     }
 
-    // Task 退出：弹出当前 App
-    Task::addTask([](void* p) -> TickType_t {
-        static_cast<LuaGameApp*>(p)->popApp();
-        return Task::infinityTime;
-        }, "luaGameExit", self, 0, Task::Affinity::None);
+    // FreeRTOS 任务不允许 return，必须自杀
+    // 注意：popApp 由 requestExit() 调度，此处不重复调用
+    ESP_LOGI(TAG, "lua循环退出");
     self->m_thread = {};
 }
 
@@ -262,24 +263,27 @@ void LuaGameApp::gameLoop()
             lua_pushnumber(L, dt);
         }
         if (!m_lua.callFunction("loop", 1, 1)) {
-            // 出错时标记为不继续
-            m_luaReady = false;
+            // 出错时退出
             if (m_statusLabel) {
                 std::string err = m_lua.popString();
                 if (err.empty()) err = "Lua Error";
-                lv_label_set_text(m_statusLabel, err.c_str());
-                lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
+                auto guard2 = display->lockGuard();
+                if (guard2) {
+                    lv_label_set_text(m_statusLabel, err.c_str());
+                    lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
+                }
             }
+            requestExit();
             return;
         }
 
-        // 检查返回值（栈顶可能有错误信息，先检查）
+        // 检查返回值
         bool shouldContinue = true;
         if (lua_gettop(m_lua.state()) > 0) {
             shouldContinue = m_lua.popBool();
         }
         if (!shouldContinue) {
-            m_loopRunning = false;
+            requestExit();  // 统一退出门
         }
     }
 }
@@ -300,21 +304,37 @@ int LuaGameApp::countConnectedPlayers() const
 }
 
 // ============================================================
+//  requestExit — 统一退出请求
+// ============================================================
+
+void LuaGameApp::requestExit()
+{
+    if (!m_loopRunning) return;  // 防重入
+    m_loopRunning = false;
+
+    // 由 Task 调度器延后执行 popApp，避免在 LVGL 锁内或线程上下文中直接操作栈
+    Task::addTask([](void* p) -> TickType_t {
+        auto* app = static_cast<LuaGameApp*>(p);
+        if (app->getManager()) {
+            app->popApp();
+        }
+        return Task::infinityTime;
+        }, "luaGameExit", this, 0, Task::Affinity::None);
+}
+
+// ============================================================
 //  restart
 // ============================================================
 
 void LuaGameApp::restart()
 {
-    // 停止当前循环
-    m_loopRunning = false;
+    // 通过 requestExit 统一退出（设标志 + 调度 popApp）
+    requestExit();
+    // 等待线程退出
     while (m_thread.isRunning())
         vTaskDelay(pdMS_TO_TICKS(20));
 
-    // 重新初始化 Lua
-    // 析构旧的 LuaRuntime，隐式调用 lua_close
-    // 但因为 m_lua 是成员变量且没有提供 reset 方法，需要重新 init
-    // 简单做法：deinit 当前 App 然后重新 init
-    // 更好的做法：使用替换机制
+    // replaceWith 创建新实例替换当前栈顶
     replaceWith(new LuaGameApp(display,
         m_useCode ? m_scriptCode.c_str() : m_scriptPath.c_str(),
         m_useCode ? m_scriptCode.size() : 0));
