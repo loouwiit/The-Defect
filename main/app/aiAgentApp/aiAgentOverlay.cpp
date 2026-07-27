@@ -120,7 +120,8 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 - input.connected(playerId) — 该玩家是否已连接
 - input.player_count() — 已连接手柄总数
 
-可用按钮名: a, b, x, y, start, select, l1, r1, l2, r2, l3, r3, up, down, left, right
+可用按钮名: a, b, x, y, l3
+摇杆死区建议值：13
 
 **audio 模块**:
 - audio.play_sfx(path) — 播放音效（不阻塞）
