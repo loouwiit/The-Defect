@@ -14,6 +14,8 @@
 #include "power/powerManager.hpp"
 #include "gamepad/bleGamepad.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
+#include "app/aiAgentApp/aiAgentOverlay.hpp"
+#include <cstdio>
 
 /**
  * @file aiExecutor.hpp
@@ -177,6 +179,33 @@ public:
                     }
                     PowerManager::instance().shutdown();
                     handled = true;
+                    break;
+                }
+
+                case AiActionType::ReadFile:
+                {
+                    if (action.text.empty()) break;
+                    FILE* f = fopen(action.text.c_str(), "r");
+                    if (!f) {
+                        ESP_LOGW(TAG, "读取文件失败: %s", action.text.c_str());
+                        break;
+                    }
+                    fseek(f, 0, SEEK_END);
+                    long len = ftell(f);
+                    fseek(f, 0, SEEK_SET);
+                    if (len > 0 && len < 65536) {  // 最大 64KB
+                        std::string content;
+                        content.resize(len);
+                        size_t n = fread(content.data(), 1, len, f);
+                        if (n > 0) {
+                            content.resize(n);
+                            AiAgentOverlay::reportFileRead(action.text, content);
+                            handled = true;
+                            ESP_LOGI(TAG, "read 文件: %s (%zu bytes)",
+                                     action.text.c_str(), n);
+                        }
+                    }
+                    fclose(f);
                     break;
                 }
 

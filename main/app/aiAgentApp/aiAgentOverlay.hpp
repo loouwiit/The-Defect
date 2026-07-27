@@ -52,6 +52,10 @@ public:
      *  下次用户发消息时自动注入到 AI 上下文，促成 AI 自我修正 */
     static void reportLuaError(const std::string& err);
 
+    /** @brief 报告 read 动作读取的文件内容（线程安全，供 AiExecutor 调用）
+     *  下次 AI 对话时注入到 system prompt */
+    static void reportFileRead(const std::string& path, const std::string& content);
+
 private:
     AiAgentOverlay() = default;
     ~AiAgentOverlay() = default;
@@ -112,6 +116,7 @@ private:
     std::vector<std::pair<std::string, std::string>> m_history;  // (role, content)
     std::string m_memoryText;                                     // AI 长期记忆
     std::string m_pendingLuaError;                                // 待注入的 Lua 错误
+    std::string m_pendingFileRead;                                 // 待注入的读文件内容
 
     TickType_t m_nextActionTime{};
     TickType_t m_nextPageFlipTime{};

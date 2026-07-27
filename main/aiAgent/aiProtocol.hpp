@@ -34,6 +34,7 @@ enum class AiActionType : uint8_t {
     Activate,           // 触发当前聚焦元素
     PowerOff,           // 关机（Deep-sleep）
     GenerateLuaGame,    // AI 生成 Lua 游戏代码并运行. params: code, title
+    ReadFile,           // 读取文件内容并返回给 AI（下一轮可见）. text: 文件路径
 
     // ── 内部用 ──
     ParseError,         // JSON 解析失败

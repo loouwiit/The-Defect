@@ -86,6 +86,18 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 - text: 游戏名称（用于日志）
 - params.code: 完整的 Lua 脚本代码，保存到 /root/lua/game/test.lua 后自动运行
 
+### read 操作
+
+你可以通过 `read` 操作读取 FAT 分区上的文件内容。
+读取的结果会在下一轮对话中注入到 system prompt。
+常用于读取已生成的游戏代码，了解当前状态后再进行修复/迭代。
+
+```
+{"action":"read","text":"/root/lua/game/test.lua","nextRound":true}
+```
+
+注意：使用 `read` 时必须同时将 `nextRound` 设为 true，否则内容不会被发送回来。
+
 ### 可用 Lua API
 
 屏幕分辨率: 1280×720
@@ -168,6 +180,18 @@ void AiAgentOverlay::reportLuaError(const std::string& err)
 	auto& self = instance();
 	self.m_pendingLuaError = err;
 	ESP_LOGI(TAG, "收到 Lua 运行错误，将注入下次 AI 对话: %s", err.c_str());
+}
+
+// ============================================================
+//  reportFileRead — 线程安全，供 AiExecutor 调用
+// ============================================================
+
+void AiAgentOverlay::reportFileRead(const std::string& path, const std::string& content)
+{
+	auto& self = instance();
+	self.m_pendingFileRead = "[" + path + "]\n" + content;
+	ESP_LOGI(TAG, "已读取文件(%zu 字节)，将注入下次 AI 对话: %s",
+		content.size(), path.c_str());
 }
 
 // ============================================================
@@ -721,6 +745,14 @@ void AiAgentOverlay::onSend()
 		ESP_LOGI(TAG, "已注入 Lua 错误上下文到 system prompt");
 	}
 
+	// 注入 read 动作读取的文件内容到 system prompt
+	if (!m_pendingFileRead.empty()) {
+		systemPrompt += "\n\n[读取的文件内容 — AI 已读取文件，可用于修复/迭代]\n"
+			+ m_pendingFileRead;
+		m_pendingFileRead.clear();
+		ESP_LOGI(TAG, "已注入文件内容到 system prompt");
+	}
+
 	m_lastSystemPrompt = systemPrompt;
 
 	// 构建对话历史
@@ -835,6 +867,20 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 			if (pos != std::string::npos) {
 				newPrompt.replace(pos, 16,
 					m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
+			}
+
+			// 注入待处理的 Lua 运行时错误
+			if (!m_pendingLuaError.empty()) {
+				newPrompt += "\n\n[上一次游戏运行错误 — 请修复代码后重新生成]\n"
+					+ m_pendingLuaError;
+				m_pendingLuaError.clear();
+			}
+
+			// 注入 read 动作读取的文件内容
+			if (!m_pendingFileRead.empty()) {
+				newPrompt += "\n\n[读取的文件内容]\n"
+					+ m_pendingFileRead;
+				m_pendingFileRead.clear();
 			}
 
 			m_lastSystemPrompt = newPrompt;
