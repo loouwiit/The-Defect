@@ -29,6 +29,8 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 - **长期记忆**：AI 通过 `memory` 字段自行维护跨对话的用户偏好
 - **对话历史**：保留最近 5 轮对话，超出的由 AI 自主写入长期记忆
 - **App 自定义动作**：各 App 通过 `getAiContext()` / `executeAiAction()` 暴露专属操作
+- **动态 Lua 游戏生成**：AI 能生成完整的 Lua 游戏脚本并自动运行（详见下方）
+- **自我修正**：游戏运行出错时自动回传错误给 AI，AI 可修复代码后重新生成
 - **多模型兼容**：OpenAI / Ollama / DeepSeek 等，配置即用
 
 ```
@@ -45,7 +47,28 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 ④ 更新 memory + 对话历史
 ```
 
-### 🌐 多主机跨局域联结机
+### � AI 动态生成 Lua 游戏
+
+集成 Lua 5.5 脚本引擎，AI 可以通过 AI Agent 界面动态生成并运行游戏：
+
+- **Lua 游戏脚本**：AI 生成完整 Lua 代码 → 保存到 `/root/lua/game/test.lua` → `LuaGameApp` 自动运行
+- **简化绘图 API**：`display.fill_rect()` / `draw_text()` / `draw_circle()` 等，易于 AI 理解和生成
+- **C++ 驱动循环**：独立 Task 以 60fps 固定帧率调用 Lua `loop(dt)` 函数
+- **手柄输入**：Lua 通过 `input.is_pressed()` / `input.joystick()` 轮询读取手柄状态
+- **错误回传**：运行时错误自动记录，用户下次对话时注入 AI 上下文，促成 AI 自我修复
+- **读取已生成代码**：AI 可通过 `read` 动作读取当前游戏脚本内容，了解状态后精准迭代
+
+```
+用户说"写一个贪吃蛇游戏"
+  ↓
+① AI 生成 Lua 代码 + generate_lua_game 动作
+  ↓
+② LuaGameApp 保存到 FAT 并启动 60fps 循环
+  ↓
+③ 出错时 → 报错给 AI → 下次对话 AI 修复 → 重新生成
+```
+
+### �🌐 多主机跨局域联结机
 
 - **BLE 配对风格连接**：ConsoleManager 扫描局域网内主机，点击即成为从机
 - **1 主机 + ≤3 从机**：4 台 P4 设备互联，共享手柄输入
@@ -320,6 +343,7 @@ reserces/
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
 ├── patches/                  ← managed_components 补丁
 ├── reserces/                 ← FAT 分区资源文件
+│   ├── lua/                  ← Lua 脚本
 │   ├── server/               ← HTTP 静态资源
 │   └── system/               ← 系统文件
 ├── AGENTS.md                 ← 完整架构文档 (AI Agent 指南)

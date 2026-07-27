@@ -34,6 +34,7 @@ fat,      data, fat  ,      16M, 16M,
 
 ```
 reserces/
+├── lua/              ← Lua 测试/示例脚本（手动部署到 /root/lua/）
 ├── server/          ← HTTP 服务器静态资源（端口 80）
 │   ├── index.html
 │   ├── index.css
@@ -67,6 +68,12 @@ reserces/
 | **AI Agent** | AiClient / AiParser / AiExecutor / AiSystemInfo | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行、系统信息采集 |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | 系统层浮动窗（`lv_layer_sys`），对话历史 + 长期记忆 |
 | | App (基类) | `main/app/app.hpp` | `getAiContext()` / `onAiSelect()` / `onAiActivate()` + 可选 `executeAiAction()` |
+| **Lua 引擎** | LuaRuntime | `main/lua/luaRuntime.hpp` | Lua 5.5 VM RAII 封装，loadScript/loadString/callFunction |
+| | luaDisplay | `main/lua/bindings/luaDisplay.cpp` | 简化帧缓冲绘图 API（fill_rect/draw_text/draw_circle 等） |
+| | luaInput | `main/lua/bindings/luaInput.cpp` | 手柄输入轮询 API（is_pressed/joystick/connected） |
+| | luaAudio | `main/lua/bindings/luaAudio.cpp` | 音频播放 API（play_sfx/play_bgm/set_volume） |
+| | luaThread | `main/lua/bindings/luaThread.cpp` | 线程/延时 API（sleep/now/random） |
+| | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt) |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 AI 助手），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
 | | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
@@ -101,6 +108,8 @@ reserces/
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
 | **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
+| Lua Runtime | `main/lua/` | Lua 5.5 脚本引擎 + 4 个绑定模块（display/input/audio/thread） |
+| LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，AI 生成的 .lua 脚本在此运行 |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
 | | CPU Monitor | `main/monitor/` | FreeRTOS 任务利用率差分采样，串口输出 |
@@ -109,6 +118,72 @@ reserces/
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
 | **补丁** | Patches | `patches/` | 4 个 patch：帧回调 / PPA 队列 / SRM macro bypass / WS client expose transport |
+
+---
+
+## Lua 引擎模块
+
+**模块路径**: `main/lua/`
+
+### LuaRuntime — Lua VM RAII 封装
+
+```cpp
+class LuaRuntime {
+    LuaRuntime();
+    ~LuaRuntime();                          // lua_close()
+    bool init();                            // 打开标准库
+    bool loadScript(const char* path);      // luaL_loadfile + lua_pcall
+    bool loadString(const char* code);      // luaL_loadstring + lua_pcall
+    bool callFunction(const char* name, int nargs=0, int nresults=0);
+    bool hasFunction(const char* name);
+    const std::string& getLastError() const; // 获取上次错误
+    lua_State* state();
+};
+```
+
+### Lua 绑定模块
+
+所有绑定在 `main/lua/bindings/` 下，提供简化高层 API：
+
+| 模块 | 文件 | Lua API |
+|------|------|---------|
+| luaDisplay | `bindings/luaDisplay.cpp` | `fill_screen/fill_rect/draw_rect/draw_text/draw_line/draw_circle/draw_image` |
+| luaInput | `bindings/luaInput.cpp` | `is_pressed/is_just_pressed/joystick/buttons/connected/player_count` |
+| luaAudio | `bindings/luaAudio.cpp` | `play/play_sfx/play_bgm/stop_bgm/set_volume` |
+| luaThread | `bindings/luaThread.cpp` | `sleep/now/random` |
+
+颜色格式：支持 `"#ff0000"` / `0xff0000` / `{r=255,g=0,b=0}` 三种。
+
+### LuaGameApp — Lua 游戏运行器
+
+**模块路径**: `main/app/luaGameApp/`
+
+```cpp
+class LuaGameApp : public App {
+    LuaGameApp(Display* display, const char* scriptPath);
+    LuaGameApp(Display* display, const char* scriptCode, size_t codeLen);
+    static LuaGameApp* createFromAIGenerated(Display* display,
+                                              const std::string& name,
+                                              const std::string& code);
+};
+```
+
+**游戏循环契约**（Lua 脚本必须实现）：
+```lua
+function setup() end                     -- 初始化（可选）
+function loop(dt) return true end        -- 每帧调用，返回 false 退出
+```
+
+C++ 驱动：独立 Task @60fps → 持 LVGL 锁 → 更新输入 → 调 Lua `loop(dt)` → 释放锁 → `vTaskDelayUntil`
+
+### AI 集成动作
+
+| 动作 | 说明 | 示例 |
+|------|------|------|
+| `generate_lua_game` | AI 生成 Lua 游戏并运行 | `{"action":"generate_lua_game","text":"贪吃蛇","params":{"code":"..."}}` |
+| `read` | AI 读取 FAT 文件内容（配 `nextRound:true`） | `{"action":"read","text":"/root/lua/game/test.lua","nextRound":true}` |
+
+**错误回传**：Lua 运行时错误自动存入 `AiAgentOverlay::m_pendingLuaError`，下次对话注入 system prompt，AI 可修复后重新生成。`read` 读取的文件内容通过 `m_pendingFileRead` 同样注入 system prompt。两者均在 `onSend()` 和 `nextRound` follow-up 双路径中注入。
 
 ---
 
