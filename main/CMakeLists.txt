@@ -35,6 +35,7 @@ idf_component_register(SRCS "main.cpp"
                             "app/chineseChess/chineseChessApp.cpp" "app/chineseChess/chineseChessRoom.cpp" "app/chineseChess/chessLogic.cpp" "app/chineseChess/chessAI.cpp" "app/chineseChess/openingBook.cpp" "app/chineseChess/transpositionTable.cpp"
                             "app/aiAgentApp/aiAgentOverlay.cpp"
                             "app/consoleManager/consoleManagerApp.cpp"
+                            "app/luaManagerApp/luaManagerApp.cpp"
 
                        INCLUDE_DIRS "."
                        "lua"

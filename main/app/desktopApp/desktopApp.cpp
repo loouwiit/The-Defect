@@ -12,6 +12,7 @@
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
+#include "app/luaManagerApp/luaManagerApp.hpp"
 
 #include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
@@ -34,7 +35,7 @@ const char* DesktopApp::GAME_NAMES[] =
 	"俄罗斯方块",
 	"斗地主",
 	"中国象棋",
-	"Lua 测试",
+	"Lua 脚本管理",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
@@ -44,7 +45,7 @@ const char* DesktopApp::GAME_DESCS[] =
 	"经典俄罗斯方块，消除行数得分！",
 	"三人斗地主，比拼牌技！",
 	"中国象棋，楚河汉界对弈！",
-	"Lua 脚本引擎测试 — 运行 test_display.lua",
+	"浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏",
 };
 
 const char* DesktopApp::GAME_ICONS[] =
@@ -574,8 +575,8 @@ void DesktopApp::startGame()
 		break;
 
 	case 5:
-		// Lua 脚本引擎测试
-		m_manager->pushToNewStack(new LuaGameApp(display, "/root/lua/game/test.lua"));
+		// Lua 脚本管理器
+		m_manager->pushToNewStack(new LuaManagerApp(display));
 		break;
 
 	default:
@@ -596,9 +597,10 @@ std::string DesktopApp::getAiContext()
 		"可用 open_app 打开的应用（用 text 指定名称）：\n"
 		"- snake, fruitNinja, tetris\n"
 		"- doudizhu, chineseChess\n"
-		"- timeSettings, wifiSettings, bleSettings, powerManagement\n\n"
+		"- timeSettings, wifiSettings, bleSettings, powerManagement\n"
+		"- luaManager — Lua 脚本管理器\n\n"
 		"可用焦点组（select 的 text 参数）：\n"
-		"- cards(0-5)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaGame）\n"
+		"- cards(0-5)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaManager）\n"
 		"- status(0-6)\t状态栏（时间/WiFi/蓝牙/音量/亮度/多主机/电池）\n"
 		"- buttons(0)\t开始游戏按钮\n\n";
 

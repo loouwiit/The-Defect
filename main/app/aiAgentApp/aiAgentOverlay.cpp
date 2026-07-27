@@ -67,7 +67,7 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 不同的 app 中可用操作不一样，可用应用也不一样，在新 app 中无法使用旧 app 中的操作。有时需要先切换 app 再进行对应操作。
 
 若用户请求的功能不在当前 app 中，也不在系统操作列表中，请尝试查找是否有相关 app（如电源管理、WiFi 设置等，desktop中会有大部分app的接口），然后切换到可能的app中并设置nextRound=true，在下一轮获取该 app 的界面信息后再继续。
-例如：用户要求"重启"，系统没有直接的重启操作，但 powerManagement 应用内有重启按钮。又例如用户要求设定具体游戏的设置需要先打开对应游戏再进行焦点选中与焦点激活。
+例如：用户要求"重启"，系统没有直接的重启操作，但 powerManagement 应用内有重启按钮。又例如用户要求设定具体游戏的设置需要先打开对应游戏再进行焦点选中与焦点激活，或者想管理 Lua 脚本时可以用 luaManager 打开 Lua 脚本管理器。
 → 先 {"actions":[{"action":"navigate_home"},{"action":"open_app","text":"powerManagement"}],"nextRound":true}
 → 下一轮会显示 powerManagement 的焦点组（如 buttons(0-1)=关机/重启），再进行 select+activate。
 
@@ -120,7 +120,7 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 - input.connected(playerId) — 该玩家是否已连接
 - input.player_count() — 已连接手柄总数
 
-可用按钮名: a, b, x, y, l3
+可用按钮名: a（在下边）, b（在右边）, x（在左边）, y（在上边）, l3（摇杆按下）
 摇杆死区建议值：13
 
 **audio 模块**:
@@ -872,7 +872,7 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 
 			// 注入待处理的 Lua 运行时错误
 			if (!m_pendingLuaError.empty()) {
-				newPrompt += "\n\n[上一次游戏运行错误 — 请修复代码后重新生成]\n"
+				newPrompt += "\n\n[上一次游戏运行错误 — 请读取并修复代码后重新生成]\n"
 					+ m_pendingLuaError;
 				m_pendingLuaError.clear();
 			}
