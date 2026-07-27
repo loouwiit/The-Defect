@@ -392,3 +392,21 @@ void LuaGameApp::updateStatus()
     lv_label_set_text(m_statusLabel, "Lua Error");
     lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
 }
+// ============================================================
+//  getAiContext — AI 上下文：告知当前运行脚本路径
+// ============================================================
+
+std::string LuaGameApp::getAiContext()
+{
+    std::string ctx = "当前在 Lua 游戏运行器。\n";
+
+    if (m_scriptPath.empty()) {
+        ctx += "当前运行脚本: (内存，无文件路径)\n";
+    } else {
+        ctx += "当前运行脚本: " + m_scriptPath + "\n";
+        ctx += "可使用 read 操作读取脚本源码。\n";
+        ctx += "示例: {\"action\":\"read\",\"text\":\"" + m_scriptPath + "\",\"nextRound\":true}\n";
+    }
+
+    return ctx;
+}

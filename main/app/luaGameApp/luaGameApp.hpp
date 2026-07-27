@@ -38,6 +38,9 @@ public:
 
     void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 
+    /// @brief AI 上下文：告知当前运行的脚本路径
+    std::string getAiContext() override;
+
     /// 请求退出游戏（设标志 + 调度 popApp，线程安全）
     void requestExit();
 
