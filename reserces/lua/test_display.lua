@@ -56,8 +56,8 @@ function loop(dt)
         display.draw_text(200, 1200, "Press START to exit", 24, "#666666")
     end
 
-    -- P1 或 P2 按 Start 退出
-    if input.is_just_pressed("start", 0) or input.is_just_pressed("start", 1) then
+    -- P1 或 P2 按 l3 退出
+    if input.is_just_pressed("l3", 0) or input.is_just_pressed("l3", 1) then
         return false
     end
 

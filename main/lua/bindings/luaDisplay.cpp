@@ -67,12 +67,12 @@ static LuaDisplayContext* getCtx(lua_State* L)
 static int l_display_fill_screen(lua_State* L)
 {
     auto* ctx = getCtx(L);
-    if (!ctx || !ctx->screen) return 0;
+    if (!ctx || !ctx->canvas) return 0;
 
     lv_color_t color = parseColor(L, 1);
     auto guard = ctx->display->lockGuard();
-    lv_obj_set_style_bg_color(ctx->screen, color, 0);
-    lv_obj_set_style_bg_opa(ctx->screen, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(ctx->canvas, color, 0);
+    lv_obj_set_style_bg_opa(ctx->canvas, LV_OPA_COVER, 0);
     return 0;
 }
 
@@ -83,7 +83,7 @@ static int l_display_fill_screen(lua_State* L)
 static int l_display_fill_rect(lua_State* L)
 {
     auto* ctx = getCtx(L);
-    if (!ctx || !ctx->screen) return 0;
+    if (!ctx || !ctx->canvas) return 0;
 
     lv_coord_t x = (lv_coord_t)luaL_checkinteger(L, 1);
     lv_coord_t y = (lv_coord_t)luaL_checkinteger(L, 2);
@@ -92,7 +92,7 @@ static int l_display_fill_rect(lua_State* L)
     lv_color_t color = parseColor(L, 5);
 
     auto guard = ctx->display->lockGuard();
-    lv_obj_t* rect = lv_obj_create(ctx->screen);
+    lv_obj_t* rect = lv_obj_create(ctx->canvas);
     lv_obj_remove_style_all(rect);
     lv_obj_set_size(rect, w, h);
     lv_obj_set_pos(rect, x, y);
@@ -110,7 +110,7 @@ static int l_display_fill_rect(lua_State* L)
 static int l_display_draw_rect(lua_State* L)
 {
     auto* ctx = getCtx(L);
-    if (!ctx || !ctx->screen) return 0;
+    if (!ctx || !ctx->canvas) return 0;
 
     lv_coord_t x = (lv_coord_t)luaL_checkinteger(L, 1);
     lv_coord_t y = (lv_coord_t)luaL_checkinteger(L, 2);
@@ -119,7 +119,7 @@ static int l_display_draw_rect(lua_State* L)
     lv_color_t color = parseColor(L, 5);
 
     auto guard = ctx->display->lockGuard();
-    lv_obj_t* rect = lv_obj_create(ctx->screen);
+    lv_obj_t* rect = lv_obj_create(ctx->canvas);
     lv_obj_remove_style_all(rect);
     lv_obj_set_size(rect, w, h);
     lv_obj_set_pos(rect, x, y);
@@ -138,7 +138,7 @@ static int l_display_draw_rect(lua_State* L)
 static int l_display_draw_text(lua_State* L)
 {
     auto* ctx = getCtx(L);
-    if (!ctx || !ctx->screen) return 0;
+    if (!ctx || !ctx->canvas) return 0;
 
     lv_coord_t x = (lv_coord_t)luaL_checkinteger(L, 1);
     lv_coord_t y = (lv_coord_t)luaL_checkinteger(L, 2);
@@ -153,7 +153,7 @@ static int l_display_draw_text(lua_State* L)
     else                   font = FontLoader::getDefault(FontLoader::FontSize::Large);
 
     auto guard = ctx->display->lockGuard();
-    lv_obj_t* label = lv_label_create(ctx->screen);
+    lv_obj_t* label = lv_label_create(ctx->canvas);
     lv_label_set_text(label, text);
     lv_obj_set_pos(label, x, y);
     lv_obj_set_style_text_font(label, font, 0);
@@ -168,7 +168,7 @@ static int l_display_draw_text(lua_State* L)
 static int l_display_draw_line(lua_State* L)
 {
     auto* ctx = getCtx(L);
-    if (!ctx || !ctx->screen) return 0;
+    if (!ctx || !ctx->canvas) return 0;
 
     lv_coord_t x0 = (lv_coord_t)luaL_checkinteger(L, 1);
     lv_coord_t y0 = (lv_coord_t)luaL_checkinteger(L, 2);
@@ -185,7 +185,7 @@ static int l_display_draw_line(lua_State* L)
     }
 
     auto guard = ctx->display->lockGuard();
-    lv_obj_t* line = lv_obj_create(ctx->screen);
+    lv_obj_t* line = lv_obj_create(ctx->canvas);
     lv_obj_remove_style_all(line);
     lv_obj_set_size(line, len, 3);  // 3px 粗
     // 定位到中点，通过变换旋转
@@ -210,7 +210,7 @@ static int l_display_draw_line(lua_State* L)
 static int l_display_draw_circle(lua_State* L)
 {
     auto* ctx = getCtx(L);
-    if (!ctx || !ctx->screen) return 0;
+    if (!ctx || !ctx->canvas) return 0;
 
     lv_coord_t cx = (lv_coord_t)luaL_checkinteger(L, 1);
     lv_coord_t cy = (lv_coord_t)luaL_checkinteger(L, 2);
@@ -218,7 +218,7 @@ static int l_display_draw_circle(lua_State* L)
     lv_color_t color = parseColor(L, 4);
 
     auto guard = ctx->display->lockGuard();
-    lv_obj_t* circle = lv_obj_create(ctx->screen);
+    lv_obj_t* circle = lv_obj_create(ctx->canvas);
     lv_obj_remove_style_all(circle);
     lv_obj_set_size(circle, r * 2, r * 2);
     lv_obj_set_pos(circle, cx - r, cy - r);

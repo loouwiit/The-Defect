@@ -14,7 +14,8 @@ extern "C" {
  * 通过 lua_upvalue 注入到每个 display API 函数中。
  */
 struct LuaDisplayContext {
-    lv_obj_t* screen{};
+    lv_obj_t* canvas{};       // 每帧清空重绘的渲染容器
+    lv_obj_t* screen{};       // 全屏 screen
     Display* display{};
 };
 

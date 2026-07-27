@@ -68,7 +68,16 @@ void LuaGameApp::init()
             return;
         }
 
-        // 状态标签（右上角）
+        // 画布容器（子对象每帧清空，Lua 在此绘制）
+        m_canvas = lv_obj_create(screen);
+        lv_obj_remove_style_all(m_canvas);
+        lv_obj_set_size(m_canvas, LV_HOR_RES, LV_VER_RES);
+        lv_obj_set_pos(m_canvas, 0, 0);
+        lv_obj_set_style_bg_opa(m_canvas, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(m_canvas, 0, 0);
+        lv_obj_set_scrollbar_mode(m_canvas, LV_SCROLLBAR_MODE_OFF);
+
+        // 状态标签（画布上层，不被每帧清空影响）
         m_statusLabel = lv_label_create(screen);
         lv_obj_set_pos(m_statusLabel, LV_HOR_RES - 120, 10);
         lv_obj_set_style_text_font(m_statusLabel,
@@ -85,6 +94,7 @@ void LuaGameApp::init()
     }
 
     // 3. 设置绑定上下文
+    m_dispCtx.canvas = m_canvas;
     m_dispCtx.screen = screen;
     m_dispCtx.display = display;
 
@@ -231,19 +241,13 @@ void LuaGameApp::gameLoop()
         int fps = m_frameCount * 1000 / (int)(now - m_fpsTick);
         m_frameCount = 0;
         m_fpsTick = now;
-        // 更新状态标签 FPS
+        // 更新状态标签
         auto guard = display->lockGuard();
-
-        // 状态标签（右上角）
-        m_statusLabel = lv_label_create(screen);
-        lv_obj_set_pos(m_statusLabel, LV_HOR_RES - 120, 10);
-        lv_obj_set_style_text_font(m_statusLabel,
-            FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-        lv_label_set_text(m_statusLabel, "Lua init...");
-        lv_obj_set_style_text_color(m_statusLabel, GUI::Color::SUBTLE, 0);
-        char buf[32];
-        snprintf(buf, sizeof(buf), "FPS: %d", fps);
-        lv_label_set_text(m_statusLabel, buf);
+        if (guard && m_statusLabel) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "FPS: %d", fps);
+            lv_label_set_text(m_statusLabel, buf);
+        }
     }
 
     // 计算 dt（距上帧毫秒数）
@@ -260,12 +264,9 @@ void LuaGameApp::gameLoop()
     // 持 LVGL 锁 → 清空画布 → 调 Lua loop(dt) → 释放锁
     {
         auto guard = display->lockGuard();
-        if (!guard) return;
 
         // 清空画布
-        lv_obj_clean(screen);
-        // 重置画布透明背景
-        lv_obj_set_style_bg_opa(screen, LV_OPA_MIN, 0);
+        lv_obj_clean(m_canvas);
 
         // 调用 Lua loop(dt)
         lua_State* L = m_lua.state();
