@@ -238,6 +238,7 @@ private:
         if (s == "select")            return AiActionType::Select;
         if (s == "activate")          return AiActionType::Activate;
         if (s == "power_off")         return AiActionType::PowerOff;
+        if (s == "generate_lua_game") return AiActionType::GenerateLuaGame;
         return AiActionType::UnknownAction;
     }
 

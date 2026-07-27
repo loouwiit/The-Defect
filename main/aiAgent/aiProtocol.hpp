@@ -33,6 +33,7 @@ enum class AiActionType : uint8_t {
     Select,             // 聚焦到指定元素（text=组名, value=索引）
     Activate,           // 触发当前聚焦元素
     PowerOff,           // 关机（Deep-sleep）
+    GenerateLuaGame,    // AI 生成 Lua 游戏代码并运行. params: code, title
 
     // ── 内部用 ──
     ParseError,         // JSON 解析失败

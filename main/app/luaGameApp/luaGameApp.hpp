@@ -44,6 +44,14 @@ public:
     /// 重启当前脚本
     void restart();
 
+    /// 从 AI 生成的代码创建并启动游戏（保存到 /root/lua/game/test.lua）
+    /// @param display 显示驱动
+    /// @param name    游戏名称（来自 action.text，仅用于日志）
+    /// @param code    Lua 脚本源码
+    static LuaGameApp* createFromAIGenerated(Display* display,
+                                              const std::string& name,
+                                              const std::string& code);
+
 private:
     // ── Lua VM ──
     LuaRuntime m_lua;

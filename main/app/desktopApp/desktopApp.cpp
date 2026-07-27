@@ -575,7 +575,7 @@ void DesktopApp::startGame()
 
 	case 5:
 		// Lua 脚本引擎测试
-		m_manager->pushToNewStack(new LuaGameApp(display, "/root/lua/test_display.lua"));
+		m_manager->pushToNewStack(new LuaGameApp(display, "/root/lua/game/test.lua"));
 		break;
 
 	default:

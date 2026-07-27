@@ -2,8 +2,10 @@
 #include "gui/gui.hpp"
 #include "display/font.hpp"
 #include "task/task.hpp"
+#include "storage/fat.hpp"
 #include <esp_log.h>
 #include <cstring>
+#include <cstdio>
 
 // ============================================================
 //  构造 / 析构
@@ -26,6 +28,40 @@ LuaGameApp::~LuaGameApp()
 {
     // 停止游戏循环
     m_loopRunning = false;
+}
+
+// ============================================================
+//  createFromAIGenerated — AI 生成代码的静态工厂
+// ============================================================
+
+LuaGameApp* LuaGameApp::createFromAIGenerated(Display* display,
+                                               const std::string& name,
+                                               const std::string& code)
+{
+    // 确保目标目录存在
+    newFloor("/root/lua");
+    newFloor("/root/lua/game");
+
+    // 将 AI 生成的代码写入固定路径
+    const char* path = "/root/lua/game/test.lua";
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        ESP_LOGE(TAG, "无法写入 %s", path);
+        return nullptr;
+    }
+
+    size_t written = fwrite(code.c_str(), 1, code.size(), f);
+    fclose(f);
+
+    if (written != code.size()) {
+        ESP_LOGE(TAG, "写入不完整: %zu/%zu", written, code.size());
+        return nullptr;
+    }
+
+    ESP_LOGI(TAG, "AI 生成游戏已保存: %s (\"%s\", %zu bytes)",
+             path, name.c_str(), code.size());
+
+    return new LuaGameApp(display, path);
 }
 
 // ============================================================

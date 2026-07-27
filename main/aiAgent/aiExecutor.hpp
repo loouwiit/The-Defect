@@ -13,6 +13,7 @@
 #include "wifi/wifi.hpp"
 #include "power/powerManager.hpp"
 #include "gamepad/bleGamepad.hpp"
+#include "app/luaGameApp/luaGameApp.hpp"
 
 /**
  * @file aiExecutor.hpp
@@ -176,6 +177,28 @@ public:
                     }
                     PowerManager::instance().shutdown();
                     handled = true;
+                    break;
+                }
+
+                case AiActionType::GenerateLuaGame:
+                {
+                    if (!manager || !display) break;
+                    const char* code = nullptr;
+                    if (action.params) {
+                        cJSON* codeObj = cJSON_GetObjectItem(action.params, "code");
+                        if (cJSON_IsString(codeObj)) code = codeObj->valuestring;
+                    }
+                    if (code) {
+                        // text 作为游戏名称，用于日志
+                        std::string gameName = action.text.empty() ? "game" : action.text;
+                        LuaGameApp* game = LuaGameApp::createFromAIGenerated(
+                            display, gameName, code);
+                        if (game) {
+                            manager->push(game);
+                            handled = true;
+                            ESP_LOGI(TAG, "AI 生成游戏已启动: %s", gameName.c_str());
+                        }
+                    }
                     break;
                 }
 
