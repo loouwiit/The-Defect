@@ -5,6 +5,7 @@
 #include "lua/luaModules.hpp"
 #include "lua/bindings/luaDisplay.hpp"
 #include "lua/bindings/luaInput.hpp"
+#include "task/task.hpp"
 
 /**
  * @brief Lua 游戏运行 App
@@ -55,7 +56,7 @@ private:
     lv_obj_t* m_statusLabel{};   // FPS/错误状态显示
 
     // ── 游戏循环 Task ──
-    TaskHandle_t m_loopTaskHandle{};
+    Thread m_thread{};
     bool m_loopRunning{false};
     bool m_paused{false};
     TickType_t m_lastWakeTime{};

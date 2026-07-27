@@ -26,10 +26,6 @@ LuaGameApp::~LuaGameApp()
 {
     // 停止游戏循环
     m_loopRunning = false;
-    if (m_loopTaskHandle) {
-        // Task 会在 loopTaskFunc 中自行退出
-        m_loopTaskHandle = nullptr;
-    }
 }
 
 // ============================================================
@@ -152,10 +148,8 @@ void LuaGameApp::deinit()
     m_luaReady = false;
 
     // 等待 Task 退出
-    if (m_loopTaskHandle) {
+    while (m_thread.isRunning())
         vTaskDelay(pdMS_TO_TICKS(20));
-        m_loopTaskHandle = nullptr;
-    }
 
     App::deinit();
 }
@@ -170,21 +164,15 @@ void LuaGameApp::onForeground()
     m_paused = false;
 
     // 启动游戏循环 Task（如果还没启动）
-    if (!m_loopTaskHandle && m_luaReady) {
+    if (!m_thread.isRunning() && m_luaReady) {
         m_loopRunning = true;
         m_lastWakeTime = xTaskGetTickCount();
         m_fpsTick = esp_timer_get_time() / 1000;
         m_frameCount = 0;
 
-        BaseType_t ret = xTaskCreate(
-            loopTaskFunc,
-            "luaGameLoop",
-            32768,
-            this,
-            tskIDLE_PRIORITY + 2,
-            &m_loopTaskHandle
-        );
-        if (ret != pdPASS) {
+        m_thread = Thread{ loopTaskFunc, "luaGameLoop",this,Thread::Priority::Normal, 32768 };
+        if (!m_thread.isRunning())
+        {
             ESP_LOGE(TAG, "游戏循环 Task 创建失败");
             m_loopRunning = false;
         }
@@ -223,11 +211,11 @@ void LuaGameApp::loopTaskFunc(void* param)
     }
 
     // Task 退出：弹出当前 App
-    self->m_loopTaskHandle = nullptr;
     Task::addTask([](void* p) -> TickType_t {
         static_cast<LuaGameApp*>(p)->popApp();
         return Task::infinityTime;
         }, "luaGameExit", self, 0, Task::Affinity::None);
+    self->m_thread = {};
 }
 
 void LuaGameApp::gameLoop()
@@ -319,10 +307,8 @@ void LuaGameApp::restart()
 {
     // 停止当前循环
     m_loopRunning = false;
-    if (m_loopTaskHandle) {
+    while (m_thread.isRunning())
         vTaskDelay(pdMS_TO_TICKS(20));
-        m_loopTaskHandle = nullptr;
-    }
 
     // 重新初始化 Lua
     // 析构旧的 LuaRuntime，隐式调用 lua_close
