@@ -51,7 +51,6 @@ private:
     bool m_useCode{false};
 
     // ── LVGL 对象 ──
-    lv_obj_t* m_canvas{};        // 全屏渲染容器
     lv_obj_t* m_statusLabel{};   // FPS/错误状态显示
 
     // ── 游戏循环 Task ──

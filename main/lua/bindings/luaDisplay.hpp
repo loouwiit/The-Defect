@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "display/display.hpp"
 
 extern "C" {
 #include "lua.h"
@@ -13,8 +14,8 @@ extern "C" {
  * 通过 lua_upvalue 注入到每个 display API 函数中。
  */
 struct LuaDisplayContext {
-    lv_obj_t* canvas{nullptr};   // 游戏渲染容器（每帧清空重建子对象）
-    lv_obj_t* screen{nullptr};   // 游戏全屏 screen 对象
+    lv_obj_t* screen{};
+    Display* display{};
 };
 
 /// luaopen 函数，供 luaRegisterModules 注册时使用

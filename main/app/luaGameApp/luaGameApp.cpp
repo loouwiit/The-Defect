@@ -68,23 +68,6 @@ void LuaGameApp::init()
             return;
         }
 
-        // 创建全屏 screen（使用 LVGL 实际分辨率）
-        screen = lv_obj_create(lv_scr_act());
-        lv_obj_set_size(screen, LV_HOR_RES, LV_VER_RES);
-        lv_obj_set_style_bg_color(screen, lv_color_hex(0x0c1220), 0);
-        lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(screen, 0, 0);
-        lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
-
-        // 创建画布容器（全屏，透明底）
-        m_canvas = lv_obj_create(screen);
-        lv_obj_remove_style_all(m_canvas);
-        lv_obj_set_size(m_canvas, LV_HOR_RES, LV_VER_RES);
-        lv_obj_set_pos(m_canvas, 0, 0);
-        lv_obj_set_style_bg_opa(m_canvas, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(m_canvas, 0, 0);
-        lv_obj_set_scrollbar_mode(m_canvas, LV_SCROLLBAR_MODE_OFF);
-
         // 状态标签（右上角）
         m_statusLabel = lv_label_create(screen);
         lv_obj_set_pos(m_statusLabel, LV_HOR_RES - 120, 10);
@@ -102,8 +85,8 @@ void LuaGameApp::init()
     }
 
     // 3. 设置绑定上下文
-    m_dispCtx.canvas = m_canvas;
     m_dispCtx.screen = screen;
+    m_dispCtx.display = display;
 
     for (int i = 0; i < MaxPlayers; i++) {
         m_inputCtx.states[i] = &m_inputs[i];
@@ -117,7 +100,8 @@ void LuaGameApp::init()
     bool loaded = false;
     if (m_useCode) {
         loaded = m_lua.loadString(m_scriptCode);
-    } else {
+    }
+    else {
         loaded = m_lua.loadScript(m_scriptPath.c_str());
     }
 
@@ -144,7 +128,7 @@ void LuaGameApp::init()
     }
 
     ESP_LOGI(TAG, "LuaGameApp init 完成，脚本: %s",
-             m_useCode ? "(memory)" : m_scriptPath.c_str());
+        m_useCode ? "(memory)" : m_scriptPath.c_str());
 }
 
 // ============================================================
@@ -185,7 +169,7 @@ void LuaGameApp::onForeground()
         BaseType_t ret = xTaskCreate(
             loopTaskFunc,
             "luaGameLoop",
-            8192,           // 8KB 栈（大多数在 PSRAM）
+            32768,
             this,
             tskIDLE_PRIORITY + 2,
             &m_loopTaskHandle
@@ -233,7 +217,7 @@ void LuaGameApp::loopTaskFunc(void* param)
     Task::addTask([](void* p) -> TickType_t {
         static_cast<LuaGameApp*>(p)->popApp();
         return Task::infinityTime;
-    }, "luaGameExit", self, 0, Task::Affinity::None);
+        }, "luaGameExit", self, 0, Task::Affinity::None);
 }
 
 void LuaGameApp::gameLoop()
@@ -249,11 +233,17 @@ void LuaGameApp::gameLoop()
         m_fpsTick = now;
         // 更新状态标签 FPS
         auto guard = display->lockGuard();
-        if (guard && m_statusLabel) {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "FPS: %d", fps);
-            lv_label_set_text(m_statusLabel, buf);
-        }
+
+        // 状态标签（右上角）
+        m_statusLabel = lv_label_create(screen);
+        lv_obj_set_pos(m_statusLabel, LV_HOR_RES - 120, 10);
+        lv_obj_set_style_text_font(m_statusLabel,
+            FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+        lv_label_set_text(m_statusLabel, "Lua init...");
+        lv_obj_set_style_text_color(m_statusLabel, GUI::Color::SUBTLE, 0);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "FPS: %d", fps);
+        lv_label_set_text(m_statusLabel, buf);
     }
 
     // 计算 dt（距上帧毫秒数）
@@ -273,9 +263,9 @@ void LuaGameApp::gameLoop()
         if (!guard) return;
 
         // 清空画布
-        lv_obj_clean(m_canvas);
+        lv_obj_clean(screen);
         // 重置画布透明背景
-        lv_obj_set_style_bg_opa(m_canvas, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_bg_opa(screen, LV_OPA_MIN, 0);
 
         // 调用 Lua loop(dt)
         lua_State* L = m_lua.state();
@@ -293,9 +283,6 @@ void LuaGameApp::gameLoop()
             }
             return;
         }
-
-        // 强制刷新画布（标记整个 canvas 区域为 dirty）
-        lv_obj_invalidate(m_canvas);
 
         // 检查返回值（栈顶可能有错误信息，先检查）
         bool shouldContinue = true;
