@@ -225,6 +225,7 @@ public:
                         if (game) {
                             manager->push(game);
                             handled = true;
+                            AiAgentOverlay::clearLuaError();  // 游戏生成成功，清除待处理的错误
                             ESP_LOGI(TAG, "AI 生成游戏已启动: %s", gameName.c_str());
                         }
                     }

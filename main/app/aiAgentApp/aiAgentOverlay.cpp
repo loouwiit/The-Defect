@@ -184,6 +184,19 @@ void AiAgentOverlay::reportLuaError(const std::string& err)
 }
 
 // ============================================================
+//  clearLuaError — generate_lua_game 成功时由 executor 调用
+// ============================================================
+
+void AiAgentOverlay::clearLuaError()
+{
+	auto& self = instance();
+	if (!self.m_pendingLuaError.empty()) {
+		ESP_LOGI(TAG, "清除 Lua 错误: %s", self.m_pendingLuaError.c_str());
+		self.m_pendingLuaError.clear();
+	}
+}
+
+// ============================================================
 //  reportFileRead — 线程安全，供 AiExecutor 调用
 // ============================================================
 
@@ -739,10 +752,11 @@ void AiAgentOverlay::onSend()
 	}
 
 	// 注入待处理的 Lua 运行时错误到 system prompt（不污染对话历史）
+	// 注意：不清理 m_pendingLuaError，因为 read 可能在下一轮才发生，
+	// 等 generate_lua_game 成功时由 executor 清理
 	if (!m_pendingLuaError.empty()) {
-		systemPrompt += "\n\n[上一次游戏运行错误 — 请修复代码后重新生成]\n"
+		systemPrompt += "\n\n[上一次游戏运行错误 — 请读取并修复代码后重新生成]\n"
 			+ m_pendingLuaError;
-		m_pendingLuaError.clear();
 		ESP_LOGI(TAG, "已注入 Lua 错误上下文到 system prompt");
 	}
 
@@ -870,11 +884,10 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 					m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
 			}
 
-			// 注入待处理的 Lua 运行时错误
+			// 注入待处理的 Lua 运行时错误（不清理，等 generate_lua_game 成功时再清理）
 			if (!m_pendingLuaError.empty()) {
 				newPrompt += "\n\n[上一次游戏运行错误 — 请读取并修复代码后重新生成]\n"
 					+ m_pendingLuaError;
-				m_pendingLuaError.clear();
 			}
 
 			// 注入 read 动作读取的文件内容
