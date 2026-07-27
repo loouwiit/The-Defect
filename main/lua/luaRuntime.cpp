@@ -95,8 +95,10 @@ bool LuaRuntime::checkError(int ret)
     if (ret != LUA_OK) {
         const char* err = lua_tostring(L, -1);
         if (err) {
+            m_lastError = err;
             ESP_LOGE(TAG, "Lua 错误: %s", err);
         } else {
+            m_lastError = "unknown error";
             ESP_LOGE(TAG, "Lua 错误 (ret=%d)", ret);
         }
         lua_pop(L, 1);  // 弹出错误信息

@@ -53,6 +53,9 @@ public:
     /// 获取裸 lua_State*（绑定函数注册用）
     lua_State* state() const { return L; }
 
+    /// 获取最后一次 Lua 错误信息（checkError 已保存，不依赖栈）
+    const std::string& getLastError() const { return m_lastError; }
+
     /// 从栈顶弹出字符串
     std::string popString();
 
@@ -67,4 +70,5 @@ public:
 
 private:
     lua_State* L{nullptr};
+    std::string m_lastError;   // 最后一次错误信息（checkError 保存）
 };

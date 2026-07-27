@@ -21,7 +21,7 @@ struct AiConfig {
     std::string model  = "gpt-4o-mini";             // 模型名
     std::string apiKey;                              // API Key（从 NVS 读取）
     float temperature = 0.7f;                        // 温度参数
-    int maxTokens     = 1024;                        // 最大 token 数
+    int maxTokens     = 4096;                        // 最大 token 数（游戏生成需要较大值）
     int timeoutMs     = 30000;                       // HTTP 超时（毫秒）
 
     bool valid = false;                              // 配置是否有效（有 API Key）

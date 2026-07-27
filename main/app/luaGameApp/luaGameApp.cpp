@@ -3,6 +3,7 @@
 #include "display/font.hpp"
 #include "task/task.hpp"
 #include "storage/fat.hpp"
+#include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include <esp_log.h>
 #include <cstring>
 #include <cstdio>
@@ -299,15 +300,18 @@ void LuaGameApp::gameLoop()
             lua_pushnumber(L, dt);
         }
         if (!m_lua.callFunction("loop", 1, 1)) {
-            // 出错时退出
+            // 出错时：上报错误给 AI + 退出
             if (m_statusLabel) {
-                std::string err = m_lua.popString();
+                // 使用 getLastError() 而非 popString()，因为 checkError 已保存错误
+                std::string err = m_lua.getLastError();
                 if (err.empty()) err = "Lua Error";
                 auto guard2 = display->lockGuard();
                 if (guard2) {
                     lv_label_set_text(m_statusLabel, err.c_str());
                     lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
                 }
+                // 报告给 AI Agent，下次对话注入 system prompt
+                AiAgentOverlay::reportLuaError(err);
             }
             requestExit();
             return;

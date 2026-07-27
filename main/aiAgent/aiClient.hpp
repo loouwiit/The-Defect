@@ -128,7 +128,7 @@ private:
             cfg.url = url.c_str();
             cfg.method = HTTP_METHOD_POST;
             cfg.timeout_ms = ctx.config.timeoutMs;
-            cfg.buffer_size = 8192;
+            cfg.buffer_size = 40960;
             cfg.buffer_size_tx = 1024;
             cfg.crt_bundle_attach = esp_crt_bundle_attach;
             client = esp_http_client_init(&cfg);
@@ -158,26 +158,60 @@ private:
             goto cleanup;
         }
 
-        if (contentLen <= 0) contentLen = 8192;  // chunked fallback
-
-        // 5. 读取响应
-        respBuf = static_cast<char*>(heap_caps_malloc(contentLen + 1, MALLOC_CAP_SPIRAM));
-        if (!respBuf) {
-            errorMsg = "内存不足";
-            goto cleanup;
-        }
-
+        // 5. 读取响应（支持 chunked，动态扩容）
         {
-            int totalRead = esp_http_client_read_response(client, respBuf, contentLen);
-            if (totalRead > 0) {
-                respBuf[totalRead] = '\0';
-                responseText.assign(respBuf, totalRead);
+            size_t bufSize = (contentLen > 0) ? (size_t)contentLen + 1 : 32768;
+            size_t offset = 0;
+            int readLen = 0;
+
+            respBuf = static_cast<char*>(heap_caps_malloc(bufSize, MALLOC_CAP_SPIRAM));
+            if (!respBuf) {
+                errorMsg = "内存不足";
+                goto cleanup;
+            }
+
+            while ((readLen = esp_http_client_read(client, respBuf + offset,
+                                                     bufSize - offset - 1)) > 0) {
+                offset += readLen;
+                respBuf[offset] = '\0';
+
+                // 如果缓冲区接近用完，翻倍扩容
+                if (bufSize - offset < 4096) {
+                    size_t newSize = bufSize * 2;
+                    char* newBuf = static_cast<char*>(
+                        heap_caps_realloc(respBuf, newSize, MALLOC_CAP_SPIRAM));
+                    if (!newBuf) {
+                        ESP_LOGW(TAG, "响应过大(%zu+)，已读取 %zu 字节", bufSize, offset);
+                        break;  // 内存不足，返回已读取部分
+                    }
+                    respBuf = newBuf;
+                    bufSize = newSize;
+                }
+            }
+
+            if (offset > 0) {
+                responseText.assign(respBuf, offset);
                 success = true;
-                ESP_LOGI(TAG, "读取 %d 字节", totalRead);
+                ESP_LOGI(TAG, "读取 %zu 字节 (缓冲 %zu)", offset, bufSize);
                 ESP_LOGI(TAG, "响应体: %s", respBuf);
-            } else {
-                errorMsg = (totalRead < 0) ? "读取响应失败" : "响应体为空";
-                ESP_LOGW(TAG, "%s (ret=%d)", errorMsg.c_str(), totalRead);
+            } else if (contentLen > 0) {
+                // fallback: 用 read_response（Content-Length 已知时）
+                respBuf = static_cast<char*>(
+                    heap_caps_malloc(contentLen + 1, MALLOC_CAP_SPIRAM));
+                if (respBuf) {
+                    int totalRead = esp_http_client_read_response(client, respBuf, contentLen);
+                    if (totalRead > 0) {
+                        respBuf[totalRead] = '\0';
+                        responseText.assign(respBuf, totalRead);
+                        success = true;
+                        ESP_LOGI(TAG, "读取 %d 字节 (fallback)", totalRead);
+                    }
+                }
+            }
+
+            if (!success) {
+                errorMsg = "响应体为空";
+                ESP_LOGW(TAG, "%s (read=%d)", errorMsg.c_str(), (int)offset);
             }
         }
 

@@ -160,6 +160,17 @@ AiAgentOverlay& AiAgentOverlay::instance()
 }
 
 // ============================================================
+//  reportLuaError — 线程安全，供 LuaGameApp 调用
+// ============================================================
+
+void AiAgentOverlay::reportLuaError(const std::string& err)
+{
+	auto& self = instance();
+	self.m_pendingLuaError = err;
+	ESP_LOGI(TAG, "收到 Lua 运行错误，将注入下次 AI 对话: %s", err.c_str());
+}
+
+// ============================================================
 //  start — 初始化（在 main.cpp 中调用）
 // ============================================================
 
@@ -700,6 +711,14 @@ void AiAgentOverlay::onSend()
 		else if (!m_memoryText.empty()) {
 			systemPrompt += "长期记忆：\n" + m_memoryText;
 		}
+	}
+
+	// 注入待处理的 Lua 运行时错误到 system prompt（不污染对话历史）
+	if (!m_pendingLuaError.empty()) {
+		systemPrompt += "\n\n[上一次游戏运行错误 — 请修复代码后重新生成]\n"
+			+ m_pendingLuaError;
+		m_pendingLuaError.clear();
+		ESP_LOGI(TAG, "已注入 Lua 错误上下文到 system prompt");
 	}
 
 	m_lastSystemPrompt = systemPrompt;
