@@ -34,7 +34,7 @@ fat,      data, fat  ,      16M, 16M,
 
 ```
 reserces/
-├── lua/              ← Lua 测试/示例脚本（手动部署到 /root/lua/）
+├── lua/              ← Lua 测试/示例脚本
 ├── server/          ← HTTP 服务器静态资源（端口 80）
 │   ├── index.html
 │   ├── index.css
@@ -74,7 +74,8 @@ reserces/
 | | luaAudio | `main/lua/bindings/luaAudio.cpp` | 音频播放 API（play_sfx/play_bgm/set_volume） |
 | | luaThread | `main/lua/bindings/luaThread.cpp` | 线程/延时 API（sleep/now/random） |
 | | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt) |
-| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 AI 助手），3 焦点组导航 |
+| | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口） |
+| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 LuaManager），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
 | | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
 | | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
@@ -971,6 +972,7 @@ class App {
 
 | App | 路径 | 说明 |
 |-----|------|------|
+| **LuaManagerApp** | `main/app/luaManagerApp/` | Lua 脚本管理器：浏览/运行/删除/重命名脚本，AI 生成入口 |
 | **TestApp** | `main/app/testApp/` | 测试用，开发调试 |
 
 ### Tetris 模块详情
