@@ -24,7 +24,6 @@
 #include "display/font.hpp"
 #include "display/ili9881c.hpp"
 #include "battery/batteryManager.hpp"
-#include <ctime>
 
 // ========== 游戏数据 ==========
 
@@ -87,19 +86,22 @@ void DesktopApp::init()
 
 	buildUi();
 
-	// 创建时间更新定时器（每 10 秒更新一次）
-	m_timeTimer = lv_timer_create([](lv_timer_t* t) {
-		auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
-		time_t now = time(nullptr);
-		struct tm timeinfo;
-		localtime_r(&now, &timeinfo);
-		if (timeinfo.tm_year > (2024 - 1900))
+	// 创建时间更新定时器（每 1 秒更新一次）
+	m_timeTimer = lv_timer_create([](lv_timer_t* t)
 		{
-			char buf[8];
+			auto* self = static_cast<DesktopApp*>(lv_timer_get_user_data(t));
+			time_t now = time(nullptr);
+			struct tm timeinfo{};
+			localtime_r(&now, &timeinfo);
+			if (timeinfo.tm_year <= 70) return;
+			if (timeinfo.tm_hour == self->showedTime.tm_hour &&
+				timeinfo.tm_min == self->showedTime.tm_min)
+				return;
+
+			char buf[8]{};
 			strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
 			lv_label_set_text(self->m_timeLabel, buf);
-		}
-		}, 10000, this);
+		}, 1000, this);
 	lv_timer_ready(m_timeTimer); // 首帧立即触发
 
 	// 初始聚焦
@@ -123,7 +125,8 @@ void DesktopApp::deinit()
 		lv_timer_del(m_timeTimer);
 		m_timeTimer = nullptr;
 	}
-	if (m_batteryTimer) {
+	if (m_batteryTimer)
+	{
 		lv_timer_del(m_batteryTimer);
 		m_batteryTimer = nullptr;
 	}
@@ -137,6 +140,9 @@ void DesktopApp::onForeground()
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_prevButtons = 0xFFFF;
+
+	// 激活时间更新
+	lv_timer_ready(m_timeTimer);
 
 	ESP_LOGI(TAG, "前台");
 }
@@ -212,7 +218,8 @@ void DesktopApp::buildUi()
 		Task::addTask([](void* param) -> TickType_t
 			{
 				auto* app = static_cast<DesktopApp*>(param);
-				if (app->getManager()) {
+				if (app->getManager())
+				{
 					auto* wifiApp = new WifiSettingsApp(app->getDisplay());
 					app->getManager()->pushToNewStack(wifiApp);
 				}
@@ -367,7 +374,7 @@ void DesktopApp::buildUi()
 	m_descLabel = GUI::createLabel(screen, "");
 	lv_obj_set_style_text_color(m_descLabel, GUI::Color::SUBTLE, 0);
 	lv_obj_set_style_text_font(m_descLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-	lv_obj_set_width(m_descLabel, lv_pct(40));
+	lv_obj_set_width(m_descLabel, lv_pct(50));
 	lv_label_set_long_mode(m_descLabel, LV_LABEL_LONG_WRAP);
 	lv_obj_align(m_descLabel, LV_ALIGN_BOTTOM_LEFT, 40, -80);
 
@@ -382,7 +389,7 @@ void DesktopApp::buildUi()
 	// 已选择提示（在开始按钮上方，随文字长度动态调整水平位置）
 	m_infoLabel = GUI::createLabel(screen, "");
 	lv_obj_set_style_text_color(m_infoLabel, GUI::Color::TEXT, 0);
-	lv_obj_set_width(m_infoLabel, 300);
+	lv_obj_set_width(m_infoLabel, lv_pct(40));
 	lv_obj_set_style_text_align(m_infoLabel, LV_TEXT_ALIGN_RIGHT, 0);
 	lv_obj_align_to(m_infoLabel, m_startBtn, LV_ALIGN_OUT_TOP_RIGHT, 0, -8);
 

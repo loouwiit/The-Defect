@@ -60,11 +60,11 @@ private:
 	bool m_autoSync{ false };
 	bool m_syncInProgress{ false };
 	TickType_t m_syncStartTick{ 0 };
-	static constexpr int SyncTimeout = 15000; // 15s SNTP 超时
+	static constexpr int SyncTimeout = 15000;
 
 	// ── 定时器 ──
 	lv_timer_t* m_refreshTimer{};
-	static constexpr int RefreshInterval = 500; // 500ms 刷新时间显示
+	static constexpr int RefreshInterval = 250;
 
 	// ── 手柄焦点导航 ──
 	enum FocusGroup : int8_t {

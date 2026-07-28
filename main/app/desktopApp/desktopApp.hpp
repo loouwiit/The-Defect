@@ -3,6 +3,7 @@
 #include "app/app.hpp"
 #include "aiAgent/aiProtocol.hpp"
 #include <cstdint>
+#include <ctime>
 
 class DesktopApp final : public App
 {
@@ -25,6 +26,8 @@ public:
 	void onAiActivate() override;
 
 private:
+	tm showedTime{};
+
 	// ── 游戏数据 ──
 	static constexpr int GAME_COUNT = 6;
 	static const char* GAME_NAMES[GAME_COUNT];

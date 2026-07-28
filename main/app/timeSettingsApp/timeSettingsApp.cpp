@@ -112,7 +112,7 @@ void TimeSettingsApp::refreshUi()
 		struct tm timeinfo;
 		localtime_r(&now, &timeinfo);
 
-		if (timeinfo.tm_year > (2024 - 1900))
+		if (timeinfo.tm_year > 70)
 		{
 			m_syncInProgress = false;
 			lv_label_set_text(m_syncStatusLabel, "已同步");
@@ -144,7 +144,7 @@ void TimeSettingsApp::refreshUi()
 			time_t now = time(nullptr);
 			struct tm timeinfo;
 			localtime_r(&now, &timeinfo);
-			if (timeinfo.tm_year <= (2024 - 1900))
+			if (timeinfo.tm_year <= 70)
 				doSyncNow();
 		}
 	}
@@ -190,19 +190,14 @@ void TimeSettingsApp::buildUi()
 	lv_obj_set_style_bg_opa(right_placeholder, LV_OPA_TRANSP, 0);
 	lv_obj_clear_flag(right_placeholder, LV_OBJ_FLAG_CLICKABLE);
 
-	// ── 状态行（右对齐，独立于顶栏和内容区） ──
-	auto status_row = GUI::createFlex(screen, LV_FLEX_FLOW_ROW, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_style_border_width(status_row, 0, 0);
-	lv_obj_set_style_bg_opa(status_row, LV_OPA_TRANSP, 0);
-	lv_obj_set_style_pad_all(status_row, 0, 0);
-	lv_obj_set_style_pad_right(status_row, 16, 0);
-	lv_obj_set_flex_align(status_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-	auto status_box = GUI::createFlex(status_row, LV_FLEX_FLOW_COLUMN, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+	// ── 状态行（右上角绝对定位，不占 flex 空间） ──
+	auto status_box = GUI::createFlex(screen, LV_FLEX_FLOW_COLUMN, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 	lv_obj_set_style_border_width(status_box, 0, 0);
 	lv_obj_set_style_bg_opa(status_box, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_pad_all(status_box, 0, 0);
 	lv_obj_clear_flag(status_box, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(status_box, LV_OBJ_FLAG_FLOATING);
+	lv_obj_align(status_box, LV_ALIGN_TOP_RIGHT, -16, 20);
 
 	m_wifiStatusLabel = GUI::createLabel(status_box, "");
 	lv_obj_set_style_text_font(m_wifiStatusLabel, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
@@ -397,7 +392,7 @@ void TimeSettingsApp::updateTimeDisplay()
 	struct tm timeinfo;
 	localtime_r(&now, &timeinfo);
 
-	if (timeinfo.tm_year > (2024 - 1900))
+	if (timeinfo.tm_year > 70)
 	{
 		char buf[16];
 		strftime(buf, sizeof(buf), "%H:%M:%S", &timeinfo);
@@ -498,7 +493,7 @@ void TimeSettingsApp::toggleAutoSync()
 			time_t now = time(nullptr);
 			struct tm timeinfo;
 			localtime_r(&now, &timeinfo);
-			if (timeinfo.tm_year <= (2024 - 1900))
+			if (timeinfo.tm_year <= 70)
 				doSyncNow();
 			else {
 				lv_label_set_text(m_syncStatusLabel, "已同步");
@@ -772,9 +767,9 @@ std::string TimeSettingsApp::getAiContext()
 
 	const char* groupName = "";
 	switch (m_focusGroup) {
-		case FOCUS_TITLE:  groupName = "title"; break;
-		case FOCUS_ADJUST: groupName = "adjust"; break;
-		case FOCUS_SYNC:   groupName = "sync"; break;
+	case FOCUS_TITLE:  groupName = "title"; break;
+	case FOCUS_ADJUST: groupName = "adjust"; break;
+	case FOCUS_SYNC:   groupName = "sync"; break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	if (m_focusGroup == FOCUS_ADJUST) ctx += ":" + std::to_string(m_focusAdjustIdx);
@@ -791,11 +786,13 @@ void TimeSettingsApp::onAiSelect(const AiSelectTarget& target)
 	if (target.group == "title" && target.index == 0) {
 		m_focusGroup = FOCUS_TITLE;
 		applyFocus();
-	} else if (target.group == "adjust" && target.index >= 0 && target.index <= 4) {
+	}
+	else if (target.group == "adjust" && target.index >= 0 && target.index <= 4) {
 		m_focusGroup = FOCUS_ADJUST;
 		m_focusAdjustIdx = (int8_t)target.index;
 		applyFocus();
-	} else if (target.group == "sync" && target.index >= 0 && target.index <= 1) {
+	}
+	else if (target.group == "sync" && target.index >= 0 && target.index <= 1) {
 		m_focusGroup = FOCUS_SYNC;
 		m_focusSyncIdx = (int8_t)target.index;
 		applyFocus();
