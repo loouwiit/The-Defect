@@ -447,6 +447,7 @@ void TimeSettingsApp::adjustHour(int delta)
 	time_t nt = mktime(&timeinfo);
 	struct timeval tv = { nt, 0 };
 	settimeofday(&tv, nullptr);
+	if (m_autoSync) toggleAutoSync();
 	updateTimeDisplay();
 	ESP_LOGI(TAG, "调整小时: %+d", delta);
 }
@@ -460,6 +461,7 @@ void TimeSettingsApp::adjustMinute(int delta)
 	time_t nt = mktime(&timeinfo);
 	struct timeval tv = { nt, 0 };
 	settimeofday(&tv, nullptr);
+	if (m_autoSync) toggleAutoSync();
 	updateTimeDisplay();
 	ESP_LOGI(TAG, "调整分钟: %+d", delta);
 }
@@ -473,6 +475,7 @@ void TimeSettingsApp::resetSeconds()
 	time_t nt = mktime(&timeinfo);
 	struct timeval tv = { nt, 0 };
 	settimeofday(&tv, nullptr);
+	if (m_autoSync) toggleAutoSync();
 	updateTimeDisplay();
 	ESP_LOGI(TAG, "秒归零");
 }
