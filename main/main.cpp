@@ -74,7 +74,7 @@ extern "C" void app_main(void)
 	// 存储
 	mountFlash();
 	mountMem();
-	Task::addTask([] (void*)->TickType_t{ mountSd(); return Task::infinityTime; }, "mount sd", nullptr, 0);
+	Task::addTask([](void*)->TickType_t{ mountSd(); return Task::infinityTime; }, "mount sd", nullptr, 0, Task::Affinity::None);
 
 	// nvs
 	nvsInit();
@@ -144,17 +144,27 @@ extern "C" void app_main(void)
 	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution);
 
 	// 加载字体并设为默认
-	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Default));
-	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large), FontLoader::FontSize::Large);
-	FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small), FontLoader::FontSize::Small);
+	if (testFile("/root/system/NotoSC.ttf"))
+	{
+		FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small), FontLoader::FontSize::Small);
+		FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Medium), FontLoader::FontSize::Medium);
+		FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large), FontLoader::FontSize::Large);
 
-	// 字体回退链：NotoSC 缺少的符号（电池图标等）由 LVGL 内置 symbol 字体提供
-	const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Small))->fallback = lv_font_get_default();
-	const_cast<lv_font_t*>(FontLoader::getDefault())->fallback = lv_font_get_default();
-	const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Large))->fallback = lv_font_get_default();
+		// 字体回退链：NotoSC 缺少的符号（电池图标等）由 LVGL 内置 symbol 字体提供
+		const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Small))->fallback = lv_font_get_default();
+		const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Medium))->fallback = lv_font_get_default();
+		const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Large))->fallback = lv_font_get_default();
+	}
+	else
+	{
+		ESP_LOGE(TAG, "缺失字体/root/system/NotoSC.ttf");
+		FontLoader::setDefault(lv_font_get_default(), FontLoader::FontSize::Small);
+		FontLoader::setDefault(lv_font_get_default(), FontLoader::FontSize::Medium);
+		FontLoader::setDefault(lv_font_get_default(), FontLoader::FontSize::Large);
+	}
 
 	// 启动虚拟触摸输入（用于从 web 注入触摸事件）
-	VirtualIndev::instance().start(&display);
+	Task::addTask([](void* param)->TickType_t{VirtualIndev::instance().start((Display*)param); return Task::infinityTime;}, "starting virtual indev", &display, 0, Task::Affinity::None);
 
 	// 音频
 	ES8311 audio{};
