@@ -676,22 +676,32 @@ void TimeSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 	switch (m_focusGroup)
 	{
 	case FOCUS_TITLE:
-		if (lxRight) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
-		if (lyDown) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
+		if (lyDown) { m_focusGroup = FOCUS_ADJUST; applyFocus(); }
 		break;
 
 	case FOCUS_ADJUST:
-		if (lxLeft && m_focusAdjustIdx > 0) { m_focusAdjustIdx--; applyFocus(); }
-		if (lxRight && m_focusAdjustIdx < 4) { m_focusAdjustIdx++; applyFocus(); }
-		if (lyUp) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
-		if (lyDown) { m_focusGroup = FOCUS_SYNC; m_focusSyncIdx = 0; applyFocus(); }
+		if (lyUp)
+		{
+			if (m_focusAdjustIdx == 0 || m_focusAdjustIdx == 1) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
+			else { m_focusAdjustIdx -= 2; applyFocus(); }
+		}
+		if (lxLeft && (m_focusAdjustIdx == 1 || m_focusAdjustIdx == 3)) { m_focusAdjustIdx--; applyFocus(); }
+		if (lxRight && (m_focusAdjustIdx == 0 || m_focusAdjustIdx == 2)) { m_focusAdjustIdx++; applyFocus(); }
+		if (lyDown)
+		{
+			if (m_focusAdjustIdx == 4) { m_focusGroup = FOCUS_SYNC; applyFocus(); }
+			else if (m_focusAdjustIdx == 0 || m_focusAdjustIdx == 1) { m_focusAdjustIdx += 2; applyFocus(); }
+			else { m_focusAdjustIdx = 4; applyFocus(); }
+		}
 		break;
 
 	case FOCUS_SYNC:
-		if (lxLeft && m_focusSyncIdx > 0) { m_focusSyncIdx--; applyFocus(); }
-		if (lxRight && m_focusSyncIdx < 1) { m_focusSyncIdx++; applyFocus(); }
-		if (lyUp) { m_focusGroup = FOCUS_ADJUST; m_focusAdjustIdx = 0; applyFocus(); }
-		if (lyDown) { m_focusGroup = FOCUS_TITLE; applyFocus(); }
+		if (lyUp)
+		{
+			if (m_focusSyncIdx == 0) { m_focusGroup = FOCUS_ADJUST; applyFocus(); }
+			else { m_focusSyncIdx--; applyFocus(); }
+		}
+		if (lyDown && m_focusSyncIdx == 0) { m_focusSyncIdx = 1; applyFocus(); }
 		break;
 	}
 }
