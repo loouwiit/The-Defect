@@ -49,7 +49,9 @@ extern "C" void app_main(void)
 {
 	Task::init(2);
 
-	Task::addTask([](void*)->TickType_t { srand(esp_random()); return 60 * 1000; }, "srand");
+	Task::addTask([](void*)->TickType_t { srand(esp_random()); return 60 * 1000; }, "srand", nullptr, 0, Task::Affinity::None);
+
+	Task::addTask([](void*)->TickType_t { setenv("TZ", "CST-8", 1); tzset();return Task::infinityTime;}, "setting time zone", nullptr, 0, Task::Affinity::None);
 
 	// CPU 利用率监视器（串口输出，每 1 秒采样一次）
 	CpuMonitor::instance().setBrief(true);

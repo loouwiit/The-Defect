@@ -489,24 +489,17 @@ void TimeSettingsApp::toggleAutoSync()
 	m_autoSync = !m_autoSync;
 	if (m_autoSync)
 	{
-		lv_label_set_text(m_autoSyncToggleLabel, "ON");
-		lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
 		if (wifiIsConnect())
 		{
-			time_t now = time(nullptr);
-			struct tm timeinfo;
-			localtime_r(&now, &timeinfo);
-			if (timeinfo.tm_year <= 70)
-				doSyncNow();
-			else {
-				lv_label_set_text(m_syncStatusLabel, "已同步");
-				lv_obj_set_style_text_color(m_syncStatusLabel, GUI::Color::SUCCESS, 0);
-			}
+			lv_label_set_text(m_autoSyncToggleLabel, "ON");
+			lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
+			doSyncNow();
 		}
 		else
 		{
-			lv_label_set_text(m_syncStatusLabel, "等待 WiFi 连接...");
-			lv_obj_set_style_text_color(m_syncStatusLabel, GUI::Color::SUBTLE, 0);
+			m_autoSync = false;
+			lv_label_set_text(m_syncStatusLabel, "没有 WiFi 连接");
+			lv_obj_set_style_text_color(m_syncStatusLabel, GUI::Color::WARNING, 0);
 		}
 	}
 	else
@@ -525,7 +518,7 @@ void TimeSettingsApp::doSyncNow()
 	if (m_syncInProgress) return;
 	if (!wifiIsConnect())
 	{
-		lv_label_set_text(m_syncStatusLabel, "请先连接 WiFi");
+		lv_label_set_text(m_syncStatusLabel, "没有 WiFi 连接");
 		lv_obj_set_style_text_color(m_syncStatusLabel, GUI::Color::WARNING, 0);
 		return;
 	}
@@ -545,10 +538,6 @@ void TimeSettingsApp::doSyncNow()
 	config.index_of_first_server = 0;
 	config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
 	esp_netif_sntp_init(&config);
-
-	// 设置时区（东八区）
-	setenv("TZ", "CST-8", 1);
-	tzset();
 
 	ESP_LOGI(TAG, "SNTP 同步启动");
 }
