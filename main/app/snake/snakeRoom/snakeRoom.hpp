@@ -22,6 +22,12 @@ public:
 	SnakeRoom(Display* display);
 	~SnakeRoom() override;
 
+	/** @brief AI open_app 静态工厂（能力表用） */
+	static App* newApp(Display* display, const cJSON* params) {
+		(void)params;
+		return new SnakeRoom(display);
+	}
+
 	void init() override;
 
 	// BLE 手柄输入

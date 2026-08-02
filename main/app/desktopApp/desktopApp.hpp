@@ -21,7 +21,7 @@ public:
 
 	// ── AI 能力 ──
 	std::string getAiContext() override;
-	bool executeAiAction(const AiAction& action) override;
+	std::vector<AiAppTarget> getOpenableApps() override;
 	void onAiSelect(const AiSelectTarget& target) override;
 	void onAiActivate() override;
 

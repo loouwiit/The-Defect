@@ -4,7 +4,6 @@
 #include <vector>
 #include <esp_log.h>
 #include "aiProtocol.hpp"
-#include "aiAgent/aiSystemInfo.hpp"
 #include "display/display.hpp"
 #include "app/app.hpp"
 #include "app/appStackManager.hpp"
@@ -34,7 +33,8 @@ public:
     struct Result {
         int totalCount = 0;
         int successCount = 0;
-        std::string summary;  // 执行概述文本，用于 UI 显示
+        std::string summary;       // 执行概述文本，用于 UI 显示
+        std::string failureDetail; // 失败明细（注入 AI 上下文用）
     };
 
     /**
@@ -121,6 +121,36 @@ public:
                     }
                     break;
 
+                case AiActionType::OpenApp:
+                {
+                    // 机制系统级：从当前 app 的能力表查 name → 构造 → 入栈
+                    // 能力（哪些可打开）由各 app 的 getOpenableApps() 声明；
+                    // 未声明任何目标的 app（如游戏内）→ 明确失败，不静默。
+                    if (!activeApp || action.text.empty()) {
+                        handled = true;
+                        break;
+                    }
+                    bool found = false;
+                    for (const auto& t : activeApp->getOpenableApps()) {
+                        if (action.text == t.name) {
+                            found = true;
+                            App* app = t.create(display, action.params);
+                            if (app && manager) {
+                                manager->pushToNewStack(app);
+                                handled = true;
+                                ESP_LOGI(TAG, "AI open_app: %s", action.text.c_str());
+                            }
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        result.failureDetail += "open_app: " + action.text + " 不在当前 app 能力表中\n";
+                        ESP_LOGW(TAG, "open_app: %s 不在当前 app 能力表中", action.text.c_str());
+                    }
+                    handled = true;   // 已消费（无论成败，避免重复兜底）
+                    break;
+                }
+
                 case AiActionType::SetBrightness:
                     if (display) {
                         int brightness = action.value;
@@ -141,6 +171,8 @@ public:
                     if (!action.text.empty()) {
                         Audio::play(action.text.c_str()).detach();
                         handled = true;
+                    } else {
+                        result.failureDetail += "play_audio 缺少文件路径\n";
                     }
                     break;
 
@@ -157,14 +189,15 @@ public:
                     if (ssid) {
                         wifiConnect(ssid, pass ? pass : "");
                         handled = true;
+                    } else {
+                        result.failureDetail += "wifi_connect 缺少 ssid 参数\n";
                     }
                     break;
                 }
 
                 case AiActionType::SystemInfo:
                 {
-                    std::string sysInfo = collectSystemInfo();
-                    ESP_LOGI(TAG, "系统信息:\n%s", sysInfo.c_str());
+                    // 采集统一由 AiAgentOverlay 在 nextRound follow-up 时执行（避免双采集）
                     handled = true;
                     break;
                 }
@@ -187,6 +220,7 @@ public:
                     if (action.text.empty()) break;
                     FILE* f = fopen(action.text.c_str(), "r");
                     if (!f) {
+                        result.failureDetail += "读取文件失败: " + action.text + "\n";
                         ESP_LOGW(TAG, "读取文件失败: %s", action.text.c_str());
                         break;
                     }
@@ -228,6 +262,8 @@ public:
                             AiAgentOverlay::clearLuaError();  // 游戏生成成功，清除待处理的错误
                             ESP_LOGI(TAG, "AI 生成游戏已启动: %s", gameName.c_str());
                         }
+                    } else {
+                        result.failureDetail += "generate_lua_game 缺少 code 参数\n";
                     }
                     break;
                 }
@@ -237,6 +273,7 @@ public:
                     break;
 
                 default:
+                    result.failureDetail += "未处理的动作: " + action.text + "\n";
                     ESP_LOGW(TAG, "App 和系统均未处理: action=%s", action.text.c_str());
                     break;
                 }

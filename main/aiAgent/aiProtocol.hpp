@@ -21,8 +21,8 @@
 
 enum class AiActionType : uint8_t {
     // ── 系统级操作 ──
-    RespondText,        // 显示文字回复. params: text
-    OpenApp,            // 打开应用. params: app (tetris/snake/...)
+    RespondText,        // 显示文字回复. text: 回复内容
+    OpenApp,            // 打开应用. text: 应用名（由当前 app 能力表决定）
     NavigateBack,       // 返回上一级
     NavigateHome,       // 回桌面
     SetBrightness,      // 调亮度 0-100. params: value
@@ -33,7 +33,7 @@ enum class AiActionType : uint8_t {
     Select,             // 聚焦到指定元素（text=组名, value=索引）
     Activate,           // 触发当前聚焦元素
     PowerOff,           // 关机（Deep-sleep）
-    GenerateLuaGame,    // AI 生成 Lua 游戏代码并运行. params: code, title
+    GenerateLuaGame,    // AI 生成 Lua 游戏代码并运行. text: 游戏名, params.code: 代码
     ReadFile,           // 读取文件内容并返回给 AI（下一轮可见）. text: 文件路径
 
     // ── 内部用 ──
@@ -101,6 +101,7 @@ struct AiResponse {
     std::vector<AiAction> actions;                  // 解析出的动作列表
     std::string errorMsg;                           // 错误描述（success=false 时）
     std::string rawContent;                         // AI 原始回复文本（调试用）
+    std::string parsedContent;                      // AI 回复的 content 文本（去除 API 包裹，供 follow-up 历史复用）
     std::string memory;                             // 长期记忆（AI 可选写入，增量更新）
     bool nextRound = false;                         // true=本轮执行后继续下一轮（App 切换等场景）
 };

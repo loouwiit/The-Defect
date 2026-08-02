@@ -22,6 +22,12 @@ public:
 	TetrisRoomApp(Display* display);
 	~TetrisRoomApp() override;
 
+	/** @brief AI open_app 静态工厂（能力表用） */
+	static App* newApp(Display* display, const cJSON* params) {
+		(void)params;
+		return new TetrisRoomApp(display);
+	}
+
 	void init() override;
 	void onForeground() override;
 	void onBackground() override;

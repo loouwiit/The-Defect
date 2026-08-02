@@ -405,7 +405,7 @@ std::string LuaGameApp::getAiContext()
     } else {
         ctx += "当前运行脚本: " + m_scriptPath + "\n";
         ctx += "可使用 read 操作读取脚本源码。\n";
-        ctx += "示例: {\"action\":\"read\",\"text\":\"" + m_scriptPath + "\",\"nextRound\":true}\n";
+        ctx += "示例: {\"actions\":[{\"action\":\"read\",\"text\":\"" + m_scriptPath + "\"}],\"nextRound\":true}\n";
     }
 
     return ctx;

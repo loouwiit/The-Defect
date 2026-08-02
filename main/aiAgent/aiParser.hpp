@@ -74,9 +74,9 @@ public:
                 cJSON* func = cJSON_GetObjectItem(call0, "function");
                 cJSON* args = cJSON_GetObjectItem(func, "arguments");
                 if (cJSON_IsString(args) && args->valuestring) {
-                    result.rawContent = args->valuestring;
                     // 递归解析 arguments 中的 JSON
                     result = parseInner(args->valuestring);
+                    result.rawContent = apiResponse;   // 保留完整 API 响应
                     cJSON_Delete(root);
                     return result;
                 }
@@ -93,6 +93,7 @@ public:
         // 4. 递归解析 content 中的 JSON
         result = parseInner(contentStr);
         result.rawContent = apiResponse;
+        result.parsedContent = contentStr;
         return result;
     }
 
@@ -159,6 +160,16 @@ private:
             return result;
         }
 
+        // 4.5 校验顶层字段（协议：仅允许 actions/nextRound/memory，其余告警忽略）
+        for (cJSON* item = root->child; item; item = item->next) {
+            if (!item->string) continue;
+            if (strcmp(item->string, "actions") != 0 &&
+                strcmp(item->string, "nextRound") != 0 &&
+                strcmp(item->string, "memory") != 0) {
+                ESP_LOGW(TAG, "未知顶层字段: %s（已忽略）", item->string);
+            }
+        }
+
         // 5. 遍历 actions 数组
         int size = cJSON_GetArraySize(actionsArr);
         for (int i = 0; i < size; i++) {
@@ -169,13 +180,17 @@ private:
 
         // 6. 提取顶层 memory（长期记忆，可选）
         cJSON* memoryObj = cJSON_GetObjectItem(root, "memory");
-        if (cJSON_IsString(memoryObj) && memoryObj->valuestring) {
+        if (memoryObj && !cJSON_IsString(memoryObj)) {
+            ESP_LOGW(TAG, "顶层 memory 类型错误（应为字符串），已忽略");
+        } else if (cJSON_IsString(memoryObj) && memoryObj->valuestring) {
             result.memory = memoryObj->valuestring;
         }
 
-        // 7. 提取 nextRound（是否继续下一轮）
+        // 7. 提取 nextRound（是否继续下一轮；仅顶层有效）
         cJSON* nextRoundObj = cJSON_GetObjectItem(root, "nextRound");
-        if (cJSON_IsBool(nextRoundObj)) {
+        if (nextRoundObj && !cJSON_IsBool(nextRoundObj)) {
+            ESP_LOGW(TAG, "顶层 nextRound 类型错误（应为 bool），已忽略");
+        } else if (cJSON_IsBool(nextRoundObj)) {
             result.nextRound = cJSON_IsTrue(nextRoundObj);
         }
 
@@ -188,14 +203,23 @@ private:
     static AiAction parseAction(cJSON* item) {
         AiAction action;
 
+        // 协议约定：nextRound 仅顶层。action 内出现 → 告警并忽略
+        if (cJSON_GetObjectItem(item, "nextRound")) {
+            ESP_LOGW(TAG, "action 对象内出现 nextRound（应放顶层），已忽略");
+        }
+
         cJSON* act = cJSON_GetObjectItem(item, "action");
         if (!cJSON_IsString(act) || !act->valuestring) {
+            ESP_LOGW(TAG, "action 对象缺少 action 字段");
             action.type = AiActionType::UnknownAction;
             return action;
         }
 
         action.actionStr = act->valuestring;
         action.type = strToActionType(action.actionStr);
+        if (action.type == AiActionType::UnknownAction) {
+            ESP_LOGW(TAG, "未知 action 类型: %s", action.actionStr.c_str());
+        }
 
         // 读取通用字段
         auto readStr = [&](const char* key) -> std::string {

@@ -17,6 +17,12 @@ public:
 	FruitNinjaRoom(Display* display);
 	~FruitNinjaRoom() override;
 
+	/** @brief AI open_app 静态工厂（能力表用） */
+	static App* newApp(Display* display, const cJSON* params) {
+		(void)params;
+		return new FruitNinjaRoom(display);
+	}
+
 	void init() override;
 	void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 	void onForeground() override;

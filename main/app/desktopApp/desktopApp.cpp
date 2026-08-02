@@ -14,7 +14,6 @@
 #include "app/luaGameApp/luaGameApp.hpp"
 #include "app/luaManagerApp/luaManagerApp.hpp"
 
-#include "app/appFactory.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
@@ -601,11 +600,18 @@ void DesktopApp::startGame()
 std::string DesktopApp::getAiContext()
 {
 	std::string ctx = "当前在桌面（主菜单）。\n"
-		"可用 open_app 打开的应用（用 text 指定名称）：\n"
-		"- snake, fruitNinja, tetris\n"
-		"- doudizhu, chineseChess\n"
-		"- timeSettings, wifiSettings, bleSettings, powerManagement\n"
-		"- luaManager — Lua 脚本管理器\n\n"
+		"可用 open_app 打开的应用（用 text 指定名称）：\n";
+
+	// 从能力表自动生成（单一数据源，避免手工罗列漂移）
+	for (const auto& t : getOpenableApps()) {
+		ctx += "- ";
+		ctx += t.name;
+		ctx += "\t";
+		ctx += t.desc;
+		ctx += "\n";
+	}
+
+	ctx += "\n"
 		"可用焦点组（select 的 text 参数）：\n"
 		"- cards(0-5)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaManager）\n"
 		"- status(0-6)\t状态栏（时间/WiFi/蓝牙/音量/亮度/多主机/电池）\n"
@@ -623,19 +629,20 @@ std::string DesktopApp::getAiContext()
 	return ctx;
 }
 
-bool DesktopApp::executeAiAction(const AiAction& action)
+std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 {
-	// ── open_app: 打开游戏或设置 ──
-	if (action.type == AiActionType::OpenApp && !action.text.empty()) {
-		App* app = AppFactory::create(action.text, display);
-		if (app) {
-			m_manager->pushToNewStack(app);
-			return true;
-		}
-		return true;  // 已消费（即便名称无效也阻止系统兜底）
-	}
-
-	return false;  // Select/Activate 等交给系统执行器
+	return {
+		{ "snake", "贪吃蛇", &SnakeRoom::newApp },
+		{ "fruitNinja", "水果忍者", &FruitNinjaRoom::newApp },
+		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
+		{ "chineseChess", "中国象棋", &ChineseChessRoom::newApp },
+		{ "luaManager", "Lua 脚本管理器", &LuaManagerApp::newApp },
+		{ "timeSettings", "时间设置", &TimeSettingsApp::newApp },
+		{ "wifiSettings", "WiFi 设置", &WifiSettingsApp::newApp },
+		{ "bleSettings", "蓝牙手柄设置", &BleSettingsApp::newApp },
+		{ "powerManagement", "电源管理", &PowerManagementApp::newApp },
+		{ "consoleManager", "多主机管理", &ConsoleManagerApp::newApp },
+	};
 }
 
 void DesktopApp::onAiSelect(const AiSelectTarget& target)

@@ -24,6 +24,12 @@ public:
 	TimeSettingsApp(Display* display);
 	~TimeSettingsApp() override;
 
+	/** @brief AI open_app 静态工厂（能力表用） */
+	static App* newApp(Display* display, const cJSON* params) {
+		(void)params;
+		return new TimeSettingsApp(display);
+	}
+
 	void init() override;
 	void deinit() override;
 	void onForeground() override;

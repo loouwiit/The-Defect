@@ -25,13 +25,15 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 
 重要：必须始终使用 {"actions":[...]} 数组形式，即使只有一个操作也要放在数组中。系统会依次执行对应操作。
 
-顶层可选字段（与 actions 同级）：
-- memory:    长期记忆字符串，需要更新时写入
-- nextRound: true/false，设为 true 时系统会执行下一轮并带上新的系统信息（如果有）
+【JSON 格式约定（必须严格遵守）】
+顶层字段（仅以下三个，均与 actions 同级）：
+- actions:    操作数组（必填，至少一个元素）
+- nextRound:  true/false（可选，仅顶层）— 设为 true 时系统会执行下一轮并带上新的系统信息（如果有）
+- memory:     长期记忆字符串（可选，仅顶层）— 需要更新时写入
 
-在 JSON 顶层添加 "nextRound": true 可以触发多轮操作。如果不需要继续，省略 nextRound 或设为 false 即可。
+注意：nextRound 和 memory 只能出现在顶层，绝不能放进 action 对象内部（会被忽略）。
 
-每个 action 对象的通用字段：
+action 对象内只允许以下字段：
 - action:   操作类型（必填）
 - text:     字符串参数（app名、焦点组名、回复内容、文件路径等）
 - value:    数值参数（亮度、音量、焦点索引等）
@@ -39,7 +41,7 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 
 可用系统操作：
 - respond_text	回复文字	{"action":"respond_text","text":"你好"}
-- open_app	打开应用	{"action":"open_app","text":"tetris"}
+- open_app	打开应用（仅当前 app 上下文中列出的应用可打开）	{"action":"open_app","text":"tetris"}
 - navigate_back	返回上一级App	{"action":"navigate_back"}
 - navigate_home	返回桌面	{"action":"navigate_home"}
 - set_brightness	调亮度	{"action":"set_brightness","value":50}
@@ -91,12 +93,12 @@ const char* DEFAULT_SYSTEM_PROMPT = R"(
 你可以通过 `read` 操作读取 FAT 分区上的文件内容。
 读取的结果会在下一轮对话中注入到 system prompt。
 常用于读取已生成的游戏代码，了解当前状态后再进行修复/迭代。
-
+z
 ```
-{"action":"read","text":"/root/lua/game/test.lua","nextRound":true}
+{"actions":[{"action":"read","text":"/root/lua/game/test.lua"}],"nextRound":true}
 ```
 
-注意：使用 `read` 时必须同时将 `nextRound` 设为 true，否则内容不会被发送回来。
+注意：使用 `read` 时必须同时将顶层 `nextRound` 设为 true，否则内容不会被发送回来。
 
 ### 可用 Lua API
 
@@ -179,7 +181,10 @@ AiAgentOverlay& AiAgentOverlay::instance()
 void AiAgentOverlay::reportLuaError(const std::string& err)
 {
 	auto& self = instance();
-	self.m_pendingLuaError = err;
+	{
+		Lock lock(self.m_pendingMutex);
+		self.m_pendingLuaError = err;
+	}
 	ESP_LOGI(TAG, "收到 Lua 运行错误，将注入下次 AI 对话: %s", err.c_str());
 }
 
@@ -190,9 +195,12 @@ void AiAgentOverlay::reportLuaError(const std::string& err)
 void AiAgentOverlay::clearLuaError()
 {
 	auto& self = instance();
-	if (!self.m_pendingLuaError.empty()) {
-		ESP_LOGI(TAG, "清除 Lua 错误: %s", self.m_pendingLuaError.c_str());
-		self.m_pendingLuaError.clear();
+	{
+		Lock lock(self.m_pendingMutex);
+		if (!self.m_pendingLuaError.empty()) {
+			ESP_LOGI(TAG, "清除 Lua 错误: %s", self.m_pendingLuaError.c_str());
+			self.m_pendingLuaError.clear();
+		}
 	}
 }
 
@@ -203,9 +211,26 @@ void AiAgentOverlay::clearLuaError()
 void AiAgentOverlay::reportFileRead(const std::string& path, const std::string& content)
 {
 	auto& self = instance();
-	self.m_pendingFileRead = "[" + path + "]\n" + content;
+	{
+		Lock lock(self.m_pendingMutex);
+		self.m_pendingFileRead = "[" + path + "]\n" + content;
+	}
 	ESP_LOGI(TAG, "已读取文件(%zu 字节)，将注入下次 AI 对话: %s",
 		content.size(), path.c_str());
+}
+
+// ============================================================
+//  reportAiError — 线程安全，供 AiExecutor / 解析失败路径调用
+// ============================================================
+
+void AiAgentOverlay::reportAiError(const std::string& msg)
+{
+	auto& self = instance();
+	{
+		Lock lock(self.m_pendingMutex);
+		self.m_pendingAiError = msg;
+	}
+	ESP_LOGI(TAG, "收到执行反馈，将注入下次 AI 对话: %s", msg.c_str());
 }
 
 // ============================================================
@@ -529,7 +554,6 @@ void AiAgentOverlay::show()
 	// 连接到键盘（IME 回调始终注册，只需重新关联 textarea）
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
 
-	updateContextHint();
 	ESP_LOGI(TAG, "show");
 }
 
@@ -631,13 +655,122 @@ void AiAgentOverlay::setLoading(bool loading)
 	lv_label_set_text(m_chatLog, full.c_str());
 }
 
-void AiAgentOverlay::updateContextHint()
+// ============================================================
+//  buildSystemPrompt — 统一构建 system prompt（onSend / follow-up 共用）
+// ============================================================
+
+std::string AiAgentOverlay::buildSystemPrompt(const std::string& templatePrompt,
+                                              const std::string& appCtx,
+                                              const std::string& memoryText,
+                                              const std::string& luaErr,
+                                              const std::string& fileRead,
+                                              const std::string& aiErr)
 {
-	// ★ 核心改进：overlay 不占栈，getActiveApp() 返回底层真实 App
-	auto* active = m_display->getActiveApp();
-	if (active) {
-		ESP_LOGI(TAG, "底层 App: %p, 获取上下文", (void*)active);
+	std::string p = templatePrompt;
+
+	// 替换 {app_context}
+	size_t pos = p.find("{app_context}");
+	if (pos != std::string::npos) {
+		p.replace(pos, 13, appCtx.empty() ? "当前 App 无自定义操作" : appCtx);
 	}
+	else if (!appCtx.empty()) {
+		p += "\n\n当前应用上下文：\n" + appCtx;
+	}
+
+	// 替换 {memory_context}
+	pos = p.find("{memory_context}");
+	if (pos != std::string::npos) {
+		p.replace(pos, 16, memoryText.empty() ? "（暂无长期记忆）" : memoryText);
+	}
+	else if (!memoryText.empty()) {
+		p += "长期记忆：\n" + memoryText;
+	}
+
+	// 注入待处理的 Lua 运行时错误（不清理，等 generate_lua_game 成功时由 executor 清理）
+	if (!luaErr.empty()) {
+		p += "\n\n[上一次游戏运行错误 — 请读取并修复代码后重新生成]\n" + luaErr;
+	}
+
+	// 注入 read 动作读取的文件内容
+	if (!fileRead.empty()) {
+		p += "\n\n[读取的文件内容]\n" + fileRead;
+	}
+
+	// 注入上一轮执行反馈/错误（AI 可据此自我修正）
+	if (!aiErr.empty()) {
+		p += "\n\n[上一轮执行反馈 — 请修正后重试]\n" + aiErr;
+	}
+
+	return p;
+}
+
+// ============================================================
+//  loadPromptTemplate — 加载 system prompt 模板（缓存）
+// ============================================================
+
+std::string AiAgentOverlay::loadPromptTemplate()
+{
+	if (!m_promptCache.empty())
+		return m_promptCache;
+
+	FILE* f = fopen("/root/system/ai_prompt.txt", "r");
+	if (f) {
+		fseek(f, 0, SEEK_END);
+		long len = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		if (len > 0) {
+			m_promptCache.resize(len);
+			fread(m_promptCache.data(), 1, len, f);
+			ESP_LOGI(TAG, "从文件加载 system prompt (%ld 字节)", len);
+		}
+		fclose(f);
+	}
+	if (m_promptCache.empty()) {
+		m_promptCache = DEFAULT_SYSTEM_PROMPT;
+		ESP_LOGI(TAG, "使用内置默认 system prompt");
+	}
+	return m_promptCache;
+}
+
+// ============================================================
+//  sendFollowUpRound — 发送 follow-up 轮（nextRound / 解析失败自愈共用）
+// ============================================================
+
+void AiAgentOverlay::sendFollowUpRound(const std::string& followUpMsg)
+{
+	// 从原始模板重建 system prompt，带上新 App 上下文
+	{
+		std::string newCtx;
+		auto* nextApp = m_display->getActiveApp();
+		if (nextApp) newCtx = nextApp->getAiContext();
+
+		// 快照待注入上下文（加锁）+ 统一构建最终 prompt
+		std::string luaErr, fileRead, aiErr;
+		{
+			Lock lock(m_pendingMutex);
+			luaErr = m_pendingLuaError;
+			fileRead = m_pendingFileRead;
+			aiErr = m_pendingAiError;
+			m_pendingFileRead.clear();
+		}
+		m_lastSystemPrompt = buildSystemPrompt(m_systemPromptTemplate, newCtx,
+			m_memoryText, luaErr, fileRead, aiErr);
+	}
+
+	// 作为下一轮的 user 消息提交（统一历史模型）
+	m_lastUserInput = followUpMsg;
+
+	HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
+		followUpMsg, m_history,
+		[this](bool ok, const std::string& resp, const std::string& err) {
+			auto* ctx = new AiSendCtx{ this, resp, err, ok };
+			Task::addTask([](void* p) -> TickType_t {
+				auto* c = static_cast<AiSendCtx*>(p);
+				c->self->onAiResponse(c->ok, c->text, c->err);
+				delete c;
+				return Task::infinityTime;
+				}, "aiFup", ctx, 0, Task::Affinity::None);
+		});
 }
 
 // ============================================================
@@ -703,69 +836,21 @@ void AiAgentOverlay::onSend()
 		ESP_LOGI(TAG, "前台 App 上下文: %s", appContext.c_str());
 	}
 
-	// 读取 system prompt
-	std::string systemPrompt;
-	{
-		FILE* f = fopen("/root/system/ai_prompt.txt", "r");
-		if (f) {
-			fseek(f, 0, SEEK_END);
-			long len = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			if (len > 0) {
-				systemPrompt.resize(len);
-				fread(systemPrompt.data(), 1, len, f);
-				ESP_LOGI(TAG, "从文件加载 system prompt (%ld 字节)", len);
-			}
-			fclose(f);
-		}
-		if (systemPrompt.empty()) {
-			systemPrompt = DEFAULT_SYSTEM_PROMPT;
-			ESP_LOGI(TAG, "使用内置默认 system prompt");
-		}
-	}
-
-	// 保存原始模板（含占位符），供 agent 循环重建用
+	// 读取 system prompt 模板（缓存，避免每次发送重读 FAT）
+	std::string systemPrompt = loadPromptTemplate();
 	m_systemPromptTemplate = systemPrompt;
 
-	// 替换 {app_context}
+	// 快照待注入上下文（加锁）+ 统一构建最终 prompt
 	{
-		size_t pos = systemPrompt.find("{app_context}");
-		if (pos != std::string::npos) {
-			systemPrompt.replace(pos, 13,
-				appContext.empty() ? "当前 App 无自定义操作" : appContext);
+		std::string luaErr, fileRead, aiErr;
+		{
+			Lock lock(m_pendingMutex);
+			luaErr = m_pendingLuaError;
+			fileRead = m_pendingFileRead;
+			aiErr = m_pendingAiError;
+			m_pendingFileRead.clear();
 		}
-		else if (!appContext.empty()) {
-			systemPrompt += "\n\n当前应用上下文：\n" + appContext;
-		}
-	}
-
-	// 替换 {memory_context}
-	{
-		size_t pos = systemPrompt.find("{memory_context}");
-		if (pos != std::string::npos) {
-			systemPrompt.replace(pos, 16,
-				m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
-		}
-		else if (!m_memoryText.empty()) {
-			systemPrompt += "长期记忆：\n" + m_memoryText;
-		}
-	}
-
-	// 注入待处理的 Lua 运行时错误到 system prompt（不污染对话历史）
-	// 注意：不清理 m_pendingLuaError，因为 read 可能在下一轮才发生，
-	// 等 generate_lua_game 成功时由 executor 清理
-	if (!m_pendingLuaError.empty()) {
-		systemPrompt += "\n\n[上一次游戏运行错误 — 请读取并修复代码后重新生成]\n"
-			+ m_pendingLuaError;
-		ESP_LOGI(TAG, "已注入 Lua 错误上下文到 system prompt");
-	}
-
-	// 注入 read 动作读取的文件内容到 system prompt
-	if (!m_pendingFileRead.empty()) {
-		systemPrompt += "\n\n[读取的文件内容 — AI 已读取文件，可用于修复/迭代]\n"
-			+ m_pendingFileRead;
-		m_pendingFileRead.clear();
-		ESP_LOGI(TAG, "已注入文件内容到 system prompt");
+		systemPrompt = buildSystemPrompt(systemPrompt, appContext, m_memoryText, luaErr, fileRead, aiErr);
 	}
 
 	m_lastSystemPrompt = systemPrompt;
@@ -802,12 +887,16 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 	ESP_LOGI(TAG, "onAiResponse: success=%d, textLen=%zu, err=%s",
 		success, responseText.size(), errorMsg.c_str());
 
-	setLoading(false);
+	// 注意：不在函数开头清 loading —— 链式 follow-up 期间保持等待态，
+	// 防止轮次间隙用户插入新消息导致上下文错乱；仅在本轮链结束时清 loading。
 
 	// 重新连接键盘
 	lv_keyboard_set_textarea(m_keyboard, m_inputField);
 
 	if (!success) {
+		m_followUpCount = 0;   // 失败时重置多轮预算
+		setLoading(false);
+		reportAiError("请求失败: " + errorMsg);
 		addChatEntry("!", "请求失败: " + errorMsg);
 		return;
 	}
@@ -816,13 +905,38 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 	AiResponse response = AiParser::parse(responseText);
 
 	if (!response.success && response.actions.empty()) {
-		addChatEntry("!", "解析失败: " + response.errorMsg);
-		if (!response.rawContent.empty()) {
-			std::string raw = response.rawContent;
-			if (raw.size() > 500) raw = raw.substr(0, 500) + "...";
-			addChatEntry("RAW", raw);
+		// 解析失败：记录错误 → 自动触发修正轮（自愈），让 AI 重发合法 JSON
+		std::string errMsg = response.errorMsg;
+		std::string raw = response.rawContent;
+		if (raw.size() > 500) raw = raw.substr(0, 500) + "...";
+
+		if (m_followUpCount < MAX_FOLLOW_UP) {
+			m_followUpCount++;
+			ESP_LOGI(TAG, "解析失败，自动修正轮 %d: %s", m_followUpCount, errMsg.c_str());
+
+			std::string healMsg = "你上一条回复无法解析为合法 JSON。错误: " + errMsg;
+			if (!raw.empty()) {
+				healMsg += "\n原始内容: " + raw;
+			}
+			healMsg += "\n请只返回合法 JSON（{\"actions\":[...]}），不要包含多余文字或解释。";
+
+			reportAiError("上次回复无法解析: " + errMsg);
+			addChatEntry("!", "解析失败: " + errMsg + "，正在让 AI 重新生成...");
+			sendFollowUpRound(healMsg);
+			return;
 		}
+
+		m_followUpCount = 0;
+		setLoading(false);
+		addChatEntry("!", "解析失败: " + errMsg);
+		if (!raw.empty()) addChatEntry("RAW", raw);
 		return;
+	}
+
+	// 解析成功 → 清除待注入的解析错误（AI 已修正；动作执行失败会重新设置）
+	{
+		Lock lock(m_pendingMutex);
+		m_pendingAiError.clear();
 	}
 
 	// ── 1. 提取 respond_text ──
@@ -841,8 +955,6 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 		addChatEntry("AI", replyText);
 	}
 
-	m_lastAiContent = response.rawContent;
-
 	// ── 2. 执行系统动作 ──
 	auto* mgr = m_display->getStackManager();
 	auto execResult = AiExecutor::execute(response.actions, m_display, mgr);
@@ -850,7 +962,33 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 		addChatEntry("AI", execResult.summary);
 	}
 
-	// ── 3. Agent 循环（由 AI 的 nextRound 字段控制是否继续） ──
+	// 动作执行失败 → 注入错误反馈（AI 下轮可据此修正）
+	if (!execResult.failureDetail.empty()) {
+		reportAiError(execResult.failureDetail);
+	}
+
+	// ── 3. 提交本轮对话到 m_history（每轮都提交，含 follow-up 轮） ──
+	// 修复：原实现只在链结束时记录历史，导致：
+	//   1) 多轮(nextRound)交互的中间轮次不落历史 → 下次用户消息上下文丢失
+	//   2) 链中途若插入新消息，将带着空历史发送
+	// 现在每轮立即提交，m_history 成为完整对话的唯一数据源。
+	if (!m_lastUserInput.empty()) {
+		std::string assistantReply = !response.parsedContent.empty()
+			? response.parsedContent
+			: (!replyText.empty() ? replyText : execResult.summary);
+		m_history.push_back({ "user", m_lastUserInput });
+		if (!assistantReply.empty())
+			m_history.push_back({ "assistant", assistantReply });
+		// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮（含 follow-up 合成轮）
+		while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
+			m_history.erase(m_history.begin());
+			m_history.erase(m_history.begin());
+		}
+		ESP_LOGI(TAG, "对话历史: %zu 轮", m_history.size() / 2);
+		m_lastUserInput.clear();
+	}
+
+	// ── 4. Agent 循环（由 AI 的 nextRound 字段控制是否继续） ──
 	if (response.nextRound && m_followUpCount < MAX_FOLLOW_UP) {
 		std::string observations;
 		for (const auto& action : response.actions) {
@@ -861,46 +999,9 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 
 		m_followUpCount++;
 		ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
-		setLoading(true);
+		// 保持 loading（仍在处理中，防止用户插入新消息）
 
-		// 从原始模板重建 system prompt，带上新 App 上下文
-		{
-			std::string newPrompt = m_systemPromptTemplate;
-			std::string newCtx;
-			auto* nextApp = m_display->getActiveApp();
-			if (nextApp) newCtx = nextApp->getAiContext();
-
-			// 替换 {app_context}
-			size_t pos = newPrompt.find("{app_context}");
-			if (pos != std::string::npos) {
-				newPrompt.replace(pos, 13,
-					newCtx.empty() ? "当前 App 无自定义操作" : newCtx);
-			}
-
-			// 替换 {memory_context}
-			pos = newPrompt.find("{memory_context}");
-			if (pos != std::string::npos) {
-				newPrompt.replace(pos, 16,
-					m_memoryText.empty() ? "（暂无长期记忆）" : m_memoryText);
-			}
-
-			// 注入待处理的 Lua 运行时错误（不清理，等 generate_lua_game 成功时再清理）
-			if (!m_pendingLuaError.empty()) {
-				newPrompt += "\n\n[上一次游戏运行错误 — 请读取并修复代码后重新生成]\n"
-					+ m_pendingLuaError;
-			}
-
-			// 注入 read 动作读取的文件内容
-			if (!m_pendingFileRead.empty()) {
-				newPrompt += "\n\n[读取的文件内容]\n"
-					+ m_pendingFileRead;
-				m_pendingFileRead.clear();
-			}
-
-			m_lastSystemPrompt = newPrompt;
-		}
-
-		// 构建 follow-up 消息
+		// 构建 follow-up 消息（作为下一轮的 user 消息，同时写入历史）
 		std::string followUpMsg;
 		if (!observations.empty()) {
 			followUpMsg += "[工具返回数据]\n" + observations + "\n\n请根据以上数据继续或向用户进行总结。";
@@ -910,60 +1011,20 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 			addChatEntry(">>", "(继续执行...)");
 		}
 
-		std::vector<std::pair<std::string, std::string>> history;
-		history.push_back({ "user", m_lastUserInput });
-		{
-			cJSON* root = cJSON_Parse(m_lastAiContent.c_str());
-			if (root) {
-				cJSON* choices = cJSON_GetObjectItem(root, "choices");
-				if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
-					cJSON* msg = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
-					cJSON* content = cJSON_GetObjectItem(msg, "content");
-					if (cJSON_IsString(content) && content->valuestring) {
-						history.push_back({ "assistant", content->valuestring });
-					}
-				}
-				cJSON_Delete(root);
-			}
-		}
-
-		HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
-			followUpMsg, history,
-			[this](bool ok, const std::string& resp, const std::string& err) {
-				auto* ctx = new AiSendCtx{ this, resp, err, ok };
-				Task::addTask([](void* p) -> TickType_t {
-					auto* c = static_cast<AiSendCtx*>(p);
-					c->self->onAiResponse(c->ok, c->text, c->err);
-					delete c;
-					return Task::infinityTime;
-					}, "aiFup", ctx, 0, Task::Affinity::None);
-			});
+		sendFollowUpRound(followUpMsg);
 		return;
 	}
 
+	// ── 链结束：清 loading，恢复用户可输入 ──
 	m_followUpCount = 0;
+	setLoading(false);
 
-	// ── 4. 更新长期记忆 ──
+	// ── 5. 更新长期记忆 ──
 	if (!response.memory.empty()) {
 		m_memoryText = response.memory;
 		ESP_LOGI(TAG, "记忆已更新: %s", response.memory.c_str());
 	}
-
-	// ── 5. 记录对话历史 ──
-	std::string replyForHistory = replyText;
-	if (replyForHistory.empty()) {
-		replyForHistory = execResult.summary;
-	}
-	if (!replyForHistory.empty() && !m_lastUserInput.empty()) {
-		m_history.push_back({ "user", m_lastUserInput });
-		m_history.push_back({ "assistant", replyForHistory });
-		// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮
-		while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
-			m_history.erase(m_history.begin());
-			m_history.erase(m_history.begin());
-		}
-		ESP_LOGI(TAG, "对话历史: %zu 轮", m_history.size() / 2);
-	}
+	// 对话历史已在步骤 3 每轮提交，这里不再重复
 }
 
 // ============================================================

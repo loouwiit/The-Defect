@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <errno.h>
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
 #include <esp_log.h>
@@ -194,8 +195,9 @@ private:
                 success = true;
                 ESP_LOGI(TAG, "读取 %zu 字节 (缓冲 %zu)", offset, bufSize);
                 ESP_LOGI(TAG, "响应体: %s", respBuf);
-            } else if (contentLen > 0) {
-                // fallback: 用 read_response（Content-Length 已知时）
+            } else if (contentLen > 0 && readLen == 0) {
+                // fallback: 用 read_response（Content-Length 已知且为 EOF 时）
+                // 注意：readLen < 0（超时/错误）时不再走此路径，避免再白等一个超时周期
                 respBuf = static_cast<char*>(
                     heap_caps_malloc(contentLen + 1, MALLOC_CAP_SPIRAM));
                 if (respBuf) {
@@ -210,8 +212,16 @@ private:
             }
 
             if (!success) {
-                errorMsg = "响应体为空";
-                ESP_LOGW(TAG, "%s (read=%d)", errorMsg.c_str(), (int)offset);
+                if (readLen < 0) {
+                    // 读超时或 socket 错误（最常见：生成耗时超过配置超时）
+                    errorMsg = "响应读取超时或中断（配置超时 ";
+                    errorMsg += std::to_string(ctx.config.timeoutMs / 1000);
+                    errorMsg += "s）";
+                    ESP_LOGW(TAG, "响应读取失败: readLen=%d errno=%d", readLen, errno);
+                } else {
+                    errorMsg = "响应体为空（HTTP 200 无正文）";
+                    ESP_LOGW(TAG, "%s", errorMsg.c_str());
+                }
             }
         }
 

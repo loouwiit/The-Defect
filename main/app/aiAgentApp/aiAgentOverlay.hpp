@@ -2,6 +2,7 @@
 
 #include "display/display.hpp"
 #include "aiAgent/aiConfig.hpp"
+#include "mutex/mutex.hpp"
 #include <string>
 #include <vector>
 #include <functional>
@@ -59,6 +60,10 @@ public:
      *  下次 AI 对话时注入到 system prompt */
     static void reportFileRead(const std::string& path, const std::string& content);
 
+    /** @brief 报告上一轮执行反馈/错误（线程安全，供 AiExecutor/解析失败路径调用）
+     *  下次 AI 对话时注入到 system prompt，促成 AI 自我修正 */
+    static void reportAiError(const std::string& msg);
+
 private:
     AiAgentOverlay() = default;
     ~AiAgentOverlay() = default;
@@ -109,17 +114,19 @@ private:
     int m_followUpCount{};
     static constexpr int MAX_FOLLOW_UP = 5;
     std::string m_lastUserInput;
-    std::string m_lastAiContent;
     std::string m_lastSystemPrompt;
     std::string m_systemPromptTemplate;   // 含 {app_context}/{memory_context} 占位符的原始模板
     std::vector<std::string> m_chatHistory;
 
     // ── 对话上下文 ──
-    static constexpr size_t MAX_HISTORY_TURNS = 5;
+    static constexpr size_t MAX_HISTORY_TURNS = 8;   // 含 follow-up 合成轮，给多轮链留余量
     std::vector<std::pair<std::string, std::string>> m_history;  // (role, content)
     std::string m_memoryText;                                     // AI 长期记忆
-    std::string m_pendingLuaError;                                // 待注入的 Lua 错误
-    std::string m_pendingFileRead;                                 // 待注入的读文件内容
+    std::string m_promptCache;                                    // system prompt 模板缓存
+    std::string m_pendingLuaError;                                // 待注入的 Lua 错误（m_pendingMutex 保护）
+    std::string m_pendingFileRead;                                 // 待注入的读文件内容（m_pendingMutex 保护）
+    std::string m_pendingAiError;                                 // 待注入的执行反馈/错误（m_pendingMutex 保护）
+    Mutex m_pendingMutex;                                         // 保护 m_pendingLuaError / m_pendingFileRead / m_pendingAiError
 
     TickType_t m_nextActionTime{};
     TickType_t m_nextPageFlipTime{};
@@ -132,11 +139,20 @@ private:
     // ── UI 操作 ──
     void addChatEntry(const std::string& role, const std::string& text);
     void setLoading(bool loading);
-    void updateContextHint();
 
     // ── 发送逻辑 ──
     void onSend();
     void onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg);
+
+    // ── prompt 构建 ──
+    std::string loadPromptTemplate();   // 加载 system prompt 模板（缓存，避免每次重读）
+    std::string buildSystemPrompt(const std::string& templatePrompt,
+                                  const std::string& appCtx,
+                                  const std::string& memoryText,
+                                  const std::string& luaErr,
+                                  const std::string& fileRead,
+                                  const std::string& aiErr);
+    void sendFollowUpRound(const std::string& followUpMsg);   // 发送 follow-up 轮（nextRound/自愈共用）
 
     // ── IME 中英文切换 ──
     void setChineseMode(bool enable);

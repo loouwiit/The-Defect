@@ -24,6 +24,12 @@ public:
 	ConsoleManagerApp(Display* display);
 	~ConsoleManagerApp() override;
 
+	/** @brief AI open_app 静态工厂（能力表用） */
+	static App* newApp(Display* display, const cJSON* params) {
+		(void)params;
+		return new ConsoleManagerApp(display);
+	}
+
 	void init() override;
 	void deinit() override;
 	void onForeground() override;

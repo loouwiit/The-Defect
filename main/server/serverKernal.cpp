@@ -694,9 +694,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 				"{\n"
 				"  \"api_url\": \"%s\",\n"
 				"  \"model\": \"%s\",\n"
-				"  \"temperature\": 0.7,\n"
-				"  \"max_tokens\": 1024,\n"
-				"  \"timeout_ms\": 30000\n"
+				"  \"temperature\": 0.7\n"
 				"}\n",
 				apiUrl[0] ? apiUrl : "https://api.openai.com",
 				model[0]  ? model  : "gpt-4o-mini");

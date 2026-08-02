@@ -3,10 +3,13 @@
 #include "esp_lv_adapter_display.h"
 #include "gamepad/gamepadState.hpp"
 #include <string>
+#include <vector>
 #include <esp_log.h>
 class Display;
 class AppStackManager;
+class App;         // 前向声明（AiAppTarget 先于 class App 定义使用其指针）
 struct AiAction;   // 前向声明，完整定义在 aiAgent/aiProtocol.hpp
+struct cJSON;      // 前向声明，完整定义在 cJSON.h
 
 /**
  * @brief AI select 动作的目标
@@ -14,6 +17,21 @@ struct AiAction;   // 前向声明，完整定义在 aiAgent/aiProtocol.hpp
 struct AiSelectTarget {
     std::string group;   // 焦点组名（如 "cards"、"buttons"），空=当前组
     int index{};         // 组内索引，-1=不改变
+};
+
+/**
+ * @brief AI open_app 能力表条目
+ *
+ * 每个可被 AI 打开的应用，由"当前 App"的能力表声明：
+ * - name:   AI 使用的应用名（与 getAiContext 中列出的名称一致）
+ * - desc:   一句话说明（用于生成 getAiContext）
+ * - create: 目标 app 的静态工厂方法（如 SomeApp::newApp），
+ *           目标 app 自己拥有构造签名，可解析 AI 传入的 params
+ */
+struct AiAppTarget {
+    const char* name;
+    const char* desc;
+    App* (*create)(Display* display, const cJSON* params);
 };
 
 /**
@@ -45,6 +63,8 @@ public:
 	virtual std::string getAiContext() { return ""; }
 	/** @brief 执行 AI 发来的 app_custom 动作，true=已处理，false=交系统执行器兜底 */
 	virtual bool executeAiAction(const AiAction& action) { (void)action; return false; }
+	/** @brief 返回本 App 可打开的 AI 应用能力表（open_app 用，默认无可打开） */
+	virtual std::vector<AiAppTarget> getOpenableApps() { return {}; }
 	/** @brief AI select：聚焦到目标的组和索引 */
 	virtual void onAiSelect(const AiSelectTarget& target) { (void)target; }
 	/** @brief AI activate：触发当前聚焦的元素 */
