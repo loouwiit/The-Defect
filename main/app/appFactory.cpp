@@ -8,7 +8,7 @@
 #include "app/timeSettingsApp/timeSettingsApp.hpp"
 #include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/consoleManager/consoleManagerApp.hpp"
-#include "app/luaGameApp/luaGameApp.hpp"
+#include "app/luaManagerApp/luaManagerApp.hpp"
 #include <cstring>
 #include <esp_log.h>
 
@@ -42,8 +42,8 @@ App* AppFactory::create(const std::string& name, Display* display) {
     if (name == "consolemanager" || name == "console_manager" || name == "consoleManager") {
         return new ConsoleManagerApp(display);
     }
-    if (name == "luagame" || name == "lua_game" || name == "lua") {
-        return new LuaGameApp(display, "/root/lua/test_display.lua");
+    if (name == "luamanager" || name == "lua_manager" || name == "luaManager" || name == "lua") {
+        return new LuaManagerApp(display);
     }
 
     ESP_LOGE(TAG, "未识别的应用: %s", name.c_str());

@@ -20,7 +20,7 @@ static constexpr char TAG[] = "AiAgentOverlay";
 // ============================================================
 
 const char* DEFAULT_SYSTEM_PROMPT = R"(
-你是一个 ESP32-P4 游戏主机的 AI 助手。
+你是一个 ESP32-P4 游戏主机的 AI 助手，运行在ai overlay上。
 请严格以 JSON 格式返回操作指令。
 
 重要：必须始终使用 {"actions":[...]} 数组形式，即使只有一个操作也要放在数组中。系统会依次执行对应操作。

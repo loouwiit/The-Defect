@@ -926,7 +926,7 @@ std::string LuaManagerApp::getAiContext()
 	std::string ctx = "当前在 Lua 脚本管理器。\n"
 		"可用焦点组（select 的 text 参数）：\n"
 		"- list(0-N)\t脚本列表\n"
-		"- actions(0-3)\t操作按钮（运行/删除/重命名/AI生成）\n\n"
+		"- actions(0-3)\t操作按钮（运行/删除/重命名/启动ai overlay（目前已启动））\n\n"
 		"当前可用脚本：\n";
 
 	if (m_scripts.empty()) {
