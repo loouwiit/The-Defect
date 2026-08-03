@@ -22,7 +22,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 
 - **系统层浮动窗**：驻留 `lv_layer_sys`，不占用 App 栈，底层 App 不受影响
 - **多种唤出方式**：顶部下滑 / 手柄组合键(Y+X+B)
-- **可拖拽窗口**：浮动窗可任意拖动位置，附带 LVGL 虚拟键盘（支持拼音中文输入）
+- **可拖拽窗口**：浮动窗可任意拖动位置，附带 LVGL 虚拟键盘（拼音/五笔/混合中文输入，空格上屏候选）
 - **13 个系统操作**：开关应用、焦点导航(select/activate)、调亮度/音量、WiFi 连接、设备信息、关机等
 - **焦点系统集成**：所有 App 接入 `onAiSelect()` / `onAiActivate()`，AI 可通过焦点组导航操作任意界面
 - **多轮协作**：AI 通过 `nextRound` 自主控制多轮交互，跨 App 探索（如打开时间设置 → 同步时间）
@@ -168,6 +168,7 @@ ESP32-C6 (协处理器)
 - **mDNS** — `esp32p4.local` 自动发现，支持自定义主机名（NVS 持久化，运行时热重启）
 - **设备发现** — 通过 `_p4console._tcp` 服务类型枚举局域网内其他游戏主机
 - **WiFi AP** — 断开时自动切换到热点模式
+- **输入法** — 拼音/五笔/混合中文输入，自定义词库（Rime 提取、FAT 加载、五笔优先拼音兜底）、空格上屏候选
 
 ---
 
@@ -300,7 +301,11 @@ idf.py -p /dev/ttyACM0 flash monitor
 ```
 reserces/
 ├── server/       ← HTTP 网页资源
-└── system/       ← 系统文件 (字体等)
+└── system/       ← 系统文件（字体 + 输入法词库）
+    ├── NotoSC.ttf
+    ├── pinyin_dict.txt       ← 拼音词库
+    ├── wubi_dict.txt         ← 五笔词库
+    └── wubi_pinyin_dict.txt  ← 五笔+拼音混合词库（五笔优先）
 ```
 
 ---
@@ -324,6 +329,7 @@ reserces/
 ├── main/
 │   ├── main.cpp              ← 启动入口
 │   ├── app/                  ← 应用层 (12 Apps)
+│   │   └── aiAgentApp/       ← AI 助手 + PinyinDict 输入法词库
 │   ├── audio/                ← ES8311 + Audio 管理器
 │   ├── battery/              ← 电池管理
 │   ├── bleGamepad/           ← BLE 手柄 (NimBLE + esp_hosted)
@@ -344,11 +350,12 @@ reserces/
 │   ├── wifi/                 ← WiFi / mDNS / TCP Socket
 │   └── wsServer/             ← WebSocket 服务器
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
-├── patches/                  ← managed_components 补丁
+├── patches/                  ← managed_components 补丁（6 个）
 ├── reserces/                 ← FAT 分区资源文件
 │   ├── lua/                  ← Lua 脚本
 │   ├── server/               ← HTTP 静态资源
-│   └── system/               ← 系统文件
+│   └── system/               ← 系统文件（字体 + 输入法词库）
+├── tools/                    ← 词库生成脚本（gen_pinyin_dict.py / gen_wubi_dict.py / gen_wubi_pinyin_dict.py）
 ├── AGENTS.md                 ← 完整架构文档 (AI Agent 指南)
 └── partitions.csv            ← 分区表
 

@@ -42,8 +42,11 @@ reserces/
 │   ├── tetris/      ← Tetris 网页客户端
 │   ├── gamepad/     ← 虚拟手柄 Web 客户端（/ws/input 测试）
 │   └── wifi/        ← WiFi 网页配置
-└── system/          ← 系统文件（字体等）
-    └── NotoSC.ttf   ← 全局默认字体
+└── system/          ← 系统文件（字体 + 输入法词库）
+    ├── NotoSC.ttf   ← 全局默认字体
+    ├── pinyin_dict.txt      ← 拼音词库（411 码 / 8343 字，Rime 8105 规范汉字表）
+    ├── wubi_dict.txt        ← 五笔词库（21812 码 / 26414 字，Rime 五笔86极点码表）
+    └── wubi_pinyin_dict.txt ← 五笔+拼音混合词库（22088 码 / 25042 字，五笔优先拼音兜底）
 ```
 
 ---
@@ -67,6 +70,7 @@ reserces/
 | | AppStackManager | `main/app/appStackManager.hpp` | 多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
 | **AI Agent** | AiClient / AiParser / AiExecutor / AiSystemInfo | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行、系统信息采集 |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | 系统层浮动窗（`lv_layer_sys`），对话历史 + 长期记忆 |
+| | PinyinDict | `main/app/aiAgentApp/pinyinDict.hpp` | 输入法词库加载（拼音/五笔/混合），FAT 文本 → `lv_ime_pinyin_set_dict` |
 | | App (基类) | `main/app/app.hpp` | `getAiContext()` / `onAiSelect()` / `onAiActivate()` + 可选 `executeAiAction()` |
 | **Lua 引擎** | LuaRuntime | `main/lua/luaRuntime.hpp` | Lua 5.5 VM RAII 封装，loadScript/loadString/callFunction |
 | | luaDisplay | `main/lua/bindings/luaDisplay.cpp` | 简化帧缓冲绘图 API（fill_rect/draw_text/draw_circle 等） |
@@ -118,7 +122,7 @@ reserces/
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
-| **补丁** | Patches | `patches/` | 4 个 patch：帧回调 / PPA 队列 / SRM macro bypass / WS client expose transport |
+| **补丁** | Patches | `patches/` | 6 个 patch：帧回调 / PPA 队列 / SRM bypass / WS transport / LVGL IME iuv 过滤 / count uint16 |
 
 ---
 
@@ -656,6 +660,50 @@ class VirtualIndev {
 
 ---
 
+## 输入法与词库
+
+AI 助手输入法基于 LVGL `lv_ime_pinyin`（K26 全键盘），支持**拼音 / 五笔 / 英文**三态循环切换（键盘 🔣 按钮），词库从 FAT 分区加载。
+
+### 三态模式（`AiAgentOverlay::ImeMode`）
+
+| 模式 | 词库 | 说明 |
+|------|------|------|
+| `Pinyin`（拼） | `pinyin_dict.txt` | 拼音输入，简体优先，常用字靠前 |
+| `Wubi`（五） | `wubi_pinyin_dict.txt` | **五笔+拼音混合**：五笔字优先，拼音兜底 |
+| `English`（EN） | — | 英文直接上屏 |
+
+- 键盘 🔣（LV_SYMBOL_KEYBOARD/CLOSE）按钮循环切换：拼 → 五 → EN → 拼
+- 切换时 `setImeMode()` 强制 `LV_IME_PINYIN_MODE_K26`（覆盖 LVGL 内部 🔣 触发的 K26/K9 翻转，K9 未编译）
+- **空格上屏**：中文模式有候选时按空格上屏当前候选（无选中默认第一个），无候选放行空格
+- 候选面板每页 6 字，`<`/`>` 或手柄翻页（每音候选不受 6 限制）
+
+### 词库机制
+
+```cpp
+class PinyinDict {
+    static const lv_pinyin_dict_t* loadFromFat();       // 拼音 /root/system/pinyin_dict.txt
+    static const lv_pinyin_dict_t* loadWubiFromFat();   // 纯五笔（备用）
+    static const lv_pinyin_dict_t* loadMixedFromFat();  // 五笔+拼音混合（"五"模式使用）
+};
+```
+
+- 词库为 `lv_pinyin_dict_t { py, py_mb }` 数组（`{NULL,NULL}` 终止），`py_mb` 汉字 3 字节 UTF-8 直接连接
+- **必须按字典序**（LVGL 前缀匹配返回第一个命中，短码在前）
+- 加载：解析 FAT 文本 → qsort 字典序 → PSRAM 紧凑分配；失败回退 LVGL 内置词库
+- `lv_ime_pinyin_set_dict()` 注入（创建 IME 后 / 切换模式时）
+- 生成脚本在 `tools/`，源为 Rime（`~/.config/ibus/rime/`）：
+  - `gen_pinyin_dict.py` → 从 `cn_dicts/8105.dict.yaml`（通用规范汉字表 8105 字 + 字频）提取
+  - `gen_wubi_dict.py` → 从 `wubi86_jidian.dict.yaml` 提取单字
+  - `gen_wubi_pinyin_dict.py` → 混合（五笔优先 + 拼音兜底去重）
+
+### LVGL 必要 patch
+
+- `0005`：移除 `pinyin_search_matching` 的 `i/u/v` 开头过滤（五笔 i 水 / u 立 / v 女折 键区）
+- `0006`：`count` 从 `uint8_t`→`uint16_t`（五笔每组上千条目，uint8_t 截断 255 导致后段编码匹配失败）
+- 详见 [Patches](#patches) 章节
+
+---
+
 ## LVGL 锁规则
 
 `Display::lockGuard()` 获取 LVGL 内部互斥锁。该锁是**可重入（递归）互斥锁**（`xSemaphoreCreateRecursiveMutex`），同一 task 可多次调用 `lockGuard()` 嵌套加锁而不会死锁。
@@ -854,7 +902,7 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄组合键唤起。集成 LVGL `lv_ime_pinyin` 拼音输入法，支持中英文切换、候选面板上下翻页 |
+| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄组合键唤起。集成 LVGL `lv_ime_pinyin` 输入法（三态：拼/五/EN，自定义词库 + 空格上屏） |
 
 **模块路径**: `main/aiAgent/`
 
@@ -1601,6 +1649,8 @@ CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1  # PPA 要求 SW draw unit 为 1
 | `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` | `lvgl_ppa_accel_v9.c` | PPA fill/blend `max_pending_trans_num = 8`，防止队列溢出崩溃 |
 | `0003-esp_driver_ppa-sr_macro_bk_ro_bypass.patch` | `esp_driver_ppa` | PPA SRM (Scale-Rotate-Mirror) macro 旁路，修复旋转时的硬件 bug |
 | `0004-esp_websocket_client-expose-transport.patch` | `esp_websocket_client` (2 文件) | 暴露 `esp_websocket_client_get_transport()` 供 `wsClient.cpp` 获取 socket fd 设置 TCP_NODELAY |
+| `0005-lvgl__lvgl-ime-pinyin-allow-iu-v-start.patch` | `lvgl` (`lv_ime_pinyin.c`) | 移除 IME 匹配的 i/u/v 开头过滤（五笔 i 水/u 立/v 女折 键区） |
+| `0006-lvgl__lvgl-ime-pinyin-fix-count-uint16.patch` | `lvgl` (`lv_ime_pinyin.c`) | `count` 类型 `uint8_t`→`uint16_t`，修复五笔大组（>255 条目）匹配截断 |
 
 **使用**:
 ```bash
@@ -1608,6 +1658,8 @@ bash patches/apply.sh          # 打所有补丁
 bash patches/apply.sh --revert # 还原所有
 ```
 ⚠ `idf.py reconfigure` 后需重新打补丁。
+⚠ `apply.sh` 需要 `IDF_PATH` 环境变量；组件目录自动识别 `espressif__<组件>`，非 espressif 发布组件（如 `lvgl__lvgl`）直接用原名。
+⚠ **不要对已应用的 patch 重跑全量 `apply.sh`**（`--forward` 对行号偏移的 hunk 可能重复应用 → 重复定义编译错误）；新 patch 应单独 `patch -d <组件目录> -p1 < xxx.patch`。
 
 ---
 
