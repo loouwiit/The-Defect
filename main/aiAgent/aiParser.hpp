@@ -135,6 +135,7 @@ private:
             result.success = false;
             result.errorMsg = "JSON 解析失败";
             result.actions.push_back(makeError("AI 返回了无法解析的 JSON"));
+            ESP_LOGE(TAG, "JSON 解析失败: %s", jsonStr.c_str());
             cJSON_Delete(root);
             return result;
         }

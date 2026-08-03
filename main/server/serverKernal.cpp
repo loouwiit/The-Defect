@@ -375,8 +375,9 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		AiConfig cfg = aiConfigLoad();
 		char body[512];
 		int n = snprintf(body, sizeof(body),
-			"{\"api_url\":\"%s\",\"model\":\"%s\",\"has_key\":%s}",
+			"{\"api_url\":\"%s\",\"model\":\"%s\",\"timeout_ms\":%d,\"max_tokens\":%d,\"has_key\":%s}",
 			cfg.apiUrl.c_str(), cfg.model.c_str(),
+			cfg.timeoutMs, cfg.maxTokens,
 			cfg.valid ? "true" : "false");
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
@@ -677,16 +678,25 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			return;
 		}
 
-		// 保存 ai_config.json
+		// 保存 ai_config.json（保留未在请求中提供的字段，如 timeout_ms）
+		AiConfig curCfg = aiConfigLoad();
 		{
 			auto readStr = [&](const char* key) -> const char* {
 				cJSON* v = cJSON_GetObjectItem(root, key);
 				return (v && cJSON_IsString(v) && v->valuestring) ? v->valuestring : "";
 			};
+			auto readInt = [&](const char* key, int def) -> int {
+				cJSON* v = cJSON_GetObjectItem(root, key);
+				return (v && cJSON_IsNumber(v)) ? v->valueint : def;
+			};
 
 			const char* apiUrl = readStr("api_url");
 			const char* model  = readStr("model");
 			const char* apiKey = readStr("api_key");
+			int timeoutMs = readInt("timeout_ms", curCfg.timeoutMs);
+			if (timeoutMs < 5000) timeoutMs = curCfg.timeoutMs;   // 防非法值
+			int maxTokens = readInt("max_tokens", curCfg.maxTokens);
+			if (maxTokens < 256 || maxTokens > 131072) maxTokens = curCfg.maxTokens;   // 防非法值
 
 			// 写 AI config 到 FAT
 			char jsonBuf[512];
@@ -694,10 +704,13 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 				"{\n"
 				"  \"api_url\": \"%s\",\n"
 				"  \"model\": \"%s\",\n"
-				"  \"temperature\": 0.7\n"
+				"  \"temperature\": 0.7,\n"
+				"  \"timeout_ms\": %d,\n"
+				"  \"max_tokens\": %d\n"
 				"}\n",
 				apiUrl[0] ? apiUrl : "https://api.openai.com",
-				model[0]  ? model  : "gpt-4o-mini");
+				model[0]  ? model  : "gpt-4o-mini",
+				timeoutMs, maxTokens);
 
 			OFile file;
 			if (file.open("/root/system/ai_config.json")) {

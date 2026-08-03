@@ -15,6 +15,12 @@
 			background: #1a1a2e; color: #fff; font-size: 16px;
 			box-sizing: border-box;
 		}
+		input[type="range"] {
+			width: 100%; margin-top: 8px;
+			accent-color: #0088ff;
+			background: transparent;
+		}
+		.slider-val { color: #0088ff; font-weight: bold; }
 		button {
 			margin-top: 20px; padding: 12px 32px;
 			border: none; border-radius: 8px;
@@ -44,6 +50,14 @@
 		<label for="model">模型名称</label>
 		<input type="text" id="model" placeholder="gpt-4o-mini" />
 		<div class="hint">如 gpt-4o-mini / deepseek-chat / qwen2.5</div>
+
+		<label for="timeoutSec">响应超时：<span class="slider-val" id="timeoutVal">90</span> 秒</label>
+		<input type="range" id="timeoutSec" min="10" max="600" step="5" value="90" />
+		<div class="hint">推理模型 + 多轮大上下文生成较慢，建议 ≥90s；过大则无响应时等待过久</div>
+
+		<label for="maxTokens">最大输出：<span class="slider-val" id="maxTokensVal">4096</span> tokens</label>
+		<input type="range" id="maxTokens" min="1024" max="65536" step="1024" value="4096" />
+		<div class="hint">Lua 游戏生成需要较大值，建议 ≥4096；过大会增加等待与费用</div>
 	</div>
 
 	<button id="saveBtn">保存配置</button>
@@ -70,15 +84,35 @@
 			document.getElementById('apiUrl').value = cfg.api_url || '';
 			document.getElementById('apiKey').value = '';
 			document.getElementById('model').value = cfg.model || '';
+			const t = parseInt(cfg.timeout_ms, 10);
+			document.getElementById('timeoutSec').value = (t > 0) ? Math.round(t / 1000) : 90;
+			const m = parseInt(cfg.max_tokens, 10);
+			document.getElementById('maxTokens').value = (m > 0) ? m : 4096;
+			document.getElementById('timeoutVal').textContent = document.getElementById('timeoutSec').value;
+			document.getElementById('maxTokensVal').textContent = document.getElementById('maxTokens').value;
 		})
 		.catch(() => {});
 
+	// ── 滑动条实时值显示 ──
+	document.getElementById('timeoutSec').addEventListener('input', function() {
+		document.getElementById('timeoutVal').textContent = this.value;
+	});
+	document.getElementById('maxTokens').addEventListener('input', function() {
+		document.getElementById('maxTokensVal').textContent = this.value;
+	});
+
 	// ── 保存 ──
 	document.getElementById('saveBtn').onclick = () => {
+		let timeoutSec = parseInt(document.getElementById('timeoutSec').value, 10);
+		if (!(timeoutSec > 0)) timeoutSec = 90;
+		let maxTokens = parseInt(document.getElementById('maxTokens').value, 10);
+		if (!(maxTokens > 0)) maxTokens = 4096;
 		const body = JSON.stringify({
 			api_url: document.getElementById('apiUrl').value,
 			api_key: document.getElementById('apiKey').value,
 			model:   document.getElementById('model').value,
+			timeout_ms: timeoutSec * 1000,
+			max_tokens: maxTokens,
 		});
 		fetch('/api/aiConfig', { method: 'POST', body })
 			.then(r => r.text())
