@@ -7,6 +7,7 @@
 #include "aiAgent/aiExecutor.hpp"
 #include "aiAgent/aiSystemInfo.hpp"
 #include "gamepad/bleGamepad.hpp"
+#include "pinyinDict.hpp"
 
 #include <esp_log.h>
 #include <cstring>
@@ -461,6 +462,10 @@ void AiAgentOverlay::buildUi()
 
 	// 2) 创建 IME（构造时会创建候选面板，位于键盘之后）
 	m_pinyinIme = lv_ime_pinyin_create(m_container);
+	// 自定义简体词库（FAT 加载；失败返回 nullptr 时保持 LVGL 内置词库）
+	if (PinyinDict::loadFromFat() != nullptr)
+		lv_ime_pinyin_set_dict(m_pinyinIme, const_cast<lv_pinyin_dict_t*>(PinyinDict::loadFromFat()));
+	else ESP_LOGE(TAG, "加载 FAT 拼音词库失败，使用内置词库");
 	lv_obj_set_style_text_font(m_pinyinIme, smlFont, 0);  // 自动传播到候选面板
 
 	// 3) 关联 IME ↔ 键盘
@@ -496,7 +501,7 @@ void AiAgentOverlay::buildUi()
 				lv_group_focus_obj(s->m_keyboard);
 			}
 			return Task::infinityTime;
-		}, "kbdFocus", self, 0, Task::Affinity::None);
+			}, "kbdFocus", self, 0, Task::Affinity::None);
 		}, LV_EVENT_VALUE_CHANGED, this);
 
 	// 6) 候选面板暗色主题样式
@@ -660,11 +665,11 @@ void AiAgentOverlay::setLoading(bool loading)
 // ============================================================
 
 std::string AiAgentOverlay::buildSystemPrompt(const std::string& templatePrompt,
-                                              const std::string& appCtx,
-                                              const std::string& memoryText,
-                                              const std::string& luaErr,
-                                              const std::string& fileRead,
-                                              const std::string& aiErr)
+	const std::string& appCtx,
+	const std::string& memoryText,
+	const std::string& luaErr,
+	const std::string& fileRead,
+	const std::string& aiErr)
 {
 	std::string p = templatePrompt;
 
@@ -1006,7 +1011,8 @@ void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText,
 		if (!observations.empty()) {
 			followUpMsg += "[工具返回数据]\n" + observations + "\n\n请根据以上数据继续或向用户进行总结。";
 			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
-		} else {
+		}
+		else {
 			followUpMsg += "已执行上一轮的指令，请继续完成用户的需求。如果已完成目标，请回复用户。";
 			addChatEntry(">>", "(继续执行...)");
 		}
@@ -1077,7 +1083,8 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 					lv_group_focus_obj(self->m_candPanel);
 				else
 					lv_group_focus_obj(self->m_keyboard);
-			} else {
+			}
+			else {
 				// 无候选字：切换键盘显隐（原行为）
 				Task::addTask([](void* arg) -> TickType_t {
 					auto* s = static_cast<AiAgentOverlay*>(arg);
@@ -1104,8 +1111,9 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 						lv_buttonmatrix_set_selected_button(s->m_keyboard, oldSel);
 					}
 					return Task::infinityTime;
-				}, "gpBS", self, 0, Task::Affinity::None);
-			} else {
+					}, "gpBS", self, 0, Task::Affinity::None);
+			}
+			else {
 				// 英文模式或键盘隐藏：直接删
 				if (self->m_inputField)
 					lv_textarea_delete_char(self->m_inputField);
@@ -1162,7 +1170,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 						}
 						delete pair;
 						return Task::infinityTime;
-					}, "pgUp", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
+						}, "pgUp", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
 					handled = true;
 				}
 				else if (gs.ly > center + deadZone) {
@@ -1177,7 +1185,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 						}
 						delete pair;
 						return Task::infinityTime;
-					}, "pgDn", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
+						}, "pgDn", new std::pair<AiAgentOverlay*, lv_obj_t*>(self, self->m_candPanel), 0, Task::Affinity::None);
 					handled = true;
 				}
 				else if (gs.lx < center - deadZone) {
@@ -1310,7 +1318,8 @@ void AiAgentOverlay::setChineseMode(bool enable)
 		lv_label_set_text(m_modeLabel, "中");
 		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
 		ESP_LOGI(TAG, "切换到中文输入");
-	} else {
+	}
+	else {
 		lv_label_set_text(m_modeLabel, "EN");
 		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
 		ESP_LOGI(TAG, "切换到英文输入");

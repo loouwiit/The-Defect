@@ -33,7 +33,7 @@ idf_component_register(SRCS "main.cpp"
                             "app/tetris/gameLogic/tetris_client.cpp" "app/tetris/gameLogic/player_state.cpp" "app/tetris/renderer/tetris_renderer.cpp" "app/tetris/tetrisApp.cpp" "app/tetris/tetrisRoomApp.cpp" "app/tetris/tetrisRemoteApp.cpp" "app/tetris/net/tetris_net.cpp" "app/tetris/net/tetrisRemoteClient.cpp" "app/tetris/net/tetrisTcpHost.cpp"
                             "app/fruitNinja/fruitNinjaRoom.cpp" "app/fruitNinja/fruitNinjaApp.cpp" "app/fruitNinja/fruitNinjaLogic.cpp" "app/fruitNinja/fruitNinjaRenderer.cpp"
                             "app/chineseChess/chineseChessApp.cpp" "app/chineseChess/chineseChessRoom.cpp" "app/chineseChess/chessLogic.cpp" "app/chineseChess/chessAI.cpp" "app/chineseChess/openingBook.cpp" "app/chineseChess/transpositionTable.cpp"
-                            "app/aiAgentApp/aiAgentOverlay.cpp"
+                            "app/aiAgentApp/aiAgentOverlay.cpp" "app/aiAgentApp/pinyinDict.cpp"
                             "app/consoleManager/consoleManagerApp.cpp"
                             "app/luaManagerApp/luaManagerApp.cpp"
 
