@@ -256,6 +256,20 @@ void LuaGameApp::loopTaskFunc(void* param)
     self->m_thread = {};
 }
 
+// ============================================================
+//  防死循环看门狗
+// ============================================================
+// 单次 loop(dt) 执行的 Lua 指令上限。正常游戏帧远低于此值；
+// 恶意脚本（如 while true do end）会持续消耗指令计数，触发 hook 中断。
+static constexpr int kMaxInstructionsPerFrame = 10000000;  // 1000 万条指令/帧
+
+static void luaWatchdogHook(lua_State* L, lua_Debug* ar)
+{
+    (void)ar;
+    // 在保护调用（lua_pcall）内触发 longjmp，安全中断脚本执行
+    luaL_error(L, "script timeout (infinite loop?)");
+}
+
 void LuaGameApp::gameLoop()
 {
     if (!m_luaReady || m_paused) return;
@@ -298,6 +312,8 @@ void LuaGameApp::gameLoop()
         lua_State* L = m_lua.state();
         if (L) {
             lua_pushnumber(L, dt);
+            // 安装防死循环看门狗（指令计数 hook），调用返回后移除
+            lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame);
         }
         if (!m_lua.callFunction("loop", 1, 1)) {
             // 出错时：上报错误给 AI + 退出
@@ -313,9 +329,13 @@ void LuaGameApp::gameLoop()
                 // 报告给 AI Agent，下次对话注入 system prompt
                 AiAgentOverlay::reportLuaError(err);
             }
+            if (L) lua_sethook(L, nullptr, 0, 0);  // 移除看门狗
             requestExit();
             return;
         }
+
+        // 移除看门狗 hook
+        if (L) lua_sethook(L, nullptr, 0, 0);
 
         // 检查返回值
         bool shouldContinue = true;

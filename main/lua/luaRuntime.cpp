@@ -36,9 +36,19 @@ bool LuaRuntime::init()
 {
     if (!L) return false;
 
-    // 打开所有标准 Lua 库（Lua 5.5 API）
-    // LUA_UTF8LIBK = 512，左移 1 得 1024，减 1 得 1023（覆盖全部 10 个库的 bit）
-    luaL_openselectedlibs(L, (LUA_UTF8LIBK << 1) - 1, 0);
+    // 沙箱化：只打开安全标准库，排除 io/os/package/debug
+    // 位掩码（与 linit.c 的 stdlibs 顺序一致）：
+    //   base(1) + coroutine(4) + math(32) + string(128) + table(256) + utf8(512) = 933
+    const int safeLibs = LUA_GLIBK | LUA_COLIBK | LUA_MATHLIBK
+                       | LUA_STRLIBK | LUA_TABLIBK | LUA_UTF8LIBK;
+    luaL_openselectedlibs(L, safeLibs, 0);
+
+    // 移除 base 库中的文件读取入口（dofile / loadfile）
+    // 无 io/os/package 时 load 无法读取外部文件，风险低，予以保留
+    lua_pushnil(L);
+    lua_setglobal(L, "dofile");
+    lua_pushnil(L);
+    lua_setglobal(L, "loadfile");
 
     return true;
 }

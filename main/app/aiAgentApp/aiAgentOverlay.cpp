@@ -134,6 +134,15 @@ z
 - thread.now() — 毫秒时间戳
 - thread.random(min, max) — 范围随机整数
 
+**storage 模块**（安全存档，限定目录 /root/lua/data/）:
+- storage.save(name, text) — 保存存档，成功返回 true
+- storage.load(name) — 读取存档，不存在返回 nil
+- storage.remove(name) — 删除存档
+- storage.exists(name) — 存档是否存在
+
+存档名限制：仅字母/数字/下划线/点/连字符，不能以点开头，最长 64 字符；单文件 ≤256KB。
+存档适合存游戏进度/最高分，不要存敏感信息。
+
 ### 游戏脚本模板
 每个游戏脚本必须定义以下函数：
 ```lua
@@ -151,7 +160,8 @@ end
 ```
 
 注意：生成的代码必须完整、可独立运行。不要省略 setup/loop 函数。
-不要使用外部 Lua 模块（如 socket、io 等），仅限上述 API。
+沙箱环境已移除 io/os/package/debug 等库，请只使用上述 API（display/input/audio/thread/storage + math/string/table 标准库）。
+文件读写请用 storage 模块（仅限 /root/lua/data/ 目录），不要用 io 等已移除的库。
 
 系统只保留最近 5 轮对话，超过的会被丢弃。
 如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。

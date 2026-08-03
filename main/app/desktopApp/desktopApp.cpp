@@ -13,6 +13,7 @@
 #include "app/chineseChess/chineseChessRoom.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
 #include "app/luaManagerApp/luaManagerApp.hpp"
+#include "app/marketApp/marketApp.hpp"
 
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
@@ -34,6 +35,7 @@ const char* DesktopApp::GAME_NAMES[] =
 	"斗地主",
 	"中国象棋",
 	"Lua 脚本管理",
+	"游戏市场",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
@@ -44,6 +46,7 @@ const char* DesktopApp::GAME_DESCS[] =
 	"三人斗地主，比拼牌技！",
 	"中国象棋，楚河汉界对弈！",
 	"浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏",
+	"浏览并下载社区 Lua 游戏脚本，扩展游戏库！",
 };
 
 const char* DesktopApp::GAME_ICONS[] =
@@ -54,6 +57,7 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/douDiZhu.jpg",
 	"F:system/desktop/chess.jpg",
 	"F:system/desktop/lua.jpg",
+	"F:system/desktop/market.jpg",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -585,6 +589,11 @@ void DesktopApp::startGame()
 		m_manager->pushToNewStack(new LuaManagerApp(display));
 		break;
 
+	case 6:
+		// 游戏市场
+		m_manager->pushToNewStack(new MarketApp(display));
+		break;
+
 	default:
 		// 未实现的游戏 — TestApp 占位
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
@@ -613,7 +622,7 @@ std::string DesktopApp::getAiContext()
 
 	ctx += "\n"
 		"可用焦点组（select 的 text 参数）：\n"
-		"- cards(0-5)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaManager）\n"
+		"- cards(0-6)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaManager/market）\n"
 		"- status(0-6)\t状态栏（时间/WiFi/蓝牙/音量/亮度/多主机/电池）\n"
 		"- buttons(0)\t开始游戏按钮\n\n";
 
@@ -637,6 +646,7 @@ std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
 		{ "chineseChess", "中国象棋", &ChineseChessRoom::newApp },
 		{ "luaManager", "Lua 脚本管理器", &LuaManagerApp::newApp },
+		{ "market", "游戏市场", &MarketApp::newApp },
 		{ "timeSettings", "时间设置", &TimeSettingsApp::newApp },
 		{ "wifiSettings", "WiFi 设置", &WifiSettingsApp::newApp },
 		{ "bleSettings", "蓝牙手柄设置", &BleSettingsApp::newApp },

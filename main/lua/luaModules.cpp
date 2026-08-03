@@ -14,6 +14,7 @@ extern "C" {
     int luaopen_input(lua_State* L);
     int luaopen_audio(lua_State* L);
     int luaopen_thread(lua_State* L);
+    int luaopen_storage(lua_State* L);
 }
 
 void luaRegisterModules(lua_State* L)
@@ -36,6 +37,9 @@ void luaRegisterModules(lua_State* L)
     luaL_requiref(L, "thread", luaopen_thread, 1);
     lua_pop(L, 1);
 
+    luaL_requiref(L, "storage", luaopen_storage, 1);
+    lua_pop(L, 1);
+
     // 设置随机种子
     lua_getglobal(L, "math");
     if (lua_istable(L, -1)) {
@@ -44,5 +48,5 @@ void luaRegisterModules(lua_State* L)
     }
     lua_pop(L, 1);
 
-    ESP_LOGI(TAG, "自定义 Lua 模块注册完成 (display/input/audio/thread)");
+    ESP_LOGI(TAG, "自定义 Lua 模块注册完成 (display/input/audio/thread/storage)");
 }
