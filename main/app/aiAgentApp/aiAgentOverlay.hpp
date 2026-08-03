@@ -85,10 +85,15 @@ private:
     uint16_t m_prevButtons[4]{};
     static void gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data);
 
-    // ── IME 拼音输入 ──
+    // ── IME 输入法 ──
     lv_obj_t* m_pinyinIme{};
     lv_obj_t* m_candPanel{};
-    bool m_isChineseMode{true};
+
+    // ── 输入法模式（拼音/五笔/英文），键盘图标按钮循环切换 ──
+    enum class ImeMode { Pinyin, Wubi, English };
+    ImeMode m_imeMode{ ImeMode::Pinyin };
+    bool isChinese() const { return m_imeMode != ImeMode::English; }
+    void setImeMode(ImeMode mode);
 
     // ── 依赖 ──
     Display* m_display{};
@@ -105,7 +110,7 @@ private:
     lv_obj_t* m_chatWrapper{};  // 聊天区滚动容器
     lv_obj_t* m_inputField{};   // 输入框
     lv_obj_t* m_sendBtn{};      // 发送按钮
-    lv_obj_t* m_modeLabel{};    // 中/EN 模式指示
+    lv_obj_t* m_modeLabel{};    // 拼/五/EN 模式指示
     lv_obj_t* m_keyboard{};     // LVGL 键盘
 
     // ── 状态 ──
@@ -154,8 +159,7 @@ private:
                                   const std::string& aiErr);
     void sendFollowUpRound(const std::string& followUpMsg);   // 发送 follow-up 轮（nextRound/自愈共用）
 
-    // ── IME 中英文切换 ──
-    void setChineseMode(bool enable);
+    // ── IME 键盘图标按钮（循环切换 拼/五/EN） ──
     static void kbExtraBtnCb(lv_event_t* e);
 
     // ── LVGL 事件回调 ──

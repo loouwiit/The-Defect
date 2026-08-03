@@ -48,8 +48,12 @@ _patch_apply() {
         # managed component patches
         target_dir="$PROJECT_DIR/managed_components/espressif__${component}/"
         if [ ! -d "$target_dir" ]; then
-            echo "  ⚠ component dir not found: $target_dir"
-            return
+            # 非 espressif 发布组件（如 lvgl__lvgl，目录名 = 发布者__组件名）：直接用原名
+            target_dir="$PROJECT_DIR/managed_components/${component}/"
+            if [ ! -d "$target_dir" ]; then
+                echo "  ⚠ component dir not found: $target_dir"
+                return
+            fi
         fi
         echo "  → target: $target_dir"
         patch_opts="-d $target_dir -p1 $COMMON_PATCH_OPTS"

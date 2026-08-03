@@ -1,0 +1,8 @@
+--- a/src/widgets/ime/lv_ime_pinyin.c	2026-08-03 00:00:00.000000000 +0800
++++ b/src/widgets/ime/lv_ime_pinyin.c	2026-08-03 00:00:00.000000000 +0800
+@@ -903,5 +903,2 @@
+     if(*py_str == '\0')    return NULL;
+-    if(*py_str == 'i')     return NULL;
+-    if(*py_str == 'u')     return NULL;
+-    if(*py_str == 'v')     return NULL;
+     if(*py_str == ' ')     return NULL;

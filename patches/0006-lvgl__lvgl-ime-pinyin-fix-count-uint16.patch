@@ -1,0 +1,7 @@
+--- a/src/widgets/ime/lv_ime_pinyin.c	2026-08-03 00:00:00.000000000 +0800
++++ b/src/widgets/ime/lv_ime_pinyin.c	2026-08-03 00:00:00.000000000 +0800
+@@ -899,3 +899,3 @@
+     const lv_pinyin_dict_t * cpHZ;
+     uint8_t index, len = 0, offset;
+-    volatile uint8_t count = 0;
++    volatile uint16_t count = 0;

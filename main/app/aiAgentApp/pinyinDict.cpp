@@ -11,7 +11,8 @@
 static constexpr char TAG[] = "PinyinDict";
 
 // 词库文件路径（FAT 分区，reserces/system/ 上传到 /root/）
-static const char* DICT_PATH = "/root/system/pinyin_dict.txt";
+static const char* PINYIN_PATH = "/root/system/pinyin_dict.txt";
+static const char* WUBI_PATH   = "/root/system/wubi_dict.txt";
 
 namespace {
 
@@ -25,15 +26,21 @@ struct Line {
 const lv_pinyin_dict_t* PinyinDict::loadFromFat()
 {
     // C++11 magic static：线程安全，仅首次初始化
-    static const lv_pinyin_dict_t* s_dict = doLoad();
+    static const lv_pinyin_dict_t* s_dict = doLoad(PINYIN_PATH);
     return s_dict;
 }
 
-const lv_pinyin_dict_t* PinyinDict::doLoad()
+const lv_pinyin_dict_t* PinyinDict::loadWubiFromFat()
 {
-    FILE* f = fopen(DICT_PATH, "r");
+    static const lv_pinyin_dict_t* s_dict = doLoad(WUBI_PATH);
+    return s_dict;
+}
+
+const lv_pinyin_dict_t* PinyinDict::doLoad(const char* dictPath)
+{
+    FILE* f = fopen(dictPath, "r");
     if (!f) {
-        ESP_LOGW(TAG, "无法打开 %s，回退 LVGL 内置词库", DICT_PATH);
+        ESP_LOGW(TAG, "无法打开 %s，回退 LVGL 内置词库", dictPath);
         return nullptr;
     }
 

@@ -370,9 +370,9 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_flex_grow(title, 1);
 	lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
-	// 中/EN 模式指示器（默认中文）
+	// 输入法模式指示器（拼/五/EN），由键盘图标按钮循环切换
 	m_modeLabel = lv_label_create(m_titleBar);
-	lv_label_set_text(m_modeLabel, "中");
+	lv_label_set_text(m_modeLabel, "拼");
 	lv_obj_set_style_text_font(m_modeLabel, smlFont, 0);
 	lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
 
@@ -462,10 +462,15 @@ void AiAgentOverlay::buildUi()
 
 	// 2) 创建 IME（构造时会创建候选面板，位于键盘之后）
 	m_pinyinIme = lv_ime_pinyin_create(m_container);
-	// 自定义简体词库（FAT 加载；失败返回 nullptr 时保持 LVGL 内置词库）
-	if (PinyinDict::loadFromFat() != nullptr)
-		lv_ime_pinyin_set_dict(m_pinyinIme, const_cast<lv_pinyin_dict_t*>(PinyinDict::loadFromFat()));
-	else ESP_LOGE(TAG, "加载 FAT 拼音词库失败，使用内置词库");
+	// 注入当前输入法词库（拼音/五笔；FAT 加载，失败返回 nullptr 时保持 LVGL 内置词库）
+	{
+		const lv_pinyin_dict_t* dict = (m_imeMode == ImeMode::Wubi)
+			? PinyinDict::loadWubiFromFat()
+			: PinyinDict::loadFromFat();
+		if (dict)
+			lv_ime_pinyin_set_dict(m_pinyinIme, const_cast<lv_pinyin_dict_t*>(dict));
+		else ESP_LOGE(TAG, "加载 FAT 词库失败，使用内置词库");
+	}
 	lv_obj_set_style_text_font(m_pinyinIme, smlFont, 0);  // 自动传播到候选面板
 
 	// 3) 关联 IME ↔ 键盘
@@ -803,7 +808,7 @@ void AiAgentOverlay::onSend()
 
 	// 先模拟 OK 按钮让 IME 清空内部状态（之后恢复焦点位置）
 	// OK 会触发 READY→onSend 递归，但 m_nextActionTime 防重会拦截
-	if (m_isChineseMode && m_candPanel) {
+	if (isChinese() && m_candPanel) {
 		auto guard = m_display->lockGuard();
 		lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
 		uint32_t oldSel = lv_buttonmatrix_get_selected_button(m_keyboard);
@@ -1097,7 +1102,7 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_B)) {
 			// B 键 → 退格删除
-			if (self->m_isChineseMode && self->m_keyboard && !kbdHidden) {
+			if (self->isChinese() && self->m_keyboard && !kbdHidden) {
 				// 中文模式：让键盘+IME 处理（键盘删字 + IME 更新候选）
 				// 暂存原焦点位置，执行退格后恢复
 				Task::addTask([](void* arg) -> TickType_t {
@@ -1297,33 +1302,45 @@ void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
 }
 
 // ============================================================
-//  中英文切换
+//  输入法模式切换（拼音/五笔/英文）
 // ============================================================
 
-void AiAgentOverlay::setChineseMode(bool enable)
+void AiAgentOverlay::setImeMode(ImeMode mode)
 {
-	if (m_isChineseMode == enable) return;
-	m_isChineseMode = enable;
+	if (m_imeMode == mode) return;
+	m_imeMode = mode;
 
 	// 清理 IME 中间状态（候选面板 + 输入缓冲）
-	lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
-	// 触发键盘 OK 键来清空 IME 内部 ta_count 等状态
-	// 断开再重连 textarea 让 IME 重置
+	if (m_candPanel)
+		lv_obj_add_flag(m_candPanel, LV_OBJ_FLAG_HIDDEN);
+	// 断开再重连 textarea 让 IME 重置内部状态
 	if (m_keyboard && m_inputField) {
 		lv_keyboard_set_textarea(m_keyboard, nullptr);
 		lv_keyboard_set_textarea(m_keyboard, m_inputField);
 	}
 
-	if (enable) {
-		lv_label_set_text(m_modeLabel, "中");
-		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
-		ESP_LOGI(TAG, "切换到中文输入");
+	// 中文模式注入对应词库（拼音/五笔）；英文模式保持当前词库
+	if (mode != ImeMode::English) {
+		// ⚠ 🔣 按钮会同时触发 LVGL lv_ime_pinyin_kb_event 做 K26↔K9 模式翻转，
+		//   而 CONFIG_LV_IME_PINYIN_USE_K9_MODE 未启用（K9 分支被编译掉）→ mode=K9 时候选失效、字母直接上屏。
+		//   本回调在 LVGL 回调之后执行，强制回 K26 全键盘模式，保证拼音/五笔候选正常。
+		lv_ime_pinyin_set_mode(m_pinyinIme, LV_IME_PINYIN_MODE_K26);
+
+		const lv_pinyin_dict_t* dict = (mode == ImeMode::Wubi)
+			? PinyinDict::loadWubiFromFat()
+			: PinyinDict::loadFromFat();
+		if (dict)
+			lv_ime_pinyin_set_dict(m_pinyinIme, const_cast<lv_pinyin_dict_t*>(dict));
 	}
-	else {
-		lv_label_set_text(m_modeLabel, "EN");
-		lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
-		ESP_LOGI(TAG, "切换到英文输入");
-	}
+
+	// 更新指示标签（拼/五/EN）
+	if (m_modeLabel)
+		lv_label_set_text(m_modeLabel,
+			(mode == ImeMode::Wubi)     ? "五"
+			: (mode == ImeMode::English) ? "EN" : "拼");
+	ESP_LOGI(TAG, "输入法切换: %s",
+		(mode == ImeMode::Wubi)     ? "五笔"
+		: (mode == ImeMode::English) ? "英文" : "拼音");
 }
 
 void AiAgentOverlay::kbExtraBtnCb(lv_event_t* e)
@@ -1339,13 +1356,17 @@ void AiAgentOverlay::kbExtraBtnCb(lv_event_t* e)
 	const char* txt = lv_buttonmatrix_get_button_text(self->m_keyboard, btnId);
 	if (!txt) return;
 
-	// 检测键盘图标按钮（LV_SYMBOL_KEYBOARD / LV_SYMBOL_CLOSE）按下
+	// 键盘图标按钮（LV_SYMBOL_KEYBOARD / LV_SYMBOL_CLOSE）→ 循环切换输入法：拼 → 五 → EN → 拼
 	if (lv_strcmp(txt, LV_SYMBOL_KEYBOARD) == 0 || lv_strcmp(txt, LV_SYMBOL_CLOSE) == 0) {
-		self->setChineseMode(!self->m_isChineseMode);
+		switch (self->m_imeMode) {
+		case ImeMode::Pinyin:  self->setImeMode(ImeMode::Wubi);    break;
+		case ImeMode::Wubi:    self->setImeMode(ImeMode::English); break;
+		case ImeMode::English: self->setImeMode(ImeMode::Pinyin);  break;
+		}
 	}
 
 	// 英文模式下：隐藏 IME 可能弹出的候选面板
-	if (!self->m_isChineseMode) {
+	if (!self->isChinese()) {
 		lv_obj_add_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN);
 	}
 }

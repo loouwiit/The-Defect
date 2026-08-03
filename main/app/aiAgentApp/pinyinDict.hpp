@@ -16,10 +16,13 @@
  */
 class PinyinDict {
 public:
-    /** @brief 加载词库（单例缓存，只加载一次）。
+    /** @brief 加载拼音词库（/root/system/pinyin_dict.txt，单例缓存）。
      *  返回以 {NULL,NULL} 终止的 lv_pinyin_dict_t 数组（PSRAM）；失败返回 nullptr */
     static const lv_pinyin_dict_t* loadFromFat();
 
+    /** @brief 加载五笔词库（/root/system/wubi_dict.txt，单例缓存）。失败返回 nullptr */
+    static const lv_pinyin_dict_t* loadWubiFromFat();
+
 private:
-    static const lv_pinyin_dict_t* doLoad();
+    static const lv_pinyin_dict_t* doLoad(const char* path);
 };
