@@ -1365,6 +1365,34 @@ void AiAgentOverlay::kbExtraBtnCb(lv_event_t* e)
 		}
 	}
 
+	// 空格键：中文模式有候选时上屏当前候选（否则正常输入空格）
+	if (lv_strcmp(txt, " ") == 0 && self->isChinese()) {
+		if (self->m_candPanel && !lv_obj_has_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN)) {
+			uint32_t candBtn = lv_buttonmatrix_get_selected_button(self->m_candPanel);
+			// 无选中/翻页键 → 默认第一个候选
+			if (candBtn == LV_BUTTONMATRIX_BUTTON_NONE || candBtn == 0 ||
+				candBtn == (LV_IME_PINYIN_CAND_TEXT_NUM + 1))
+				candBtn = 1;
+			if (candBtn >= 1 && candBtn <= LV_IME_PINYIN_CAND_TEXT_NUM) {
+				const char* candTxt = lv_buttonmatrix_get_button_text(self->m_candPanel, candBtn);
+				if (candTxt && candTxt[0] != '\0' && candTxt[0] != ' ') {
+					// 撤销 keyboard 默认已加入的空格（仅当末尾确为空格）
+					lv_obj_t* ta = lv_keyboard_get_textarea(self->m_keyboard);
+					if (ta) {
+						lv_textarea_set_cursor_pos(ta, LV_TEXTAREA_CURSOR_LAST);
+						const char* text = lv_textarea_get_text(ta);
+						size_t len = lv_strlen(text);
+						if (len > 0 && text[len - 1] == ' ')
+							lv_textarea_delete_char(ta);
+					}
+					// 上屏当前候选（触发候选面板 VALUE_CHANGED → LVGL 选字 + 焦点切回键盘）
+					lv_buttonmatrix_set_selected_button(self->m_candPanel, candBtn);
+					lv_obj_send_event(self->m_candPanel, LV_EVENT_VALUE_CHANGED, NULL);
+				}
+			}
+		}
+	}
+
 	// 英文模式下：隐藏 IME 可能弹出的候选面板
 	if (!self->isChinese()) {
 		lv_obj_add_flag(self->m_candPanel, LV_OBJ_FLAG_HIDDEN);
