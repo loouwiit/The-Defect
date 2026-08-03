@@ -131,7 +131,7 @@ void DouDizhuTable::createStatic()
 	auto fntMed = FontLoader::getDefault(FontLoader::FontSize::Medium);
 	makeLabel(m_nameLbl[1], 110, 10, 220, "玩家", C_SUBTLE, false, fntMed);
 	makeLabel(m_nameLbl[2], 1280 - 330, 10, 220, "玩家", C_SUBTLE, true, fntMed);
-	makeLabel(m_nameLbl[0], 20, 662, 80, "我", C_ACCENT, false, fntMed);
+	makeLabel(m_nameLbl[0], 20, 662, 130, "我", C_ACCENT, false, fntMed);
 
 	makeLabel(m_scoreLbl[1], 110, 48, 220, "", C_SUBTLE, false, fntMed);
 	makeLabel(m_scoreLbl[2], 1280 - 330, 48, 220, "", C_SUBTLE, true, fntMed);
@@ -369,18 +369,24 @@ void DouDizhuTable::renderBottom()
 
 void DouDizhuTable::renderLabels()
 {
-	// 玩家名
+	// 玩家名（地主名字加 ★ 前缀 + 醒目黄色，所有人一眼可辨）
 	const char* defaultNames[3] = { "我", "玩家2", "玩家3" };
 	for (int s = 0; s < 3; s++) {
 		const char* name = m_st.names[s][0] ? m_st.names[s] : defaultNames[s];
-		lv_label_set_text(m_nameLbl[s], name);
+		bool isLandlord = (m_st.phase == 2 || m_st.phase == 3) && m_st.landlord == s;
+		char buf[80];
+		if (isLandlord) snprintf(buf, sizeof(buf), "★ %s", name);
+		else snprintf(buf, sizeof(buf), "%s", name);
+		lv_label_set_text(m_nameLbl[s], buf);
 		char score[48];
 		snprintf(score, sizeof(score), "剩余%d  分:%d", m_st.cardCount[s], m_st.scores[s]);
 		lv_label_set_text(m_scoreLbl[s], score);
-		// 轮到谁 → 高亮名称
+		// 轮到谁 → 高亮名称；地主恒为醒目黄
 		bool active = (m_st.phase == 2 && m_st.turn == s) ||
 		              (m_st.phase == 1 && m_st.bidTurn == s);
-		lv_obj_set_style_text_color(m_nameLbl[s], lv_color_hex(active ? C_TURN : (s == m_st.mySeat ? C_ACCENT : C_SUBTLE)), 0);
+		uint32_t col = active ? C_TURN : (s == m_st.mySeat ? C_ACCENT : C_SUBTLE);
+		if (isLandlord) col = C_TURN;
+		lv_obj_set_style_text_color(m_nameLbl[s], lv_color_hex(col), 0);
 	}
 
 	// 叫分信息（单行，避免括号换行）

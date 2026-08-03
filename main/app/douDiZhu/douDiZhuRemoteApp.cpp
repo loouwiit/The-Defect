@@ -108,20 +108,18 @@ void DouDizhuRemoteApp::gameTick()
 		return;
 	}
 
+	TickType_t now = xTaskGetTickCount();
+
 	if (m_client.hasNewState()) {
 		m_view = m_client.getView();
 		m_client.consumeNewState();
 		m_wasMyPlayTurn = false;
+		m_turnStartTick = now;   // 以最近一次主机广播为回合同步基准
 		renderCurrent();
 	}
 
-	// ── 出牌倒计时 + 超时自动行动（本机回合） ──
-	TickType_t now = xTaskGetTickCount();
-	if (m_view.phase == 2 && m_view.turn == m_view.seat) {
-		if (!m_wasMyPlayTurn) {
-			m_wasMyPlayTurn = true;
-			m_turnStartTick = now;
-		}
+	// ── 出牌倒计时（任意玩家回合都每秒刷新）+ 超时自动行动（本机回合） ──
+	if (m_view.phase == 2) {
 		int elapsedSec = (int)((now - m_turnStartTick) / configTICK_RATE_HZ);
 		int remain = TURN_TIMEOUT_SEC - elapsedSec;
 		if (remain < 0) remain = 0;
@@ -129,11 +127,10 @@ void DouDizhuRemoteApp::gameTick()
 			m_countdownSec = remain;
 			renderCurrent();
 		}
-		if (remain <= 0) {
+		if (m_view.turn == m_view.seat && remain <= 0) {
 			if (m_view.myMustLead()) autoLead();
 			else m_client.sendPass();
 			m_wasMyPlayTurn = false;
-			m_turnStartTick = now;
 		}
 	} else {
 		m_wasMyPlayTurn = false;

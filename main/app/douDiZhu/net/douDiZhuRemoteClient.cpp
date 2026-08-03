@@ -321,6 +321,12 @@ void DouDizhuRemoteClient::processLine(const char* line)
 				if (item && cJSON_IsNumber(item)) v.cardCount[i] = item->valueint;
 			}
 		}
+		// 若我是地主：本地把 3 张底牌并入自己手牌，保证手牌数与"剩余"一致
+		// （主机随后也会单独发 HAND 覆盖，此处为双保险，避免手牌数量刷新异常）
+		if (v.landlord == v.seat) {
+			for (int k = 0; k < DouDizhuLogic::BOTTOM_SIZE; k++) v.hand[v.handCount++] = v.bottom[k];
+			DouDizhuLogic::sortHand(v.hand, v.handCount);
+		}
 		m_hasNew = true;
 	}
 	else if (strcmp(tag, DouDizhuMsg::TURN) == 0) {
@@ -342,7 +348,7 @@ void DouDizhuRemoteClient::processLine(const char* line)
 		if (isPass) {
 			v.trickPass[seat] = true;
 			v.trickCount[seat] = 0;
-			v.lastPlaySeat = seat;
+			// lastPlaySeat 保持原值：pass 不改变"当前墩最后出牌者"
 		} else {
 			cJSON* cards = cJSON_GetObjectItem(root, "cards");
 			int n = 0;

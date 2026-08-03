@@ -34,7 +34,7 @@ private:
 	void gameTick();
 
 	bool m_waitStatusShown = false;
-	TickType_t m_turnStartTick = 0;
+	TickType_t m_turnStartTick = 0;   // 回合同步基准（最近一次主机广播时刻），用于倒计时推算
 	int  m_countdownSec = 30;
 	bool m_wasMyPlayTurn = false;
 	static constexpr int TURN_TIMEOUT_SEC = 30;
