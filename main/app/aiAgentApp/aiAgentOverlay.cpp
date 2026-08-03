@@ -465,7 +465,7 @@ void AiAgentOverlay::buildUi()
 	// 注入当前输入法词库（拼音/五笔；FAT 加载，失败返回 nullptr 时保持 LVGL 内置词库）
 	{
 		const lv_pinyin_dict_t* dict = (m_imeMode == ImeMode::Wubi)
-			? PinyinDict::loadWubiFromFat()
+			? PinyinDict::loadMixedFromFat()
 			: PinyinDict::loadFromFat();
 		if (dict)
 			lv_ime_pinyin_set_dict(m_pinyinIme, const_cast<lv_pinyin_dict_t*>(dict));
@@ -1327,7 +1327,7 @@ void AiAgentOverlay::setImeMode(ImeMode mode)
 		lv_ime_pinyin_set_mode(m_pinyinIme, LV_IME_PINYIN_MODE_K26);
 
 		const lv_pinyin_dict_t* dict = (mode == ImeMode::Wubi)
-			? PinyinDict::loadWubiFromFat()
+			? PinyinDict::loadMixedFromFat()
 			: PinyinDict::loadFromFat();
 		if (dict)
 			lv_ime_pinyin_set_dict(m_pinyinIme, const_cast<lv_pinyin_dict_t*>(dict));

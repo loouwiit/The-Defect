@@ -23,6 +23,9 @@ public:
     /** @brief 加载五笔词库（/root/system/wubi_dict.txt，单例缓存）。失败返回 nullptr */
     static const lv_pinyin_dict_t* loadWubiFromFat();
 
+    /** @brief 加载混合词库（五笔优先+拼音兜底，/root/system/wubi_pinyin_dict.txt）。失败返回 nullptr */
+    static const lv_pinyin_dict_t* loadMixedFromFat();
+
 private:
     static const lv_pinyin_dict_t* doLoad(const char* path);
 };
