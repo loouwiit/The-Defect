@@ -40,7 +40,7 @@ void LuaManagerApp::scanScripts()
 {
 	m_scripts.clear();
 
-	const char* dirs[] = { "/root/lua/game", "/root/lua" };
+	const char* dirs[] = { "/root/lua/game", "/root/lua", "/root/lua/market" };
 
 	for (const char* dir : dirs) {
 		DIR* d = opendir(dir);
