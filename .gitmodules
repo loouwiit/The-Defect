@@ -1,3 +1,6 @@
 [submodule "gamepad"]
 	path = gamepad
 	url = https://codeberg.org/loouwiit/esp32c6HidJoystick
+[submodule "The-Defect-Market"]
+	path = The-Defect-Market
+	url = ssh://git@codeberg.org/loouwiit/The-Defect-Market.git
