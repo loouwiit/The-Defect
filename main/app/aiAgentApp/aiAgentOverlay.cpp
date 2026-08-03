@@ -443,6 +443,9 @@ void AiAgentOverlay::buildUi()
 	// ★ 字体 + 白色文字
 	lv_obj_set_style_text_font(m_inputField, smlFont, 0);
 	lv_obj_set_style_text_color(m_inputField, GUI::Color::TEXT, 0);
+	// 光标白色
+	lv_obj_set_style_bg_color(m_inputField, GUI::Color::TEXT, LV_PART_CURSOR);
+	lv_obj_set_style_bg_opa(m_inputField, LV_OPA_COVER, LV_PART_CURSOR);
 
 	m_sendBtn = lv_btn_create(inputRow);
 	lv_obj_set_size(m_sendBtn, 48, 46);
