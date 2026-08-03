@@ -58,7 +58,7 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/douDiZhu.jpg",
 	"F:system/desktop/chess.jpg",
 	"F:system/desktop/lua.jpg",
-	"F:system/desktop/market.jpg",
+	"F:system/desktop/gameMarket.jpg",
 };
 
 DesktopApp::DesktopApp(Display* display)
