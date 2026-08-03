@@ -333,6 +333,7 @@ void LuaManagerApp::rebuildList()
 		lv_obj_set_style_pad_bottom(row, 4, 0);
 		lv_obj_set_style_radius(row, 0, 0);
 		lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);   // 行不可独立滚动（lv_obj_create 默认可滚动）
 		lv_obj_set_user_data(row, (void*)(uintptr_t)i);
 
 		// 聚焦样式
@@ -366,6 +367,7 @@ void LuaManagerApp::rebuildList()
 		lv_obj_set_style_bg_opa(leftArea, LV_OPA_TRANSP, 0);
 		lv_obj_set_style_pad_all(leftArea, 0, 0);
 		lv_obj_clear_flag(leftArea, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_clear_flag(leftArea, LV_OBJ_FLAG_SCROLLABLE);   // 内容区不可独立滚动
 
 		auto* nameLabel = lv_label_create(leftArea);
 		lv_label_set_text(nameLabel, se.displayName.c_str());
@@ -380,6 +382,7 @@ void LuaManagerApp::rebuildList()
 		lv_obj_set_style_pad_all(rightArea, 0, 0);
 		lv_obj_set_style_pad_gap(rightArea, 12, 0);
 		lv_obj_clear_flag(rightArea, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_clear_flag(rightArea, LV_OBJ_FLAG_SCROLLABLE);   // 内容区不可独立滚动
 
 		// 简短路径
 		auto* pathLabel = lv_label_create(rightArea);
