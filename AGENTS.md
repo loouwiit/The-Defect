@@ -77,14 +77,17 @@ reserces/
 | | luaInput | `main/lua/bindings/luaInput.cpp` | 手柄输入轮询 API（is_pressed/joystick/connected） |
 | | luaAudio | `main/lua/bindings/luaAudio.cpp` | 音频播放 API（play_sfx/play_bgm/set_volume） |
 | | luaThread | `main/lua/bindings/luaThread.cpp` | 线程/延时 API（sleep/now/random） |
+| | luaStorage | `main/lua/bindings/luaStorage.cpp` | 安全存档 API（save/load/remove/exists，限定 `/root/lua/data/`） |
 | | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt) |
 | | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口） |
-| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**6** 游戏卡片（含 LuaManager），3 焦点组导航 |
+| **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
+| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**7** 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
 | | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
 | | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
 | | ChineseChess | `main/app/chineseChess/` | 中国象棋（含 AI 引擎） |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
+| | MarketApp | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载运行/本地运行 |
 | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
@@ -136,7 +139,7 @@ reserces/
 class LuaRuntime {
     LuaRuntime();
     ~LuaRuntime();                          // lua_close()
-    bool init();                            // 打开标准库
+    bool init();                            // 打开安全标准库（沙箱）
     bool loadScript(const char* path);      // luaL_loadfile + lua_pcall
     bool loadString(const char* code);      // luaL_loadstring + lua_pcall
     bool callFunction(const char* name, int nargs=0, int nresults=0);
@@ -156,8 +159,17 @@ class LuaRuntime {
 | luaInput | `bindings/luaInput.cpp` | `is_pressed/is_just_pressed/joystick/buttons/connected/player_count` |
 | luaAudio | `bindings/luaAudio.cpp` | `play/play_sfx/play_bgm/stop_bgm/set_volume` |
 | luaThread | `bindings/luaThread.cpp` | `sleep/now/random` |
+| luaStorage | `bindings/luaStorage.cpp` | `save/load/remove/exists`（安全存档，限定 `/root/lua/data/`） |
 
 颜色格式：支持 `"#ff0000"` / `0xff0000` / `{r=255,g=0,b=0}` 三种。
+
+### Lua 沙箱（安全边界）
+
+`LuaRuntime::init()` 只打开**安全标准库**（base/coroutine/math/string/table/utf8），并移除 base 里的 `dofile`/`loadfile`；**io / os / package / debug 一律不开放**。所有 Lua 脚本（AI 生成 + 市场下载）统一沙箱化。
+
+- 文件读写只能通过 `storage` 模块（白名单 `/root/lua/data/`，禁止路径穿越，单文件 ≤256KB）
+- 防死循环：`LuaGameApp` 每帧调用 `loop(dt)` 前挂指令计数 hook（`lua_sethook`，1000 万条/帧上限），超限中断并走 `reportLuaError()` 错误路径
+- 效果：脚本无法读取系统文件（如 AI API Key）、无法删改系统数据
 
 ### LuaGameApp — Lua 游戏运行器
 
@@ -879,7 +891,7 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **DesktopApp** | `main/app/desktopApp/` | 桌面启动器，5 游戏卡片网格，3 焦点组（卡片/底部按钮/状态栏），手柄 4 方向导航 |
+| **DesktopApp** | `main/app/desktopApp/` | 桌面启动器，7 游戏卡片网格，3 焦点组（卡片/底部按钮/状态栏），手柄 4 方向导航 |
 
 按钮映射：
 | 操作 | 按键 |
@@ -1021,6 +1033,7 @@ class App {
 | App | 路径 | 说明 |
 |-----|------|------|
 | **LuaManagerApp** | `main/app/luaManagerApp/` | Lua 脚本管理器：浏览/运行/删除/重命名脚本，AI 生成入口 |
+| **MarketApp** | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载运行/本地运行 |
 | **TestApp** | `main/app/testApp/` | 测试用，开发调试 |
 
 ### Tetris 模块详情
@@ -1211,6 +1224,37 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 - 槽位交换同时交换 **mask**，从机通过 hostname 匹配自动更新 `m_mySlot`
 - 聚焦导航：CARD → MASK → ACTIONS 三阶层级
 - AI 入口：`open_app("consoleManager")`
+
+---
+
+## 游戏市场
+
+从网络市场服务器浏览并下载社区 Lua 游戏脚本，一键运行。服务端与游戏内容为独立仓库 `The-Defect-Market/`（git submodule）。
+
+**模块路径**: `main/market/`（客户端）+ `main/app/marketApp/`（UI）
+
+### 设备端协议
+
+| 接口 | 说明 |
+|------|------|
+| `GET /api/scripts` | 脚本列表（JSON，含 name/author/version/desc/tags/rating/downloads/thumb/screenshot/download） |
+| `GET /games/<作者>/<游戏>/<file>` | 脚本 / 缩略图 / 大图（静态文件） |
+| `POST /api/stats/download` | 下载量 +1（下载成功自动上报） |
+| `GET /api/search?q=` | 按名称/作者/标签/简介搜索（服务端 SQLite） |
+
+- 服务器地址：`/root/system/market_config.json` 的 `server_url` 字段
+- `MarketClient`（`main/market/marketClient.hpp`，header-only）异步封装三个 GET + 一个 POST
+- `MarketConfig`（`main/market/marketConfig.hpp`）从 FAT JSON 读服务器地址
+
+### MarketApp — 市场 UI
+
+| 特性 | 说明 |
+|------|------|
+| 入口 | 桌面第 7 张卡片「游戏市场」；AI `open_app("market")` |
+| 一级界面 | 3 列截图卡片网格（缩略图懒加载串行队列，未加载显示 ★评分 占位） |
+| 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 简介/版本/更新时间/下载量/评分 + 下载运行 |
+| 已下载识别 | 下载存 `/root/lua/market/<id>.lua`；`testFile()` 检测 → 按钮变「运行」直接本地启动，卡片显示「已装」角标 |
+| 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载运行）；B 返回 |
 
 ---
 
@@ -1449,6 +1493,10 @@ struct GamepadState {
 BLE 手柄使用独立的 ESP32-C6 固件项目，通过 Git Submodule 挂载在 `gamepad/`：
 
 > **[esp32c6HidJoystick](https://codeberg.org/loouwiit/esp32c6HidJoystick)** — ESP32-C6 BLE HID Gamepad 固件
+
+游戏市场服务器与社区游戏内容同样以 Git Submodule 挂载在根目录 `The-Defect-Market/`：
+
+> **[The-Defect-Market](https://codeberg.org/loouwiit/The-Defect-Market)** — 游戏市场服务器 + 社区 Lua 游戏仓库（静态内容走文件系统，动态数据走 SQLite）
 
 ```bash
 git clone --recurse-submodules https://<本仓库地址>

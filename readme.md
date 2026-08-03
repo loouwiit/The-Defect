@@ -70,6 +70,17 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 ③ 出错时 → 报错给 AI → 下次对话 AI 修复 → 重新生成
 ```
 
+### 🌐 游戏市场 — 社区 Lua 游戏下载
+
+集成网络市场，浏览并下载其他作者发布的 Lua 游戏脚本，一键运行：
+
+- **独立 App**：桌面第七张卡片「游戏市场」进入
+- **截图卡片网格**：一级界面显示横屏截图缩略图 + 名称 + 作者 + 版本，缩略图懒加载
+- **详情页**：大图 / 简介 / 版本 / 更新时间 / 下载量 / 评分 + 下载运行
+- **已下载识别**：下载存 `/root/lua/market/`，已下载脚本显示「✓ 运行」直接本地启动（离线可玩），卡片带「已装」角标
+- **下载量上报**：运行统计自动上报服务端
+- **服务端独立仓库**：`The-Defect-Market`（git submodule），静态内容走 `market/<作者>/<游戏>/` 文件系统（作者 PR 即上架），动态数据（评分/下载量/搜索）走 SQLite，提供 `/api/search` 搜索接口
+
 ### �🌐 多主机跨局域联结机
 
 - **BLE 配对风格连接**：ConsoleManager 扫描局域网内主机，点击即成为从机
@@ -148,11 +159,12 @@ ESP32-C6 (协处理器)
 | 🍉 **水果忍者** | ✅ 2 人对战 | 多人同屏切水果 |
 | 🐍 **贪吃蛇** | ✅ 4 人对战 | 经典蛇对战 |
 | ♟️ **中国象棋** | ✅ 双人 + AI | 本地双人 / 内置 AI 引擎 |
-| 🎮 **桌面启动器** | — | 6 游戏卡片（含 LuaScriptManager），3 焦点组导航 |
+| 🎮 **桌面启动器** | — | 7 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
 
 所有界面均支持触摸输入与蓝牙手柄输入
 
 ### 设置
+- **游戏市场** — 浏览并下载社区 Lua 游戏（截图网格 + 详情 + 下载运行/本地运行），桌面第七张卡片进入
 - **Lua 脚本管理** — 浏览/运行/删除/重命名 Lua 脚本，AI 生成新游戏入口
 - **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
 - **WiFi 配置** — AP 扫描、密码输入、连接状态
@@ -328,8 +340,11 @@ reserces/
 ```
 ├── main/
 │   ├── main.cpp              ← 启动入口
-│   ├── app/                  ← 应用层 (12 Apps)
-│   │   └── aiAgentApp/       ← AI 助手 + PinyinDict 输入法词库
+│   ├── app/                  ← 应用层 (15 Apps)
+│   │   ├── aiAgentApp/       ← AI 助手 + PinyinDict 输入法词库
+│   │   ├── luaGameApp/       ← Lua 游戏运行器
+│   │   ├── luaManagerApp/    ← Lua 脚本管理器
+│   │   └── marketApp/        ← 游戏市场
 │   ├── audio/                ← ES8311 + Audio 管理器
 │   ├── battery/              ← 电池管理
 │   ├── bleGamepad/           ← BLE 手柄 (NimBLE + esp_hosted)
@@ -338,6 +353,8 @@ reserces/
 │   ├── gui/                  ← GUI 辅助类
 │   ├── host/                 ← 跨主机联机 (HostManager / wsInputHandler / wsConsoleHandler / udpInput)
 │   ├── iic/                  ← I²C 总线
+│   ├── lua/                  ← Lua 5.5 引擎（沙箱）+ 绑定模块
+│   ├── market/               ← 游戏市场 HTTP 客户端
 │   ├── monitor/              ← CPU 监视器
 │   ├── mutex/                ← RAII 互斥锁
 │   ├── screenStream/         ← 屏幕串流
@@ -350,6 +367,7 @@ reserces/
 │   ├── wifi/                 ← WiFi / mDNS / TCP Socket
 │   └── wsServer/             ← WebSocket 服务器
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
+├── The-Defect-Market/        ← 游戏市场服务器 + 社区游戏内容 (git submodule)
 ├── patches/                  ← managed_components 补丁（6 个）
 ├── reserces/                 ← FAT 分区资源文件
 │   ├── lua/                  ← Lua 脚本
@@ -366,6 +384,7 @@ reserces/
 | 项目 | 仓库 | 路径 | 说明 |
 |------|------|------|------|
 | **esp32c6HidJoystick** | [codeberg.org/loouwiit/esp32c6HidJoystick](https://codeberg.org/loouwiit/esp32c6HidJoystick) | `gamepad/` (submodule) | ESP32-C6 BLE HID 无线手柄固件，与本机通过 NimBLE 配对通信 |
+| **The-Defect-Market** | [codeberg.org/loouwiit/The-Defect-Market](https://codeberg.org/loouwiit/The-Defect-Market) | `The-Defect-Market/` (submodule) | 游戏市场服务器 + 社区 Lua 游戏内容仓库（文件系统存静态、SQLite 存动态），作者 PR 游戏即上架 |
 
 ### 克隆完整项目
 
@@ -376,3 +395,4 @@ git submodule update --init --recursive
 ```
 
 手柄固件位于 `gamepad/` 目录，独立构建（ESP-IDF + esp32c6 target）。
+游戏市场服务器位于 `The-Defect-Market/` 目录，独立部署：`cd The-Defect-Market && node server.js`。
