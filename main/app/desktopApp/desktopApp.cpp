@@ -11,6 +11,7 @@
 #include "app/snake/snakeRoom/snakeRoom.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
+#include "app/douDiZhu/douDiZhuRoom.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
 #include "app/luaManagerApp/luaManagerApp.hpp"
 #include "app/marketApp/marketApp.hpp"
@@ -57,7 +58,7 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/douDiZhu.jpg",
 	"F:system/desktop/chess.jpg",
 	"F:system/desktop/lua.jpg",
-	"F:system/desktop/market.jpg",
+	"F:system/desktop/gameMarket.jpg",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -579,6 +580,11 @@ void DesktopApp::startGame()
 		m_manager->pushToNewStack(new TetrisRoomApp(display));
 		break;
 
+	case 3:
+		// 斗地主 — 大厅（单机 AI / 多主机联机）
+		m_manager->pushToNewStack(new DouDizhuRoom(display));
+		break;
+
 	case 4:
 		// 中国象棋
 		m_manager->pushToNewStack(new ChineseChessRoom(display));
@@ -644,6 +650,7 @@ std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 		{ "snake", "贪吃蛇", &SnakeRoom::newApp },
 		{ "fruitNinja", "水果忍者", &FruitNinjaRoom::newApp },
 		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
+		{ "doudizhu", "斗地主", &DouDizhuRoom::newApp },
 		{ "chineseChess", "中国象棋", &ChineseChessRoom::newApp },
 		{ "luaManager", "Lua 脚本管理器", &LuaManagerApp::newApp },
 		{ "market", "游戏市场", &MarketApp::newApp },
