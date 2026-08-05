@@ -5,13 +5,12 @@
 #include "task/task.hpp"
 #include "wifi/wifi.hpp"
 #include "esp_log.h"
-#include "esp_sntp.h"
-#include "esp_netif_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <ctime>
 #include <cstring>
 #include <cstdlib>
+#include <sys/time.h>   // settimeofday（手动调时）
 
 // ════════════════════════════════════════════════════════════════
 // 构造 / 析构
@@ -47,6 +46,22 @@ void TimeSettingsApp::init()
 
 	buildUi();
 
+	// 从全局服务同步自动同步开关状态（服务为唯一事实来源，NVS 持久化）
+	m_autoSync = TimeService::instance().isAutoSync();
+	if (m_autoSync)
+	{
+		lv_label_set_text(m_autoSyncToggleLabel, "ON");
+		lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
+	}
+	else
+	{
+		lv_label_set_text(m_autoSyncToggleLabel, "OFF");
+		lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x50, 0x30, 0x30), 0);
+	}
+
+	// 注册同步完成回调（事件线程直接调用，与 deinit 的 removeSyncCb 互斥，无悬垂）
+	m_syncCbHandle = TimeService::instance().addSyncCb([this]() { onSyncDone(); });
+
 	m_focusGroup = FOCUS_TITLE;
 	m_focusTitleIdx = 0;
 	m_focusAdjustIdx = 0;
@@ -62,6 +77,13 @@ void TimeSettingsApp::init()
 
 void TimeSettingsApp::deinit()
 {
+	// 先移除全局回调，防止事件线程后续访问已销毁的 App
+	if (m_syncCbHandle != 0)
+	{
+		TimeService::instance().removeSyncCb(m_syncCbHandle);
+		m_syncCbHandle = 0;
+	}
+
 	if (m_refreshTimer)
 	{
 		lv_timer_del(m_refreshTimer);
@@ -486,19 +508,19 @@ void TimeSettingsApp::resetSeconds()
 
 void TimeSettingsApp::toggleAutoSync()
 {
-	m_autoSync = !m_autoSync;
-	if (m_autoSync)
+	bool enable = !TimeService::instance().isAutoSync();
+	TimeService::instance().setAutoSync(enable);  // NVS 持久化；开启且已连 WiFi 时立即同步
+	m_autoSync = enable;
+
+	if (enable)
 	{
+		lv_label_set_text(m_autoSyncToggleLabel, "ON");
+		lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
 		if (wifiIsConnect())
-		{
-			lv_label_set_text(m_autoSyncToggleLabel, "ON");
-			lv_obj_set_style_bg_color(m_autoSyncToggle, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
-			doSyncNow();
-		}
+			doSyncNow();   // 开启且已连 WiFi → 立即同步（含 UI 状态）
 		else
 		{
-			m_autoSync = false;
-			lv_label_set_text(m_syncStatusLabel, "没有 WiFi 连接");
+			lv_label_set_text(m_syncStatusLabel, "等待 WiFi 连接...");
 			lv_obj_set_style_text_color(m_syncStatusLabel, GUI::Color::WARNING, 0);
 		}
 	}
@@ -530,16 +552,25 @@ void TimeSettingsApp::doSyncNow()
 	lv_obj_add_state(m_syncNowBtn, LV_STATE_DISABLED);
 	lv_obj_set_style_bg_color(m_syncNowBtn, LV_COLOR_MAKE(0x50, 0x50, 0x50), 0);
 
-	// 初始化 SNTP（乐鑫官方推荐方式）
-	esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-	config.start = true;
-	config.server_from_dhcp = false;
-	config.renew_servers_after_new_IP = true;
-	config.index_of_first_server = 0;
-	config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
-	esp_netif_sntp_init(&config);
+	// 触发全局 SNTP 立即同步（全局服务已初始化，此处只重启）
+	TimeService::instance().forceSync();
 
 	ESP_LOGI(TAG, "SNTP 同步启动");
+}
+
+void TimeSettingsApp::onSyncDone()
+{
+	// 由全局服务事件线程调用（与 deinit 的 removeSyncCb 互斥，App 必然存活）
+	auto guard = display->lockGuard();
+	if (!guard) return;
+	if (!running) return;   // 兜底：理论上互斥已保证存活
+
+	m_syncInProgress = false;
+	lv_label_set_text(m_syncStatusLabel, "已同步");
+	lv_obj_set_style_text_color(m_syncStatusLabel, GUI::Color::SUCCESS, 0);
+	lv_obj_clear_state(m_syncNowBtn, LV_STATE_DISABLED);
+	lv_obj_set_style_bg_color(m_syncNowBtn, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
+	ESP_LOGI(TAG, "SNTP 同步成功（事件）");
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -42,6 +42,7 @@
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "monitor/cpuMonitor.hpp"
 #include "battery/batteryManager.hpp"
+#include "time/timeService.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -213,6 +214,10 @@ extern "C" void app_main(void)
 	wifiInit(true);
 
 	wifiStart();
+
+	// 全局时间同步服务（SNTP 一次性初始化，WiFi 拿到 IP 时自动同步）
+	TimeService::instance().start();
+
 	auto sta = wifiStationGetInfo();
 	wifiStationStart();
 	wifiConnect((const char*)sta.ssid, (const char*)sta.password);

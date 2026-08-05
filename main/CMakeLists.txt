@@ -12,6 +12,7 @@ idf_component_register(SRCS "main.cpp"
                             "monitor/cpuMonitor.cpp"
                             "battery/batteryManager.cpp"
                             "power/powerManager.cpp"
+                            "time/timeService.cpp"
                             "discovery/discovery.cpp"
 
                             "server/serverKernal.cpp"

@@ -2,6 +2,7 @@
 
 #include "app/app.hpp"
 #include "lvgl.h"
+#include "time/timeService.hpp"
 #include <cstdint>
 
 /**
@@ -63,9 +64,10 @@ private:
 	lv_obj_t* m_syncStatusLabel{};
 
 	// SNTP 状态
-	bool m_autoSync{ false };
+	bool m_autoSync{ false };                 // 自动同步开关（全局 TimeService 快照，服务为唯一事实来源）
 	bool m_syncInProgress{ false };
 	TickType_t m_syncStartTick{ 0 };
+	TimeService::SyncCbHandle m_syncCbHandle{}; // 全局服务同步完成回调句柄（deinit 时定点清除）
 	static constexpr int SyncTimeout = 15000;
 
 	// ── 定时器 ──
@@ -102,6 +104,7 @@ private:
 	void resetSeconds();
 	void toggleAutoSync();
 	void doSyncNow();
+	void onSyncDone();                 // 全局服务同步完成回调（事件线程调用）
 
 	// ── 静态回调 ──
 	static void timerCb(lv_timer_t* t);
