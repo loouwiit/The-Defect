@@ -22,7 +22,7 @@ fat,      data, fat  ,      16M, 16M,
 分区说明：
 | 分区 | 大小 | 用途 |
 |------|------|------|
-| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名等） |
+| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名、时间自动同步开关等） |
 | otadata | 8KB | OTA 启动选择数据 |
 | phy_init | 4KB | WiFi/BT 物理层校准数据 |
 | ota_0 | 6MB | 应用固件（单 OTA slot） |
@@ -60,6 +60,7 @@ reserces/
 | | GPIO | `main/gpio/` | GPIO 装饰器封装，`=` / `bool` / `int` 运算符重载，ISR 注册 |
 | | IIC | `main/iic/` | I²C 主控总线 (`IIC`) + 设备封装 (`IICDevice`)，自动端口选择 |
 | | VirtualGamepad | `main/gamepad/virtualGamepad.hpp` | 统一手柄输入抽象层，60fps Dispatch + hostMask 掩码 + 远程转发 |
+| | TimeService | `main/time/timeService.hpp` | 全局 SNTP 时间同步服务：自动同步 NVS 持久化 + WiFi 连接自动同步 + 周期校正 + 句柄化多回调 |
 | **显示/输入** | Display | `main/display/display.hpp` | ILI9881C 初始化 + LVGL 适配层，`LockGuard` RAII（递归锁） |
 | | ILI9881c | `main/display/ili9881c.cpp` | 面板驱动（MIPI DSI），背光亮度控制 |
 | | FontLoader | `main/display/font.cpp` | FreeType 字体加载，3 字号全局默认字体，VFS 驱动器 'F' |
@@ -565,6 +566,48 @@ class WsClient {
     void setOnDisconnected(std::function<void()> cb);
 };
 ```
+
+---
+
+### TimeService — 全局时间同步服务
+
+**模块路径**: `main/time/timeService.hpp` / `timeService.cpp`
+
+系统级单例（`TimeService::instance()`），在 `main.cpp` 的 `wifiStart()` 后 `start()` 一次性初始化 SNTP 并保持运行。
+
+```cpp
+class TimeService {
+    static TimeService& instance();
+
+    void start();                                   // 初始化 SNTP（仅一次）+ 读 NVS 自动开关 + 注册 GOT_IP 事件
+    bool isAutoSync() const;                        // 自动同步开关（NVS 持久化，默认开启）
+    void setAutoSync(bool enable);                  // 设置并持久化；开启且已连 WiFi 时立即同步
+    void forceSync();                               // 立即重启 SNTP 重新同步（幂等）
+    bool isSynced() const;                          // 系统时间是否已同步（tm_year > 70）
+    time_t getLastSyncUnix() const;                 // 最近一次成功同步的 Unix 时间
+
+    using SyncCbHandle = uint32_t;
+    SyncCbHandle addSyncCb(std::function<void()> cb); // 注册同步完成回调，返回句柄
+    void removeSyncCb(SyncCbHandle handle);           // 按句柄定点清除（幂等）
+};
+```
+
+**行为**：
+- **自动同步默认开启 + NVS 持久化**：namespace `"time"` / key `"auto_sync"`，重启保持
+- **WiFi 连接时同步**：监听 `IP_EVENT_STA_GOT_IP`，自动模式下调 `forceSync()`
+- **周期性同步**：lwIP SNTP 内置轮询（`CONFIG_LWIP_SNTP_UPDATE_DELAY=3600000`，1h），服务持续运行即自动校正
+- **同步完成通知**：`config.sync_cb`（⚠ ESP-IDF v5.5.2 **无** `NETIF_SNTP_TIME_SYNC` 事件，须用回调）
+
+**多回调 + 定点清除（防悬垂）**：
+- `addSyncCb` 支持多个监听者，返回句柄；`removeSyncCb(handle)` 精确移除
+- 回调容器 `Mutex` 保护；`notifySyncDone()` **持锁直接调用**（不拷贝），与 `removeSyncCb`（App `deinit()` 调用）互斥
+  → 回调执行时注册者必然存活，App 退出后事件线程不再访问已销毁对象
+- 约定：回调体内不得再调用 TimeService 方法（防非递归锁死锁），应保持轻量
+
+**⚠ 注意**：`esp_netif_sntp_init()` 只能成功调用一次（重复调用返回 `ESP_ERR_INVALID_STATE`）。
+`forceSync()` 用 `esp_netif_sntp_start()`（已启动时自动 stop+init 重启），切勿重复 init。
+
+**接入 App**（`TimeSettingsApp`）：`init()` 从 `isAutoSync()` 同步开关显示 + `addSyncCb` 注册；`deinit()` `removeSyncCb` 清除。
 
 ---
 
