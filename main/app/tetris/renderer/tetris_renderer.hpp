@@ -85,9 +85,13 @@ private:
     int            m_cellSize = 32;
     lv_coord_t     m_playerWidth = 640;
 
-    // 棋盘格: cells[lvglRow][col], lvglRow=0=顶=board y=21
+    // 棋盘: 单个 canvas（PSRAM RGB565 缓冲），lvglRow=0=顶=board y=21
     static constexpr int ROWS = BOARD_HEIGHT;
-    lv_obj_t* m_cells[ROWS][BOARD_WIDTH]{};
+    lv_obj_t*      m_boardCanvas{};
+    lv_draw_buf_t* m_boardDrawBuf{};   // canvas 内部 draw_buf（取 header.stride）
+    uint8_t*       m_boardBuf{};       // PSRAM 像素缓冲（析构释放）
+    size_t         m_boardStride = 0;
+    int            m_boardW = 0, m_boardH = 0;
 
     // 视觉缓存: 上次渲染的棋盘值，用于 diff
     BoardCell m_visualCache[ROWS][BOARD_WIDTH]{};
@@ -101,16 +105,21 @@ private:
     lv_obj_t* m_comboLabel{};
     lv_obj_t* m_garbageLabel{};
 
-    // 预览区小格子
+    // 预览区: 每槽 1 个 canvas（PSRAM RGB565 缓冲）
     static constexpr int PREVIEW_SIZE = 4;
     static constexpr int PREVIEW_COUNT = 4;
-    lv_obj_t* m_nextCells[PREVIEW_COUNT][PREVIEW_SIZE][PREVIEW_SIZE]{};
+    lv_obj_t*      m_nextCanvases[PREVIEW_COUNT]{};
+    lv_draw_buf_t* m_nextDrawBufs[PREVIEW_COUNT]{};
+    uint8_t*       m_nextBufs[PREVIEW_COUNT]{};
+    size_t         m_nextStride = 0;
+    int            m_previewPixelSize = 0;   // 每预览格像素尺寸
 
     // 上次渲染的方块/ghost 位置（供增量清除用）
     int m_lastPieceCols[4]{}, m_lastPieceRows[4]{};
     int m_lastGhostCols[4]{}, m_lastGhostRows[4]{};
     bool m_lastPieceValid = false;
     bool m_lastGhostValid = false;
+    bool m_initialInvalidated = false;   // 首次 syncState 强制失效所有 canvas 上屏
 
     // 攻击目标切换回调
     std::function<void()> m_onCycleTarget;
@@ -139,16 +148,18 @@ private:
 
     static lv_color_t pieceToColor(BoardCell val);
     static lv_color_t pieceTypeToColor(PieceType type);
-    void applyCellColor(int lvglRow, int col, lv_color_t color);
     void createBoardGrid(lv_obj_t* parent);
     void createNextPreview(lv_obj_t* parent);
     void createInfoLabels(lv_obj_t* parent);
-    void clearPreviewGrid(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE]);
-    void drawPreviewPiece(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE],
-                          PieceType type, lv_color_t color);
+
+    // ── canvas 像素缓冲绘制辅助 ──
+    void paintBoardCell(int lvglRow, int col, lv_color_t color, lv_opa_t opa);
+    void paintPreviewCell(int slot, int r, int c, lv_color_t color, lv_opa_t opa);
+    void clearPreviewSlot(int slot);                 // 清空一个预览槽
+    void drawPreviewPiece(int slot, PieceType type, lv_color_t color);
+    void invalidateBoardLocal(lv_area_t* local);     // 失效棋盘本地子区域（自动转屏幕坐标）
 
     // 内部渲染辅助方法
-    void syncBoard(const Board& board);
     void drawNext(const PieceType preview[4]);
     void drawInfo(int combo, int garbageFlash, int attackTarget);
 };

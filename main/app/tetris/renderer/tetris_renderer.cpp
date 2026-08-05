@@ -1,7 +1,9 @@
 #include "tetris_renderer.hpp"
 #include "display/font.hpp"
 #include "gui/gui.hpp"
+#include <esp_heap_caps.h>
 #include <cstring>
+#include <cassert>
 #include <algorithm>
 
 static constexpr char TAG[] = "TetrisRenderer";
@@ -147,6 +149,9 @@ TetrisRenderer::~TetrisRenderer()
 
 {
 	// LVGL 对象由父容器自动销毁
+	heap_caps_free(m_boardBuf);
+	for (int i = 0; i < PREVIEW_COUNT; i++)
+		heap_caps_free(m_nextBufs[i]);
 }
 
 // ============================================================
@@ -167,23 +172,26 @@ void TetrisRenderer::createBoardGrid(lv_obj_t* parent)
 	lv_obj_set_scrollbar_mode(board, LV_SCROLLBAR_MODE_OFF);
 	lv_obj_set_scroll_dir(board, LV_DIR_NONE);
 
+	// ── 棋盘渲染：单个 canvas（PSRAM RGB565 缓冲），替代 220 个 cell 对象 ──
+	m_boardW = BOARD_WIDTH * m_cellSize;
+	m_boardH = ROWS * m_cellSize;
+	const size_t bufSize = (size_t)m_boardW * m_boardH * 2;
+	m_boardBuf = static_cast<uint8_t*>(
+		heap_caps_malloc(bufSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	assert(m_boardBuf);
+
+	m_boardCanvas = lv_canvas_create(board);
+	lv_obj_remove_style_all(m_boardCanvas);
+	lv_obj_set_pos(m_boardCanvas, 0, 0);
+	lv_canvas_set_buffer(m_boardCanvas, m_boardBuf, m_boardW, m_boardH,
+		LV_COLOR_FORMAT_RGB565);
+	m_boardDrawBuf = lv_canvas_get_draw_buf(m_boardCanvas);
+	m_boardStride = m_boardDrawBuf->header.stride;
+
+	// 初始整板填充空色 + 网格线（与原先逐 cell 边框视觉一致）
 	for (int lvglRow = 0; lvglRow < ROWS; lvglRow++)
-	{
-		bool isHidden = (lvglRow < BOARD_HIDDEN_H);  // 顶 2 行为隐藏行
-		lv_color_t bgColor = isHidden ? COLOR_HIDDEN : COLOR_EMPTY;
 		for (int col = 0; col < BOARD_WIDTH; col++)
-		{
-			auto cell = lv_obj_create(board);
-			lv_obj_remove_style_all(cell);
-			lv_obj_set_size(cell, m_cellSize, m_cellSize);
-			lv_obj_set_pos(cell, col * m_cellSize, lvglRow * m_cellSize);
-			lv_obj_set_style_bg_color(cell, bgColor, 0);
-			lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-			lv_obj_set_style_border_width(cell, 1, 0);
-			lv_obj_set_style_border_color(cell, COLOR_GRID_LINE, 0);
-			m_cells[lvglRow][col] = cell;
-		}
-	}
+			paintBoardCell(lvglRow, col, emptyColorForRow(lvglRow), LV_OPA_COVER);
 }
 
 // ============================================================
@@ -193,8 +201,8 @@ void TetrisRenderer::createBoardGrid(lv_obj_t* parent)
 void TetrisRenderer::createNextPreview(lv_obj_t* parent)
 
 {
-	int previewSize = m_cellSize * 3 / 4;
-	int gridSize = previewSize * PREVIEW_SIZE;
+	m_previewPixelSize = m_cellSize * 3 / 4;
+	int gridSize = m_previewPixelSize * PREVIEW_SIZE;
 
 	// Next 容器 — flex 列，自动居中
 	m_nextPanel = lv_obj_create(parent);
@@ -208,87 +216,163 @@ void TetrisRenderer::createNextPreview(lv_obj_t* parent)
 	lv_obj_set_flex_align(m_nextPanel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	lv_obj_set_height(m_nextPanel, LV_SIZE_CONTENT);
 
-	// 4 个预览槽
+	// 4 个预览槽 — 每槽 1 个 canvas（PSRAM RGB565 缓冲）
 	for (int slot = 0; slot < PREVIEW_COUNT; slot++)
 	{
-		auto grid = lv_obj_create(m_nextPanel);
-		lv_obj_remove_style_all(grid);
-		lv_obj_set_size(grid, gridSize, gridSize);
-		lv_obj_set_style_bg_color(grid, lv_color_darken(COLOR_EMPTY, 2), 0);
-		lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, 0);
+		const size_t bufSize = (size_t)gridSize * gridSize * 2;
+		m_nextBufs[slot] = static_cast<uint8_t*>(
+			heap_caps_malloc(bufSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+		assert(m_nextBufs[slot]);
 
-		for (int r = 0; r < PREVIEW_SIZE; r++)
-		{
-			for (int c = 0; c < PREVIEW_SIZE; c++)
-			{
-				auto cell = lv_obj_create(grid);
-				lv_obj_remove_style_all(cell);
-				lv_obj_set_size(cell, previewSize, previewSize);
-				lv_obj_set_pos(cell, c * previewSize, r * previewSize);
-				lv_obj_set_style_bg_color(cell, COLOR_EMPTY, 0);
-				lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-				lv_obj_set_style_border_width(cell, 1, 0);
-				lv_obj_set_style_border_color(cell, COLOR_GRID_LINE, 0);
-				m_nextCells[slot][r][c] = cell;
-			}
-		}
+		auto cv = lv_canvas_create(m_nextPanel);
+		lv_obj_remove_style_all(cv);
+		lv_obj_set_size(cv, gridSize, gridSize);
+		lv_canvas_set_buffer(cv, m_nextBufs[slot], gridSize, gridSize,
+			LV_COLOR_FORMAT_RGB565);
+		m_nextCanvases[slot] = cv;
+		m_nextDrawBufs[slot] = lv_canvas_get_draw_buf(cv);
+		if (m_nextStride == 0)
+			m_nextStride = m_nextDrawBufs[slot]->header.stride;
+
+		// 初始画空格 + 网格线（格子全覆盖，替代原 lv_color_darken 底色）
+		clearPreviewSlot(slot);
 	}
 }
 
 // ============================================================
-//  棋盘同步
+//  canvas 像素缓冲绘制辅助
 // ============================================================
 
-void TetrisRenderer::syncBoard(const Board& board)
-
+/// RGB565 混合: 将 src 以 opa(0-255) 叠加到 dst 上
+static inline uint16_t blend565(uint16_t dst, uint16_t src, lv_opa_t opa)
 {
-	for (int y = 0; y < BOARD_VISIBLE_H; y++)
-	{
-		int lvglRow = boardYToLvglRow(y);
-		for (int col = 0; col < BOARD_WIDTH; col++)
-		{
-			BoardCell val = board.get(col, y);
-			// diff: 只更新视觉上有变化的格子
-			if (m_visualCache[lvglRow][col] != val)
-			{
-				m_visualCache[lvglRow][col] = val;
-				applyCellColor(lvglRow, col, pieceToColor(val));
-			}
-		}
-	}
+	if (opa >= LV_OPA_COVER) return src;
+	if (opa <= LV_OPA_TRANSP) return dst;
+	uint32_t dr = (dst >> 11) & 0x1F, dg = (dst >> 5) & 0x3F, db = dst & 0x1F;
+	uint32_t sr = (src >> 11) & 0x1F, sg = (src >> 5) & 0x3F, sb = src & 0x1F;
+	uint32_t inv = 255 - opa;
+	uint32_t r = (sr * opa + dr * inv) / 255;
+	uint32_t g = (sg * opa + dg * inv) / 255;
+	uint32_t b = (sb * opa + db * inv) / 255;
+	return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-void TetrisRenderer::applyCellColor(int lvglRow, int col, lv_color_t color)
+/// 画棋盘一格（填色 + 1px 边框）；opa<COVER 时先恢复空格底色再半透明叠色（ghost 语义）
+void TetrisRenderer::paintBoardCell(int lvglRow, int col, lv_color_t color, lv_opa_t opa)
 
 {
 	if (lvglRow < 0 || lvglRow >= ROWS || col < 0 || col >= BOARD_WIDTH)
 		return;
-	// border/bg_opa 在 createBoardGrid 中已初始化，运行时只改 bg_color
-	lv_obj_set_style_bg_color(m_cells[lvglRow][col], color, 0);
-}
+	if (!m_boardBuf) return;
 
-// ============================================================
-// ============================================================
-//  Hold / Next 预览更新
-// ============================================================
+	const int cs = m_cellSize;
+	uint8_t* base = m_boardBuf + (size_t)(lvglRow * cs) * m_boardStride
+		+ (size_t)(col * cs) * 2;
+	uint16_t v = lv_color_to_u16(color);
+	uint16_t grid = lv_color_to_u16(COLOR_GRID_LINE);
 
-void TetrisRenderer::clearPreviewGrid(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE])
-
-{
-	for (int r = 0; r < PREVIEW_SIZE; r++)
+	if (opa >= LV_OPA_COVER)
 	{
-		for (int c = 0; c < PREVIEW_SIZE; c++)
+		// 实色填充 + 网格线边框
+		for (int y = 0; y < cs; y++)
 		{
-			lv_obj_set_style_bg_color(grid[r][c], COLOR_EMPTY, 0);
+			uint16_t* p = (uint16_t*)(base + (size_t)y * m_boardStride);
+			for (int x = 0; x < cs; x++) p[x] = v;
+		}
+		for (int x = 0; x < cs; x++)
+		{
+			((uint16_t*)base)[x] = grid;
+			((uint16_t*)(base + (size_t)(cs - 1) * m_boardStride))[x] = grid;
+		}
+		for (int y = 0; y < cs; y++)
+		{
+			uint16_t* p = (uint16_t*)(base + (size_t)y * m_boardStride);
+			p[0] = grid;
+			p[cs - 1] = grid;
+		}
+	}
+	else
+	{
+		// ghost: 先恢复空格底色+网格，再以 opa 叠色、边框 50% 叠色（与原 bg_opa/border_opa 语义一致）
+		uint16_t baseCol = lv_color_to_u16(emptyColorForRow(lvglRow));
+		for (int y = 0; y < cs; y++)
+		{
+			uint16_t* p = (uint16_t*)(base + (size_t)y * m_boardStride);
+			for (int x = 0; x < cs; x++) p[x] = baseCol;
+			p[0] = grid;
+			p[cs - 1] = grid;
+		}
+		for (int x = 0; x < cs; x++)
+		{
+			((uint16_t*)base)[x] = grid;
+			((uint16_t*)(base + (size_t)(cs - 1) * m_boardStride))[x] = grid;
+		}
+		for (int y = 0; y < cs; y++)
+		{
+			uint16_t* p = (uint16_t*)(base + (size_t)y * m_boardStride);
+			for (int x = 0; x < cs; x++) p[x] = blend565(p[x], v, opa);
+			p[0] = blend565(p[0], v, LV_OPA_50);
+			p[cs - 1] = blend565(p[cs - 1], v, LV_OPA_50);
+		}
+		for (int x = 0; x < cs; x++)
+		{
+			uint16_t* top = (uint16_t*)base;
+			top[x] = blend565(top[x], v, LV_OPA_50);
+			uint16_t* bot = (uint16_t*)(base + (size_t)(cs - 1) * m_boardStride);
+			bot[x] = blend565(bot[x], v, LV_OPA_50);
 		}
 	}
 }
 
-void TetrisRenderer::drawPreviewPiece(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE],
-	PieceType type, lv_color_t color)
+// ============================================================
+//  Hold / Next 预览更新（每槽 1 个 canvas）
+// ============================================================
+
+/// 画预览槽一格（填色 + 1px 边框）
+void TetrisRenderer::paintPreviewCell(int slot, int r, int c, lv_color_t color, lv_opa_t opa)
 
 {
-	clearPreviewGrid(grid);
+	if (slot < 0 || slot >= PREVIEW_COUNT || !m_nextBufs[slot]) return;
+	const int ps = m_previewPixelSize;
+	uint8_t* base = m_nextBufs[slot] + (size_t)(r * ps) * m_nextStride
+		+ (size_t)(c * ps) * 2;
+	uint16_t v = lv_color_to_u16(color);
+	uint16_t grid = lv_color_to_u16(COLOR_GRID_LINE);
+
+	for (int y = 0; y < ps; y++)
+	{
+		uint16_t* p = (uint16_t*)(base + (size_t)y * m_nextStride);
+		for (int x = 0; x < ps; x++)
+			p[x] = (opa >= LV_OPA_COVER) ? v : blend565(p[x], v, opa);
+	}
+	for (int x = 0; x < ps; x++)
+	{
+		((uint16_t*)base)[x] = grid;
+		((uint16_t*)(base + (size_t)(ps - 1) * m_nextStride))[x] = grid;
+	}
+	for (int y = 0; y < ps; y++)
+	{
+		uint16_t* p = (uint16_t*)(base + (size_t)y * m_nextStride);
+		p[0] = grid;
+		p[ps - 1] = grid;
+	}
+}
+
+/// 清空一个预览槽（画满空格 + 网格线）
+void TetrisRenderer::clearPreviewSlot(int slot)
+
+{
+	if (slot < 0 || slot >= PREVIEW_COUNT) return;
+	for (int r = 0; r < PREVIEW_SIZE; r++)
+		for (int c = 0; c < PREVIEW_SIZE; c++)
+			paintPreviewCell(slot, r, c, COLOR_EMPTY, LV_OPA_COVER);
+}
+
+/// 绘制某个预览槽的方块形状
+void TetrisRenderer::drawPreviewPiece(int slot, PieceType type, lv_color_t color)
+
+{
+	clearPreviewSlot(slot);
 
 	if (type == PieceType::NONE) return;
 
@@ -299,20 +383,34 @@ void TetrisRenderer::drawPreviewPiece(lv_obj_t* grid[PREVIEW_SIZE][PREVIEW_SIZE]
 		{
 			if (shape[r][c])
 			{
-				lv_obj_set_style_bg_color(grid[r][c], color, 0);
+				paintPreviewCell(slot, r, c, color, LV_OPA_COVER);
 			}
 		}
 	}
 }
 
+/// 失效棋盘 canvas 的本地子区域（lv_obj_invalidate_area 需要屏幕坐标，这里自动换算）
+void TetrisRenderer::invalidateBoardLocal(lv_area_t* local)
+
+{
+	if (!m_boardCanvas) return;
+	lv_area_t c;
+	lv_obj_get_coords(m_boardCanvas, &c);
+	lv_area_t scr;
+	lv_area_set(&scr, c.x1 + local->x1, c.y1 + local->y1,
+		c.x1 + local->x2, c.y1 + local->y2);
+	lv_obj_invalidate_area(m_boardCanvas, &scr);
+}
+
 void TetrisRenderer::drawNext(const PieceType preview[4])
 
 {
-	if (auto guard = m_display->lockGuard())
-		for (int slot = 0; slot < PREVIEW_COUNT; slot++)
-		{
-			drawPreviewPiece(m_nextCells[slot], preview[slot], pieceTypeToColor(preview[slot]));
-		}
+	// 调用方已持 LVGL 锁；预览槽小且低频变化，整面板重绘（每槽 1 次失效 ≤4 条，不溢出）
+	for (int slot = 0; slot < PREVIEW_COUNT; slot++)
+	{
+		drawPreviewPiece(slot, preview[slot], pieceTypeToColor(preview[slot]));
+		lv_obj_invalidate(m_nextCanvases[slot]);
+	}
 }
 
 // ============================================================
@@ -489,6 +587,18 @@ void TetrisRenderer::syncState()
 
 	const GameState& cur = *m_gameState;
 
+	// ── 首次渲染：强制失效所有 canvas，确保初始棋盘/预览上屏（此时布局已完成，coords 有效）──
+	if (!m_initialInvalidated)
+	{
+		m_initialInvalidated = true;
+		if (auto guard = m_display->lockGuard())
+		{
+			lv_obj_invalidate(m_boardCanvas);
+			for (int s = 0; s < PREVIEW_COUNT; s++)
+				lv_obj_invalidate(m_nextCanvases[s]);
+		}
+	}
+
 	// ── 棋盘 diff（粘性 boardChanged + dirty row mask，空闲帧 0 开销）──
 
 	if (cur.boardChanged)
@@ -502,6 +612,11 @@ void TetrisRenderer::syncState()
 
 		if (auto guard = m_display->lockGuard())
 		{
+			// 合并失效区域（对象本地坐标），末尾一次失效，避免失效缓冲溢出→全屏重绘
+			lv_area_t dirtyArea;
+			lv_area_set(&dirtyArea, LV_COORD_MAX, LV_COORD_MAX, LV_COORD_MIN, LV_COORD_MIN);
+			bool hasDirty = false;
+
 			for (int y = 0; y < BOARD_HEIGHT; y++)
 			{
 				if (!(dirtyMask & (1u << y))) continue;
@@ -512,11 +627,26 @@ void TetrisRenderer::syncState()
 					if (m_visualCache[lvglRow][col] != val)
 					{
 						m_visualCache[lvglRow][col] = val;
-						applyCellColor(lvglRow, col,
-							val ? pieceToColor(val) : emptyColorForRow(lvglRow));
+						paintBoardCell(lvglRow, col,
+							val ? pieceToColor(val) : emptyColorForRow(lvglRow),
+							LV_OPA_COVER);
+
+						lv_area_t cell;
+						lv_area_set(&cell, col * m_cellSize, lvglRow * m_cellSize,
+							col * m_cellSize + m_cellSize - 1,
+							lvglRow * m_cellSize + m_cellSize - 1);
+						if (!hasDirty) { dirtyArea = cell; hasDirty = true; }
+						else {
+							dirtyArea.x1 = LV_MIN(dirtyArea.x1, cell.x1);
+							dirtyArea.y1 = LV_MIN(dirtyArea.y1, cell.y1);
+							dirtyArea.x2 = LV_MAX(dirtyArea.x2, cell.x2);
+							dirtyArea.y2 = LV_MAX(dirtyArea.y2, cell.y2);
+						}
 					}
 				}
 			}
+			if (hasDirty)
+				invalidateBoardLocal(&dirtyArea);
 		}
 	}
 
@@ -539,6 +669,24 @@ void TetrisRenderer::syncState()
 			{
 				lv_color_t color = pieceTypeToColor(cur.currentPieceType);
 
+				// 合并失效区域（对象本地坐标），末尾一次失效
+				lv_area_t dirtyArea;
+				lv_area_set(&dirtyArea, LV_COORD_MAX, LV_COORD_MAX, LV_COORD_MIN, LV_COORD_MIN);
+				bool hasDirty = false;
+				auto addCell = [&](int r, int c) {
+					if (r < 0 || r >= ROWS || c < 0 || c >= BOARD_WIDTH) return;
+					lv_area_t cell;
+					lv_area_set(&cell, c * m_cellSize, r * m_cellSize,
+						c * m_cellSize + m_cellSize - 1, r * m_cellSize + m_cellSize - 1);
+					if (!hasDirty) { dirtyArea = cell; hasDirty = true; }
+					else {
+						dirtyArea.x1 = LV_MIN(dirtyArea.x1, cell.x1);
+						dirtyArea.y1 = LV_MIN(dirtyArea.y1, cell.y1);
+						dirtyArea.x2 = LV_MAX(dirtyArea.x2, cell.x2);
+						dirtyArea.y2 = LV_MAX(dirtyArea.y2, cell.y2);
+					}
+				};
+
 				// 清除旧 ghost
 				if (ghostChanged && m_lastGhostValid)
 				{
@@ -547,13 +695,11 @@ void TetrisRenderer::syncState()
 						int c = m_lastGhostCols[i], r = m_lastGhostRows[i];
 						if (r >= 0 && r < ROWS)
 						{
-							lv_obj_set_style_bg_color(m_cells[r][c],
+							paintBoardCell(r, c,
 								m_visualCache[r][c]
 								? pieceToColor(m_visualCache[r][c])
-								: emptyColorForRow(r), 0);
-							lv_obj_set_style_bg_opa(m_cells[r][c], LV_OPA_COVER, 0);
-							lv_obj_set_style_border_width(m_cells[r][c], 1, 0);
-							lv_obj_set_style_border_color(m_cells[r][c], COLOR_GRID_LINE, 0);
+								: emptyColorForRow(r), LV_OPA_COVER);
+							addCell(r, c);
 						}
 					}
 					m_lastGhostValid = false;
@@ -567,10 +713,11 @@ void TetrisRenderer::syncState()
 						int c = m_lastPieceCols[i], r = m_lastPieceRows[i];
 						if (r >= 0 && r < ROWS)
 						{
-							lv_obj_set_style_bg_color(m_cells[r][c],
+							paintBoardCell(r, c,
 								m_visualCache[r][c]
 								? pieceToColor(m_visualCache[r][c])
-								: emptyColorForRow(r), 0);
+								: emptyColorForRow(r), LV_OPA_COVER);
+							addCell(r, c);
 						}
 					}
 					m_lastPieceValid = false;
@@ -593,11 +740,8 @@ void TetrisRenderer::syncState()
 						m_lastGhostRows[i] = r;
 						if (r >= 0 && r < ROWS)
 						{
-							lv_obj_set_style_bg_color(m_cells[r][cols[i]], color, 0);
-							lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_30, 0);
-							lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
-							lv_obj_set_style_border_color(m_cells[r][cols[i]], color, 0);
-							lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_50, 0);
+							paintBoardCell(r, cols[i], color, LV_OPA_30);
+							addCell(r, cols[i]);
 						}
 					}
 					m_lastGhostValid = true;
@@ -618,15 +762,15 @@ void TetrisRenderer::syncState()
 						m_lastPieceRows[i] = r;
 						if (r >= 0 && r < ROWS)
 						{
-							applyCellColor(r, cols[i], color);
-							lv_obj_set_style_bg_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
-							lv_obj_set_style_border_width(m_cells[r][cols[i]], 1, 0);
-							lv_obj_set_style_border_color(m_cells[r][cols[i]], COLOR_GRID_LINE, 0);
-							lv_obj_set_style_border_opa(m_cells[r][cols[i]], LV_OPA_COVER, 0);
+							paintBoardCell(r, cols[i], color, LV_OPA_COVER);
+							addCell(r, cols[i]);
 						}
 					}
 					m_lastPieceValid = true;
 				}
+
+				if (hasDirty)
+					invalidateBoardLocal(&dirtyArea);
 			}
 	}
 
@@ -658,7 +802,8 @@ void TetrisRenderer::syncState()
 			// Hold 显示已合并到预览区第一个槽
 			PieceType preview[4];
 			for (int s = 0; s < 4; s++) preview[s] = cur.nextPieces[s];
-			drawNext(preview);
+			if (auto guard = m_display->lockGuard())
+				drawNext(preview);
 		}
 	}
 
