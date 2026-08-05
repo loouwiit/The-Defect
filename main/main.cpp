@@ -45,6 +45,12 @@
 
 static constexpr char TAG[] = "main";
 
+Display display{};
+IIC iic;
+Touch touch{};
+ES8311 audio{};
+AppStackManager stackManager{};
+
 extern "C" void app_main(void)
 {
 	Task::init(2);
@@ -91,7 +97,6 @@ extern "C" void app_main(void)
 	constexpr auto verticalResolution = 1280;
 
 	// 初始化LVGL
-	Display display;
 	if (!display.init())
 	{
 		ESP_LOGE(TAG, "Failed to initialize display");
@@ -106,9 +111,7 @@ extern "C" void app_main(void)
 	}
 
 	display.bindDisplay(ILI9881c::getInstance().getPanel(), ILI9881c::getInstance().getPanelIo(), horizontalResolution, verticalResolution, tearAvoidMode, rotation);
-
-	IIC iic{ {GPIO_NUM_8}, {GPIO_NUM_7} };
-	Touch touch{};
+	iic = IIC{ {GPIO_NUM_8}, {GPIO_NUM_7} };
 	if (iic.detect(Touch::Address))
 	{
 		ESP_LOGI(TAG, "Touch controller found at address 0x%02X", Touch::Address);
@@ -167,7 +170,6 @@ extern "C" void app_main(void)
 	Task::addTask([](void* param)->TickType_t{VirtualIndev::instance().start((Display*)param); return Task::infinityTime;}, "starting virtual indev", &display, 0, Task::Affinity::None);
 
 	// 音频
-	ES8311 audio{};
 	if (audio.init(iic, {
 		.i2s_mck = GPIO_NUM_13,
 		.i2s_bck = GPIO_NUM_12,
@@ -189,7 +191,7 @@ extern "C" void app_main(void)
 	BatteryManager::instance().init();
 
 	// 启动 AppStackManager — 多栈导航系统
-	AppStackManager stackManager(&display);
+	stackManager = std::move(AppStackManager{ &display });
 	display.setStackManager(&stackManager);
 
 	// 创建根栈（索引 0）并推入桌面应用
@@ -268,8 +270,4 @@ extern "C" void app_main(void)
 	// UDP 游戏手柄输入（端口 8082，替代 WebSocket 的低延迟方案）
 	udpInputStart();
 	ESP_LOGI(TAG, "udpInputStart done");
-
-	// 主循环 — stackManager 和所有 app 在栈上自动生命周期管理
-	while (true)
-		vTaskDelay(1000);
 }

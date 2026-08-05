@@ -29,7 +29,13 @@
 class AppStackManager
 {
 public:
-	explicit AppStackManager(Display* display);
+	AppStackManager() = default;
+
+	AppStackManager(AppStackManager& copy) = delete;
+	AppStackManager& operator=(AppStackManager& copy) = delete;
+	AppStackManager(AppStackManager&& move) = default;
+	AppStackManager& operator=(AppStackManager&& move) = default;
+	AppStackManager(Display* display);
 	~AppStackManager();
 
 	// ── 多栈管理 ──
