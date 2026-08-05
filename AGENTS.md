@@ -1043,13 +1043,19 @@ class App {
 | 目录 | 内容 |
 |------|------|
 | `gameLogic/` | 游戏核心逻辑：`PlayerState`（单个玩家状态）、`TetrisClient`（输入/状态管理）、`GameState`（序列化快照） |
-| `renderer/` | LVGL 渲染器 (`tetris_renderer.cpp`)，将 GameState 绘制到屏幕 |
+| `renderer/` | LVGL canvas 渲染器 (`tetris_renderer.cpp`)，棋盘=1 个 `lv_canvas` + 预览=4 个 `lv_canvas`（PSRAM RGB565 缓冲 + 局部失效），将 GameState 绘制到屏幕 |
 | `net/` | WebSocket 网络层 (`tetris_net.cpp`)，Host/Client 模式，JSON 消息协议 |
 | `net/tetrisTcpHost.hpp/.cpp` | **TCP 游戏服务器**（端口 8083），异步 send Task 20fps，主机→从机 snapshot |
 | `net/tetrisRemoteClient.hpp/.cpp` | **Tetris 远程客户端**，listen 端口 8084 等待主机连接，recv Task 解析 snapshot |
 | `tetrisApp.cpp` | 主游戏 App |
 | `tetrisRoomApp.cpp` | 房间选择 App（含远程模式跳转） |
 | `tetrisRemoteApp.cpp` | **远程游戏 App**，全屏渲染远程主机画面 |
+
+**渲染性能设计**（TetrisRenderer canvas 化）：
+- 棋盘/预览**不使用逐格 LVGL 对象**：原 220（棋盘）+ 64（预览）个 cell 对象在锁块消行时批量样式更新，会使 LVGL 失效缓冲 `LV_INV_BUF_SIZE=32` 溢出 → **整屏软件重绘** → 卡顿。
+- 现改为：棋盘 = 1 个 `lv_canvas`（PSRAM RGB565 缓冲），预览 = 4 个 `lv_canvas`；方块/ghost 直接画进棋盘缓冲（`paintBoardCell`，ghost 用 `blend565` 30%/50% 混合）；`syncState` 用 `lv_obj_invalidate_area` 只失效变化区域（锁块时 5~8 条失效 < 32），日常移动仍是局部绘制 + 局部失效。
+- **⚠ 坑**：`lv_obj_invalidate_area(obj, area)` 的 `area` 是**屏幕坐标**（非对象本地坐标），需先用 `lv_obj_get_coords` 换算（见 `invalidateBoardLocal`）；`lv_obj_invalidate(obj)` 整对象失效自动用正确 coords。
+- 完整实现见 `main/app/tetris/renderer/tetris_renderer.hpp/.cpp`。
 
 **消息协议** (JSON 文本帧, `ws://{host}:8080/ws/tetris` 或 TCP `host:8083` / `client:8084`):
 | type | 方向 | 说明 |
