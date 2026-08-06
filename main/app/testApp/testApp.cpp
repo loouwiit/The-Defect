@@ -32,7 +32,7 @@ void TestApp::init()
 		lv_obj_set_size(line, 2, LV_PCT(100));
 		lv_obj_set_style_bg_color(line, GUI::Color::SUBTLE, 0);
 		lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
-		lv_obj_align(line, LV_ALIGN_LEFT_MID, 360, 0);
+		lv_obj_align(line, LV_ALIGN_LEFT_MID, 1280 / 2, 0);
 
 		// 5 个手指标记（圆点 + 槽号:trackId 标签）
 		static const lv_color_t colors[5] = {
