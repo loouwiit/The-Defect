@@ -2,6 +2,7 @@
 #include "display/font.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include <cmath>
 #include <cstring>
 #include <algorithm>
 
@@ -71,17 +72,8 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 	m_bg565 = color565(0x0a0a1e);
 	fillRect(0, 0, W - 1, H - 1, m_bg565);
 
-	// ── 水果提示标签（LVGL，轻量） ──
-	for (int i = 0; i < MAX_FRUITS; i++)
-	{
-		m_fruitLabels[i] = lv_label_create(parent);
-		lv_label_set_text(m_fruitLabels[i], "");
-		lv_obj_set_style_text_font(m_fruitLabels[i],
-			FontLoader::getDefault(FontLoader::FontSize::Small), 0);
-		lv_obj_set_style_text_color(m_fruitLabels[i], lv_color_hex(0xffffffff), 0);
-		lv_obj_remove_flag(m_fruitLabels[i], LV_OBJ_FLAG_CLICKABLE);
-		lv_obj_add_flag(m_fruitLabels[i], LV_OBJ_FLAG_HIDDEN);
-	}
+	// ── 提示文字 glyph 预缓存（软件 blit，无 LVGL label） ──
+	preloadGlyphs();
 
 	// ── HUD 标签 ──
 	m_scoreLabel = lv_label_create(parent);
@@ -170,6 +162,12 @@ FruitNinjaRenderer::~FruitNinjaRenderer()
 		heap_caps_free(m_buf);
 		m_buf = nullptr;
 	}
+	for (auto& g : m_glyphs)
+		if (g.bitmap)
+		{
+			heap_caps_free(g.bitmap);
+			g.bitmap = nullptr;
+		}
 }
 
 // ============================================================
@@ -197,6 +195,21 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::fruitBBox(const FruitNinjaLogic::Fr
 		b.y1 = static_cast<int>(f.y - r);
 		b.x2 = static_cast<int>(f.x + r);
 		b.y2 = static_cast<int>(f.y + r);
+
+		// 顶部提示文字区域并入 bbox（非炸弹水果；blitText 起点 (x-16, y-r-24)，行高 ≤Small 字体）
+		if (f.type != FruitNinjaLogic::FruitType::Bomb)
+		{
+			constexpr int HINT_W = 56;
+			constexpr int HINT_H = 36;
+			int hx1 = static_cast<int>(f.x) - 16;
+			int hy1 = static_cast<int>(f.y - r) - HINT_H;
+			int hx2 = hx1 + HINT_W - 1;
+			int hy2 = static_cast<int>(f.y - r) - 1;
+			if (hx1 < b.x1) b.x1 = hx1;
+			if (hy1 < b.y1) b.y1 = hy1;
+			if (hx2 > b.x2) b.x2 = hx2;
+			if (hy2 > b.y2) b.y2 = hy2;
+		}
 	}
 	return b;
 }
@@ -293,11 +306,14 @@ void FruitNinjaRenderer::fillRect(int x1, int y1, int x2, int y2, uint16_t c)
 	if (x2 >= W) x2 = W - 1;
 	if (y2 >= H) y2 = H - 1;
 	if (x1 > x2 || y1 > y2) return;
-	for (int y = y1; y <= y2; y++)
-	{
-		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
-		for (int x = x1; x <= x2; x++) row[x] = c;
-	}
+
+	// 填首行 → 后续行 memcpy（行内容相同，内存带宽级，避免逐像素写入）
+	int w = x2 - x1 + 1;
+	uint16_t* row0 = reinterpret_cast<uint16_t*>(m_buf + (size_t)y1 * m_stride) + x1;
+	for (int x = 0; x < w; x++) row0[x] = c;
+	const size_t strideWords = m_stride / 2;
+	for (int y = y1 + 1; y <= y2; y++)
+		memcpy(row0 + (size_t)(y - y1) * strideWords, row0, (size_t)w * 2);
 }
 
 void FruitNinjaRenderer::fillCircle(int cx, int cy, int r, uint16_t fill, uint8_t opa)
@@ -309,27 +325,36 @@ void FruitNinjaRenderer::fillCircle(int cx, int cy, int r, uint16_t fill, uint8_
 	if (y1 < 0) y1 = 0;
 	if (x2 >= W) x2 = W - 1;
 	if (y2 >= H) y2 = H - 1;
+
+	// 扫描线：每行求半宽直接填区间，免逐像素乘方判断；顶部高光按行 blend（dy 固定）
 	const int r2 = r * r;
 	for (int y = y1; y <= y2; y++)
 	{
 		int dy = y - cy;
+		int dy2 = dy * dy;
+		if (dy2 > r2) continue;
+		int half = (int)sqrtf((float)(r2 - dy2));
+		int xs = cx - half, xe = cx + half;
+		if (xs < x1) xs = x1;
+		if (xe > x2) xe = x2;
+		if (xs > xe) continue;
 		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
-		for (int x = x1; x <= x2; x++)
+		if (opa >= LV_OPA_COVER)
 		{
-			int dx = x - cx;
-			if (dx * dx + dy * dy > r2) continue;
-			uint16_t c = fill;
-			// 顶部高光：上半部按高度 blend 白
 			if (dy < 0)
 			{
-				int t = -dy;
-				uint8_t hi = static_cast<uint8_t>((t * 96) / r);
-				c = blend565(fill, 0xffff, hi);
+				uint8_t hi = static_cast<uint8_t>(((-dy) * 96) / r);
+				uint16_t c = blend565(fill, 0xffff, hi);
+				for (int x = xs; x <= xe; x++) row[x] = c;
 			}
-			if (opa >= LV_OPA_COVER)
-				row[x] = c;
 			else
-				row[x] = blend565(row[x], c, opa);
+			{
+				for (int x = xs; x <= xe; x++) row[x] = fill;
+			}
+		}
+		else
+		{
+			for (int x = xs; x <= xe; x++) row[x] = blend565(row[x], fill, opa);
 		}
 	}
 }
@@ -487,75 +512,27 @@ void FruitNinjaRenderer::expandRedraw(const FruitNinjaLogic& logic)
 	memset(m_redrawSeg, 0, sizeof(m_redrawSeg));
 	m_redrawDivider = false;
 
-	auto overlap = [](const BBox& a, const BBox& b) -> bool {
-		if (!a.active || !b.active) return false;
-		return a.x1 <= b.x2 && a.x2 >= b.x1 && a.y1 <= b.y2 && a.y2 >= b.y1;
-	};
-	auto dividerBBox = []() -> BBox {
-		BBox b;
-		b.active = true;
-		b.x1 = W / 2 - 1; b.y1 = 0;
-		b.x2 = W / 2;     b.y2 = H - 1;
-		return b;
-	};
-
-	// 与 D 传播相交的对象加入 R，循环至稳定（限 8 轮防极端链式 O(n²) 卡顿）
-	bool changed = true;
-	int rounds = 0;
-	while (changed && rounds < 8)
+	// 重画集 = 与脏区集合 D 相交的 active 对象（一次遍历，无 O(n²) 传播）。
+	// 正确性：清 D 时被清除影响的对象，其 bbox 必然与 D 相交 → 进 R 重画；
+	// paint 按 z 序从底到顶绘制，上层对象重画自然覆盖下层，被覆盖的下层无需单独重画。
+	const auto* fruits = logic.getFruits();
+	const auto* particles = logic.getParticles();
+	for (int i = 0; i < MAX_FRUITS; i++)
+		if (fruits[i].active && dirtyIntersects(fruitBBox(fruits[i])))
+			m_redrawFruit[i] = true;
+	for (int i = 0; i < MAX_PARTICLES; i++)
+		if (particles[i].active && dirtyIntersects(particleBBox(particles[i])))
+			m_redrawParticle[i] = true;
+	for (int i = 0; i < kMaxSegments; i++)
+		if (m_segments[i].active && dirtyIntersects(segBBox(m_segments[i])))
+			m_redrawSeg[i] = true;
+	if (logic.getPlayerCount() >= 2)
 	{
-		rounds++;
-		changed = false;
-		auto isInR = [&](const BBox& b) -> bool {
-			if (dirtyIntersects(b)) return true;
-			const auto* fruits = logic.getFruits();
-			for (int i = 0; i < MAX_FRUITS; i++)
-				if (m_redrawFruit[i] && fruits[i].active && overlap(b, fruitBBox(fruits[i]))) return true;
-			const auto* particles = logic.getParticles();
-			for (int i = 0; i < MAX_PARTICLES; i++)
-				if (m_redrawParticle[i] && particles[i].active && overlap(b, particleBBox(particles[i]))) return true;
-			for (int i = 0; i < kMaxSegments; i++)
-				if (m_redrawSeg[i] && m_segments[i].active && overlap(b, segBBox(m_segments[i]))) return true;
-			if (m_redrawDivider && overlap(b, dividerBBox())) return true;
-			return false;
-		};
-
-		for (int i = 0; i < MAX_FRUITS; i++)
-		{
-			if (m_redrawFruit[i]) continue;
-			const auto& f = logic.getFruits()[i];
-			if (!f.active) continue;
-			if (isInR(fruitBBox(f))) { m_redrawFruit[i] = true; changed = true; }
-		}
-		for (int i = 0; i < MAX_PARTICLES; i++)
-		{
-			if (m_redrawParticle[i]) continue;
-			const auto& p = logic.getParticles()[i];
-			if (!p.active) continue;
-			if (isInR(particleBBox(p))) { m_redrawParticle[i] = true; changed = true; }
-		}
-		for (int i = 0; i < kMaxSegments; i++)
-		{
-			if (m_redrawSeg[i]) continue;
-			if (!m_segments[i].active) continue;
-			if (isInR(segBBox(m_segments[i]))) { m_redrawSeg[i] = true; changed = true; }
-		}
-		if (!m_redrawDivider && logic.getPlayerCount() >= 2)
-		{
-			if (isInR(dividerBBox())) { m_redrawDivider = true; changed = true; }
-		}
-	}
-
-	// 兜底：极端链式重叠未收敛 → 保守全部 active 入 R（正确性优先，上屏仍走精确 D）
-	if (changed)
-	{
-		for (int i = 0; i < MAX_FRUITS; i++)
-			if (logic.getFruits()[i].active) m_redrawFruit[i] = true;
-		for (int i = 0; i < MAX_PARTICLES; i++)
-			if (logic.getParticles()[i].active) m_redrawParticle[i] = true;
-		for (int i = 0; i < kMaxSegments; i++)
-			if (m_segments[i].active) m_redrawSeg[i] = true;
-		if (logic.getPlayerCount() >= 2) m_redrawDivider = true;
+		BBox db;
+		db.active = true;
+		db.x1 = W / 2 - 1; db.y1 = 0;
+		db.x2 = W / 2;     db.y2 = H - 1;
+		if (dirtyIntersects(db)) m_redrawDivider = true;
 	}
 }
 
@@ -568,7 +545,7 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 		fillRect(d.x1, d.y1, d.x2, d.y2, m_bg565);
 	}
 
-	// 2. 按 z 序重画 R：水果 → 粒子 → 分隔线 → 刀光
+	// 2. 按 z 序重画 R：水果 → 粒子 → 分隔线 → 刀光 → 提示文字
 	for (int i = 0; i < MAX_FRUITS; i++)
 		if (m_redrawFruit[i])
 			paintFruit(logic.getFruits()[i]);
@@ -581,6 +558,7 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 		if (m_redrawSeg[i])
 			drawWideLine(m_segments[i].x1, m_segments[i].y1,
 				m_segments[i].x2, m_segments[i].y2, 14, 0xffff);
+	paintHints(logic);
 }
 
 void FruitNinjaRenderer::invalidateDirty()
@@ -605,37 +583,156 @@ void FruitNinjaRenderer::invalidateDirty()
 }
 
 // ============================================================
-// 水果提示标签更新
+// 提示文字 — glyph 预缓存 + 软件 blit（替代 LVGL label，游戏层零 LVGL 对象）
 // ============================================================
 
-void FruitNinjaRenderer::updateFruitLabels(const FruitNinjaLogic& logic)
+bool FruitNinjaRenderer::shouldShowHint(const FruitNinjaLogic::Fruit& f)
 {
-	bool isPlaying = (logic.getState() == FruitNinjaLogic::State::Playing);
-	int fruitCount = logic.getFruitCount();
-	const auto* fruits = logic.getFruits();
+	return f.active && !f.sliced && f.type != FruitNinjaLogic::FruitType::Bomb;
+}
 
-	for (int i = 0; i < MAX_FRUITS; i++)
+void FruitNinjaRenderer::makeHintText(const FruitNinjaLogic::Fruit& f, char* out, size_t cap)
+{
+	snprintf(out, cap, "%s%s",
+		FruitNinjaLogic::dirToArrow(f.requiredDir),
+		FruitNinjaLogic::btnToChar(f.requiredBtn));
+}
+
+void FruitNinjaRenderer::preloadGlyphs()
+{
+	m_font = FontLoader::getDefault(FontLoader::FontSize::Small);
+	if (!m_font) return;
+	m_lineHeight = lv_font_get_line_height(m_font);
+	m_baseLine = m_font->base_line;
+
+	// 提示字符集：↑ ↓ ← → + A/B/X/Y（UTF-8 箭头 = U+2191/2193/2190/2192）
+	static const uint32_t letters[8] = { 0x2191, 0x2193, 0x2190, 0x2192, 'A', 'B', 'X', 'Y' };
+
+	// 临时缓冲承接 glyph 位图（A8；Small 字体最大字形 ≤64px）
+	lv_draw_buf_t* tmp = lv_draw_buf_create(64, 64, LV_COLOR_FORMAT_A8, LV_STRIDE_AUTO);
+	if (!tmp) return;
+
+	for (uint32_t ch : letters)
 	{
-		auto* label = m_fruitLabels[i];
-		if (i < fruitCount && fruits[i].active && !fruits[i].sliced &&
-			fruits[i].type != FruitNinjaLogic::FruitType::Bomb && isPlaying)
+		if (m_glyphCount >= 8) break;
+		lv_font_glyph_dsc_t dsc;
+		if (!lv_font_get_glyph_dsc(m_font, &dsc, ch, 0)) continue;
+		const void* gbmp = lv_font_get_glyph_bitmap(&dsc, tmp);
+		if (!gbmp || dsc.box_w == 0 || dsc.box_h == 0 ||
+			dsc.format != LV_FONT_GLYPH_FORMAT_A8)
 		{
-			const auto& f = fruits[i];
-			float r = FruitNinjaLogic::getFruitRadius(f.type);
-			char buf[8];
-			snprintf(buf, sizeof(buf), "%s%s",
-				FruitNinjaLogic::dirToArrow(f.requiredDir),
-				FruitNinjaLogic::btnToChar(f.requiredBtn));
-			lv_label_set_text(label, buf);
-			lv_obj_set_pos(label,
-				static_cast<int>(f.x - 16),
-				static_cast<int>(f.y - r - 24));
-			lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
+			lv_font_glyph_release_draw_data(&dsc);
+			continue;
+		}
+		// freetype（IMAGE 模式）返回 lv_draw_buf_t*：A8 位图按 header.stride 对齐存储，
+		// 不能当紧凑数组直接读；需按 stride 逐行复制成紧凑 box_w×box_h 私有副本。
+		const lv_draw_buf_t* gbuf = static_cast<const lv_draw_buf_t*>(gbmp);
+		const uint8_t* bmp = static_cast<const uint8_t*>(gbuf->data);
+		uint32_t stride = gbuf->header.stride;
+
+		GlyphCache& g = m_glyphs[m_glyphCount];
+		g.letter = ch;
+		g.box_w = dsc.box_w;
+		g.box_h = dsc.box_h;
+		g.ofs_x = dsc.ofs_x;
+		g.ofs_y = dsc.ofs_y;
+		g.adv_w = dsc.adv_w;
+		g.bitmap = static_cast<uint8_t*>(heap_caps_malloc((size_t)g.box_w * g.box_h,
+			MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+		if (g.bitmap)
+			for (int j = 0; j < g.box_h; j++)
+				memcpy(g.bitmap + (size_t)j * g.box_w,
+					bmp + (size_t)j * stride, g.box_w);
+		lv_font_glyph_release_draw_data(&dsc);
+		m_glyphCount++;
+	}
+
+	lv_draw_buf_destroy(tmp);
+}
+
+const FruitNinjaRenderer::GlyphCache* FruitNinjaRenderer::findGlyph(uint32_t letter) const
+{
+	for (int i = 0; i < m_glyphCount; i++)
+		if (m_glyphs[i].letter == letter)
+			return &m_glyphs[i];
+	return nullptr;
+}
+
+void FruitNinjaRenderer::blitGlyph(int x, int y, const GlyphCache& g, uint16_t color)
+{
+	if (!m_buf || !g.bitmap) return;
+	// 与 LVGL 一致（lv_draw_label.c:624）：glyph 顶 = 行顶 + (line_height - base_line) - box_h - ofs_y
+	int gx = x + g.ofs_x;
+	int gy = y + (m_lineHeight - m_baseLine) - g.box_h - g.ofs_y;
+	for (int j = 0; j < g.box_h; j++)
+	{
+		int py = gy + j;
+		if (py < 0 || py >= H) continue;
+		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)py * m_stride);
+		const uint8_t* src = g.bitmap + (size_t)j * g.box_w;
+		for (int i = 0; i < g.box_w; i++)
+		{
+			int px = gx + i;
+			if (px < 0 || px >= W) continue;
+			uint8_t a = src[i];
+			if (a >= 255) row[px] = color;
+			else if (a > 0) row[px] = blend565(row[px], color, a);
+		}
+	}
+}
+
+void FruitNinjaRenderer::blitText(int x, int y, const char* utf8, uint16_t color)
+{
+	if (!m_buf) return;
+	int penX = x;
+	while (utf8 && *utf8)
+	{
+		uint32_t ch;
+		uint8_t c0 = static_cast<uint8_t>(*utf8);
+		if (c0 < 0x80)
+		{
+			ch = c0;
+			utf8 += 1;
+		}
+		else if ((c0 & 0xE0) == 0xC0)
+		{
+			ch = ((c0 & 0x1F) << 6) | (static_cast<uint8_t>(utf8[1]) & 0x3F);
+			utf8 += 2;
+		}
+		else if ((c0 & 0xF0) == 0xE0)
+		{
+			ch = ((c0 & 0x0F) << 12) | ((static_cast<uint8_t>(utf8[1]) & 0x3F) << 6)
+				| (static_cast<uint8_t>(utf8[2]) & 0x3F);
+			utf8 += 3;
 		}
 		else
 		{
-			lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+			utf8 += 1;
+			continue;
 		}
+
+		const GlyphCache* g = findGlyph(ch);
+		if (!g)
+		{
+			penX += 12;
+			continue;
+		}
+		blitGlyph(penX, y, *g, color);
+		penX += g->adv_w;
+	}
+}
+
+void FruitNinjaRenderer::paintHints(const FruitNinjaLogic& logic)
+{
+	const auto* fruits = logic.getFruits();
+	for (int i = 0; i < MAX_FRUITS; i++)
+	{
+		const auto& f = fruits[i];
+		if (!shouldShowHint(f) || !m_redrawFruit[i]) continue;
+		float r = FruitNinjaLogic::getFruitRadius(f.type);
+		char buf[8];
+		makeHintText(f, buf, sizeof(buf));
+		blitText(static_cast<int>(f.x - 16), static_cast<int>(f.y - r - 24), buf, 0xffff);
 	}
 }
 
@@ -662,9 +759,6 @@ void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 		lv_obj_clear_flag(m_exitBtn, LV_OBJ_FLAG_HIDDEN);
 	else
 		lv_obj_add_flag(m_exitBtn, LV_OBJ_FLAG_HIDDEN);
-
-	// ── 水果提示标签 ──
-	updateFruitLabels(logic);
 
 	// ── HUD ──
 	updateHUD(lv_obj_get_parent(m_scoreLabel), logic);

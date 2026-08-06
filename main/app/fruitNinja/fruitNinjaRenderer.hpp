@@ -100,7 +100,7 @@ private:
 	void dirtyAdd(int32_t x1, int32_t y1, int32_t x2, int32_t y2);
 	bool dirtyIntersects(const BBox& b) const;
 
-	// ── 重画集（相交扩散结果） ──
+	// ── 重画集（与脏区集合 D 相交筛选结果；仅一次遍历，无传播 O(n²)） ──
 	bool m_redrawFruit[MAX_FRUITS]{};
 	bool m_redrawParticle[MAX_PARTICLES]{};
 	bool m_redrawSeg[kMaxSegments]{};
@@ -115,24 +115,44 @@ private:
 	void drawWideLine(float x1, float y1, float x2, float y2, int w, uint16_t c);
 
 	// ── bbox 辅助 ──
+	// fruitBBox：含顶部提示文字区域（对非切片/非炸弹水果扩展顶部 ~28px），
+	// 使脏区收集与重画集判断天然覆盖提示文字（无需独立跟踪提示区域）。
 	static BBox fruitBBox(const FruitNinjaLogic::Fruit& f);
 	static BBox particleBBox(const FruitNinjaLogic::Particle& p);
 	BBox segBBox(const TrailSegment& s) const;
 
-	// ── 绘制辅助（z 序：背景→水果→粒子→分隔线→刀光） ──
+	// ── 绘制辅助（z 序：背景→水果→粒子→分隔线→刀光→提示文字） ──
 	void paintFruit(const FruitNinjaLogic::Fruit& f);
 	void paintParticle(const FruitNinjaLogic::Particle& p);
 	void paintDivider();
+	void paintHints(const FruitNinjaLogic& logic);     // 提示文字（最上层，blit glyph）
 
 	// ── 脏区 / 重画集流程 ──
 	void collectDirty(const FruitNinjaLogic& logic);   // 变化对象 → D，更新 prev
-	void expandRedraw(const FruitNinjaLogic& logic);   // 相交扩散 → R
+	void expandRedraw(const FruitNinjaLogic& logic);   // 与 D 相交筛选 → R（一次遍历，无传播）
 	void paint(const FruitNinjaLogic& logic);          // 清 D → 按 z 序重画 R
 	void invalidateDirty();                            // 逐区域失效（屏幕坐标）
 
-	// ── 水果提示标签（LVGL，轻量） ──
-	lv_obj_t* m_fruitLabels[MAX_FRUITS]{};
-	void updateFruitLabels(const FruitNinjaLogic& logic);
+	// ── 提示文字 glyph 缓存（软件 blit 到 canvas；字符集 ↑↓←→ + A/B/X/Y 共 8 个） ──
+	struct GlyphCache
+	{
+		uint32_t letter = 0;             // Unicode 码点（查找键）
+		uint16_t box_w = 0, box_h = 0;   // A8 位图尺寸
+		int16_t  ofs_x = 0, ofs_y = 0;   // 绘制偏移（相对 pen/行顶，与 LVGL 公式一致）
+		uint16_t adv_w = 0;              // 前进宽
+		uint8_t* bitmap = nullptr;       // A8 位图 (box_w*box_h)，PSRAM 私有副本
+	};
+	GlyphCache m_glyphs[8]{};
+	int m_glyphCount = 0;                // 已缓存 glyph 数
+	const lv_font_t* m_font{};           // 提示字体（Small）
+	int32_t m_lineHeight = 0;            // 提示字体行高
+	int32_t m_baseLine = 0;              // 提示字体基线（距行底）
+	void preloadGlyphs();                // create() 持锁预取 glyph → 私有缓存
+	const GlyphCache* findGlyph(uint32_t letter) const;
+	void blitGlyph(int x, int y, const GlyphCache& g, uint16_t color);   // (penX, 行顶)
+	void blitText(int x, int y, const char* utf8, uint16_t color);       // y=行顶
+	static bool shouldShowHint(const FruitNinjaLogic::Fruit& f);
+	static void makeHintText(const FruitNinjaLogic::Fruit& f, char* out, size_t cap);
 
 	// ── HUD / GameOver / 退出按钮（LVGL） ──
 	lv_obj_t* m_scoreLabel{};
