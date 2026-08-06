@@ -2,7 +2,9 @@
 #include "display/font.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "driver/jpeg_decode.h"
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 
@@ -74,6 +76,9 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 
 	// ── 提示文字 glyph 预缓存（软件 blit，无 LVGL label） ──
 	preloadGlyphs();
+
+	// ── 水果图片硬件解码（失败自动回退纯色圆） ──
+	loadFruitImages();
 
 	// ── HUD 标签 ──
 	m_scoreLabel = lv_label_create(parent);
@@ -167,6 +172,13 @@ FruitNinjaRenderer::~FruitNinjaRenderer()
 		{
 			heap_caps_free(g.bitmap);
 			g.bitmap = nullptr;
+		}
+	for (auto& im : m_fruitImgs)
+		if (im.buf)
+		{
+			heap_caps_free(const_cast<uint16_t*>(im.buf));
+			im.buf = nullptr;
+			im.valid = false;
 		}
 }
 
@@ -401,21 +413,70 @@ void FruitNinjaRenderer::drawWideLine(float x1, float y1, float x2, float y2, in
 // 绘制辅助（z 序：背景→水果→粒子→分隔线→刀光）
 // ============================================================
 
+void FruitNinjaRenderer::blitImage(int cx, int cy, int r, const FruitImage& img, uint8_t opa)
+{
+	if (!m_buf || !img.valid || r <= 0) return;
+	int x1 = cx - r, y1 = cy - r, x2 = cx + r, y2 = cy + r;
+	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
+	if (x1 < 0) x1 = 0;
+	if (y1 < 0) y1 = 0;
+	if (x2 >= W) x2 = W - 1;
+	if (y2 >= H) y2 = H - 1;
+
+	// 圆形裁剪 + 最近邻缩放 blit（扫描线：每行固定 sy，圆内区间填）
+	const int r2 = r * r;
+	const int d = 2 * r;
+	for (int y = y1; y <= y2; y++)
+	{
+		int dy = y - cy;
+		int dy2 = dy * dy;
+		if (dy2 > r2) continue;
+		int half = (int)sqrtf((float)(r2 - dy2));
+		int xs = cx - half, xe = cx + half;
+		if (xs < x1) xs = x1;
+		if (xe > x2) xe = x2;
+		if (xs > xe) continue;
+		int sy = (y - cy + r) * img.h / d;
+		if (sy < 0) sy = 0;
+		if (sy >= img.h) sy = img.h - 1;
+		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
+		const uint16_t* srcRow = img.buf + (size_t)sy * img.w;
+		for (int x = xs; x <= xe; x++)
+		{
+			int sx = (x - cx + r) * img.w / d;
+			if (sx < 0) sx = 0;
+			if (sx >= img.w) sx = img.w - 1;
+			uint16_t c = srcRow[sx];
+			if (opa >= LV_OPA_COVER)
+				row[x] = c;
+			else
+				row[x] = blend565(row[x], c, opa);
+		}
+	}
+}
+
 void FruitNinjaRenderer::paintFruit(const FruitNinjaLogic::Fruit& f)
 {
 	float r = FruitNinjaLogic::getFruitRadius(f.type);
-	uint16_t fill = fruitFillColor(f.type);
+	int idx = static_cast<int>(f.type);
+	const FruitImage& img = (idx >= 0 && idx < 5) ? m_fruitImgs[idx] : s_emptyImg;
 	if (f.sliced)
 	{
 		// 缩小一半圆 + 淡出（左上角对齐，与旧视觉一致）
 		int diam = static_cast<int>(r);
 		int cx = static_cast<int>(f.x) - static_cast<int>(r) + diam / 2;
 		int cy = static_cast<int>(f.y) - static_cast<int>(r) + diam / 2;
-		fillCircle(cx, cy, diam / 2, fill, f.opacity);
+		if (img.valid)
+			blitImage(cx, cy, diam / 2, img, f.opacity);
+		else
+			fillCircle(cx, cy, diam / 2, fruitFillColor(f.type), f.opacity);
 	}
 	else
 	{
-		fillCircle(static_cast<int>(f.x), static_cast<int>(f.y), static_cast<int>(r), fill, LV_OPA_COVER);
+		if (img.valid)
+			blitImage(static_cast<int>(f.x), static_cast<int>(f.y), static_cast<int>(r), img, LV_OPA_COVER);
+		else
+			fillCircle(static_cast<int>(f.x), static_cast<int>(f.y), static_cast<int>(r), fruitFillColor(f.type), LV_OPA_COVER);
 	}
 }
 
@@ -648,6 +709,129 @@ void FruitNinjaRenderer::preloadGlyphs()
 	}
 
 	lv_draw_buf_destroy(tmp);
+}
+
+void FruitNinjaRenderer::loadFruitImages()
+{
+	// 路径按 FruitType 索引：Watermelon/Apple/Orange/Banana/Bomb
+	static const char* paths[5] = {
+		"/root/system/fruitNinja/watermelon.jpg",
+		"/root/system/fruitNinja/apple.jpg",
+		"/root/system/fruitNinja/orange.jpg",
+		"/root/system/fruitNinja/banana.jpg",
+		"/root/system/fruitNinja/bomb.jpg",
+	};
+
+	jpeg_decode_engine_cfg_t eng_cfg = { .intr_priority = 0, .timeout_ms = 500 };
+	jpeg_decoder_handle_t eng = nullptr;
+	if (jpeg_new_decoder_engine(&eng_cfg, &eng) != ESP_OK)
+	{
+		ESP_LOGE(TAG, "jpeg_new_decoder_engine 失败，水果将回退纯色圆");
+		return;
+	}
+
+	constexpr int MAX_SIDE = 128;   // 源图最大边（水果显示直径 ≤~90px，128 足够清晰）
+
+	for (int i = 0; i < 5; i++)
+	{
+		FILE* f = fopen(paths[i], "rb");
+		if (!f)
+		{
+			ESP_LOGW(TAG, "打开水果图片失败: %s", paths[i]);
+			continue;
+		}
+		fseek(f, 0, SEEK_END);
+		long fsz = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		if (fsz <= 0)
+		{
+			fclose(f);
+			continue;
+		}
+		// 输入/输出 buffer 必须用驱动专用 jpeg_alloc_decoder_mem 分配（硬件 DMA 对齐要求）
+		jpeg_decode_memory_alloc_cfg_t inMem = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
+		size_t inAlloc = 0;
+		uint8_t* jpg = static_cast<uint8_t*>(jpeg_alloc_decoder_mem((size_t)fsz, &inMem, &inAlloc));
+		if (!jpg)
+		{
+			fclose(f);
+			continue;
+		}
+		if (fread(jpg, 1, (size_t)fsz, f) != (size_t)fsz)
+		{
+			heap_caps_free(jpg);
+			fclose(f);
+			continue;
+		}
+		fclose(f);
+
+		jpeg_decode_picture_info_t info{};
+		if (jpeg_decoder_get_info(jpg, (uint32_t)fsz, &info) != ESP_OK || info.width == 0 || info.height == 0)
+		{
+			heap_caps_free(jpg);
+			ESP_LOGW(TAG, "JPEG 头解析失败: %s", paths[i]);
+			continue;
+		}
+
+		size_t fullSize = (size_t)info.width * info.height * 2;
+		jpeg_decode_memory_alloc_cfg_t outMem = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
+		size_t outAlloc = 0;
+		uint8_t* full = static_cast<uint8_t*>(jpeg_alloc_decoder_mem(fullSize, &outMem, &outAlloc));
+		if (!full)
+		{
+			heap_caps_free(jpg);
+			continue;
+		}
+		jpeg_decode_cfg_t dec_cfg = {
+			.output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
+			.rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,   // 小端，可直接 uint16 读（与 canvas 一致）
+			.conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
+		};
+		uint32_t outSize = 0;
+		uint32_t outBufSize = (outAlloc > 0 && outAlloc >= fullSize) ? (uint32_t)outAlloc : (uint32_t)fullSize;
+		if (jpeg_decoder_process(eng, &dec_cfg, jpg, (uint32_t)fsz, full, outBufSize, &outSize) != ESP_OK)
+		{
+			heap_caps_free(full);
+			heap_caps_free(jpg);
+			ESP_LOGW(TAG, "JPEG 解码失败: %s", paths[i]);
+			continue;
+		}
+		heap_caps_free(jpg);
+
+		// 最近邻缩放到最大边 ≤ MAX_SIDE：控制内存 + 加速 blit
+		int sw = info.width, sh = info.height;
+		if (sw > MAX_SIDE || sh > MAX_SIDE)
+		{
+			float k = (float)MAX_SIDE / (sw > sh ? sw : sh);
+			int tw = (int)(sw * k); if (tw < 1) tw = 1;
+			int th = (int)(sh * k); if (th < 1) th = 1;
+			uint16_t* small = static_cast<uint16_t*>(heap_caps_malloc((size_t)tw * th * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+			if (small)
+			{
+				const uint16_t* src = reinterpret_cast<const uint16_t*>(full);
+				for (int y = 0; y < th; y++)
+				{
+					int sy = (y * sh) / th;
+					for (int x = 0; x < tw; x++)
+					{
+						int sx = (x * sw) / tw;
+						small[(size_t)y * tw + x] = src[(size_t)sy * sw + sx];
+					}
+				}
+				heap_caps_free(full);
+				full = reinterpret_cast<uint8_t*>(small);
+				sw = tw; sh = th;
+			}
+		}
+
+		auto& img = m_fruitImgs[i];
+		img.buf = reinterpret_cast<const uint16_t*>(full);
+		img.w = sw; img.h = sh;
+		img.valid = true;
+		ESP_LOGI(TAG, "水果图片 %d 就绪: %dx%d", i, sw, sh);
+	}
+
+	jpeg_del_decoder_engine(eng);
 }
 
 const FruitNinjaRenderer::GlyphCache* FruitNinjaRenderer::findGlyph(uint32_t letter) const

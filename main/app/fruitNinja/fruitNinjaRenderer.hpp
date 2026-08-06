@@ -157,6 +157,18 @@ private:
 	static bool shouldShowHint(const FruitNinjaLogic::Fruit& f);
 	static void makeHintText(const FruitNinjaLogic::Fruit& f, char* out, size_t cap);
 
+	// ── 水果图片（esp_driver_jpeg 硬件解码 → PSRAM RGB565，软件圆形 blit；失败回退纯色圆） ──
+	struct FruitImage
+	{
+		const uint16_t* buf;   // RGB565 像素 (w*h)，PSRAM
+		int w, h;
+		bool valid;
+	};
+	FruitImage m_fruitImgs[5]{};         // 按 FruitType 索引（值初始化）
+	static constexpr FruitImage s_emptyImg{};   // 空图片（valid=false）
+	void loadFruitImages();              // create() 持锁解码 5 张 JPG
+	void blitImage(int cx, int cy, int r, const FruitImage& img, uint8_t opa);
+
 	// ── HUD / GameOver / 退出按钮（LVGL） ──
 	lv_obj_t* m_scoreLabel{};
 	lv_obj_t* m_livesLabel{};
