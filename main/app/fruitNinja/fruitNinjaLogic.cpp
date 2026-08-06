@@ -107,8 +107,15 @@ void FruitNinjaLogic::tick(float dt)
 			continue;
 		}
 
-		// 水果落出屏幕底部 → 扣命
+		// 横向出界：水果整体离开屏幕水平范围，玩家无从切片 → 直接回收，不扣分
 		float r = getFruitRadius(f.type);
+		if (f.x + r < 0 || f.x - r > ScreenWidth)
+		{
+			f.active = false;
+			continue;
+		}
+
+		// 水果落出屏幕底部 → 扣命（玩家看到但未切到的惩罚）
 		if (f.y > ScreenHight + r)
 		{
 			f.active = false;
