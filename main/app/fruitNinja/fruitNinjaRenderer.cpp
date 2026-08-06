@@ -811,7 +811,7 @@ void FruitNinjaRenderer::showGameOver(lv_obj_t* parent, const FruitNinjaLogic& l
 }
 
 // ============================================================
-// 刀光线段 — 追加一条线段段（触摸每帧产生；FIFO 覆盖最旧段）
+// 刀光线段 — 追加一条线段段（触摸每帧产生；段池回绕，超时消失）
 // ============================================================
 
 void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
@@ -826,7 +826,7 @@ void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
 }
 
 // ============================================================
-// 白刃轨迹 — 老化（FIFO 覆盖，无淡出；保留接口）
+// 白刃轨迹 — 老化（递减各段剩余生命，超时后消失）
 // ============================================================
 
 void FruitNinjaRenderer::ageTrail(float dt)

@@ -16,7 +16,7 @@
  * 要点：
  *   - 直接操作 canvas buffer 指针（纯内存写），绝不使用 lv_canvas_set_px（逐像素 invalidate）
  *   - 移除全部 shadow（模糊重算是性能杀手）
- *   - 刀光：FIFO 固定段数 + 纯色不透明单层粗线（无光晕/刃芯双层、无淡出）
+ *   - 刀光：段池 + 超时消失（TRAIL_LIFETIME 秒后瞬间消失），纯色不透明单层粗线（无淡出/半透明）
  *   - HUD / 退出按钮 / GameOver / 水果提示标签 保留 LVGL 对象（低频/轻量）
  *   - 所有方法必须在 Display::LockGuard 保护下调用
  */
@@ -44,12 +44,12 @@ public:
 
 	// ── 白刃轨迹接口 ──
 	// 线段池模型：触摸每帧把 (上一帧位置, 当前帧位置) 作为一条线段段追加。
-	// FIFO 固定段数、纯色不透明单层（无淡出，尾部被新段顶掉时瞬间消失）。
+	// 段池 + 超时消失：每段保持 TRAIL_LIFETIME 秒后消失（无渐隐，无每帧重绘）。
 
 	/** @brief 追加一条刀光线段段（触摸移动产生） */
 	void addTrailSegment(float x1, float y1, float x2, float y2);
 
-	/** @brief 每帧统一老化（FIFO 覆盖，无淡出；保留接口） */
+	/** @brief 每帧统一老化（递减各段剩余生命，超时后消失） */
 	void ageTrail(float dt);
 
 	/** @brief 一键清空所有线段段（保留上帧标记，下一帧 render 清除 canvas 残留） */
@@ -61,8 +61,8 @@ private:
 	static constexpr int MAX_FRUITS = FruitNinjaLogic::MAX_FRUITS;
 	static constexpr int MAX_PARTICLES = FruitNinjaLogic::MAX_PARTICLES;
 
-	// 刀光段池 + 超时不透明：段保持 1s 后瞬间消失（无逐帧淡出，性能最优）
-	// 64 段：60fps 持续划线 1s ≈ 60 段，池够大不顶掉；触摸停止后从尾部逐段消失
+	// 刀光段池 + 超时不透明：段保持 TRAIL_LIFETIME 秒后瞬间消失（无逐帧淡出，性能最优）
+	// 64 段：60fps 持续划线 0.5s ≈ 30 段，池够大不顶掉；触摸停止后从尾部逐段消失
 	static constexpr int kMaxSegments = 64;
 	static constexpr float TRAIL_LIFETIME = 0.5f;   // 段超时（秒）
 
