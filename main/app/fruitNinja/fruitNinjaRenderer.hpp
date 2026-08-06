@@ -67,6 +67,7 @@ private:
 	// 刀光段池 + 超时不透明：段保持 TRAIL_LIFETIME 秒后瞬间消失（无逐帧淡出，性能最优）
 	// 64 段：60fps 持续划线 0.5s ≈ 30 段，池够大不顶掉；触摸停止后从尾部逐段消失
 	static constexpr int kMaxSegments = 64;
+	static constexpr float kMaxSegLen = 40.0f;   // 单段最大长度（px）：更长的线段在 addTrailSegment 拆分为多段
 	static constexpr float TRAIL_LIFETIME = 0.5f;   // 段超时（秒）
 
 	// ── canvas ──

@@ -1118,13 +1118,27 @@ void FruitNinjaRenderer::showGameOver(lv_obj_t* parent, const FruitNinjaLogic& l
 
 void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
 {
-	auto& s = m_segments[m_segWrite];
-	s.x1 = x1; s.y1 = y1;
-	s.x2 = x2; s.y2 = y2;
-	s.life = TRAIL_LIFETIME;   // 回绕覆盖旧段时重置生命周期
-	s.active = true;
+	// 长线段拆分为多段短段（每段 ≤ kMaxSegLen）。
+	// drawWideLine 遍历整段包围盒逐像素做距离判断：短段包围盒贴近线段本身（遍历≈填充），
+	// 长段包围盒面积远大于线宽区域（遍历/填充比 ≈ 长度/线宽），是长刀光卡顿的主因。
+	float dx = x2 - x1, dy = y2 - y1;
+	float len = sqrtf(dx * dx + dy * dy);
+	int n = static_cast<int>(ceilf(len / kMaxSegLen));
+	if (n < 1) n = 1;
 
-	m_segWrite = (m_segWrite + 1) % kMaxSegments;
+	for (int s = 0; s < n; s++)
+	{
+		float t0 = static_cast<float>(s) / n;
+		float t1 = static_cast<float>(s + 1) / n;
+		auto& seg = m_segments[m_segWrite];
+		seg.x1 = x1 + dx * t0;
+		seg.y1 = y1 + dy * t0;
+		seg.x2 = x1 + dx * t1;
+		seg.y2 = y1 + dy * t1;
+		seg.life = TRAIL_LIFETIME;   // 回绕覆盖旧段时重置生命周期
+		seg.active = true;
+		m_segWrite = (m_segWrite + 1) % kMaxSegments;
+	}
 }
 
 // ============================================================
