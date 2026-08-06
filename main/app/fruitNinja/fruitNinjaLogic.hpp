@@ -57,8 +57,8 @@ public:
 	static constexpr int MaxFruits = 20;      // 同时活跃水果上限（槽位池回收复用）
 	static constexpr int MaxParticles = 40;   // 同时活跃粒子上限（槽位池回收复用）
 	static constexpr int InitialLives = 3;
-	static constexpr float Gravity = 300.0f;
-	static constexpr float SpeedRange[2] = { 300.0f, 600.0f };
+	static constexpr float Gravity = 200.0f;
+	static constexpr float SpeedRange[2] = { 300.0f, 500.0f };
 	static constexpr float AngelRange[2] = { -0.4f, 0.4f };
 	static constexpr int ArcadeTime = 60;
 	static constexpr int ScreenWidth = 1280;
