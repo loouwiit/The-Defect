@@ -2,6 +2,7 @@
 #include "app/appStackManager.hpp"
 #include "display/font.hpp"
 #include "task/task.hpp"
+#include "touch/touchService.hpp"
 #include "esp_log.h"
 #include "lvgl.h"
 
@@ -53,12 +54,6 @@ void FruitNinjaApp::init()
 
 	// 注册退出按钮
 	lv_obj_add_event_cb(m_renderer.getExitBtn(), btnExitCb, LV_EVENT_CLICKED, this);
-
-	// 注册触屏事件（划动切水果）
-	lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_event_cb(screen, onTouchPressedCb, LV_EVENT_PRESSED, this);
-	lv_obj_add_event_cb(screen, onTouchMovingCb, LV_EVENT_PRESSING, this);
-	lv_obj_add_event_cb(screen, onTouchReleasedCb, LV_EVENT_RELEASED, this);
 
 	ESP_LOGI(TAG, "启动 FruitNinja: mode=%s, players=%d",
 		(m_mode == FruitNinjaLogic::GameMode::Classic) ? "Classic" : "Arcade",
@@ -117,6 +112,9 @@ void FruitNinjaApp::gameLoop(void* param)
 	{
 		float dt = TICK_MS / 1000.0f;
 
+		// 多指触摸输入（tracker → handleSwipe / trail，内部持 LVGL 锁）
+		self.processTouch();
+
 		// 游戏逻辑
 		self.m_logic.tick(dt);
 
@@ -152,75 +150,84 @@ void FruitNinjaApp::gameLoop(void* param)
 }
 
 // ============================================================
-// 触屏输入 — 划动开始
+// 多指触摸输入 — 每帧处理（tracker → handleSwipe / trail）
 // ============================================================
 
-void FruitNinjaApp::onTouchPressedCb(lv_event_t* e)
+void FruitNinjaApp::processTouch()
 {
-	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
-	if (!self || self->m_logic.getState() != FruitNinjaLogic::State::Playing)
-		return;
+	// 更新多指追踪（内部持 LVGL 锁；分发已注册的 TouchButton）
+	TouchService::instance().update();
 
-	lv_indev_get_point(lv_indev_active(), &self->m_prevTouch);
-	self->m_touching = true;
+	// 触摸划动处理需持 LVGL 锁（操作 renderer trail）
+	auto guard = display->lockGuard();
+	if (!guard) return;
 
-	// 确定玩家（2P 分屏），仅用于记录起点，不做分屏限制
-	self->m_renderer.handleTouchStart(
-		static_cast<float>(self->m_prevTouch.x),
-		static_cast<float>(self->m_prevTouch.y));
+	const auto& tr = TouchService::instance().tracker();
+	for (int i = 0; i < tr.fingerCount(); i++)
+	{
+		const auto* f = tr.fingerAt(i);
+		if (!f) continue;
+
+		if (f->justPressed)
+		{
+			// 划动仅 Playing 时生效（与原先 PRESSED 逻辑一致）
+			if (m_logic.getState() != FruitNinjaLogic::State::Playing)
+				continue;
+
+			int trail = allocTrail();
+			if (trail < 0) continue;
+			m_fingerTracks[f->id] = FingerTrack{ trail, (float)f->x, (float)f->y };
+			m_renderer.handleTouchStart(trail, (float)f->x, (float)f->y);
+		}
+		else if (f->justReleased)
+		{
+			auto it = m_fingerTracks.find(f->id);
+			if (it != m_fingerTracks.end())
+			{
+				m_renderer.handleTouchEnd(it->second.trail);
+				m_fingerTracks.erase(it);
+			}
+		}
+		else if (f->pressed)   // 持续按住 / 移动
+		{
+			auto it = m_fingerTracks.find(f->id);
+			if (it == m_fingerTracks.end()) continue;
+			auto& t = it->second;
+
+			float curX = (float)f->x, curY = (float)f->y;
+			float dx = curX - t.px, dy = curY - t.py;
+			if (dx * dx + dy * dy < 4.0f) continue;   // <2px 抖动抑制
+
+			// 玩家判定（分屏）
+			int player = 0;
+			if (m_playerCount >= 2 && curX >= FruitNinjaLogic::SCREEN_W / 2)
+				player = 1;
+
+			// 划动碰撞检测（线段-圆）
+			if (m_logic.getState() == FruitNinjaLogic::State::Playing)
+				m_logic.handleSwipe(player, t.px, t.py, curX, curY);
+
+			// 记录轨迹点
+			m_renderer.addTrailPoint(t.trail, curX, curY);
+			t.px = curX;
+			t.py = curY;
+		}
+	}
 }
 
 // ============================================================
-// 触屏输入 — 划动中
+// 白刃 trail 槽分配
 // ============================================================
 
-void FruitNinjaApp::onTouchMovingCb(lv_event_t* e)
+int FruitNinjaApp::allocTrail()
 {
-	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
-	if (!self || !self->m_touching || self->m_logic.getState() != FruitNinjaLogic::State::Playing)
-		return;
-
-	lv_point_t cur;
-	lv_indev_get_point(lv_indev_active(), &cur);
-
-	// 最小移动距离过滤（抖动抑制）
-	int dx = cur.x - self->m_prevTouch.x;
-	int dy = cur.y - self->m_prevTouch.y;
-	if (dx * dx + dy * dy < 4) // <2px 忽略
-		return;
-
-	// 确定玩家
-	int player = 0;
-	if (self->m_playerCount >= 2 && cur.x >= FruitNinjaLogic::SCREEN_W / 2)
-		player = 1;
-
-	// 划动碰撞检测（线段-圆）
-	self->m_logic.handleSwipe(player,
-		static_cast<float>(self->m_prevTouch.x),
-		static_cast<float>(self->m_prevTouch.y),
-		static_cast<float>(cur.x),
-		static_cast<float>(cur.y));
-
-	// 记录轨迹点
-	self->m_renderer.addTrailPoint(
-		static_cast<float>(cur.x),
-		static_cast<float>(cur.y));
-
-	self->m_prevTouch = cur;
-}
-
-// ============================================================
-// 触屏输入 — 划动结束
-// ============================================================
-
-void FruitNinjaApp::onTouchReleasedCb(lv_event_t* e)
-{
-	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
-	if (!self || !self->m_touching)
-		return;
-
-	self->m_touching = false;
-	self->m_renderer.handleTouchEnd();
+	bool used[FruitNinjaRenderer::MaxTrails]{};
+	for (const auto& kv : m_fingerTracks)
+		if (kv.second.trail >= 0 && kv.second.trail < FruitNinjaRenderer::MaxTrails)
+			used[kv.second.trail] = true;
+	for (int t = 0; t < FruitNinjaRenderer::MaxTrails; t++)
+		if (!used[t]) return t;
+	return -1;
 }
 
 // ============================================================

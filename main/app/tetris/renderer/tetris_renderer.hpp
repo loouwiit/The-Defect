@@ -6,6 +6,7 @@
 #include "app/tetris/gameLogic/tetris_client.hpp"
 #include "app/tetris/gameLogic/gameState.hpp"
 #include "app/tetris/gameLogic/player_state.hpp"
+#include "touch/touchButton.hpp"
 
 /// 每 (hostId, playerId) 连续输入暂存（供 gameLoop OR 合并）
 struct HostContinuousInput {
@@ -59,10 +60,8 @@ public:
     /// 设置退出游戏回调
     void setOnExit(std::function<void()> cb) { m_onExit = cb; }
 
-    // ============================================================
-    //  渲染主入口
-    // ============================================================
-
+	/// 绑定多指触摸按钮（owner 用于 TouchService 前台过滤，传 TetrisApp*）
+	void bindTouch(App* owner);
     /// 从绑定的 GameState 同步渲染（内部做 diff）
     void syncState();
 
@@ -135,9 +134,14 @@ private:
     lv_obj_t* m_btnHold{};
     lv_obj_t* m_btnExit{};
 
+    // ── 多指触摸按钮（回调跟随对象） ──
+    enum class TouchKey : int {
+        Left = 0, Right, Soft, Hard, CCW, CW, Hold, Count
+    };
+    TouchButton m_touchBtns[(int)TouchKey::Count]{};
+    TouchButton m_btnExitTouch;
+
     void createTouchButtons(lv_obj_t* parent);
-    static void onBtnPressed(lv_event_t* e);
-    static void onBtnReleased(lv_event_t* e);
 
     static int boardYToLvglRow(int boardY) { return ROWS - 1 - boardY; }
 

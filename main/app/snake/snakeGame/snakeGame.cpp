@@ -1,5 +1,6 @@
 ﻿#include "snakeGame.hpp"
 #include "display/font.hpp"
+#include "touch/touchService.hpp"
 // TODO: 远程导航 — 后续参考 tetris 分支的 WS 架构重新实现
 // #include "wsServer/wsServer.hpp"
 #include "esp_log.h"
@@ -222,6 +223,9 @@ void SnakeGame::init()
 
 	lv_label_set_text(m_statusLabel, "D-pad 控制方向");
 
+	// 绑定多指触摸按钮（回调跟随对象）
+	bindTouchButtons();
+
 	ESP_LOGI(TAG, "Starting %dP game, grid: %dx%d", m_playerCount, m_gridW, m_gridH);
 
 	// TODO: 远程导航 — 后续参考 tetris 分支的 WS 架构重新实现
@@ -234,6 +238,8 @@ void SnakeGame::init()
 
 void SnakeGame::deinit()
 {
+	// 确定性清理本 App 的触摸按钮（LV_EVENT_DELETE 也会自动注销，双保险）
+	TouchService::instance().removeButtonsOfOwner(this);
 	running = false;
 	// deleteable 在gameLoop中设置
 }
@@ -423,6 +429,10 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 			lv_obj_set_style_text_font(lbl, FontLoader::getDefault(FontLoader::FontSize::Large), 0);
 			lv_obj_center(lbl);
 			lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
+
+			// 多指触摸接管：清 CLICKABLE 让 LVGL 单指针不再消费（避免双触发），
+			// 触摸命中由 TouchService + TouchButton 完成
+			lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
 		};
 
 	// ====== 玩家 1 D-pad（右下角，半透明叠加�?======
@@ -455,7 +465,7 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	lv_obj_set_style_text_color(lblP, lv_color_hex(Color::SUBTLE), 0);
 	lv_obj_center(lblP);
 	lv_obj_add_event_cb(m_p1Pause, btnPauseCb, LV_EVENT_CLICKED, this);
-
+	lv_obj_clear_flag(m_p1Pause, LV_OBJ_FLAG_CLICKABLE);
 	// ====== 玩家 2 D-pad（左下角，半透明叠加�?======
 	m_pad2 = lv_obj_create(parent);
 	lv_obj_set_size(m_pad2, W, H);
@@ -503,6 +513,76 @@ void SnakeGame::createDpad(lv_obj_t* parent)
 	mkBtn(m_pad4, m_p4Left, 0, S + G, "◀", btnP4LeftCb, Color::DPAD_BTN);
 	mkBtn(m_pad4, m_p4Right, S * 2 + G, S + G, "▶", btnP4RightCb, Color::DPAD_BTN);
 	mkBtn(m_pad4, m_p4Down, S + G, S * 2 + G, "▼", btnP4DownCb, Color::DPAD_BTN);
+}
+
+// ============================================================
+// 多指触摸 D-pad 绑定（回调跟随对象，按住持续）
+// ============================================================
+
+void SnakeGame::bindTouchButtons()
+{
+	// 重启/返回按钮：清 CLICKABLE，避免 LVGL 单指针双触发（触摸由 TouchButton 接管）
+	lv_obj_clear_flag(m_restartBtn, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_clear_flag(m_backBtn, LV_OBJ_FLAG_CLICKABLE);
+
+	// 玩家方向键（按住持续，仅绑定显示的玩家）
+	const auto bindDir = [&](TouchButton& tb, DirBtnCtx& ctx, lv_obj_t* btn,
+		int player, SnakeGameLogic::Direction dir) {
+			ctx.self = this;
+			ctx.btn = btn;
+			ctx.player = player;
+			ctx.dir = dir;
+			tb.bind(btn, this, [](bool pressed, void* u) {
+				auto* c = static_cast<DirBtnCtx*>(u);
+				if (!c || !c->self || !c->btn) return;
+				if (pressed) {
+					// 按住持续：每次命中按下都设置方向（GameOver 时 setDirAndStart 会重启）
+					c->self->setDirAndStart(c->self, c->player, c->dir);
+					lv_obj_add_state(c->btn, LV_STATE_PRESSED);
+				}
+				else {
+					lv_obj_clear_state(c->btn, LV_STATE_PRESSED);
+				}
+				}, &ctx);
+		};
+
+	// [player][0=Up,1=Left,2=Right,3=Down]
+	for (int p = 0; p < m_playerCount && p < MAX_PLAYERS; p++)
+	{
+		lv_obj_t* btns[4]{};
+		switch (p)
+		{
+		case 0: btns[0] = m_p1Up;    btns[1] = m_p1Left;  btns[2] = m_p1Right; btns[3] = m_p1Down;  break;
+		case 1: btns[0] = m_p2Up;    btns[1] = m_p2Left;  btns[2] = m_p2Right; btns[3] = m_p2Down;  break;
+		case 2: btns[0] = m_p3Up;    btns[1] = m_p3Left;  btns[2] = m_p3Right; btns[3] = m_p3Down;  break;
+		default: btns[0] = m_p4Up;   btns[1] = m_p4Left;  btns[2] = m_p4Right; btns[3] = m_p4Down;  break;
+		}
+		bindDir(m_dirButtons[p][0], m_dirCtx[p][0], btns[0], p, SnakeGameLogic::Direction::Up);
+		bindDir(m_dirButtons[p][1], m_dirCtx[p][1], btns[1], p, SnakeGameLogic::Direction::Left);
+		bindDir(m_dirButtons[p][2], m_dirCtx[p][2], btns[2], p, SnakeGameLogic::Direction::Right);
+		bindDir(m_dirButtons[p][3], m_dirCtx[p][3], btns[3], p, SnakeGameLogic::Direction::Down);
+	}
+
+	// 暂停按钮（P1 D-pad 中心，点按切换）
+	m_pauseCtx.self = this;
+	m_pauseCtx.btn = m_p1Pause;
+	m_pauseCtx.player = 0;
+	m_pauseCtx.dir = SnakeGameLogic::Direction::None;
+	m_pauseButton.bind(m_p1Pause, this, [](bool pressed, void* u) {
+		auto* c = static_cast<DirBtnCtx*>(u);
+		if (!c || !c->self || !c->btn) return;
+		if (pressed) {
+			c->self->handlePauseToggle();
+			lv_obj_add_state(c->btn, LV_STATE_PRESSED);
+		}
+		else {
+			lv_obj_clear_state(c->btn, LV_STATE_PRESSED);
+		}
+		}, &m_pauseCtx);
+
+	// 重启/返回：LVGL 兼容模式（命中/松开 → LV_EVENT_CLICKED → 复用 btnRestartCb / btnBackCb）
+	m_restartTouch.bindLvgl(m_restartBtn, this);
+	m_backTouch.bindLvgl(m_backBtn, this);
 }
 
 // ============================================================
@@ -710,7 +790,7 @@ void SnakeGame::onForeground()
 {
 	// 全置按下：下一帧 newPress = 0，跳过边沿检测
 	m_prevButtons = 0xFFFF;
-	for (auto& t : m_nextMoveTime) for(auto& i : t) i = 0;
+	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	m_focusIdx = 0;
 	if (auto guard = display->lockGuard())
@@ -850,25 +930,32 @@ void SnakeGame::btnP4RightCb(lv_event_t* e)
 void SnakeGame::btnPauseCb(lv_event_t* e)
 {
 	auto self = static_cast<SnakeGame*>(lv_event_get_user_data(e));
-	auto state = self->m_logic.getState();
+	if (!self) return;
+	self->handlePauseToggle();
+}
+
+// 暂停/继续切换（触摸 + LVGL 共用）
+void SnakeGame::handlePauseToggle()
+{
+	auto state = m_logic.getState();
 	if (state == SnakeGameLogic::State::Playing)
-		self->m_logic.setState(SnakeGameLogic::State::Paused);
+		m_logic.setState(SnakeGameLogic::State::Paused);
 	else if (state == SnakeGameLogic::State::Paused)
-		self->m_logic.setState(SnakeGameLogic::State::Playing);
+		m_logic.setState(SnakeGameLogic::State::Playing);
 	else if (state == SnakeGameLogic::State::GameOver)
 	{
-		if (xTaskGetTickCount() < self->m_nextActionTime) {
+		if (xTaskGetTickCount() < m_nextActionTime) {
 			ESP_LOGI(TAG, "多次点击，已过滤");
 			return;
 		}
-		self->m_nextActionTime = xTaskGetTickCount() + self->ACTION_DELAY;
+		m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 
 		// 栈操作，延后处理
 		Task::addTask([](void* p) -> TickType_t {
 			auto* game = static_cast<SnakeGame*>(p);
 			game->replaceWith(new SnakeGame(game->display, game->m_playerCount));
 			return Task::infinityTime;
-			}, "restartGame", self, 0, Task::Affinity::None);
+			}, "restartGame", this, 0, Task::Affinity::None);
 	}
 }
 
@@ -921,6 +1008,9 @@ void SnakeGame::gameLoop(void* param)
 
 	while (self.running)
 	{
+		// 多指触摸输入（D-pad 按住持续；内部持 LVGL 锁）
+		TouchService::instance().update();
+
 		// 游戏逻辑（方向由 D-pad 按钮回调直接设置�?
 		if (self.m_logic.getState() == SnakeGameLogic::State::Playing)
 		{

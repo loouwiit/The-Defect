@@ -3,6 +3,7 @@
 #include "app/app.hpp"
 #include "task/task.hpp"
 #include "gameLogic.hpp"
+#include "touch/touchButton.hpp"
 
 /**
  * @brief 贪吃蛇游戏 App
@@ -104,8 +105,28 @@ private:
 	lv_obj_t* m_p4Left = nullptr;
 	lv_obj_t* m_p4Right = nullptr;
 
+	// —— 多指触摸 D-pad（回调跟随对象，按住持续） ——
+	struct DirBtnCtx {
+		SnakeGame* self = nullptr;
+		lv_obj_t* btn = nullptr;
+		int player = 0;
+		SnakeGameLogic::Direction dir = SnakeGameLogic::Direction::None;
+	};
+	TouchButton m_dirButtons[MAX_PLAYERS][4];  // [player][0=up,1=left,2=right,3=down]
+	DirBtnCtx m_dirCtx[MAX_PLAYERS][4];
+	TouchButton m_pauseButton;
+	DirBtnCtx m_pauseCtx;
+	TouchButton m_restartTouch;
+	TouchButton m_backTouch;
+
 	/** @brief 创建 D-pad 按钮 */
 	void createDpad(lv_obj_t* parent);
+
+	/** @brief 绑定多指触摸按钮（回调跟随对象） */
+	void bindTouchButtons();
+
+	/** @brief 暂停/继续切换（触摸 + LVGL 共用） */
+	void handlePauseToggle();
 
 	/** @brief 创建游戏对象池（蛇身段 + 食物） */
 	void createObjectPool(lv_obj_t* parent);

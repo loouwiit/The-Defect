@@ -25,6 +25,10 @@ public:
 
 	esp_lcd_touch_handle_t getHandle();
 
+	/// 读取当前全部触点快照（带 track_id 的屏幕坐标），返回实际点数
+	/// 复用 esp_lcd_touch_get_data（带锁、坐标已 swap/mirror 转换），任意任务可调
+	size_t getPoints(PointData* buf, size_t max);
+
 	bool update();
 
 	uint8_t getCount();

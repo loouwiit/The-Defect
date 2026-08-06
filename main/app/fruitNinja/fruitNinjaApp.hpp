@@ -5,6 +5,7 @@
 #include "fruitNinjaLogic.hpp"
 #include "fruitNinjaRenderer.hpp"
 #include "gamepad/gamepadState.hpp"
+#include <map>
 
 /**
  * @brief 水果忍者游戏 App
@@ -38,9 +39,19 @@ private:
 	int m_playerCount;
 	Thread m_thread;
 
-	// ── 触摸跟踪 ──
-	lv_point_t m_prevTouch{};
-	bool m_touching = false;
+	// ── 触摸跟踪（多指，每指独立 trail） ──
+	struct FingerTrack
+	{
+		int trail = -1;    // 占用的白刃 trail 槽
+		float px = 0, py = 0;  // 上一帧位置（划动线段起点）
+	};
+	std::map<int, FingerTrack> m_fingerTracks;   // track_id → 手指跟踪状态
+
+	/** @brief 分配一个空闲白刃 trail 槽（-1=无） */
+	int allocTrail();
+
+	/** @brief 每帧多指触摸处理（tracker → handleSwipe / trail） */
+	void processTouch();
 
 	// ── 输入状态 ──
 	uint16_t m_prevButtons[MaxHosts][MaxPlayers]{};
@@ -59,9 +70,6 @@ private:
 
 	// ── 内部方法 ──
 	static void gameLoop(void* param);
-	static void onTouchPressedCb(lv_event_t* e);
-	static void onTouchMovingCb(lv_event_t* e);
-	static void onTouchReleasedCb(lv_event_t* e);
 
 	static void btnRestartCb(lv_event_t* e);
 	static void btnExitCb(lv_event_t* e);

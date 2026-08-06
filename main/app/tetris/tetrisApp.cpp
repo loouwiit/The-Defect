@@ -2,6 +2,7 @@
 #include "app/tetris/net/tetrisTcpHost.hpp"
 #include "display/font.hpp"
 #include "gui/gui.hpp"
+#include "touch/touchService.hpp"
 #include <esp_log.h>
 #include "host/hostManager.hpp"
 
@@ -64,6 +65,7 @@ void TetrisApp::init()
 		m_renderers[i]->bindGameState(&m_gameStates[i]);
 		m_renderers[i]->bindPlayer(&m_players[i]);
 		m_renderers[i]->bindHostInput(&m_hostInput[TOUCH_SLOT][i]); // 触屏专用 slot
+		m_renderers[i]->bindTouch(this); // 多指触摸按钮（回调跟随对象）
 		m_renderers[i]->setOnCycleTarget([this, i]() {
 			// 触屏点击攻击标签 → 切换目标
 			int next = m_players[i].attackTarget();
@@ -185,6 +187,8 @@ void TetrisApp::init()
 
 void TetrisApp::deinit()
 {
+	// 确定性清理本 App 的触摸按钮（LV_EVENT_DELETE 也会自动注销，双保险）
+	TouchService::instance().removeButtonsOfOwner(this);
 	tetrisNetDeinit();
 	tetrisTcpHostStop();
 
@@ -455,7 +459,10 @@ void TetrisApp::gameLoop()
 	while (running) {
 		TickType_t now = xTaskGetTickCount();
 
-		// ── 0. 合并多 host 连续输入（OR） ──
+		// ── 0. 多指触摸输入（内部持 LVGL 锁；按钮回调写 m_hostInput[TOUCH_SLOT] + m_playerState）──
+		TouchService::instance().update();
+
+		// ── 1. 合并多 host 连续输入（OR） ──
 		for (int i = 0; i < m_playerCount; i++) {
 			bool left = false, right = false, soft = false;
 			for (int h = 0; h < MaxHosts + 1; h++) {

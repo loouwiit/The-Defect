@@ -521,8 +521,9 @@ void TetrisRenderer::createTouchButtons(lv_obj_t* parent)
 			lv_obj_center(label);
 			lv_obj_set_style_text_color(label, GUI::Color::TEXT, 0);
 
-			lv_obj_add_event_cb(btn, onBtnPressed, LV_EVENT_PRESSED, this);
-			lv_obj_add_event_cb(btn, onBtnReleased, LV_EVENT_RELEASED, this);
+			// 多指触摸接管：清 CLICKABLE 让 LVGL 单指针不再消费（避免双触发），
+			// 触摸命中由 TouchService + TouchButton 完成
+			lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
 			return btn;
 		};
 
@@ -536,44 +537,44 @@ void TetrisRenderer::createTouchButtons(lv_obj_t* parent)
 }
 
 // ============================================================
-//  按钮回调
+//  多指触摸按钮绑定（回调跟随对象）
 // ============================================================
 
-void TetrisRenderer::onBtnPressed(lv_event_t* e)
-
+void TetrisRenderer::bindTouch(App* owner)
 {
-	auto renderer = static_cast<TetrisRenderer*>(lv_event_get_user_data(e));
-	auto btn = lv_event_get_target(e);
-	auto* p = renderer->m_playerState;
-	if (!p) return;
+	// 游戏按钮：Left/Right/Soft 连续输入（写 hostInputBuf），其余边沿触发（写 PlayerState）
+	const auto bindBtn = [&](TouchButton& tb, lv_obj_t* btn, TouchKey key) {
+		tb.bind(btn, owner, [key](bool pressed, void* user) {
+			auto* r = static_cast<TetrisRenderer*>(user);
+			if (!r) return;
+			auto* p = r->m_playerState;
+			auto* hb = r->m_hostInputBuf;
+			if (!p) return;
+			switch (key)
+			{
+			case TouchKey::Left:  if (hb) hb->left = pressed; break;
+			case TouchKey::Right: if (hb) hb->right = pressed; break;
+			case TouchKey::Soft:  if (hb) hb->soft = pressed; break;
+			case TouchKey::Hard:  if (pressed) p->keyHard = true; break;
+			case TouchKey::CCW:   if (pressed) p->keyCCW = true; break;
+			case TouchKey::CW:    if (pressed) p->keyCW = true; break;
+			case TouchKey::Hold:  if (pressed) p->keyHold = true; break;
+			default: break;
+			}
+			}, this);
+		};
 
-	// 连续输入写入 hostInput 缓冲区（经 OR 合并通道）
-	if (renderer->m_hostInputBuf) {
-		if (btn == renderer->m_btnLeft)   { renderer->m_hostInputBuf->left  = true; }
-		if (btn == renderer->m_btnRight)  { renderer->m_hostInputBuf->right = true; }
-		if (btn == renderer->m_btnSoft)   { renderer->m_hostInputBuf->soft  = true; }
-	}
-	// 边沿触发直接写 PlayerState（SET-only，天然 OR，不受合并影响）
-	if (btn == renderer->m_btnCW)     { p->keyCW = true; }
-	if (btn == renderer->m_btnCCW)    { p->keyCCW = true; }
-	if (btn == renderer->m_btnHard)   { p->keyHard = true; }
-	if (btn == renderer->m_btnHold)   { p->keyHold = true; }
-}
+	bindBtn(m_touchBtns[(int)TouchKey::Left], m_btnLeft, TouchKey::Left);
+	bindBtn(m_touchBtns[(int)TouchKey::Right], m_btnRight, TouchKey::Right);
+	bindBtn(m_touchBtns[(int)TouchKey::Soft], m_btnSoft, TouchKey::Soft);
+	bindBtn(m_touchBtns[(int)TouchKey::Hard], m_btnHard, TouchKey::Hard);
+	bindBtn(m_touchBtns[(int)TouchKey::CCW], m_btnCCW, TouchKey::CCW);
+	bindBtn(m_touchBtns[(int)TouchKey::CW], m_btnCW, TouchKey::CW);
+	bindBtn(m_touchBtns[(int)TouchKey::Hold], m_btnHold, TouchKey::Hold);
 
-void TetrisRenderer::onBtnReleased(lv_event_t* e)
-
-{
-	auto renderer = static_cast<TetrisRenderer*>(lv_event_get_user_data(e));
-	auto btn = lv_event_get_target(e);
-	auto* p = renderer->m_playerState;
-	if (!p) return;
-
-	// 连续输入释放写入 hostInput 缓冲区（OR 合并后 processInput 自动重置 DAS）
-	if (renderer->m_hostInputBuf) {
-		if (btn == renderer->m_btnLeft)   { renderer->m_hostInputBuf->left  = false; }
-		if (btn == renderer->m_btnRight)  { renderer->m_hostInputBuf->right = false; }
-		if (btn == renderer->m_btnSoft)   { renderer->m_hostInputBuf->soft  = false; }
-	}
+	// 退出按钮：LVGL 兼容模式（命中/松开 → LV_EVENT_CLICKED → 现有 lambda → m_onExit）
+	lv_obj_clear_flag(m_btnExit, LV_OBJ_FLAG_CLICKABLE);
+	m_btnExitTouch.bindLvgl(m_btnExit, owner);
 }
 
 // ============================================================
@@ -685,7 +686,7 @@ void TetrisRenderer::syncState()
 						dirtyArea.x2 = LV_MAX(dirtyArea.x2, cell.x2);
 						dirtyArea.y2 = LV_MAX(dirtyArea.y2, cell.y2);
 					}
-				};
+					};
 
 				// 清除旧 ghost
 				if (ghostChanged && m_lastGhostValid)

@@ -2,6 +2,7 @@
 #include "display/ili9881c.hpp"
 #include "display/font.hpp"
 #include "touch/touch.hpp"
+#include "touch/touchService.hpp"
 
 #include <esp_log.h>
 #include <cstring>
@@ -136,6 +137,9 @@ extern "C" void app_main(void)
 		return;
 	}
 	display.setFpsStatisticsEnabled();
+
+	// 多指触摸服务（GT911 多点 → 逐指追踪 → 触摸按钮分发）
+	TouchService::instance().init(&touch, &display);
 
 	Task::addTask([](void* param)->TickType_t
 		{

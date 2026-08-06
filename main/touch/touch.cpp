@@ -52,6 +52,18 @@ esp_lcd_touch_handle_t Touch::getHandle()
 	return handle;
 }
 
+size_t Touch::getPoints(PointData* buf, size_t max)
+{
+	if (handle == nullptr || buf == nullptr || max == 0)
+		return 0;
+
+	uint8_t count = 0;
+	if (esp_lcd_touch_get_data(handle, buf, &count, (uint8_t)max) != ESP_OK)
+		return 0;
+
+	return count;
+}
+
 bool Touch::update()
 {
 	if (esp_lcd_touch_read_data(handle) != ESP_OK)
