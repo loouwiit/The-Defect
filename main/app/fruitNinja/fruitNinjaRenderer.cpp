@@ -462,13 +462,12 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		prev = cur;
 	}
 
-	// ── 刀光段（FIFO，新增/回绕顶掉/移除） ──
+	// ── 刀光段（超时消失：仅新增/移除/回绕顶掉标脏，不每帧重绘） ──
 	for (int i = 0; i < kMaxSegments; i++)
 	{
 		BBox cur = m_segments[i].active ? segBBox(m_segments[i]) : BBox{};
 		BBox& prev = m_prevSeg[i];
-		// 必须比较 bbox 而非仅 active：FIFO 满后回绕顶掉旧段时 active 不变（true→true），
-		// 仅靠 active 判定会漏标脏 → 刀光停止更新
+		// 比较 bbox 而非仅 active：回绕顶掉旧段时 active 不变（true→true）也须标脏
 		bool changed = (cur.active != prev.active)
 			|| (cur.active && (cur.x1 != prev.x1 || cur.y1 != prev.y1 ||
 				cur.x2 != prev.x2 || cur.y2 != prev.y2));
@@ -820,6 +819,7 @@ void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
 	auto& s = m_segments[m_segWrite];
 	s.x1 = x1; s.y1 = y1;
 	s.x2 = x2; s.y2 = y2;
+	s.life = TRAIL_LIFETIME;   // 回绕覆盖旧段时重置生命周期
 	s.active = true;
 
 	m_segWrite = (m_segWrite + 1) % kMaxSegments;
@@ -831,7 +831,16 @@ void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
 
 void FruitNinjaRenderer::ageTrail(float dt)
 {
-	(void)dt;
+	// 超时消失：每段剩余生命递减，归零后消失（无半透明渐隐，性能最优）
+	for (int i = 0; i < kMaxSegments; i++)
+	{
+		auto& s = m_segments[i];
+		if (!s.active) continue;
+
+		s.life -= dt;
+		if (s.life <= 0.0f)
+			s.active = false;   // 超时 → 下一帧 render 清除 canvas 残留
+	}
 }
 
 // ============================================================

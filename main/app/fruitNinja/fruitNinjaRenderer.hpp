@@ -61,8 +61,10 @@ private:
 	static constexpr int MAX_FRUITS = FruitNinjaLogic::MAX_FRUITS;
 	static constexpr int MAX_PARTICLES = FruitNinjaLogic::MAX_PARTICLES;
 
-	// 刀光段容量（FIFO 覆盖，不淡出）：快速划线 60fps 每帧 1 段 → 24 段 ≈ 0.4s 尾迹
-	static constexpr int kMaxSegments = 24;
+	// 刀光段池 + 超时不透明：段保持 1s 后瞬间消失（无逐帧淡出，性能最优）
+	// 64 段：60fps 持续划线 1s ≈ 60 段，池够大不顶掉；触摸停止后从尾部逐段消失
+	static constexpr int kMaxSegments = 64;
+	static constexpr float TRAIL_LIFETIME = 0.5f;   // 段超时（秒）
 
 	// ── canvas ──
 	lv_obj_t* m_canvas{};
@@ -80,10 +82,11 @@ private:
 	BBox m_prevFruit[MAX_FRUITS];
 	BBox m_prevParticle[MAX_PARTICLES];
 
-	// ── 刀光段（FIFO，不透明） ──
+	// ── 刀光段（超时不透明：lifetime 到期后瞬间消失，无逐帧淡出/半透明） ──
 	struct TrailSegment
 	{
 		float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+		float life = 0;        // 剩余生命（秒），ageTrail 递减，<=0 消失
 		bool active = false;
 	};
 	TrailSegment m_segments[kMaxSegments]{};
@@ -91,7 +94,7 @@ private:
 	BBox m_prevSeg[kMaxSegments];
 
 	// ── 脏区集合（每帧重建） ──
-	lv_area_t m_dirty[64];
+	lv_area_t m_dirty[128];
 	int m_dirtyCount = 0;
 	void dirtyClear() { m_dirtyCount = 0; }
 	void dirtyAdd(int32_t x1, int32_t y1, int32_t x2, int32_t y2);
