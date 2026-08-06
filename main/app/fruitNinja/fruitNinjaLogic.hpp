@@ -90,9 +90,6 @@ public:
 	/** @brief 触屏输入：划动线段检测。返回 true=至少一个水果被切片 */
 	bool handleSwipe(int player, float x1, float y1, float x2, float y2);
 
-	/** @brief 触屏输入：点按坐标。返回 true=切片成功 */
-	bool handleTouch(int player, float tx, float ty);
-
 	// ── 数据读取（供渲染器） ──
 	int getFruitCount() const { return m_fruitCount; }
 	const Fruit* getFruits() const { return m_fruits; }

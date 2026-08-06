@@ -5,6 +5,7 @@
 #include "fruitNinjaLogic.hpp"
 #include "fruitNinjaRenderer.hpp"
 #include "gamepad/gamepadState.hpp"
+#include "touch/gt911Indev.hpp"
 
 /**
  * @brief 水果忍者游戏 App
@@ -38,9 +39,15 @@ private:
 	int m_playerCount;
 	Thread m_thread;
 
-	// ── 触摸跟踪 ──
-	lv_point_t m_prevTouch{};
-	bool m_touching = false;
+	// ── 触摸跟踪（多指，轮询 GT911Indev 槽位）──
+	// 槽位仅用于几何（上一帧坐标 → 本帧坐标生成线段 + 线段碰撞），
+	// 不参与 UI 归属：渲染层按“线段段”池管理刀光，GT911 ID 会复用不可作 UI 依据。
+	struct FingerTouch
+	{
+		lv_point_t prevPoint{};    // 上一帧坐标（线段碰撞/生成刀光段用）
+		bool hasPrev = false;      // 是否已有上一帧坐标
+	};
+	FingerTouch m_fingers[GT911Indev::kSlotCount]{};
 
 	// ── 输入状态 ──
 	uint16_t m_prevButtons[MaxHosts][MaxPlayers]{};
@@ -59,9 +66,7 @@ private:
 
 	// ── 内部方法 ──
 	static void gameLoop(void* param);
-	static void onTouchPressedCb(lv_event_t* e);
-	static void onTouchMovingCb(lv_event_t* e);
-	static void onTouchReleasedCb(lv_event_t* e);
+	void updateTouchFromSlots();
 
 	static void btnRestartCb(lv_event_t* e);
 	static void btnExitCb(lv_event_t* e);

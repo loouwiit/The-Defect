@@ -1,11 +1,7 @@
 #include "fruitNinjaApp.hpp"
-#include "app/appStackManager.hpp"
-#include "display/font.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
 #include "lvgl.h"
-
-#include <cstring>
 
 // ============================================================
 // 构造 / 析构
@@ -54,11 +50,8 @@ void FruitNinjaApp::init()
 	// 注册退出按钮
 	lv_obj_add_event_cb(m_renderer.getExitBtn(), btnExitCb, LV_EVENT_CLICKED, this);
 
-	// 注册触屏事件（划动切水果）
-	lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_event_cb(screen, onTouchPressedCb, LV_EVENT_PRESSED, this);
-	lv_obj_add_event_cb(screen, onTouchMovingCb, LV_EVENT_PRESSING, this);
-	lv_obj_add_event_cb(screen, onTouchReleasedCb, LV_EVENT_RELEASED, this);
+	// 触屏输入：多指轮询 GT911Indev 槽位（gameLoop 内 updateTouchFromSlots 驱动）。
+	// 不使用 LVGL indev 事件——多指下 LVGL 无法区分触摸 ID，会导致输入乱套。
 
 	ESP_LOGI(TAG, "启动 FruitNinja: mode=%s, players=%d",
 		(m_mode == FruitNinjaLogic::GameMode::Classic) ? "Classic" : "Arcade",
@@ -93,8 +86,13 @@ void FruitNinjaApp::onForeground()
 	for (auto& t : m_nextMoveTime) for (auto& i : t) i = 0;
 	m_nextActionTime = xTaskGetTickCount() + ACTION_DELAY;
 	m_focusIdx = 0;
+	for (auto& f : m_fingers)
+		f = FingerTouch{};
 	if (auto guard = display->lockGuard())
+	{
+		m_renderer.clearTrail();
 		applyFocus();
+	}
 }
 
 void FruitNinjaApp::onBackground()
@@ -123,6 +121,8 @@ void FruitNinjaApp::gameLoop(void* param)
 		// 渲染
 		if (auto guard = self.display->lockGuard())
 		{
+			// 多指触摸轮询：每指独立跟踪/独立刀光（绕过 LVGL indev 事件）
+			self.updateTouchFromSlots();
 			self.m_renderer.ageTrail(TICK_MS / 1000.0f);
 			self.m_renderer.render(self.m_logic);
 
@@ -152,75 +152,74 @@ void FruitNinjaApp::gameLoop(void* param)
 }
 
 // ============================================================
-// 触屏输入 — 划动开始
+// 触屏输入 — 多指轮询（替代 LVGL 事件，绕过 indev ID 不分问题）
+//
+// 每帧从 GT911Indev 读取 5 槽位快照，对按下手指做线段碰撞 + 产生刀光线段段。
+// 触摸只负责“添加线段段 (上一帧位置, 当前帧位置)”；渲染层按线段池管理，
+// 不关心手指 ID/槽位（GT911 ID 会复用）——段间天然断开、每段独立超时老化。
 // ============================================================
 
-void FruitNinjaApp::onTouchPressedCb(lv_event_t* e)
+void FruitNinjaApp::updateTouchFromSlots()
 {
-	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
-	if (!self || self->m_logic.getState() != FruitNinjaLogic::State::Playing)
+	// 非游戏状态：所有手指复位并清空刀光
+	if (m_logic.getState() != FruitNinjaLogic::State::Playing)
+	{
+		for (auto& f : m_fingers)
+			f = FingerTouch{};
+		m_renderer.clearTrail();
 		return;
+	}
 
-	lv_indev_get_point(lv_indev_active(), &self->m_prevTouch);
-	self->m_touching = true;
+	GT911Indev::SlotInfo slots[GT911Indev::kSlotCount];
+	GT911Indev::instance().getSlots(slots, GT911Indev::kSlotCount);
 
-	// 确定玩家（2P 分屏），仅用于记录起点，不做分屏限制
-	self->m_renderer.handleTouchStart(
-		static_cast<float>(self->m_prevTouch.x),
-		static_cast<float>(self->m_prevTouch.y));
-}
+	for (int i = 0; i < GT911Indev::kSlotCount; i++)
+	{
+		const auto& info = slots[i];
+		const bool pressed = info.active && info.pressed;
+		const lv_point_t pt = info.point;
+		auto& f = m_fingers[i];
 
-// ============================================================
-// 触屏输入 — 划动中
-// ============================================================
+		if (pressed)
+		{
+			if (f.hasPrev)
+			{
+				// ── 保持移动：线段碰撞 + 追加一段刀光线段 ──
+				int dx = pt.x - f.prevPoint.x;
+				int dy = pt.y - f.prevPoint.y;
+				if (dx * dx + dy * dy >= 4)   // <2px 忽略（抖动抑制）
+				{
+					int player = 0;
+					if (m_playerCount >= 2 && pt.x >= FruitNinjaLogic::SCREEN_W / 2)
+						player = 1;
 
-void FruitNinjaApp::onTouchMovingCb(lv_event_t* e)
-{
-	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
-	if (!self || !self->m_touching || self->m_logic.getState() != FruitNinjaLogic::State::Playing)
-		return;
+					m_logic.handleSwipe(player,
+						static_cast<float>(f.prevPoint.x),
+						static_cast<float>(f.prevPoint.y),
+						static_cast<float>(pt.x),
+						static_cast<float>(pt.y));
 
-	lv_point_t cur;
-	lv_indev_get_point(lv_indev_active(), &cur);
-
-	// 最小移动距离过滤（抖动抑制）
-	int dx = cur.x - self->m_prevTouch.x;
-	int dy = cur.y - self->m_prevTouch.y;
-	if (dx * dx + dy * dy < 4) // <2px 忽略
-		return;
-
-	// 确定玩家
-	int player = 0;
-	if (self->m_playerCount >= 2 && cur.x >= FruitNinjaLogic::SCREEN_W / 2)
-		player = 1;
-
-	// 划动碰撞检测（线段-圆）
-	self->m_logic.handleSwipe(player,
-		static_cast<float>(self->m_prevTouch.x),
-		static_cast<float>(self->m_prevTouch.y),
-		static_cast<float>(cur.x),
-		static_cast<float>(cur.y));
-
-	// 记录轨迹点
-	self->m_renderer.addTrailPoint(
-		static_cast<float>(cur.x),
-		static_cast<float>(cur.y));
-
-	self->m_prevTouch = cur;
-}
-
-// ============================================================
-// 触屏输入 — 划动结束
-// ============================================================
-
-void FruitNinjaApp::onTouchReleasedCb(lv_event_t* e)
-{
-	auto* self = static_cast<FruitNinjaApp*>(lv_event_get_user_data(e));
-	if (!self || !self->m_touching)
-		return;
-
-	self->m_touching = false;
-	self->m_renderer.handleTouchEnd();
+					m_renderer.addTrailSegment(
+						static_cast<float>(f.prevPoint.x),
+						static_cast<float>(f.prevPoint.y),
+						static_cast<float>(pt.x),
+						static_cast<float>(pt.y));
+					f.prevPoint = pt;
+				}
+			}
+			else
+			{
+				// ── 按压起点：仅记录上一帧位置（线段需两个点，首帧不产生段） ──
+				f.prevPoint = pt;
+				f.hasPrev = true;
+			}
+		}
+		else
+		{
+			// ── 松手：停止追加，已有线段交由渲染器超时老化清理 ──
+			f.hasPrev = false;
+		}
+	}
 }
 
 // ============================================================

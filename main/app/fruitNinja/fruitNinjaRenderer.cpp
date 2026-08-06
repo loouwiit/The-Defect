@@ -133,36 +133,29 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 	lv_obj_set_style_text_color(exitLbl, lv_color_hex(0xffffffff), 0);
 	lv_obj_center(exitLbl);
 
-	// ── 白刃轨迹线（三层叠加，不用 shadow 避免矩形白框） ──
-	// 中层发光（半透白 14px）
-	m_bladeGlow = lv_line_create(parent);
-	lv_obj_set_style_line_width(m_bladeGlow, 14, 0);
-	lv_obj_set_style_line_color(m_bladeGlow, lv_color_hex(0x44ffffff), 0);
-	lv_obj_set_style_line_rounded(m_bladeGlow, true, 0);
-	lv_obj_set_style_bg_opa(m_bladeGlow, LV_OPA_TRANSP, 0);
-	lv_obj_set_style_border_width(m_bladeGlow, 0, 0);
-	lv_obj_remove_flag(m_bladeGlow, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_flag(m_bladeGlow, LV_OBJ_FLAG_HIDDEN);
+	// ── 刀光线段池（每段 2 层叠加：光晕 + 刃芯；段间独立断开，不用 shadow 避免矩形白框） ──
+	for (int i = 0; i < kMaxSegments; i++)
+	{
+		// 光晕（半透白 14px）
+		m_segGlow[i] = lv_line_create(parent);
+		lv_obj_set_style_line_width(m_segGlow[i], 14, 0);
+		lv_obj_set_style_line_color(m_segGlow[i], lv_color_hex(0x44ffffff), 0);
+		lv_obj_set_style_line_rounded(m_segGlow[i], true, 0);
+		lv_obj_set_style_bg_opa(m_segGlow[i], LV_OPA_TRANSP, 0);
+		lv_obj_set_style_border_width(m_segGlow[i], 0, 0);
+		lv_obj_remove_flag(m_segGlow[i], LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_add_flag(m_segGlow[i], LV_OBJ_FLAG_HIDDEN);
 
-	// 外层光晕（半透白 24px）
-	m_bladeLine = lv_line_create(parent);
-	lv_obj_set_style_line_width(m_bladeLine, 24, 0);
-	lv_obj_set_style_line_color(m_bladeLine, lv_color_hex(0x18ffffff), 0);
-	lv_obj_set_style_line_rounded(m_bladeLine, true, 0);
-	lv_obj_set_style_bg_opa(m_bladeLine, LV_OPA_TRANSP, 0);
-	lv_obj_set_style_border_width(m_bladeLine, 0, 0);
-	lv_obj_remove_flag(m_bladeLine, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_flag(m_bladeLine, LV_OBJ_FLAG_HIDDEN);
-
-	// 刃芯（最上层，4px 白色实线）
-	m_bladeCore = lv_line_create(parent);
-	lv_obj_set_style_line_width(m_bladeCore, 4, 0);
-	lv_obj_set_style_line_color(m_bladeCore, lv_color_hex(0xccffffff), 0);
-	lv_obj_set_style_line_rounded(m_bladeCore, true, 0);
-	lv_obj_set_style_bg_opa(m_bladeCore, LV_OPA_TRANSP, 0);
-	lv_obj_set_style_border_width(m_bladeCore, 0, 0);
-	lv_obj_remove_flag(m_bladeCore, LV_OBJ_FLAG_CLICKABLE);
-	lv_obj_add_flag(m_bladeCore, LV_OBJ_FLAG_HIDDEN);
+		// 刃芯（最上层，4px 白色实线）
+		m_segCore[i] = lv_line_create(parent);
+		lv_obj_set_style_line_width(m_segCore[i], 4, 0);
+		lv_obj_set_style_line_color(m_segCore[i], lv_color_hex(0xccffffff), 0);
+		lv_obj_set_style_line_rounded(m_segCore[i], true, 0);
+		lv_obj_set_style_bg_opa(m_segCore[i], LV_OPA_TRANSP, 0);
+		lv_obj_set_style_border_width(m_segCore[i], 0, 0);
+		lv_obj_remove_flag(m_segCore[i], LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_add_flag(m_segCore[i], LV_OBJ_FLAG_HIDDEN);
+	}
 
 	ESP_LOGI(TAG, "对象池创建完成: %d fruits, %d particles, blade trail", MAX_FRUITS, MAX_PARTICLES);
 }
@@ -286,8 +279,8 @@ void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 	// ── HUD ──
 	updateHUD(lv_obj_get_parent(m_scoreLabel), logic);
 
-	// ── 白刃轨迹 ──
-	updateBladeTrail();
+	// 白刃轨迹：段点在 addTrailSegment 时已写入 lv_line，透明度/显隐由
+	// ageTrail() 每帧统一老化维护，这里无需额外更新。
 }
 
 // ============================================================
@@ -430,58 +423,30 @@ void FruitNinjaRenderer::showGameOver(lv_obj_t* parent, const FruitNinjaLogic& l
 	lv_obj_center(lblBack);
 }
 
-void FruitNinjaRenderer::hideGameOver()
+// ============================================================
+// 刀光线段 — 追加一条线段段（触摸每帧产生，段间独立断开）
+// ============================================================
+
+void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
 {
-	m_gameOverShown = false;
-	lv_obj_add_flag(m_overlay, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_gameOverTitle, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_add_flag(m_gameOverScore, LV_OBJ_FLAG_HIDDEN);
-	// restart/back buttons are deleted/destroyed by the caller
-}
+	auto& s = m_segments[m_segWrite];
+	s = TrailSegment{};
+	s.x1 = x1; s.y1 = y1;
+	s.x2 = x2; s.y2 = y2;
+	s.opacity = 255;
+	s.active = true;
 
-// ============================================================
-// 白刃轨迹 — 触摸开始
-// ============================================================
+	// 设置该段两层线的 2 个点并显示
+	m_segPts[m_segWrite][0].x = static_cast<lv_value_precise_t>(x1);
+	m_segPts[m_segWrite][0].y = static_cast<lv_value_precise_t>(y1);
+	m_segPts[m_segWrite][1].x = static_cast<lv_value_precise_t>(x2);
+	m_segPts[m_segWrite][1].y = static_cast<lv_value_precise_t>(y2);
+	lv_line_set_points(m_segCore[m_segWrite], m_segPts[m_segWrite], 2);
+	lv_line_set_points(m_segGlow[m_segWrite], m_segPts[m_segWrite], 2);
 
-void FruitNinjaRenderer::handleTouchStart(float x, float y)
-{
-	m_isTouching = true;
-	clearTrail();
-	addTrailPoint(x, y);
-}
+	updateSegment(m_segWrite);
 
-// ============================================================
-// 白刃轨迹 — 添加点
-// ============================================================
-
-void FruitNinjaRenderer::addTrailPoint(float x, float y)
-{
-	if (m_trailCount >= MAX_TRAIL_POINTS)
-	{
-		// 环形缓冲满时覆盖最旧的点
-		m_trailHead = (m_trailHead + 1) % MAX_TRAIL_POINTS;
-	}
-	else
-	{
-		m_trailHead = m_trailCount;
-		m_trailCount++;
-	}
-
-	auto& pt = m_trailBuffer[m_trailHead];
-	pt.x = x;
-	pt.y = y;
-	pt.opacity = 255;
-
-	m_trailDirty = true;
-}
-
-// ============================================================
-// 白刃轨迹 — 触摸结束
-// ============================================================
-
-void FruitNinjaRenderer::handleTouchEnd()
-{
-	m_isTouching = false;
+	m_segWrite = (m_segWrite + 1) % kMaxSegments;
 }
 
 // ============================================================
@@ -490,38 +455,26 @@ void FruitNinjaRenderer::handleTouchEnd()
 
 void FruitNinjaRenderer::ageTrail(float dt)
 {
-	float fadeRate = m_isTouching ? TRAIL_FADE_ACTIVE : TRAIL_FADE_RELEASE;
-	if (fadeRate <= 0.0f) return; // 触摸中不老化
-
-	float fadeAmount = dt * fadeRate;
+	float fadeAmount = dt * TRAIL_FADE_RATE;
 	uint8_t fadeStep = (fadeAmount > 255.0f) ? 255 : static_cast<uint8_t>(fadeAmount);
 	if (fadeStep < 1) fadeStep = 1;
 
-	bool changed = false;
-	int newCount = 0;
-	for (int i = 0; i < m_trailCount; i++)
+	for (int i = 0; i < kMaxSegments; i++)
 	{
-		auto& pt = m_trailBuffer[i];
-		if (pt.opacity <= fadeStep)
+		auto& s = m_segments[i];
+		if (!s.active) continue;
+
+		if (s.opacity <= fadeStep)
 		{
-			pt.opacity = 0;
-			changed = true;
+			s.active = false;
+			updateSegment(i);   // 隐藏
 		}
 		else
 		{
-			pt.opacity -= fadeStep;
-			if (i != newCount)
-				m_trailBuffer[newCount] = pt;
-			newCount++;
+			s.opacity -= fadeStep;
+			updateSegment(i);   // 更新透明度
 		}
 	}
-	if (newCount != m_trailCount)
-	{
-		m_trailCount = newCount;
-		changed = true;
-	}
-	if (changed)
-		m_trailDirty = true;
 }
 
 // ============================================================
@@ -530,50 +483,31 @@ void FruitNinjaRenderer::ageTrail(float dt)
 
 void FruitNinjaRenderer::clearTrail()
 {
-	m_trailCount = 0;
-	m_trailHead = 0;
+	for (int i = 0; i < kMaxSegments; i++)
+	{
+		m_segments[i].active = false;
+		updateSegment(i);
+	}
+	m_segWrite = 0;
 }
 
 // ============================================================
-// 白刃轨迹 — 更新 LVGL 线对象
+// 刀光线段 — 更新某段显隐/透明度
 // ============================================================
 
-void FruitNinjaRenderer::updateBladeTrail()
+void FruitNinjaRenderer::updateSegment(int index)
 {
-	if (m_trailCount < 2)
+	const auto& s = m_segments[index];
+	if (!s.active || s.opacity == 0)
 	{
-		lv_obj_add_flag(m_bladeLine, LV_OBJ_FLAG_HIDDEN);
-		lv_obj_add_flag(m_bladeGlow, LV_OBJ_FLAG_HIDDEN);
-		lv_obj_add_flag(m_bladeCore, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(m_segGlow[index], LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(m_segCore[index], LV_OBJ_FLAG_HIDDEN);
 		return;
 	}
 
-	// 脏标记优化：只有当轨迹点真正变化时才重建 lv_line 点阵
-	if (m_trailDirty)
-	{
-		m_trailDirty = false;
-
-		static lv_point_precise_t pts[MAX_TRAIL_POINTS];
-
-		for (int i = 0; i < m_trailCount; i++)
-		{
-			pts[i].x = static_cast<lv_value_precise_t>(m_trailBuffer[i].x);
-			pts[i].y = static_cast<lv_value_precise_t>(m_trailBuffer[i].y);
-		}
-
-		// 三层线共享同一组点
-		lv_line_set_points(m_bladeLine, pts, m_trailCount);
-		lv_line_set_points(m_bladeGlow, pts, m_trailCount);
-		lv_line_set_points(m_bladeCore, pts, m_trailCount);
-	}
-
-	// 每帧更新透明度（渐隐动画需要）
-	uint8_t oldestOpa = m_trailBuffer[0].opacity;
-	lv_obj_set_style_opa(m_bladeCore, oldestOpa, 0);
-	lv_obj_set_style_opa(m_bladeLine, oldestOpa * 2 / 3, 0);
-	lv_obj_set_style_opa(m_bladeGlow, oldestOpa / 3, 0);
-
-	lv_obj_clear_flag(m_bladeLine, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_clear_flag(m_bladeGlow, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_clear_flag(m_bladeCore, LV_OBJ_FLAG_HIDDEN);
+	// 显示该段（段初始为隐藏，必须清除 HIDDEN 才会渲染）+ 设置透明度：刃芯略亮于光晕
+	lv_obj_clear_flag(m_segGlow[index], LV_OBJ_FLAG_HIDDEN);
+	lv_obj_clear_flag(m_segCore[index], LV_OBJ_FLAG_HIDDEN);
+	lv_obj_set_style_opa(m_segCore[index], s.opacity, 0);
+	lv_obj_set_style_opa(m_segGlow[index], s.opacity * 2 / 3, 0);
 }
