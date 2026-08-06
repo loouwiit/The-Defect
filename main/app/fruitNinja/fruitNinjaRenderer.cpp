@@ -563,6 +563,10 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		}
 		prev = cur;
 	}
+
+	// ── 2P 分割线：首帧强制标脏，保证初始即绘制（否则只有被水果/刀光覆盖时才补画，导致分割线缺失）──
+	if (logic.getPlayerCount() >= 2 && !m_dividerPainted)
+		dirtyAdd(W / 2 - 1, 0, W / 2, H - 1);
 }
 
 void FruitNinjaRenderer::expandRedraw(const FruitNinjaLogic& logic)
@@ -613,7 +617,10 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 		if (m_redrawParticle[i])
 			paintParticle(logic.getParticles()[i]);
 	if (m_redrawDivider)
+	{
 		paintDivider();
+		m_dividerPainted = true;   // 分割线已初始绘制完成
+	}
 	for (int i = 0; i < kMaxSegments; i++)
 		if (m_redrawSeg[i])
 			drawWideLine(m_segments[i].x1, m_segments[i].y1,

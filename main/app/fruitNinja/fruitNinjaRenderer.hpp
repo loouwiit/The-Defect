@@ -75,6 +75,7 @@ private:
 	size_t m_stride = W * 2;    // RGB565 stride (bytes)
 	uint16_t m_bg565{};         // 背景色（RGB565）
 	bool m_initialInvalidated = false;
+	bool m_dividerPainted = false;   // 2P 分割线是否已初始绘制（首帧强制标脏后置位）
 
 	// ── 对象上帧状态（脏区收集用） ──
 	struct BBox
