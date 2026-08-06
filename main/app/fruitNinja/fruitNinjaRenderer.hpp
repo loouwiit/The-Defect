@@ -29,7 +29,10 @@ public:
 	/** @brief 创建对象池（canvas 最底 + HUD/提示标签） */
 	void create(lv_obj_t* parent);
 
-	/** @brief 每帧渲染：同步逻辑状态到 canvas + 更新白刃轨迹 */
+	/** @brief 帧前计算（无锁）：收集脏区 + 重画集；必须在本帧 render() 前调用 */
+	void beginFrame(const FruitNinjaLogic& logic);
+
+	/** @brief 持锁提交：清脏区 → 按 z 序重画 → 逐区域失效 + HUD/按钮 */
 	void render(const FruitNinjaLogic& logic);
 
 	/** @brief 显示 GameOver 界面 */

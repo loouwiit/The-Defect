@@ -115,15 +115,15 @@ void FruitNinjaApp::gameLoop(void* param)
 	{
 		float dt = TICK_MS / 1000.0f;
 
-		// 游戏逻辑
+		// 游戏逻辑 + 帧前计算（纯计算，无 LVGL：全部在无锁区，缩短持锁窗口）
 		self.m_logic.tick(dt);
+		self.updateTouchFromSlots();
+		self.m_renderer.ageTrail(TICK_MS / 1000.0f);
+		self.m_renderer.beginFrame(self.m_logic);
 
-		// 渲染
+		// 渲染提交（持锁：写 canvas buffer + invalidate + HUD）
 		if (auto guard = self.display->lockGuard())
 		{
-			// 多指触摸轮询：每指独立跟踪/独立刀光（绕过 LVGL indev 事件）
-			self.updateTouchFromSlots();
-			self.m_renderer.ageTrail(TICK_MS / 1000.0f);
 			self.m_renderer.render(self.m_logic);
 
 			// GameOver 检测

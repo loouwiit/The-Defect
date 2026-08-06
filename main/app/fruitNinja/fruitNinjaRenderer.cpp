@@ -740,16 +740,22 @@ void FruitNinjaRenderer::paintHints(const FruitNinjaLogic& logic)
 // 每帧渲染
 // ============================================================
 
+void FruitNinjaRenderer::beginFrame(const FruitNinjaLogic& logic)
+{
+	// 纯计算，无 LVGL 调用：在无锁区执行，缩短持锁窗口
+	if (logic.getState() != FruitNinjaLogic::State::Playing) return;
+	collectDirty(logic);
+	expandRedraw(logic);
+}
+
 void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 {
 	auto state = logic.getState();
 	bool isPlaying = (state == FruitNinjaLogic::State::Playing);
 
-	// ── 游戏层（canvas 脏区重绘） ──
+	// ── 游戏层（canvas 脏区重绘；collectDirty/expandRedraw 已在 beginFrame 无锁完成） ──
 	if (isPlaying)
 	{
-		collectDirty(logic);
-		expandRedraw(logic);
 		paint(logic);
 		invalidateDirty();
 	}
