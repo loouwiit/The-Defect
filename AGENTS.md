@@ -85,7 +85,7 @@ reserces/
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**7** 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
-| | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家） |
+| | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家；canvas 化渲染器） |
 | | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
 | | ChineseChess | `main/app/chineseChess/` | 中国象棋（含 AI 引擎） |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
@@ -980,7 +980,7 @@ static void on_click_cb(lv_event_t* e) {
 | App | 路径 | 说明 |
 |-----|------|------|
 | **TetrisApp** | `main/app/tetris/` | 俄罗斯方块。Host-authoritative，3 玩家（内置 P0 + 2 WebSocket 远程），共享 PieceQueue 7-bag |
-| **FruitNinjaApp** | `main/app/fruitNinja/` | 水果忍者。含房间系统（FruitNinjaRoom），多玩家 |
+| **FruitNinjaApp** | `main/app/fruitNinja/` | 水果忍者。含房间系统（FruitNinjaRoom），多玩家。渲染 canvas 化（单 lv_canvas + 脏区失效，见模块详情） |
 | **Snake** | `main/app/snake/snakeGame/` | 贪吃蛇。snakeGame 逻辑 + snakeRoom 房间配对 |
 | **ChineseChess** | `main/app/chineseChess/` | 中国象棋。含 AI 引擎 (`chessAI.cpp`)，双人对战 |
 
@@ -1152,6 +1152,48 @@ class App {
   ├── m_client.listen(8084)          — 监听等待主机连接
   └── accept → sendJoin() → 收到 snapshot → TetrisRenderer::syncState()
 ```
+
+### FruitNinja 模块详情
+
+**路径**: `main/app/fruitNinja/`
+
+| 文件 | 内容 |
+|------|------|
+| `fruitNinjaLogic.hpp/.cpp` | 游戏核心逻辑（纯 C++，无 LVGL）：水果物理/切片/粒子/方向+按钮匹配 |
+| `fruitNinjaRenderer.hpp/.cpp` | **canvas 化渲染器**：单 `lv_canvas` 软件绘制 + 脏区集合失效（游戏层零 LVGL 对象） |
+| `fruitNinjaApp.cpp` | 主游戏 App（游戏循环 60fps + 多指触摸轮询 GT911Indev 槽位） |
+| `fruitNinjaRoom.cpp` | 房间系统（多玩家配对） |
+
+**渲染性能设计**（FruitNinjaRenderer canvas 化）：
+- **根因**：原对象池模式每帧 ~300+ LVGL 对象操作（40 水果 lv_image + 40 粒子 + ≤128 刀光段×2 层 lv_line），
+  累计失效区域超过 `LV_INV_BUF_SIZE=256`（`lv_refr.c:332` 溢出即写整屏）→ 整屏光栅化 + 水果 shadow 模糊 → 游戏线程 CPU ~20%。
+- **现架构**：游戏层（水果+粒子+分隔线+刀光+提示文字）画进**单个 `lv_canvas`**（1280×720 RGB565 PSRAM ~1.76MB），
+  **游戏层零 LVGL 对象**：
+  - 直接操作 canvas buffer 指针（**勿用 `lv_canvas_set_px`**——逐像素 invalidate 陷阱，见 canvas.h 文档）
+  - 软件绘制：`fillRect`（首行填充 + 后续行 memcpy 复制，内存带宽级）、`fillCircle`（扫描线：行内求半宽直接填区间 + 顶部高光按行 blend）、
+    `blitImage`（水果图片圆形裁剪 + 最近邻缩放 blit）、`drawWideLine`（点到线段距离圆头线）、`blend565`
+  - **脏区集合失效**：`collectDirty`（变化对象 上帧bbox∪本帧bbox，精确不合并；水果 bbox 含顶部提示区域 56×36px）
+    → `expandRedraw`（**与 D 相交一次遍历，无 O(n²) 传播**——paint 按 z 序从底到顶绘制，被覆盖对象天然正确）
+    → `paint`（清 D → 按 z 序重画 R：水果→粒子→分隔线→刀光→提示文字）
+    → 对 D 逐区域 `lv_obj_invalidate_area`（屏幕坐标换算，参考 tetris `invalidateBoardLocal`）
+  - **LVGL 内置 `lv_refr_join_area`(lv_refr.c:618) 免费做自适应合并**：相邻且合并面积有利的区域自动合并成簇，分散区域保持精确小面积（无需应用层 AABB 合并，避免虚胖）
+  - 首帧强制整 canvas 失效（`m_initialInvalidated`）
+- **帧前/提交分离（收缩锁范围）**：`beginFrame()`（无锁：collectDirty + expandRedraw，纯计算）在 `gameLoop` 无锁区执行；
+  `render()`（持锁：paint 写 buffer + invalidate + HUD）→ 持锁窗口最小化，减少与 LVGL 刷新的锁竞争
+- **提示文字（↑A/↓B）**：↑↓←→ + A/B/X/Y 共 8 字符 glyph 预缓存——`create()` 持锁用 `lv_font_get_glyph_dsc`/`lv_font_get_glyph_bitmap`
+  取 A8 位图，按 `header.stride` 逐行复制成紧凑 PSRAM 私有副本；每帧**无锁**软件 blit（定位公式与 LVGL 一致 `lv_draw_label.c:624`）。
+  ⚠ freetype IMAGE 模式 `lv_font_get_glyph_bitmap` 返回 `lv_draw_buf_t*`（**非像素数组**）、位图 stride 对齐——不能直接 memcpy（会乱码）
+- **刀光**：段池（kMaxSegments=64）+ **超时消失**（`TRAIL_LIFETIME=0.5s`，`ageTrail` 递减 life），纯色不透明单层粗线（无逐帧淡出/半透明，性能最优）；仅在新增/移除/回绕顶掉时标脏
+- **水果**：图片化——`esp_driver_jpeg` 硬件解码 5 张 JPG（`JPEG_DECODE_OUT_FORMAT_RGB565` + 小端序，无需 RGB888→565 转换）
+  → PSRAM（>128px 边软件最近邻缩到 128，省内存 + 加速 blit）→ `blitImage` 软件圆形裁剪 + 最近邻缩放 blit；
+  任一图失败自动回退纯色圆 + 顶部高光。⚠ buffer 必须用 `jpeg_alloc_decoder_mem` 分配（驱动 DMA 对齐要求，
+  `heap_caps_malloc` 普通分配会报 `not aligned`）；`jpeg_decoder_process` 的 outbuf_size 传 `allocated_size`
+- **移除全部 shadow**（模糊重算是性能杀手）
+- HUD / 退出按钮 / GameOver 遮罩 保留 LVGL 对象（低频/轻量）
+- **性能实测**：游戏线程 CPU 47%→~7%（5a：提示标签进 canvas + 去 expandRedraw O(n²) + fill 优化 + 收缩锁范围），
+  普通 FPS ~31（目标 30 达标）、CPU ~35%；极端情况（大量粒子+刀光）FPS ~10，剩余瓶颈 = `paint` 写大脏区（fruitNinja 49%），
+  可选项：粒子/刀光数量上限、Phase 5b 双缓冲并行（把 paint 也挪出锁）
+- 完整实现见 `main/app/fruitNinja/fruitNinjaRenderer.hpp/.cpp`
 
 ---
 
