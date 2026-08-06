@@ -54,15 +54,17 @@ public:
 	};
 
 	// ── 常量 ──
-	static constexpr int MAX_FRUITS = 40;
-	static constexpr int MAX_PARTICLES = 40;
-	static constexpr int INITIAL_LIVES = 3;
-	static constexpr float GRAVITY = 850.0f;
-	static constexpr int ARCADE_TIME = 60;
-	static constexpr int SCREEN_W = 1280;
-	static constexpr int SCREEN_H = 720;
-	static constexpr float BASE_SPAWN_INTERVAL = 1.2f;
-	static constexpr float MIN_SPAWN_INTERVAL = 0.5f;
+	static constexpr int MaxFruits = 20;      // 同时活跃水果上限（槽位池回收复用）
+	static constexpr int MaxParticles = 40;   // 同时活跃粒子上限（槽位池回收复用）
+	static constexpr int InitialLives = 3;
+	static constexpr float Gravity = 300.0f;
+	static constexpr float SpeedRange[2] = { 300.0f, 600.0f };
+	static constexpr float AngelRange[2] = { -0.4f, 0.4f };
+	static constexpr int ArcadeTime = 60;
+	static constexpr int ScreenWidth = 1280;
+	static constexpr int ScreenHight = 720;
+	static constexpr float SpawnIntervalBase = 1.2f;
+	static constexpr float SpawnIntervalMin = 0.5f;
 
 	FruitNinjaLogic();
 	~FruitNinjaLogic() = default;
@@ -109,21 +111,21 @@ public:
 
 private:
 	// ── 成员 ──
-	Fruit m_fruits[MAX_FRUITS];
-	int m_fruitCount = 0;
-	Particle m_particles[MAX_PARTICLES];
-	int m_particleCount = 0;
+	Fruit m_fruits[MaxFruits];
+	int m_fruitCount = 0;        // 最高使用槽位+1（非递减，封顶 MAX_FRUITS）；渲染器以 `i < m_fruitCount && active` 判活
+	Particle m_particles[MaxParticles];
+	int m_particleCount = 0;     // 最高使用槽位+1（非递减，封顶 MAX_PARTICLES）；渲染器以 `i < m_particleCount && active` 判活
 
 	int m_playerCount = 1;
 	GameMode m_mode = GameMode::Classic;
 	State m_state = State::Waiting;
 
 	int m_scores[2] = { 0, 0 };
-	int m_lives[2] = { INITIAL_LIVES, INITIAL_LIVES };
-	float m_timeRemaining = ARCADE_TIME;
+	int m_lives[2] = { InitialLives, InitialLives };
+	float m_timeRemaining = ArcadeTime;
 
 	float m_spawnTimer = 0;
-	float m_spawnInterval = BASE_SPAWN_INTERVAL;
+	float m_spawnInterval = SpawnIntervalBase;
 
 	// ── 内部方法 ──
 	void spawnWave();

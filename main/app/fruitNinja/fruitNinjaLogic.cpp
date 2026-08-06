@@ -30,10 +30,10 @@ void FruitNinjaLogic::reset()
 	m_fruitCount = 0;
 	m_particleCount = 0;
 	m_scores[0] = m_scores[1] = 0;
-	m_lives[0] = m_lives[1] = INITIAL_LIVES;
-	m_timeRemaining = ARCADE_TIME;
+	m_lives[0] = m_lives[1] = InitialLives;
+	m_timeRemaining = ArcadeTime;
 	m_spawnTimer = 0;
-	m_spawnInterval = BASE_SPAWN_INTERVAL;
+	m_spawnInterval = SpawnIntervalBase;
 
 	for (auto& f : m_fruits)
 		f = Fruit{};
@@ -56,7 +56,7 @@ void FruitNinjaLogic::tick(float dt)
 			if (!p.active) continue;
 			p.x += p.vx * dt;
 			p.y += p.vy * dt;
-			p.vy += GRAVITY * 0.3f * dt; // 粒子受轻量重力
+			p.vy += Gravity * 0.3f * dt; // 粒子受轻量重力
 			if (p.opacity > 10)
 				p.opacity -= static_cast<uint8_t>(dt * 300);
 			else
@@ -86,7 +86,7 @@ void FruitNinjaLogic::tick(float dt)
 		// 物理
 		f.x += f.vx * dt;
 		f.y += f.vy * dt;
-		f.vy += GRAVITY * dt;
+		f.vy += Gravity * dt;
 		f.rotation += f.rotSpeed * dt;
 
 		// 已切片水果：两半飞离
@@ -94,10 +94,10 @@ void FruitNinjaLogic::tick(float dt)
 		{
 			f.h1x += f.h1vx * dt;
 			f.h1y += f.h1vy * dt;
-			f.h1vy += GRAVITY * 0.4f * dt;
+			f.h1vy += Gravity * 0.4f * dt;
 			f.h2x += f.h2vx * dt;
 			f.h2y += f.h2vy * dt;
-			f.h2vy += GRAVITY * 0.4f * dt;
+			f.h2vy += Gravity * 0.4f * dt;
 			f.halfOffset += static_cast<int>(dt * 120);
 
 			if (f.opacity > 8)
@@ -109,7 +109,7 @@ void FruitNinjaLogic::tick(float dt)
 
 		// 水果落出屏幕底部 → 扣命
 		float r = getFruitRadius(f.type);
-		if (f.y > SCREEN_H + r)
+		if (f.y > ScreenHight + r)
 		{
 			f.active = false;
 			if (f.type != FruitType::Bomb) // 炸弹没切到是好事
@@ -148,7 +148,7 @@ void FruitNinjaLogic::tick(float dt)
 		if (!p.active) continue;
 		p.x += p.vx * dt;
 		p.y += p.vy * dt;
-		p.vy += GRAVITY * 0.3f * dt;
+		p.vy += Gravity * 0.3f * dt;
 		if (p.opacity > 10)
 			p.opacity -= static_cast<uint8_t>(dt * 350);
 		else
@@ -168,9 +168,16 @@ void FruitNinjaLogic::spawnWave()
 	{
 		for (int n = 0; n < fruitsPerPlayer; n++)
 		{
-			if (m_fruitCount >= MAX_FRUITS) return;
+			// 槽位复用：扫描第一个空闲槽（被切片/落屏的水果仅置 active=false，
+			// 槽位不回收会导致累计 40 个水果后永久不再生成）。MaxFruits = 同时活跃上限。
+			int slot = -1;
+			for (int i = 0; i < MaxFruits; i++)
+			{
+				if (!m_fruits[i].active) { slot = i; break; }
+			}
+			if (slot < 0) return; // 全部槽位被活跃水果占用，等待现有水果被处理
 
-			auto& f = m_fruits[m_fruitCount];
+			auto& f = m_fruits[slot];
 			f = Fruit{};
 			f.type = randomType();
 			f.player = p;
@@ -181,29 +188,31 @@ void FruitNinjaLogic::spawnWave()
 			float r = getFruitRadius(f.type);
 			if (m_playerCount == 1)
 			{
-				f.x = randFloat(r, SCREEN_W - r);
+				f.x = randFloat(r, ScreenWidth - r);
 			}
 			else
 			{
 				// 2P 分屏
-				float halfW = SCREEN_W / 2.0f;
+				float halfW = ScreenWidth / 2.0f;
 				if (p == 0)
 					f.x = randFloat(r, halfW - r);
 				else
-					f.x = randFloat(halfW + r, SCREEN_W - r);
+					f.x = randFloat(halfW + r, ScreenWidth - r);
 			}
-			f.y = static_cast<float>(SCREEN_H) + r;
+			f.y = static_cast<float>(ScreenHight) + r;
 
 			// 速度：向上为主，带随机水平偏移
-			float speed = randFloat(600, 1000);
-			float angle = randFloat(-0.4f, 0.4f); // 弧度偏移
+			float speed = randFloat(SpeedRange[0], SpeedRange[1]);
+			float angle = randFloat(AngelRange[0], AngelRange[1]); // 弧度偏移
 			f.vx = sinf(angle) * speed;
 			f.vy = -speed * cosf(angle); // 向上
 
 			f.rotSpeed = randFloat(-4.0f, 4.0f);
 			f.active = true;
 
-			m_fruitCount++;
+			// m_fruitCount = 最高使用槽位+1（非递减，封顶 MAX_FRUITS，渲染器以 `i < fruitCount` 判活）
+			if (slot + 1 > m_fruitCount)
+				m_fruitCount = slot + 1;
 		}
 	}
 }
@@ -279,14 +288,14 @@ bool FruitNinjaLogic::handleGamepadInput(int player, Direction dir, Button btn)
 			case FruitType::Banana:     return 255;  // yellow
 			default: return 200;
 			}
-		};
+			};
 		spawnParticles(f.x, f.y, colorOf(f.type), 200, 80, 8);
 
 		// 根据分数调整生成间隔
 		int totalScore = m_scores[0] + m_scores[1];
-		m_spawnInterval = BASE_SPAWN_INTERVAL - (totalScore / 30) * 0.05f;
-		if (m_spawnInterval < MIN_SPAWN_INTERVAL)
-			m_spawnInterval = MIN_SPAWN_INTERVAL;
+		m_spawnInterval = SpawnIntervalBase - (totalScore / 30) * 0.05f;
+		if (m_spawnInterval < SpawnIntervalMin)
+			m_spawnInterval = SpawnIntervalMin;
 
 		return true;
 	}
@@ -407,7 +416,7 @@ bool FruitNinjaLogic::handleSwipe(int player, float x1, float y1, float x2, floa
 			case FruitType::Banana:     return 255;
 			default: return 200;
 			}
-		};
+			};
 		spawnParticles(f.x, f.y, colorOf(f.type), 200, 80, 8);
 	}
 
@@ -415,9 +424,9 @@ bool FruitNinjaLogic::handleSwipe(int player, float x1, float y1, float x2, floa
 	if (anySliced)
 	{
 		int totalScore = m_scores[0] + m_scores[1];
-		m_spawnInterval = BASE_SPAWN_INTERVAL - (totalScore / 30) * 0.05f;
-		if (m_spawnInterval < MIN_SPAWN_INTERVAL)
-			m_spawnInterval = MIN_SPAWN_INTERVAL;
+		m_spawnInterval = SpawnIntervalBase - (totalScore / 30) * 0.05f;
+		if (m_spawnInterval < SpawnIntervalMin)
+			m_spawnInterval = SpawnIntervalMin;
 	}
 
 	return anySliced;
@@ -482,9 +491,14 @@ const char* FruitNinjaLogic::btnToChar(Button b)
 
 void FruitNinjaLogic::spawnParticles(float x, float y, uint8_t r, uint8_t g, uint8_t b, int count)
 {
-	for (int i = 0; i < count && m_particleCount < MAX_PARTICLES; i++)
+	// 槽位复用：扫描第一个空闲粒子槽（死亡粒子仅置 active=false，
+	// 槽位不回收会导致累计 40 个粒子后效果永久消失）。MaxParticles = 同时活跃上限。
+	int spawned = 0;
+	for (int i = 0; i < MaxParticles && spawned < count; i++)
 	{
-		auto& p = m_particles[m_particleCount];
+		auto& p = m_particles[i];
+		if (p.active) continue;
+
 		p.x = x + randFloat(-15, 15);
 		p.y = y + randFloat(-15, 15);
 		float speed = randFloat(100, 400);
@@ -497,7 +511,11 @@ void FruitNinjaLogic::spawnParticles(float x, float y, uint8_t r, uint8_t g, uin
 		p.size = static_cast<uint8_t>(randInt(3, 8));
 		p.opacity = 255;
 		p.active = true;
-		m_particleCount++;
+		spawned++;
+
+		// m_particleCount = 最高使用槽位+1（非递减，封顶 MAX_PARTICLES，渲染器以 `i < particleCount` 判活）
+		if (i + 1 > m_particleCount)
+			m_particleCount = i + 1;
 	}
 }
 

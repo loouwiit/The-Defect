@@ -61,8 +61,8 @@ public:
 private:
 	static constexpr int W = 1280;
 	static constexpr int H = 720;
-	static constexpr int MAX_FRUITS = FruitNinjaLogic::MAX_FRUITS;
-	static constexpr int MAX_PARTICLES = FruitNinjaLogic::MAX_PARTICLES;
+	static constexpr int MaxFruits = FruitNinjaLogic::MaxFruits;
+	static constexpr int MaxParticles = FruitNinjaLogic::MaxParticles;
 
 	// 刀光段池 + 超时不透明：段保持 TRAIL_LIFETIME 秒后瞬间消失（无逐帧淡出，性能最优）
 	// 64 段：60fps 持续划线 0.5s ≈ 30 段，池够大不顶掉；触摸停止后从尾部逐段消失
@@ -82,8 +82,8 @@ private:
 		bool active = false;
 		int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 	};
-	BBox m_prevFruit[MAX_FRUITS];
-	BBox m_prevParticle[MAX_PARTICLES];
+	BBox m_prevFruit[MaxFruits];
+	BBox m_prevParticle[MaxParticles];
 
 	// ── 刀光段（超时不透明：lifetime 到期后瞬间消失，无逐帧淡出/半透明） ──
 	struct TrailSegment
@@ -104,8 +104,8 @@ private:
 	bool dirtyIntersects(const BBox& b) const;
 
 	// ── 重画集（与脏区集合 D 相交筛选结果；仅一次遍历，无传播 O(n²)） ──
-	bool m_redrawFruit[MAX_FRUITS]{};
-	bool m_redrawParticle[MAX_PARTICLES]{};
+	bool m_redrawFruit[MaxFruits]{};
+	bool m_redrawParticle[MaxParticles]{};
 	bool m_redrawSeg[kMaxSegments]{};
 	bool m_redrawDivider = false;
 

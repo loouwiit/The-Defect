@@ -1,6 +1,7 @@
 #include "fruitNinjaApp.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "lvgl.h"
 
 // ============================================================
@@ -108,17 +109,26 @@ void FruitNinjaApp::gameLoop(void* param)
 	auto& self = *static_cast<FruitNinjaApp*>(param);
 	ESP_LOGI(TAG, "游戏循环启动");
 
-	constexpr float TICK_MS = 16.0f; // ~60fps
+	constexpr float TICK_MS = 16.0f; // ~60fps 渲染节拍
+	constexpr float MAX_DT = 0.05f;  // 单帧最大 dt（50ms），防长时间阻塞后螺旋死亡
+
 	TickType_t lastWake = xTaskGetTickCount();
+	int64_t lastUs = esp_timer_get_time();
 
 	while (self.running)
 	{
-		float dt = TICK_MS / 1000.0f;
+		// 实时 dt：以真实流逝时间推进游戏，使倒计时/物理/生成间隔随真实时间走，
+		// 不被渲染帧率下降 / LVGL 锁竞争稀释（固定 dt 在低帧率下会把游戏时间拉长）
+		int64_t nowUs = esp_timer_get_time();
+		float dt = static_cast<float>(nowUs - lastUs) / 1000000.0f;
+		lastUs = nowUs;
+		if (dt < 0.0f) dt = 0.0f;
+		if (dt > MAX_DT) dt = MAX_DT;
 
 		// 游戏逻辑 + 帧前计算（纯计算，无 LVGL：全部在无锁区，缩短持锁窗口）
 		self.m_logic.tick(dt);
 		self.updateTouchFromSlots();
-		self.m_renderer.ageTrail(TICK_MS / 1000.0f);
+		self.m_renderer.ageTrail(dt);
 		self.m_renderer.beginFrame(self.m_logic);
 
 		// 渲染提交（持锁：写 canvas buffer + invalidate + HUD）
@@ -190,7 +200,7 @@ void FruitNinjaApp::updateTouchFromSlots()
 				if (dx * dx + dy * dy >= 4)   // <2px 忽略（抖动抑制）
 				{
 					int player = 0;
-					if (m_playerCount >= 2 && pt.x >= FruitNinjaLogic::SCREEN_W / 2)
+					if (m_playerCount >= 2 && pt.x >= FruitNinjaLogic::ScreenWidth / 2)
 						player = 1;
 
 					m_logic.handleSwipe(player,

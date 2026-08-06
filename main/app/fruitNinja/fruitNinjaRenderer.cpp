@@ -512,7 +512,7 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 	// ── 水果 ──
 	int fruitCount = logic.getFruitCount();
 	const auto* fruits = logic.getFruits();
-	for (int i = 0; i < MAX_FRUITS; i++)
+	for (int i = 0; i < MaxFruits; i++)
 	{
 		const auto& f = fruits[i];
 		BBox cur = (i < fruitCount && f.active) ? fruitBBox(f) : BBox{};
@@ -532,7 +532,7 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 	// ── 粒子 ──
 	int particleCount = logic.getParticleCount();
 	const auto* particles = logic.getParticles();
-	for (int i = 0; i < MAX_PARTICLES; i++)
+	for (int i = 0; i < MaxParticles; i++)
 	{
 		const auto& p = particles[i];
 		BBox cur = (i < particleCount && p.active) ? particleBBox(p) : BBox{};
@@ -578,10 +578,10 @@ void FruitNinjaRenderer::expandRedraw(const FruitNinjaLogic& logic)
 	// paint 按 z 序从底到顶绘制，上层对象重画自然覆盖下层，被覆盖的下层无需单独重画。
 	const auto* fruits = logic.getFruits();
 	const auto* particles = logic.getParticles();
-	for (int i = 0; i < MAX_FRUITS; i++)
+	for (int i = 0; i < MaxFruits; i++)
 		if (fruits[i].active && dirtyIntersects(fruitBBox(fruits[i])))
 			m_redrawFruit[i] = true;
-	for (int i = 0; i < MAX_PARTICLES; i++)
+	for (int i = 0; i < MaxParticles; i++)
 		if (particles[i].active && dirtyIntersects(particleBBox(particles[i])))
 			m_redrawParticle[i] = true;
 	for (int i = 0; i < kMaxSegments; i++)
@@ -607,10 +607,10 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 	}
 
 	// 2. 按 z 序重画 R：水果 → 粒子 → 分隔线 → 刀光 → 提示文字
-	for (int i = 0; i < MAX_FRUITS; i++)
+	for (int i = 0; i < MaxFruits; i++)
 		if (m_redrawFruit[i])
 			paintFruit(logic.getFruits()[i]);
-	for (int i = 0; i < MAX_PARTICLES; i++)
+	for (int i = 0; i < MaxParticles; i++)
 		if (m_redrawParticle[i])
 			paintParticle(logic.getParticles()[i]);
 	if (m_redrawDivider)
@@ -909,7 +909,7 @@ void FruitNinjaRenderer::blitText(int x, int y, const char* utf8, uint16_t color
 void FruitNinjaRenderer::paintHints(const FruitNinjaLogic& logic)
 {
 	const auto* fruits = logic.getFruits();
-	for (int i = 0; i < MAX_FRUITS; i++)
+	for (int i = 0; i < MaxFruits; i++)
 	{
 		const auto& f = fruits[i];
 		if (!shouldShowHint(f) || !m_redrawFruit[i]) continue;
