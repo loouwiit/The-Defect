@@ -58,8 +58,10 @@ void FruitNinjaApp::init()
 		m_playerCount);
 
 	// 启动游戏循环
+	// 优先级提到 High(6) = LVGL task(6)：平级 → notify 不抢占（消除 render 内每帧调度抖动），
+	// 且 fruitNinja 用 delayUntil 主动让出，不会像 RealTime(7) 那样饿死 LVGL 刷新。
 	running = true;
-	m_thread = Thread{ gameLoop, "fruitNinja", this, Thread::Priority::Normal, 32768 };
+	m_thread = Thread{ gameLoop, "fruitNinja", this, Thread::Priority::High, 32768 };
 }
 
 // ============================================================
@@ -124,7 +126,10 @@ void FruitNinjaApp::gameLoop(void* param)
 			// 多指触摸轮询：每指独立跟踪/独立刀光（绕过 LVGL indev 事件）
 			self.updateTouchFromSlots();
 			self.m_renderer.ageTrail(TICK_MS / 1000.0f);
+
+			int64_t t0 = esp_timer_get_time();
 			self.m_renderer.render(self.m_logic);
+			ESP_LOGI(TAG, "render=%lldus", (long long)(esp_timer_get_time() - t0));
 
 			// GameOver 检测
 			if (self.m_logic.getState() == FruitNinjaLogic::State::GameOver && !self.m_restartBtn)
