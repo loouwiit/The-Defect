@@ -659,6 +659,7 @@ std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 		{ "bleSettings", "蓝牙手柄设置", &BleSettingsApp::newApp },
 		{ "powerManagement", "电源管理", &PowerManagementApp::newApp },
 		{ "consoleManager", "多主机管理", &ConsoleManagerApp::newApp },
+		{ "testApp", "测试app", &TestApp::newApp },
 	};
 }
 
