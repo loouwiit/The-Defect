@@ -17,7 +17,6 @@ public:
 
 	bool init();
 	bool bindDisplay(esp_lcd_panel_handle_t lcdPanel, esp_lcd_panel_io_handle_t lcdIo, uint16_t horizontalResolution, uint16_t verticalResolution, esp_lv_adapter_tear_avoid_mode_t tearAvoidMode, esp_lv_adapter_rotation_t rotation = ESP_LV_ADAPTER_ROTATE_0);
-	bool bindTouch(esp_lcd_touch_handle_t touch);
 	bool start();
 
 	/** @brief Get LVGL display handle */

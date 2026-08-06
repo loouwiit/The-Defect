@@ -2,6 +2,7 @@
 #include "display/ili9881c.hpp"
 #include "display/font.hpp"
 #include "touch/touch.hpp"
+#include "touch/gt911Indev.hpp"
 
 #include <esp_log.h>
 #include <cstring>
@@ -127,7 +128,7 @@ extern "C" void app_main(void)
 		ESP_LOGE(TAG, "Touch controller not found");
 
 	if (touch.getHandle() != nullptr)
-		display.bindTouch(touch.getHandle());
+		GT911Indev::instance().start(&display, &touch);
 
 	// 启动 LVGL 工作任务
 	if (!display.start())
