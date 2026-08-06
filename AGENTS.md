@@ -64,7 +64,8 @@ reserces/
 | **显示/输入** | Display | `main/display/display.hpp` | ILI9881C 初始化 + LVGL 适配层，`LockGuard` RAII（递归锁） |
 | | ILI9881c | `main/display/ili9881c.cpp` | 面板驱动（MIPI DSI），背光亮度控制 |
 | | FontLoader | `main/display/font.cpp` | FreeType 字体加载，3 字号全局默认字体，VFS 驱动器 'F' |
-| | Touch | `main/touch/` | GT911 驱动 (I²C)，5 点触控 |
+| | Touch | `main/touch/` | GT911 驱动 (I²C)，`Touch::update()` 读全 5 点含 track_id |
+| | GT911Indev | `main/touch/gt911Indev.hpp` | **五 indev 多指桥接层**：INT 中断驱动 → track_id→槽位路由 → 5 个独立 lv_indev（POINTER），release 握手防 track_id 复用跳变 |
 | | VirtualIndev | `main/virtualIndev/` | 虚拟触摸输入设备（Web 触摸注入），无锁去重 + hasNewData/continue_reading |
 | **导航** | App | `main/app/app.hpp` | 应用基类（生命周期、栈钩子、手柄输入） |
 | | AppStack | `main/app/appStack.hpp` | 单栈导航（push/pop/replace + 异步删除） |
@@ -621,7 +622,6 @@ class TimeService {
 |------|------|
 | `init()` | 初始化 LVGL 适配器 |
 | `bindDisplay(panel, io, w, h, tearAvoid, rotation)` | 绑定 ILI9881c 面板 |
-| `bindTouch(handle)` | 绑定 GT911 触摸 |
 | `start()` | 启动 LVGL worker task |
 | `lockGuard()` | RAII 递归锁获取（LVGL 线程安全） |
 | `setBrightness(percent)` | 设置背光（委托到 ILI9881c） |
@@ -691,6 +691,37 @@ const_cast<lv_font_t*>(FontLoader::getDefault(FontSize::Small))->fallback = lv_f
 | 分辨率 | 720 × 1280 |
 | 最大触控点 | 5 |
 | INT/RST | GPIO46 / GPIO47 |
+
+### GT911Indev — 五 indev 多指桥接层
+
+**模块路径**: `main/touch/gt911Indev.hpp` / `gt911Indev.cpp`
+
+单例（`GT911Indev::instance()`），把 GT911 硬件 5 点（含 track_id）转发到 **5 个独立 LVGL pointer indev**。LVGL 每 indev 是独立指针状态机 → 多指可同时按下、各自向光标下对象发 PRESSED/PRESSING/RELEASED，**所有 App 零改动**获得多指 LVGL 事件（`lv_indev_active()` 取各自坐标）。
+
+```
+GT911 INT(GPIO47) → ISR 给信号量 → 读线程 (Touch::update 读全 5 点)
+   → track_id→槽位路由 → 5×Slot → indevReadCb(slot) → lv_indev#0..4 → LVGL 事件
+```
+
+| 特性 | 说明 |
+|------|------|
+| 中断驱动 | `esp_lcd_touch_register_interrupt_callback_with_data` + 二进制信号量；读线程 `take(sem, 30ms)`（INT 主触发 + 30ms 超时兜底保移动刷新），空闲零轮询 |
+| track_id 路由 | `m_slotOfTrackId[256]`（track_id→槽，-1=未分配）+ `Slot[5]`，`Mutex` 保护读线程 ↔ read_cb |
+| release 握手 | 槽 RELEASED 被 read_cb 消费前**不得**呈现新按压/坐标（`pendingPress` 暂存）→ 防 track_id 复用"未释放跳坐标"（PRESS_LOST/假点击）；消费后提升 PRESSED 或释放绑定 |
+| 接线 | `main.cpp` 用 `GT911Indev::instance().start(&display, &touch)` 取代 `display.bindTouch()`（`display.start()` 之前） |
+| 调试 | `getSlots()` 供 TestApp 多指可视化（5 圆点 + 槽号:trackId + 按下/释放态） |
+
+```cpp
+class GT911Indev {
+    static GT911Indev& instance();
+    bool start(Display* display, Touch* touch);
+    void stop();
+    struct SlotInfo { bool active; bool pressed; int8_t trackId; lv_point_t point; };
+    void getSlots(SlotInfo* out, size_t max) const;
+};
+```
+
+**已知取舍**：多指同时落在可滚动列表会各自触发滚动（LVGL 无"主指"概念）——本机 UI 以按钮/桌面为主，可接受。
 
 ### VirtualIndev — 虚拟触摸输入
 
@@ -1783,7 +1814,7 @@ Display::init()                         ← LVGL 适配器
 ILI9881c::init(720, 1280, fbCount)      ← MIPI DSI 面板
 display.bindDisplay()                   ← 绑定面板
 Touch::init(iic, ...)                   ← GT911 触摸（可选）
-display.bindTouch()                     ← 绑定触摸
+GT911Indev::instance().start(...)       ← 五 indev 多指桥接（取代 bindTouch）
 display.start()                         ← LVGL worker task
 
 // ── 屏幕串流 ──

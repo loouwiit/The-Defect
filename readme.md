@@ -15,6 +15,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 | **4 人 BLE 手柄同时连接** | 自研 ESP32-C6 无线手柄，NimBLE 协议栈，即连即玩 |
 | **主机-房间架构** | 游戏 App 自带房间系统，自动创建/加入 |
 | **AI 对手** | 中国象棋内置 AI 引擎，单人也能玩 |
+| **5 点多指同屏触控** | GT911 硬件 5 点 → 五 indev 多指桥接（`GT911Indev`），多指独立 LVGL 事件，同屏多人直接触屏玩（双指切水果、各自 D-pad 等） |
 
 ### 🤖 AI Agent — 自然语言操控设备
 
@@ -161,7 +162,7 @@ ESP32-C6 (协处理器)
 | ♟️ **中国象棋** | ✅ 双人 + AI | 本地双人 / 内置 AI 引擎 |
 | 🎮 **桌面启动器** | — | 7 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
 
-所有界面均支持触摸输入与蓝牙手柄输入
+所有界面均支持多指触摸输入与蓝牙手柄输入
 
 ### 设置
 - **游戏市场** — 浏览并下载社区 Lua 游戏（截图网格 + 详情 + 下载运行/本地运行），桌面第七张卡片进入
@@ -222,7 +223,8 @@ ESP32-C6 (协处理器)
 │ Display  │  ├─ STA/AP 双模 + NAT  │ FAT (16MB)          │
 │ ILI9881C │  ├─ C6 Slave (SDIO)    │ memFS (6MB)         │
 │ GT911    │  ├─ BLE Gamepad (4P)   │ SD Card             │
-│ FontLoader│ └─ mDNS               │                     │
+│ GT911Indev│ └─ mDNS              │                     │
+│ FontLoader│                      │                     │
 ├──────────┴─────────────────────────┴─────────────────────┤
 │                   基础设施层                               │
 │  Task(协程) │ Mutex(RAII) │ GPIO │ IIC │ GUI(色板+工厂)  │
@@ -239,7 +241,7 @@ ESP32-C6 (协处理器)
 | ESP-IDF 5.x | 固件框架 |
 | LVGL 9.4 | GUI 框架 |
 | ILI9881C | 6" 720×1280 MIPI DSI 面板 |
-| GT911 | 5 点电容触摸 |
+| GT911 | 5 点电容触摸（五 indev 多指桥接，多指独立 LVGL 事件） |
 | ES8311 | 音频编解码器 |
 | NimBLE | BLE 协议栈（P4 host + C6 controller） |
 | esp_hosted | P4↔C6 SDIO 通信 |
@@ -257,7 +259,7 @@ ESP32-C6 (协处理器)
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
 | 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/gamepad/` |
 | 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient / ConsoleManagerApp / **tetrisTcpHost** / **TetrisRemoteClient** / **TetrisRemoteApp** | `main/host/` `main/websocket/` `main/app/consoleManager/` `main/app/tetris/net/` `main/app/tetris/` |
-| 显示/输入 | Display / ILI9881c / FontLoader / Touch / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
+| 显示/输入 | Display / ILI9881c / FontLoader / Touch / **GT911Indev** / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
 | 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS / Discovery | `main/wifi/` `main/server/` `main/wsServer/` `main/discovery/` |
