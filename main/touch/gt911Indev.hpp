@@ -40,9 +40,11 @@ public:
     };
     void getSlots(SlotInfo* out, size_t max) const;
 
+    // 槽位数（与 Touch::MaxPointCount 一致），供 App / 渲染器引用
+    static constexpr int kSlotCount = 5;
+
 private:
     static constexpr char TAG[] = "GT911Indev";
-    static constexpr int kSlotCount = 5;      // 与 Touch::MaxPointCount 一致
     static constexpr int kTrackIdRange = 256; // GT911 track_id 为 1 字节
 
     GT911Indev();
