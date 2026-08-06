@@ -208,8 +208,7 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::fruitBBox(const FruitNinjaLogic::Fr
 		b.x2 = static_cast<int>(f.x + r);
 		b.y2 = static_cast<int>(f.y + r);
 
-		// 顶部提示文字区域并入 bbox（非炸弹水果；blitText 起点 (x-16, y-r-24)，行高 ≤Small 字体）
-		if (f.type != FruitNinjaLogic::FruitType::Bomb)
+		// 顶部提示文字区域并入 bbox（未切片水果含炸弹；blitText 起点 (x-16, y-r-24)，行高 ≤Small 字体）
 		{
 			constexpr int HINT_W = 56;
 			constexpr int HINT_H = 36;
@@ -649,14 +648,23 @@ void FruitNinjaRenderer::invalidateDirty()
 
 bool FruitNinjaRenderer::shouldShowHint(const FruitNinjaLogic::Fruit& f)
 {
-	return f.active && !f.sliced && f.type != FruitNinjaLogic::FruitType::Bomb;
+	// 水果显示"方向+按钮"；炸弹也显示方向箭头（红色，提示危险方向，任意键引爆）
+	return f.active && !f.sliced;
 }
 
 void FruitNinjaRenderer::makeHintText(const FruitNinjaLogic::Fruit& f, char* out, size_t cap)
 {
-	snprintf(out, cap, "%s%s",
-		FruitNinjaLogic::dirToArrow(f.requiredDir),
-		FruitNinjaLogic::btnToChar(f.requiredBtn));
+	// 炸弹只显示方向箭头（任意按钮引爆，无特定按钮提示）
+	if (f.type == FruitNinjaLogic::FruitType::Bomb)
+	{
+		snprintf(out, cap, "%s", FruitNinjaLogic::dirToArrow(f.requiredDir));
+	}
+	else
+	{
+		snprintf(out, cap, "%s%s",
+			FruitNinjaLogic::dirToArrow(f.requiredDir),
+			FruitNinjaLogic::btnToChar(f.requiredBtn));
+	}
 }
 
 void FruitNinjaRenderer::preloadGlyphs()
@@ -916,7 +924,10 @@ void FruitNinjaRenderer::paintHints(const FruitNinjaLogic& logic)
 		float r = FruitNinjaLogic::getFruitRadius(f.type);
 		char buf[8];
 		makeHintText(f, buf, sizeof(buf));
-		blitText(static_cast<int>(f.x - 16), static_cast<int>(f.y - r - 24), buf, 0xffff);
+		// 炸弹方向提示用红色警示，水果用白色
+		uint16_t hintColor = (f.type == FruitNinjaLogic::FruitType::Bomb)
+			? color565(0xffff5252) : 0xffff;
+		blitText(static_cast<int>(f.x - 16), static_cast<int>(f.y - r - 24), buf, hintColor);
 	}
 }
 

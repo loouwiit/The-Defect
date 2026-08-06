@@ -233,37 +233,17 @@ bool FruitNinjaLogic::handleGamepadInput(int player, Direction dir, Button btn)
 	if (m_state != State::Playing) return false;
 	if (player < 0 || player >= m_playerCount) return false;
 
+	// 第一遍：优先精确匹配正常水果（方向 + 特定按钮）；命中即切片，不引爆炸弹
 	for (int i = 0; i < m_fruitCount; i++)
 	{
 		auto& f = m_fruits[i];
 		if (!f.active || f.sliced) continue;
 		if (f.player != player) continue;
+		if (f.type == FruitType::Bomb) continue;   // 炸弹延迟到第二遍判定
 		if (f.requiredDir != dir || f.requiredBtn != btn) continue;
 
 		// 匹配成功！切片
 		f.sliced = true;
-
-		// 炸弹特殊处理
-		if (f.type == FruitType::Bomb)
-		{
-			if (m_mode == GameMode::Classic)
-			{
-				m_lives[player]--;
-				if (m_lives[player] <= 0)
-				{
-					m_lives[player] = 0;
-					m_state = State::GameOver;
-				}
-			}
-			else // Arcade
-			{
-				m_scores[player] -= 10;
-				if (m_scores[player] < 0) m_scores[player] = 0;
-			}
-			f.active = false;
-			spawnParticles(f.x, f.y, 255, 80, 80, 12); // 红色爆炸
-			return true;
-		}
 
 		// 正常水果：加分
 		switch (f.type)
@@ -307,7 +287,36 @@ bool FruitNinjaLogic::handleGamepadInput(int player, Direction dir, Button btn)
 		return true;
 	}
 
-	return false; // 无匹配水果
+	// 第二遍：水果匹配失败 → 判定炸弹引爆（炸弹只要求方向匹配，任意按钮均引爆，提高难度）
+	for (int i = 0; i < m_fruitCount; i++)
+	{
+		auto& f = m_fruits[i];
+		if (!f.active || f.sliced) continue;
+		if (f.player != player) continue;
+		if (f.type != FruitType::Bomb) continue;
+		if (f.requiredDir != dir) continue;
+
+		// 炸弹引爆（惩罚）
+		if (m_mode == GameMode::Classic)
+		{
+			m_lives[player]--;
+			if (m_lives[player] <= 0)
+			{
+				m_lives[player] = 0;
+				m_state = State::GameOver;
+			}
+		}
+		else // Arcade
+		{
+			m_scores[player] -= 10;
+			if (m_scores[player] < 0) m_scores[player] = 0;
+		}
+		f.active = false;
+		spawnParticles(f.x, f.y, 255, 80, 80, 12); // 红色爆炸
+		return true;
+	}
+
+	return false; // 无匹配水果/炸弹
 }
 
 // ============================================================
