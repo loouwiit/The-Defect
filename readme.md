@@ -312,10 +312,10 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 ### 资源上传
 
-`reserces/` 目录需上传到 FAT 分区：
+`resourse/` 目录需上传到 FAT 分区：
 
 ```
-reserces/
+resourse/
 ├── server/       ← HTTP 网页资源
 └── system/       ← 系统文件（字体 + 输入法词库）
     ├── NotoSC.ttf
@@ -373,7 +373,7 @@ reserces/
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
 ├── The-Defect-Market/        ← 游戏市场服务器 + 社区游戏内容 (git submodule)
 ├── patches/                  ← managed_components 补丁（6 个）
-├── reserces/                 ← FAT 分区资源文件
+├── resourse/               ← FAT 分区资源文件
 │   ├── lua/                  ← Lua 脚本
 │   ├── server/               ← HTTP 静态资源
 │   └── system/               ← 系统文件（字体 + 输入法词库）

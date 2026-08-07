@@ -30,10 +30,10 @@ fat,      data, fat  ,      16M, 16M,
 
 ## Resources
 
-`reserces/` 目录下的文件会被上传到 FAT 分区，挂载路径为 `/root/`。
+`resourse/` 目录下的文件会被上传到 FAT 分区，挂载路径为 `/root/`。
 
 ```
-reserces/
+resourse/
 ├── lua/              ← Lua 测试/示例脚本
 ├── server/          ← HTTP 服务器静态资源（端口 80）
 │   ├── index.html
