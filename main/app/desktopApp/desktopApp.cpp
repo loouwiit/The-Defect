@@ -186,7 +186,7 @@ void DesktopApp::buildUi()
 	lv_obj_add_event_cb(m_timeLabel, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 0;
+		self->m_focusStatusIdx = STATUS_TIME;
 		Task::addTask([](void* param) -> TickType_t
 			{
 				auto* app = static_cast<DesktopApp*>(param);
@@ -217,7 +217,7 @@ void DesktopApp::buildUi()
 	lv_obj_add_event_cb(m_wifiLabel, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 1;
+		self->m_focusStatusIdx = STATUS_WIFI;
 		/* LVGL 事件回调中持锁，栈操作须延后 */
 		Task::addTask([](void* param) -> TickType_t
 			{
@@ -275,7 +275,7 @@ void DesktopApp::buildUi()
 	lv_obj_add_event_cb(m_consoleLabel, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 		self->m_focusGroup = FOCUS_STATUS;
-		self->m_focusStatusIdx = 6;
+		self->m_focusStatusIdx = STATUS_CONSOLE;
 		Task::addTask([](void* param) -> TickType_t
 			{
 				auto* app = static_cast<DesktopApp*>(param);
@@ -422,6 +422,21 @@ void DesktopApp::updateSelectionLabels()
 // 焦点系统
 // ════════════════════════════════════════════════════════════════
 
+lv_obj_t* DesktopApp::statusTarget(int8_t idx)
+{
+	switch (idx)
+	{
+	case STATUS_TIME:    return m_timeLabel;
+	case STATUS_WIFI:    return m_wifiLabel;
+	case STATUS_BT:      return m_bluetoothLabel;
+	case STATUS_VOL:     return m_volumeLabel;
+	case STATUS_BRIGHT:  return m_brightnessLabel;
+	case STATUS_CONSOLE: return m_consoleLabel;
+	case STATUS_BATTERY: return m_batteryLabel;
+	default:             return nullptr;
+	}
+}
+
 void DesktopApp::applyFocus()
 {
 	auto guard = display->lockGuard();
@@ -463,9 +478,8 @@ void DesktopApp::applyFocus()
 
 	case FOCUS_STATUS:
 	{
-		lv_obj_t* targets[] = { m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_consoleLabel, m_batteryLabel };
-		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < 7)
-			focus(targets[m_focusStatusIdx]);
+		if (m_focusStatusIdx >= 0 && m_focusStatusIdx < STATUS_COUNT)
+			focus(statusTarget(m_focusStatusIdx));
 		break;
 	}
 	}
@@ -485,10 +499,11 @@ void DesktopApp::activateFocus()
 
 	case FOCUS_STATUS:
 	{
-		lv_obj_t* target[]{ m_timeLabel, m_wifiLabel, m_bluetoothLabel, m_volumeLabel, m_brightnessLabel, m_consoleLabel ,m_batteryLabel };
-		auto guard = display->lockGuard();
-		lv_obj_send_event(target[m_focusStatusIdx],
-			LV_EVENT_CLICKED, nullptr);
+		if (auto* t = statusTarget(m_focusStatusIdx))
+		{
+			auto guard = display->lockGuard();
+			lv_obj_send_event(t, LV_EVENT_CLICKED, nullptr);
+		}
 		break;
 	}
 	}
@@ -540,7 +555,7 @@ void DesktopApp::navToStatus()
 {
 	auto guard = display->lockGuard();
 	m_focusGroup = FOCUS_STATUS;
-	m_focusStatusIdx = 0;
+	m_focusStatusIdx = STATUS_TIME;
 	applyFocus();
 }
 
@@ -680,7 +695,7 @@ void DesktopApp::onAiSelect(const AiSelectTarget& target)
 		applyFocus();
 		ESP_LOGI(TAG, "AI select buttons");
 	}
-	else if (target.group == "status" && target.index >= 0 && target.index <= 6) {
+	else if (target.group == "status" && target.index >= 0 && target.index < STATUS_COUNT) {
 		m_focusGroup = FOCUS_STATUS;
 		m_focusStatusIdx = static_cast<int8_t>(target.index);
 		applyFocus();
@@ -803,7 +818,7 @@ void DesktopApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadS
 				m_focusStatusIdx--;
 				applyFocus();
 			}
-			if (lxRight && m_focusStatusIdx < 6)
+			if (lxRight && m_focusStatusIdx < STATUS_BATTERY)
 			{
 				m_focusStatusIdx++;
 				applyFocus();
@@ -865,6 +880,7 @@ void DesktopApp::onBluetoothLabelCb(lv_event_t* e)
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 
 	self->m_focusGroup = FOCUS_STATUS;
+	self->m_focusStatusIdx = STATUS_BT;
 
 	/* LVGL 事件回调中持锁，栈操作须延后 */
 	Task::addTask([](void* param) -> TickType_t
@@ -1100,7 +1116,7 @@ void DesktopApp::onVolumeLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-	self->m_focusStatusIdx = 3;
+	self->m_focusStatusIdx = STATUS_VOL;
 	if (self->m_volumeSliderActive)
 		self->hideVolumeSlider();
 	else
@@ -1112,7 +1128,7 @@ void DesktopApp::onBrightnessLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-	self->m_focusStatusIdx = 4;
+	self->m_focusStatusIdx = STATUS_BRIGHT;
 	if (self->m_brightnessSliderActive)
 		self->hideBrightnessSlider();
 	else
@@ -1124,7 +1140,7 @@ void DesktopApp::onBatteryLabelCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_STATUS;
-	self->m_focusStatusIdx = 5;
+	self->m_focusStatusIdx = STATUS_BATTERY;
 
 	Task::addTask([](void* param) -> TickType_t
 		{

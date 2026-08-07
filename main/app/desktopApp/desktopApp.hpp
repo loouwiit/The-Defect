@@ -40,9 +40,22 @@ private:
 		FOCUS_BOTTOM = 1,  // 底部"开始游戏"按钮
 		FOCUS_STATUS = 2,  // 顶栏状态图标
 	};
+
+	// 状态栏焦点索引（单一数据源：导航/回调/渲染共用，防止索引漂移）
+	// 顺序与状态栏视觉顺序一致（亮度 → 多主机 → 电池）
+	enum StatusIdx : int8_t {
+		STATUS_TIME = 0,     // 时间（时间设置）
+		STATUS_WIFI = 1,     // WiFi
+		STATUS_BT = 2,       // 蓝牙
+		STATUS_VOL = 3,      // 音量
+		STATUS_BRIGHT = 4,   // 亮度
+		STATUS_CONSOLE = 5,  // 多主机管理
+		STATUS_BATTERY = 6,  // 电池（电源管理）
+		STATUS_COUNT = 7,
+	};
 	FocusGroup m_focusGroup{ FOCUS_CARDS };
 	int8_t m_focusCardsIdx{ 0 };      // 0..GAME_COUNT-1
-	int8_t m_focusStatusIdx{ 0 };     // 0=时间, 1=WiFi, 2=蓝牙, 3=音量, 4=亮度, 5=电池, 6=多主机
+	int8_t m_focusStatusIdx{ 0 };     // 0=时间,1=WiFi,2=蓝牙,3=音量,4=亮度,5=多主机,6=电池（见 StatusIdx）
 	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
 	uint16_t m_prevButtons{};
@@ -101,6 +114,7 @@ private:
 	void updateSelectionLabels();
 	void applyFocus();
 	void activateFocus();
+	lv_obj_t* statusTarget(int8_t idx);  // 状态栏焦点索引 → 目标 label（越界返回 nullptr）
 
 	// 卡片导航
 	void navCardsLeft();
