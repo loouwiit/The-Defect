@@ -80,6 +80,7 @@ reserces/
 | | luaAudio | `main/lua/bindings/luaAudio.cpp` | 音频播放 API（play_sfx/play_bgm/set_volume） |
 | | luaThread | `main/lua/bindings/luaThread.cpp` | 线程/延时 API（sleep/now/random） |
 | | luaStorage | `main/lua/bindings/luaStorage.cpp` | 安全存档 API（save/load/remove/exists，限定 `/root/lua/data/`） |
+| | luaTouch | `main/lua/bindings/luaTouch.cpp` | 多点触控轮询 API（is_down/x/y/is_just_pressed/is_just_released/all） |
 | | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt) |
 | | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口） |
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
@@ -118,7 +119,7 @@ reserces/
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
 | **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
-| Lua Runtime | `main/lua/` | Lua 5.5 脚本引擎 + 4 个绑定模块（display/input/audio/thread） |
+| Lua Runtime | `main/lua/` | Lua 5.5 脚本引擎 + 5 个绑定模块（display/input/audio/thread/touch） |
 | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，AI 生成的 .lua 脚本在此运行 |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
@@ -162,8 +163,15 @@ class LuaRuntime {
 | luaAudio | `bindings/luaAudio.cpp` | `play/play_sfx/play_bgm/stop_bgm/set_volume` |
 | luaThread | `bindings/luaThread.cpp` | `sleep/now/random` |
 | luaStorage | `bindings/luaStorage.cpp` | `save/load/remove/exists`（安全存档，限定 `/root/lua/data/`） |
+| luaTouch | `bindings/luaTouch.cpp` | `count/is_down/x/y/is_just_pressed/is_just_released/get/all`（多点触控轮询） |
 
 颜色格式：支持 `"#ff0000"` / `0xff0000` / `{r=255,g=0,b=0}` 三种。
+
+**触摸输入**（`luaTouch`）：多点触控轮询，数据源为 `GT911Indev::getSlots()`（只读，**驱动层零改动**）。
+`LuaGameApp::updateTouchSnapshot()` 每帧在 `loop(dt)` 前（无锁阶段）先归档 `prevDown=down` 再刷新当前槽位快照；
+边沿在绑定内计算：`is_just_pressed(i) = down[i] && !prevDown[i]`（自上一帧以来的上升沿），状态与边沿同源自洽。
+坐标与 `display` 模块一致（旋转后 1280×720 屏幕坐标）；槽位为虚拟手指（可被不同物理手指复用），逐槽轮询即可。
+⚠ `LuaGameApp::init()` 的 `m_canvas` 须移除 `LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE`（`lv_obj_create` 默认可滚动+可点击，子对象越出画布边界时触摸拖拽会滚动整个画布——FruitNinja 画布同款处理；`LV_SCROLLBAR_MODE_OFF` 只隐藏滚动条，不防滚动）。
 
 ### Lua 沙箱（安全边界）
 
