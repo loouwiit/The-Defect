@@ -336,10 +336,9 @@ void WifiSettingsApp::buildUi()
 		lv_obj_set_style_text_font(lv_obj_get_child(btn, 0),
 			FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 		lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, this);
-		lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+		// 仅按钮响应触摸；行仅作显示与手柄焦点载体（不注册行级触摸回调）
 		lv_obj_set_style_border_width(row, 3, LV_STATE_FOCUSED);
 		lv_obj_set_style_border_color(row, lv_color_white(), LV_STATE_FOCUSED);
-		lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, this);
 		return row;
 	};
 	// 只读信息行：label + value
