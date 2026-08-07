@@ -82,7 +82,7 @@ reserces/
 | | luaStorage | `main/lua/bindings/luaStorage.cpp` | 安全存档 API（save/load/remove/exists，限定 `/root/lua/data/`） |
 | | luaTouch | `main/lua/bindings/luaTouch.cpp` | 多点触控轮询 API（is_down/x/y/is_just_pressed/is_just_released/all） |
 | | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt)，LVGL 对象池化渲染 |
-| | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口） |
+| | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口；市场游戏按游戏 ID 显示、禁用重命名、删除=递归删目录） |
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**7** 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
 | | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
@@ -90,7 +90,7 @@ reserces/
 | | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
 | | ChineseChess | `main/app/chineseChess/` | 中国象棋（含 AI 引擎） |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
-| | MarketApp | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载运行/本地运行 |
+| | MarketApp | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载/更新（运行走脚本管理） |
 | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
@@ -1136,8 +1136,8 @@ class App {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **LuaManagerApp** | `main/app/luaManagerApp/` | Lua 脚本管理器：浏览/运行/删除/重命名脚本，AI 生成入口 |
-| **MarketApp** | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载运行/本地运行 |
+| **LuaManagerApp** | `main/app/luaManagerApp/` | Lua 脚本管理器：浏览/运行/删除/重命名脚本，AI 生成入口；市场游戏按游戏 ID 显示、禁用重命名、删除=递归删目录 |
+| **MarketApp** | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载/更新（运行走脚本管理） |
 | **TestApp** | `main/app/testApp/` | 测试用，开发调试 |
 
 ### Tetris 模块详情
@@ -1381,7 +1381,7 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 
 ## 游戏市场
 
-从网络市场服务器浏览并下载社区 Lua 游戏脚本，一键运行。服务端与游戏内容为独立仓库 `The-Defect-Market/`（git submodule）。
+从网络市场服务器浏览并下载/更新社区 Lua 游戏脚本（市场只负责下载，运行统一走「脚本管理」LuaManagerApp）。服务端与游戏内容为独立仓库 `The-Defect-Market/`（git submodule）。
 
 **模块路径**: `main/market/`（客户端）+ `main/app/marketApp/`（UI）
 
@@ -1391,7 +1391,7 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 |------|------|
 | `GET /api/scripts` | 脚本列表（JSON，含 name/author/version/desc/tags/rating/downloads/thumb/screenshot/download） |
 | `GET /games/<作者>/<游戏>/<file>` | 脚本 / 缩略图 / 大图（静态文件） |
-| `POST /api/stats/download` | 下载量 +1（下载成功自动上报） |
+| `POST /api/stats/download` | 下载量 +1（下载成功自动上报；`id` 传组合键 `作者/id`，同名游戏不串号） |
 | `GET /api/search?q=` | 按名称/作者/标签/简介搜索（服务端 SQLite） |
 
 - 服务器地址：`/root/system/market_config.json` 的 `server_url` 字段
@@ -1404,9 +1404,11 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 |------|------|
 | 入口 | 桌面第 7 张卡片「游戏市场」；AI `open_app("market")` |
 | 一级界面 | 3 列截图卡片网格（缩略图懒加载串行队列，未加载显示 ★评分 占位） |
-| 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 简介/版本/更新时间/下载量/评分 + 下载运行 |
-| 已下载识别 | 下载存 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器两级结构，作者/游戏隔离）；`testFile()` 检测 → 按钮变「运行」直接本地启动，卡片显示「已装」角标 |
-| 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载运行）；B 返回 |
+| 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 简介/版本/更新时间/下载量/评分 + 下载/更新 |
+| 下载/更新 | 存储 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器两级结构，作者/游戏隔离，覆盖式更新）；`testFile()` 检测已装 → 按钮「更新」，未装 → 「下载」；卡片显示「已装」角标。**只下载不运行**，运行统一走「脚本管理」 |
+| 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载或更新）；B 返回 |
+
+- **运行入口**：市场只负责下载/更新，不自动运行；在「脚本管理」（LuaManagerApp）中运行。市场游戏按游戏 ID 显示、禁用重命名、删除时递归清理整个 `<作者>/<游戏>/` 目录
 
 ---
 

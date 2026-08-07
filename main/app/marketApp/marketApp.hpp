@@ -135,7 +135,7 @@ private:
 	void showDetail();
 	void hideDetail();
 	void loadScreenshot(const MarketScript& s);
-	void downloadAndRun();
+	void download();
 
 	void cleanupLegacyFlatFiles();
 	void setStatus(const char* text, lv_color_t color);

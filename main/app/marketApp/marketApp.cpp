@@ -3,7 +3,6 @@
 #include "display/font.hpp"
 #include "task/task.hpp"
 #include "storage/fat.hpp"
-#include "app/luaGameApp/luaGameApp.hpp"
 #include "app/appStackManager.hpp"
 #include "market/marketConfig.hpp"
 
@@ -148,7 +147,7 @@ void MarketApp::init()
 	lv_obj_set_style_flex_main_place(m_bottomBar, LV_FLEX_ALIGN_CENTER, 0);
 	lv_obj_set_scrollbar_mode(m_bottomBar, LV_SCROLLBAR_MODE_OFF);
 
-	const char* btnLabels[] = { LV_SYMBOL_REFRESH "刷新", "详情", LV_SYMBOL_OK "下载运行" };
+	const char* btnLabels[] = { LV_SYMBOL_REFRESH "刷新", "详情", LV_SYMBOL_OK "下载" };
 	for (int i = 0; i < BOTTOM_BTN_COUNT; i++) {
 		m_bottomBtns[i] = GUI::createButton(m_bottomBar, btnLabels[i], 150, 38);
 		lv_obj_set_style_radius(m_bottomBtns[i], 6, 0);
@@ -156,7 +155,7 @@ void MarketApp::init()
 		lv_obj_set_style_border_color(m_bottomBtns[i], lv_color_white(), LV_STATE_FOCUSED);
 		lv_obj_set_style_bg_color(m_bottomBtns[i], LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
 		if (i == 2) {
-			// "下载运行" 强调色
+			// "下载" 强调色
 			lv_obj_set_style_bg_color(m_bottomBtns[i], LV_COLOR_MAKE(0x00, 0x66, 0xcc), 0);
 		}
 	}
@@ -173,7 +172,7 @@ void MarketApp::init()
 
 	lv_obj_add_event_cb(m_bottomBtns[2], [](lv_event_t* e) {
 		auto* self = static_cast<MarketApp*>(lv_event_get_user_data(e));
-		self->downloadAndRun();
+		self->download();
 		}, LV_EVENT_CLICKED, this);
 
 	// 读取服务器配置
@@ -636,14 +635,14 @@ void MarketApp::showDetail()
 		self->hideDetail();
 		}, LV_EVENT_CLICKED, this);
 
-	m_detailBtnRun = GUI::createButton(btnRow, "下载运行", 140, 40);
+	m_detailBtnRun = GUI::createButton(btnRow, "下载", 140, 40);
 	lv_obj_set_style_radius(m_detailBtnRun, 6, 0);
 	lv_obj_set_style_border_width(m_detailBtnRun, 2, LV_STATE_FOCUSED);
 	lv_obj_set_style_border_color(m_detailBtnRun, lv_color_white(), LV_STATE_FOCUSED);
 	lv_obj_set_style_bg_color(m_detailBtnRun, LV_COLOR_MAKE(0x00, 0x66, 0xcc), 0);
 	lv_obj_add_event_cb(m_detailBtnRun, [](lv_event_t* e) {
 		auto* self = static_cast<MarketApp*>(lv_event_get_user_data(e));
-		self->downloadAndRun();
+		self->download();
 		}, LV_EVENT_CLICKED, this);
 
 	applyFocus();
@@ -719,37 +718,28 @@ void MarketApp::loadScreenshot(const MarketScript& s)
 }
 
 // ============================================================
-//  downloadAndRun — 下载脚本并运行
+//  download — 下载/更新脚本（覆盖式；市场只负责下载，运行走脚本管理）
 // ============================================================
 
-void MarketApp::downloadAndRun()
+void MarketApp::download()
 {
 	if (m_downloading) return;
 	if (m_list.empty() || m_selectedIdx < 0 || m_selectedIdx >= (int)m_list.size()) return;
 
 	const auto& s = m_list[m_selectedIdx];
 	int selIdx = m_selectedIdx;
-
-	// 已下载 → 直接本地运行，不重复下载
-	if (selIdx < (int)m_downloaded.size() && m_downloaded[selIdx]) {
-		std::string path = localPathFor(s.author, s.id, s.download);
-		ESP_LOGI(TAG, "本地运行: %s", path.c_str());
-		if (m_manager) {
-			m_manager->push(new LuaGameApp(display, path.c_str()));
-		}
-		return;
-	}
+	bool wasDownloaded = (selIdx < (int)m_downloaded.size() && m_downloaded[selIdx]);
 
 	m_downloading = true;
 
 	{
 		auto guard = display->lockGuard();
-		if (guard) setStatus("下载中...", GUI::Color::SUBTLE);
+		if (guard) setStatus(wasDownloaded ? "更新中..." : "下载中...", GUI::Color::SUBTLE);
 	}
 
 	std::string url = m_serverUrl;
 	MarketClient::downloadScriptText(url, s.download,
-		[this, selIdx, id = s.id, author = s.author, download = s.download]
+		[this, selIdx, wasDownloaded, id = s.id, author = s.author, download = s.download]
 		(bool ok, const std::string& content, const std::string& err) {
 			m_downloading = false;
 			if (!running) return;   // App 已被销毁
@@ -760,7 +750,7 @@ void MarketApp::downloadAndRun()
 				return;
 			}
 
-			// 保存到 /root/lua/market/<作者>/<游戏>/（镜像服务器两级结构，作者/游戏隔离）
+			// 保存到 /root/lua/market/<作者>/<游戏>/（镜像服务器两级结构，覆盖旧版本实现"更新"）
 			std::string path = localPathFor(author, id, download);
 
 			// 逐级建目录（mkdir 非递归）：/root/lua/market → <作者> → <游戏>
@@ -792,13 +782,18 @@ void MarketApp::downloadAndRun()
 
 			ESP_LOGI(TAG, "下载完成: %s (%zu bytes)", path.c_str(), content.size());
 
-			// 标记已下载
+			// 标记已下载并同步按钮文案（下载 → 更新）
 			if (selIdx < (int)m_downloaded.size()) m_downloaded[selIdx] = true;
 
-			// 启动游戏（回调在后台 Task，直接 push 安全）
-			if (m_manager) {
-				m_manager->push(new LuaGameApp(display, path.c_str()));
+			// 运行统一走「脚本管理」，市场不自动启动游戏
+			{
+				auto g = display->lockGuard();
+				if (g) {
+					setStatus(wasDownloaded ? "更新完成，可在「脚本管理」中运行" : "已下载，可在「脚本管理」中运行",
+						GUI::Color::SUCCESS);
+				}
 			}
+			updateActionLabels();   // 自带锁
 
 			// 上报一次下载（尽力而为，后台 Task 执行，不阻塞）
 			// 组合键 作者/id：服务端按组合键统计，防同名游戏串号
@@ -899,7 +894,7 @@ void MarketApp::refreshDownloadedState()
 	}
 }
 
-// 同步"运行 / 下载运行"按钮文案（底部栏 + 详情）
+// 同步"下载 / 更新"按钮文案（底部栏 + 详情）
 void MarketApp::updateActionLabels()
 {
 	auto guard = display->lockGuard();
@@ -915,8 +910,8 @@ void MarketApp::updateActionLabels()
 		}
 	};
 
-	setLabel(m_bottomBtns[2], dl ? LV_SYMBOL_OK " 运行" : LV_SYMBOL_OK " 下载运行");
-	setLabel(m_detailBtnRun, dl ? LV_SYMBOL_OK " 运行" : LV_SYMBOL_OK " 下载运行");
+	setLabel(m_bottomBtns[2], dl ? LV_SYMBOL_LOOP " 更新" : LV_SYMBOL_DOWNLOAD " 下载");
+	setLabel(m_detailBtnRun, dl ? LV_SYMBOL_LOOP " 更新" : LV_SYMBOL_DOWNLOAD " 下载");
 }
 
 // ============================================================
@@ -1004,7 +999,7 @@ void MarketApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 				switch (m_focusBottomIdx) {
 				case 0: fetchList(); break;
 				case 1: showDetail(); break;
-				case 2: downloadAndRun(); break;
+				case 2: download(); break;
 				}
 			}
 			else if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)) {
@@ -1033,7 +1028,7 @@ void MarketApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 		else if (newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) {
 			m_nextActionTime = now + ACTION_COOLDOWN;
 			if (m_focusDetailIdx == 1)
-				downloadAndRun();
+				download();
 			else
 				hideDetail();
 		}
@@ -1055,8 +1050,8 @@ std::string MarketApp::getAiContext()
 	std::string ctx = "当前在游戏市场。\n"
 		"可用焦点组（select 的 text 参数）：\n"
 		"- list(0-N)\t脚本列表\n"
-		"- actions(0-2)\t操作按钮（刷新/详情/下载运行）\n"
-		"- detail(0-1)\t详情按钮（返回/下载运行）\n\n";
+		"- actions(0-2)\t操作按钮（刷新/详情/下载或更新）\n"
+		"- detail(0-1)\t详情按钮（返回/下载或更新）\n\n";
 
 	ctx += "服务器: " + m_serverUrl + "\n";
 
@@ -1114,12 +1109,12 @@ void MarketApp::onAiActivate()
 		switch (m_focusBottomIdx) {
 		case 0: fetchList(); break;
 		case 1: showDetail(); break;
-		case 2: downloadAndRun(); break;
+		case 2: download(); break;
 		}
 		break;
 	case FOCUS_DETAIL:
 		if (m_focusDetailIdx == 1)
-			downloadAndRun();
+			download();
 		else
 			hideDetail();
 		break;
