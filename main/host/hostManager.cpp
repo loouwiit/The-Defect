@@ -42,14 +42,16 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 	// 创建 /ws/console 连接
 	m_consoleClient = new WsClient();
 
-	m_consoleClient->setOnConnected([this, hostname]() {
+	m_consoleClient->setOnConnected([this]() {
 		ESP_LOGI(TAG, "console channel connected");
 
-		// 发送注册消息
+		// 发送注册消息（hostname 用本机主机名，勿用远程主机名）
+		const char* myHostname = mdnsGetConfiguredHostname();
+		if (!myHostname || !myHostname[0]) myHostname = "esp32p4";
 		char regMsg[128];
 		int n = snprintf(regMsg, sizeof(regMsg),
 			R"({"type":"register","hostname":"%s","gamepad_count":4})",
-			hostname && hostname[0] ? hostname : "esp32p4");
+			myHostname);
 		m_consoleClient->sendText(regMsg, n);
 		});
 
@@ -118,11 +120,13 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 					idx++;
 				}
 
-				// 交换后重新定位自己的 slot：匹配 hostname
+				// 交换后重新定位自己的 slot：匹配本机主机名
+				const char* myHostname = mdnsGetConfiguredHostname();
+				if (!myHostname) myHostname = "";
 				int myNewSlot = -1;
 				for (int i = 0; i < 4; i++) {
-					if (m_slots[i].connected && m_remoteHostname[0] &&
-						strcmp(m_slots[i].hostname, m_remoteHostname) == 0) {
+					if (m_slots[i].connected && myHostname[0] &&
+						strcmp(m_slots[i].hostname, myHostname) == 0) {
 						myNewSlot = i;
 						break;
 					}
