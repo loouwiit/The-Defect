@@ -21,7 +21,7 @@ idf_component_register(SRCS "main.cpp"
                             "gamepad/bleGamepad.cpp" "gamepad/virtualGamepad.cpp"
                             "host/inputHost.cpp" "host/wsInputHandler.cpp" "host/hostManager.cpp" "host/wsConsoleHandler.cpp" "host/udpInput.cpp"
                             "virtualIndev/virtualIndev.cpp" "virtualIndev/wsTouchHandler.cpp"
-                            "lua/luaRuntime.cpp" "lua/luaModules.cpp" "lua/bindings/luaDisplay.cpp" "lua/bindings/luaInput.cpp" "lua/bindings/luaAudio.cpp" "lua/bindings/luaThread.cpp" "lua/bindings/luaStorage.cpp" "app/luaGameApp/luaGameApp.cpp"
+                            "lua/luaRuntime.cpp" "lua/luaModules.cpp" "lua/bindings/luaDisplay.cpp" "lua/bindings/luaInput.cpp" "lua/bindings/luaAudio.cpp" "lua/bindings/luaThread.cpp" "lua/bindings/luaStorage.cpp" "lua/bindings/luaTouch.cpp" "app/luaGameApp/luaGameApp.cpp"
 
                             "app/app.cpp" "app/appStack.cpp" "app/appStackManager.cpp"
                             "app/testApp/testApp.cpp"

@@ -5,6 +5,7 @@
 #include "storage/fat.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "gamepad/bleGamepad.hpp"
+#include "touch/gt911Indev.hpp"
 #include <esp_log.h>
 #include <cstring>
 #include <cstdio>
@@ -84,6 +85,9 @@ void LuaGameApp::registerBindings()
 
     lua_pushlightuserdata(L, &m_inputCtx);
     lua_setfield(L, LUA_REGISTRYINDEX, "LUA_INPUT_CTX");
+
+    lua_pushlightuserdata(L, &m_touchCtx);
+    lua_setfield(L, LUA_REGISTRYINDEX, "LUA_TOUCH_CTX");
 }
 
 // ============================================================
@@ -308,6 +312,9 @@ void LuaGameApp::gameLoop()
     }
     m_inputCtx.playerCount = countConnectedPlayers();
 
+    // 触摸快照：在 lockGuard 之前（无锁阶段）轮询 GT911 槽位，避免持 LVGL 锁期间等 GT911 mutex
+    updateTouchSnapshot();
+
     // 持 LVGL 锁 → 清空画布 → 调 Lua loop(dt) → 释放锁
     {
         auto guard = display->lockGuard();
@@ -366,6 +373,31 @@ int LuaGameApp::countConnectedPlayers() const
         if (m_inputCtx.connected[i]) count++;
     }
     return count;
+}
+
+// ============================================================
+//  触摸快照 — 每帧在 loop(dt) 前（无锁阶段）轮询 GT911Indev 槽位
+//  推进顺序：先 down→prevDown 归档，再 getSlots() 刷新当前（顺序不可反）
+// ============================================================
+
+void LuaGameApp::updateTouchSnapshot()
+{
+    // 先归档上一帧，再刷新当前帧
+    memcpy(m_touchCtx.prevDown, m_touchCtx.down, sizeof(m_touchCtx.prevDown));
+
+    GT911Indev::SlotInfo slots[GT911Indev::kSlotCount];
+    GT911Indev::instance().getSlots(slots, GT911Indev::kSlotCount);
+
+    int downCount = 0;
+    for (int i = 0; i < GT911Indev::kSlotCount; i++)
+    {
+        const bool down = slots[i].active && slots[i].pressed;
+        m_touchCtx.down[i] = down;
+        m_touchCtx.x[i]    = (int16_t)slots[i].point.x;
+        m_touchCtx.y[i]    = (int16_t)slots[i].point.y;
+        if (down) downCount++;
+    }
+    m_touchCtx.downCount = downCount;
 }
 
 // ============================================================

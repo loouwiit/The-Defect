@@ -126,6 +126,19 @@ z
 可用按钮名: a（在下边）, b（在右边）, x（在左边）, y（在上边）, l3（摇杆按下）
 摇杆死区建议值：13
 
+**touch 模块**（多点触控，最多 5 点；坐标与 display 一致，屏幕 1280×720）:
+- touch.count() — 当前按下的触点数（0-5）
+- touch.is_down(i) — 槽位 i 当前是否按下（i: 0-4）
+- touch.x(i) / touch.y(i) — 槽位 i 当前坐标
+- touch.is_just_pressed(i) — 本帧新按下（上升沿：自上一帧以来 down 从 false→true）
+- touch.is_just_released(i) — 本帧新释放（下降沿）
+- touch.get(i) — 返回 {x=, y=, down=, just_pressed=, just_released=}
+- touch.all() — 所有按下触点数组 {{x=,y=}, ...}
+
+槽位语义：每根手指占用一个槽位（最多 5 个），槽位可能被不同手指复用，请逐槽轮询。
+点按游戏：is_just_pressed(i) 为 true 时用 x(i)/y(i) 作为落点坐标。
+适合点按/拖拽/双指类游戏（如切水果、戳气球）。
+
 **audio 模块**:
 - audio.play_sfx(path) — 播放音效（不阻塞）
 - audio.set_volume(0-100) — 设置音量
@@ -160,7 +173,7 @@ end
 ```
 
 注意：生成的代码必须完整、可独立运行。不要省略 setup/loop 函数。
-沙箱环境已移除 io/os/package/debug 等库，请只使用上述 API（display/input/audio/thread/storage + math/string/table 标准库）。
+沙箱环境已移除 io/os/package/debug 等库，请只使用上述 API（display/input/audio/thread/storage/touch + math/string/table 标准库）。
 文件读写请用 storage 模块（仅限 /root/lua/data/ 目录），不要用 io 等已移除的库。
 
 系统只保留最近 5 轮对话，超过的会被丢弃。

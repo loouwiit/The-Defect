@@ -5,6 +5,7 @@
 #include "lua/luaModules.hpp"
 #include "lua/bindings/luaDisplay.hpp"
 #include "lua/bindings/luaInput.hpp"
+#include "lua/bindings/luaTouch.hpp"
 #include "task/task.hpp"
 
 /**
@@ -84,6 +85,7 @@ private:
     // ── 绑定上下文 ──
     LuaDisplayContext m_dispCtx{};
     LuaInputContext m_inputCtx{};
+    LuaTouchContext m_touchCtx{};
 
     // ── 去重 ──
     TickType_t m_nextActionTime{};
@@ -92,6 +94,7 @@ private:
     // ── 内部方法 ──
     void registerBindings();
     void gameLoop();
+    void updateTouchSnapshot();
     int countConnectedPlayers() const;
     void updateStatus();
 
