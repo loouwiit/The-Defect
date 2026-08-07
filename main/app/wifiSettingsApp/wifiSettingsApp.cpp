@@ -514,17 +514,14 @@ void WifiSettingsApp::doScan()
 		return;
 	}
 
-	if (!wifiStationIsStarted() || !wifiApIsStarted() || !wifiNatIsStarted())
+	// 扫描需要 STA 模式。分屏并行管理：不静默启动任何东西（含 AP/NAT）
+	if (!wifiStationIsStarted())
 	{
-		ESP_LOGW(TAG, "未启动,自动启动");
-		wifiStationStart();
-		wifiApStart();
-		wifiNatStart();
-		{
-			auto guard = display->lockGuard();
-			lv_label_set_text(m_wifiToggleLabel, "WiFi: ON");
-			lv_obj_set_style_bg_color(m_wifiToggleBtn, LV_COLOR_MAKE(0x30, 0x50, 0x30), 0);
-		}
+		ESP_LOGW(TAG, "WiFi(STA) 未开启，无法扫描；请先点击“WiFi: ON”");
+		// 列表显示提示（updateScanList 已处理 STA 关闭态）
+		if (auto guard = display->lockGuard())
+			updateScanList();
+		return;
 	}
 
 	// 清空旧结果
