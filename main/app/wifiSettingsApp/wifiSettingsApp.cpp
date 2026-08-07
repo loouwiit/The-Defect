@@ -352,7 +352,7 @@ void WifiSettingsApp::buildUi()
 	auto pwdRow = makeApActionRow("密码", "编辑", onApPwdCb, &m_apPwdLabel);
 	auto authRow = makeApActionRow("认证", "切换", onApAuthCb, &m_apAuthLabel);
 	makeApInfoRow("客户端", &m_apClientLabel);
-	auto natRow = makeApActionRow("NAT(自动)", "切换", onApNatCb, &m_apNatLabel);
+	auto natRow = makeApActionRow("NAT", "切换", onApNatCb, &m_apNatLabel);
 	makeApInfoRow("网关", &m_apGatewayLabel);
 	auto hostRow = makeApActionRow("主机名", "编辑", onHostnameRowCb, &m_hostnameLabel);
 

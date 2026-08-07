@@ -215,6 +215,7 @@ extern "C" void app_main(void)
 	wifiInit(true);
 
 	wifiStart();
+	wifiNatSetAutoStart(true);
 
 	// 全局时间同步服务（SNTP 一次性初始化，WiFi 拿到 IP 时自动同步）
 	TimeService::instance().start();
