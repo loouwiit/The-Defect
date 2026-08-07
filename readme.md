@@ -56,6 +56,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 - **Lua 游戏脚本**：AI 生成完整 Lua 代码 → 保存到 `/root/lua/game/test.lua` → `LuaGameApp` 自动运行
 - **简化绘图 API**：`display.fill_rect()` / `draw_text()` / `draw_circle()` 等，易于 AI 理解和生成
 - **C++ 驱动循环**：独立 Task 以 60fps 固定帧率调用 Lua `loop(dt)` 函数
+- **高性能对象池化渲染**：Lua 绘制按槽位复用 LVGL 对象 + 静态跳过，无整屏重绘；实测平静 ~60fps、极限 ~20fps
 - **手柄输入**：Lua 通过 `input.is_pressed()` / `input.joystick()` 轮询读取手柄状态
 - **错误回传**：运行时错误自动记录，用户下次对话时注入 AI 上下文，促成 AI 自我修复
 - **读取已生成代码**：AI 可通过 `read` 动作读取当前游戏脚本内容，了解状态后精准迭代

@@ -4,9 +4,6 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
-#include <esp_log.h>
-
-static constexpr char TAG[] = "LuaDisplay";
 
 // 自定义 clamp（替代已废弃的 lv_clamp）
 template<typename T>

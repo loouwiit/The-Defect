@@ -75,13 +75,13 @@ reserces/
 | | PinyinDict | `main/app/aiAgentApp/pinyinDict.hpp` | 输入法词库加载（拼音/五笔/混合），FAT 文本 → `lv_ime_pinyin_set_dict` |
 | | App (基类) | `main/app/app.hpp` | `getAiContext()` / `onAiSelect()` / `onAiActivate()` + 可选 `executeAiAction()` |
 | **Lua 引擎** | LuaRuntime | `main/lua/luaRuntime.hpp` | Lua 5.5 VM RAII 封装，loadScript/loadString/callFunction |
-| | luaDisplay | `main/lua/bindings/luaDisplay.cpp` | 简化帧缓冲绘图 API（fill_rect/draw_text/draw_circle 等） |
+| | luaDisplay | `main/lua/bindings/luaDisplay.cpp` | 简化绘图 API（fill_rect/draw_text/draw_circle 等），**LVGL 对象池化 + 静态跳过渲染** |
 | | luaInput | `main/lua/bindings/luaInput.cpp` | 手柄输入轮询 API（is_pressed/joystick/connected） |
 | | luaAudio | `main/lua/bindings/luaAudio.cpp` | 音频播放 API（play_sfx/play_bgm/set_volume） |
 | | luaThread | `main/lua/bindings/luaThread.cpp` | 线程/延时 API（sleep/now/random） |
 | | luaStorage | `main/lua/bindings/luaStorage.cpp` | 安全存档 API（save/load/remove/exists，限定 `/root/lua/data/`） |
 | | luaTouch | `main/lua/bindings/luaTouch.cpp` | 多点触控轮询 API（is_down/x/y/is_just_pressed/is_just_released/all） |
-| | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt) |
+| | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt)，LVGL 对象池化渲染 |
 | | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口） |
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**7** 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
@@ -158,7 +158,7 @@ class LuaRuntime {
 
 | 模块 | 文件 | Lua API |
 |------|------|---------|
-| luaDisplay | `bindings/luaDisplay.cpp` | `fill_screen/fill_rect/draw_rect/draw_text/draw_line/draw_circle/draw_image` |
+| luaDisplay | `bindings/luaDisplay.cpp` | `fill_screen/fill_rect/draw_rect/draw_text/draw_line/draw_circle/width/height`（LVGL 对象池化 + 静态跳过） |
 | luaInput | `bindings/luaInput.cpp` | `is_pressed/is_just_pressed/joystick/buttons/connected/player_count` |
 | luaAudio | `bindings/luaAudio.cpp` | `play/play_sfx/play_bgm/stop_bgm/set_volume` |
 | luaThread | `bindings/luaThread.cpp` | `sleep/now/random` |
@@ -202,6 +202,26 @@ function loop(dt) return true end        -- 每帧调用，返回 false 退出
 ```
 
 C++ 驱动：独立 Task @60fps → 持 LVGL 锁 → 更新输入 → 调 Lua `loop(dt)` → 释放锁 → `vTaskDelayUntil`
+
+#### 渲染性能设计（对象池化）
+
+**根因**：P4 的 PSRAM 有效带宽极低（~35-40MB/s 实测），FPS 与每帧 PSRAM 流量成反比。早期 canvas 整缓冲方案每帧做全缓冲操作（fill_screen 1.76MB + 整屏失效 blit ≈ 3.5MB）→ 仅 10fps；再叠加双缓冲 + 块 diff（≈ 7MB/帧）→ 6fps。**任何全缓冲操作在 P4 上都是性能杀手**。
+
+**现架构**：`luaDisplay` 绑定改用 **LVGL 对象池化 + 静态跳过**，回归 LVGL 原生合成，**零整缓冲操作**：
+
+- **槽位对象池**（`LuaDisplayContext::Slot slots[64]`）：按**帧内绘制顺序**对齐复用 LVGL 对象（不创建/销毁）。`slotAcquire(kind,x,y,w,h,color,text)` 取槽位。
+- **静态跳过**：参数与上帧完全相同 → 返回 `nullptr`，不更新不失效（地面/云/标题只画一次）；移动对象（管道/小鸟/分数）才 `set_pos`/`set_text` → LVGL 只重绘新旧两个小区域。
+- **fill_screen 用容器背景样式**，颜色不变即跳过（不逐像素填充）。
+- **文本用 `lv_label`**（LVGL freetype 原生渲染），静态文本跳过，无需 glyph 缓存。
+- **kind 变化重建**：槽位 shape↔text 切换时删旧建新（不同 widget 类型不可复用）。
+- **槽位回收**：`luaDisplayBeginFrame` 清理上一帧多出的槽位（绘制数减少时），重置槽位索引。
+- paint 持锁（gameLoop `lockGuard` 包 `loop(dt)`），每帧只更新少量移动对象 → 锁窗口极小。
+
+**槽位漂移**：Lua 用 `table.insert/remove` 管理对象列表时，中间增删使后续槽位串位——对象池按槽位直接更新即可（正确，仅当帧多更新几个对象），下一帧静态跳过恢复。
+
+**性能实测**：Flappy Bird 平静 ~60fps、极限（大量管道）~20fps，CPU 总量大幅下降。
+
+⚠ 依赖**每帧绘制顺序稳定**（Lua 游戏均固定顺序重画）；脚本绘制顺序/数量乱序时退化为全量更新（结果正确，仅无静态跳过收益）。
 
 ### AI 集成动作
 
