@@ -114,6 +114,9 @@ void LuaGameApp::init()
         lv_obj_set_style_bg_opa(m_canvas, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(m_canvas, 0, 0);
         lv_obj_set_scrollbar_mode(m_canvas, LV_SCROLLBAR_MODE_OFF);
+        // 禁用滚动 + 点击消费：lv_obj_create 默认可滚动，子对象越出画布边界时触摸拖拽会滚动整个画布；
+        // 移除 CLICKABLE 让 LVGL 单指针不消费触摸（与 FruitNinja 画布同款），避免与 Lua 轮询冲突
+        lv_obj_remove_flag(m_canvas, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
 
         // 状态标签（画布上层，不被每帧清空影响）
         m_statusLabel = lv_label_create(screen);
