@@ -21,8 +21,8 @@
  *   其他设备后续掉电仍会触发提醒。
  * - 弹窗关闭：触摸 [知道了] 按钮，或任意手柄按键（边沿检测）。
  * - 输入屏蔽：弹窗显示期间（isAlertShown()）手柄输入不再分发到底层 App。
- * - 提示音：Audio::play() 即用即弃播放 /root/system/alert.wav（用户提供），
- *   不预缓存占用内存；文件缺失时静默降级为纯视觉弹窗。
+ * - 提示音：AudioHandle 持有循环播放 /root/system/music/alert.aac（提高警示度），
+ *   关闭弹窗时 `alertAudio = {}`（移动赋值）停止；文件缺失时静默降级为纯视觉弹窗。
  *
  * 使用方式（main.cpp，BleGamepad::start() 与 AiAgentOverlay::start() 之后）：
  * @code

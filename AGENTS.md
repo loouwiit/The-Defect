@@ -123,6 +123,7 @@ reserces/
 | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，AI 生成的 .lua 脚本在此运行 |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
+| | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → `lv_layer_sys` 弹窗 + 循环提示音，弹窗显示时屏蔽底层 App 输入 |
 | | CPU Monitor | `main/monitor/` | FreeRTOS 任务利用率差分采样，串口输出 |
 | **GUI** | GUI | `main/gui/` | 色板（8 色）+ 14 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) |
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
@@ -396,6 +397,7 @@ VirtualGamepad:
 | 掩码默认 | `{0x0F, 0x00, 0x00, 0x00}`（仅本机 P0-P3 启用） |
 | 掩码来源 | 主机由 ConsoleManager UI 控制；从机接收主机下发的反码 |
 | AI Overlay | `isVisible()` 时跳过分发，AI 独占输入 |
+| 系统浮层屏蔽 | AI Overlay `isVisible()` **或** 低电量弹窗 `BatteryMonitor::isAlertShown()` 时跳过分发，底层 App 不收输入 |
 | 从机转发 | forwarderThread 后检查 `~m_hostMask[0] & 0x0F` 决定转发哪些玩家到主机 |
 | 传输方式 | UDP（11 字节/帧），持久 socket `connect()` + `send()`，零创建开销 |
 | 注入去重 | 状态未变化时不转发（forwarder 侧有 `m_lastForwarded` 去重） |
@@ -1501,6 +1503,8 @@ bgm.setLoop(true).setVolume(0.8).play();
 Audio::play("/root/sfx/click.wav").setVolume(0.5).detach();
 ```
 
+**移动语义**：`AudioHandle` 支持 move 构造/赋值（`std::swap(impl)`），返回值走 move 而非拷贝，规避旧版「局部 handle 析构误 stop」问题。持有句柄时可用 `handle = {}`（右值 → 移动赋值）把旧 `impl` 移交临时对象，临时析构按绑定模式触发 `stop()` —— **即用此模式停止循环播放**（如 BatteryMonitor 关闭弹窗 `alertAudio = {}` 停止循环提示音）。
+
 **依赖组件**: `esp_codec_dev`, `esp_audio_codec`, `esp_audio_render`, `gmf_audio`, `esp_audio_effects`
 
 **数据流**:
@@ -1581,7 +1585,7 @@ if (paceMs > elapsed + 1)
 | 问题 | 说明 |
 |------|------|
 | **render acquire_write 不阻塞** | `esp_audio_render.c` 中 `write_rb` 的 TODO 注释承认逻辑有误，多流模式下 ringbuffer 满时不阻塞，数据静默丢弃。PCM 模式需上层自适应限速 |
-| **NRVO 析构误 stop** | `Audio::play(AudioSample&)` 返回局部 handle，NRVO 未发生时拷贝构造返回值，局部 handle 析构触发 `stop()`。**修复**：`handle.detach()` 后再返回 |
+| **NRVO 析构误 stop（已修复）** | 旧版仅拷贝语义时 `Audio::play(AudioSample&)` 返回局部 handle，NRVO 未发生时拷贝构造返回值 → 局部 handle 析构误 `stop()`；`AudioHandle` 加入移动语义后返回值走 move（impl 移交），不再误 stop |
 | **rate_cvt flush** | `esp_ae_rate_cvt_process(nullptr, 0)` 触发 `Invalid parameter` 错误，虽然不影响数据但日志难看。应省略 flush 步骤 |
 
 ### BLE Gamepad — 无线手柄
@@ -1696,6 +1700,24 @@ class BatteryManager {
 **硬件配置**: ADC1_CH6, 分压 5.1kΩ+10.2kΩ, 充电检测 GPIO23 (低电平=充电中)
 
 **充电动画**: 300ms 定时器 ping-pong：EMPTY→1→2→3→FULL→3→2→1→...
+
+### BatteryMonitor — 低电量检测提醒（主机 + 蓝牙手柄）
+
+**模块路径**: `main/battery/batteryMonitor.hpp` / `.cpp`
+
+系统级单例：周期 Task（15s）轮询主机 `BatteryManager` 与 4 个手柄槽位 `BleGamepad`，单阈值穿越判定后弹出 `lv_layer_sys()` 系统级弹窗（列出所有低电量设备）+ 循环提示音。
+
+| 项 | 说明 |
+|----|------|
+| 阈值 | 主机 `kHostLowPercent=20`、手柄 `kPadLowPercent=20`（constexpr 可调）；连续 2 次低于阈值确认防抖 |
+| 弹窗 | `lv_layer_sys()` 全屏半透明遮罩（拦截底层触摸）+ 居中卡片（⚠「电量不足」+ 每行设备 + [知道了]） |
+| 关闭 | [知道了] 按钮 或 任意手柄新按键（`VirtualGamepad::getState(0,p)` 边沿检测，100ms LVGL 定时器） |
+| 仅提醒一次（按设备） | 每源 `alerted`+`dismissed`；用户关闭仅影响当前设备，其他设备后续掉电仍触发提醒；充电/回升/断连 → 该源复位 |
+| 输入屏蔽 | 弹窗显示时 `isAlertShown()` → VirtualGamepad 停止向底层 App 分发（同 AI Overlay 门控） |
+| 提示音 | `AudioHandle alertAudio` 持有循环播放 `/root/system/music/alert.aac`；关闭弹窗 `alertAudio = {}`（移动赋值）停止 |
+| 接线 | `main.cpp`：`AiAgentOverlay::start()` 之后 `BatteryMonitor::instance().start(&display)` |
+
+**状态机（每源）**：`low`（当前低于阈值，主机还需非充电）+ `alerted`（已提醒）+ `dismissed`（用户已关闭）+ `confirmTicks`。`tick()` 每周期读电量 → 更新状态机 → 汇总「低电 && 已触发 && 未关闭」设备 → 更新弹窗；`newlyAlerted`（新设备触发）时播放提示音。
 
 ### CPU Monitor — CPU 利用率监视器
 
@@ -1916,6 +1938,12 @@ mgr.push(new DesktopApp(&display))      ← 桌面应用
 
 // ── BLE 手柄 ──
 BleGamepad::instance().start(&display)
+
+// ── AI 助手浮动 Overlay ──
+AiAgentOverlay::instance().start(&display)
+
+// ── 低电量检测提醒（主机+手柄） ──
+BatteryMonitor::instance().start(&display)
 
 // ── 网络 ──
 wifiInit(true)                          ← 初始化（通过 C6）
