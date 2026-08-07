@@ -71,9 +71,16 @@ MODULES = [
     ('main/app/snake', 266),
     ('main/app/tetris', 267),
     ('main/app/testApp', 268),
+    ('reserces/server/config', 269),
+    ('reserces/server/gamepad', 270),
+    ('reserces/server/screen', 271),
+    ('reserces/server/server', 272),
+    ('reserces/server/tetris', 273),
+    ('reserces/server/index', 274),
+    
 ]
 
-HEADER_EXTS = ('hpp', 'h', 'inc', 'inl')   # 头文件/内联优先于实现文件
+HEADER_EXTS = ('hpp', 'h', 'inc', 'inl', "html", "js")   # 头文件/内联优先于实现文件
 
 
 def file_rank(rel):
