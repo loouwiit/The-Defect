@@ -106,15 +106,14 @@ void LuaGameApp::init()
             return;
         }
 
-        // 画布容器（子对象每帧清空，Lua 在此绘制）
+        // 画布容器（LVGL 对象池父级，全屏）。
+        // 对象池化：Lua 绘制按槽位复用 LVGL 对象（静态跳过），LVGL 原生局部重绘，
+        // 无整缓冲操作/无对象创建销毁，规避 P4 PSRAM 带宽瓶颈
         m_canvas = lv_obj_create(screen);
         lv_obj_remove_style_all(m_canvas);
         lv_obj_set_size(m_canvas, LV_HOR_RES, LV_VER_RES);
         lv_obj_set_pos(m_canvas, 0, 0);
-        lv_obj_set_style_bg_opa(m_canvas, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(m_canvas, 0, 0);
-        lv_obj_set_scrollbar_mode(m_canvas, LV_SCROLLBAR_MODE_OFF);
-        // 禁用滚动 + 点击消费：lv_obj_create 默认可滚动，子对象越出画布边界时触摸拖拽会滚动整个画布；
+        // 移除 CLICKABLE|SCROLLABLE：lv_obj_create 默认可滚动，子对象越出边界会滚动整个画布；
         // 移除 CLICKABLE 让 LVGL 单指针不消费触摸（与 FruitNinja 画布同款），避免与 Lua 轮询冲突
         lv_obj_remove_flag(m_canvas, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
 
@@ -315,15 +314,15 @@ void LuaGameApp::gameLoop()
     }
     m_inputCtx.playerCount = countConnectedPlayers();
 
-    // 触摸快照：在 lockGuard 之前（无锁阶段）轮询 GT911 槽位，避免持 LVGL 锁期间等 GT911 mutex
+    // 触摸快照（无锁）
     updateTouchSnapshot();
 
-    // 持 LVGL 锁 → 清空画布 → 调 Lua loop(dt) → 释放锁
+    // 持 LVGL 锁 → 帧前清槽 → 调 Lua loop(dt)（对象池化绘制，静态跳过）→ 释放锁
     {
         auto guard = display->lockGuard();
 
-        // 清空画布
-        lv_obj_clean(m_canvas);
+        // 帧前：清理上一帧多余槽位 + 重置槽位索引
+        luaDisplayBeginFrame(&m_dispCtx);
 
         // 调用 Lua loop(dt)
         lua_State* L = m_lua.state();
@@ -334,18 +333,14 @@ void LuaGameApp::gameLoop()
         }
         if (!m_lua.callFunction("loop", 1, 1)) {
             // 出错时：上报错误给 AI + 退出
+            std::string err = m_lua.getLastError();
+            if (err.empty()) err = "Lua Error";
             if (m_statusLabel) {
-                // 使用 getLastError() 而非 popString()，因为 checkError 已保存错误
-                std::string err = m_lua.getLastError();
-                if (err.empty()) err = "Lua Error";
-                auto guard2 = display->lockGuard();
-                if (guard2) {
-                    lv_label_set_text(m_statusLabel, err.c_str());
-                    lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
-                }
-                // 报告给 AI Agent，下次对话注入 system prompt
-                AiAgentOverlay::reportLuaError(err);
+                lv_label_set_text(m_statusLabel, err.c_str());
+                lv_obj_set_style_text_color(m_statusLabel, GUI::Color::DANGER, 0);
             }
+            // 报告给 AI Agent，下次对话注入 system prompt
+            AiAgentOverlay::reportLuaError(err);
             if (L) lua_sethook(L, nullptr, 0, 0);  // 移除看门狗
             requestExit();
             return;
@@ -355,11 +350,7 @@ void LuaGameApp::gameLoop()
         if (L) lua_sethook(L, nullptr, 0, 0);
 
         // 检查返回值
-        bool shouldContinue = true;
-        if (lua_gettop(m_lua.state()) > 0) {
-            shouldContinue = m_lua.popBool();
-        }
-        if (!shouldContinue) {
+        if (lua_gettop(m_lua.state()) > 0 && !m_lua.popBool()) {
             requestExit();  // 统一退出门
         }
     }

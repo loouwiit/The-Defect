@@ -67,7 +67,7 @@ private:
     bool m_useCode{false};
 
     // ── LVGL 对象 ──
-    lv_obj_t* m_canvas{};        // 渲染容器（每帧清空，Lua 在此绘制）
+    lv_obj_t* m_canvas{};        // 容器（LVGL 对象池父级，全屏）
     lv_obj_t* m_statusLabel{};   // FPS/错误状态显示
 
     // ── 游戏循环 Task ──

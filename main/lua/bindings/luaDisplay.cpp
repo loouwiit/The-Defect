@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 #include <esp_log.h>
 
 static constexpr char TAG[] = "LuaDisplay";
@@ -61,6 +62,48 @@ static LuaDisplayContext* getCtx(lua_State* L)
 }
 
 // ============================================================
+//  对象池槽位管理（按帧内绘制序号复用 LVGL 对象）
+// ============================================================
+
+static uint16_t to565(lv_color_t c) { return lv_color_to_u16(c); }
+
+enum SlotKind : uint8_t { SLOT_NONE = 0, SLOT_SHAPE = 1, SLOT_TEXT = 2 };
+
+// 获取/复用槽位对象。静态（对象已存在且与上帧同 kind + 同参数）返回 nullptr → 跳过更新。
+// 所有 LVGL 调用须在 Display::LockGuard 下（gameLoop 持锁调用 loop(dt)）。
+static LuaDisplayContext::Slot* slotAcquire(LuaDisplayContext* ctx, uint8_t kind,
+    int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color, const char* text)
+{
+    int i = ctx->slotIndex;
+    ctx->slotIndex++;
+    if (i >= LuaDisplayContext::MaxSlots) return nullptr;   // 溢出兜底（罕见）
+
+    auto& s = ctx->slots[i];
+    bool same = s.obj && s.kind == kind && s.x == x && s.y == y
+             && s.w == w && s.h == h && s.color == color;
+    if (same && kind == SLOT_TEXT && text) {
+        // 文本过长无法完整比对 → 视为变化
+        if (strlen(text) >= sizeof(s.text) - 1) same = false;
+        else same = (strcmp(s.text, text) == 0);
+    }
+    if (same) return nullptr;   // 静态跳过
+
+    // kind 变化（shape↔text）需重建对象
+    if (!s.obj || s.kind != kind) {
+        if (s.obj) lv_obj_delete(s.obj);
+        s.obj = (kind == SLOT_TEXT) ? lv_label_create(ctx->canvas) : lv_obj_create(ctx->canvas);
+    }
+    s.kind = kind;
+    s.x = x; s.y = y; s.w = w; s.h = h;
+    s.color = color;
+    if (text) {
+        strncpy(s.text, text, sizeof(s.text) - 1);
+        s.text[sizeof(s.text) - 1] = '\0';
+    }
+    return &s;
+}
+
+// ============================================================
 //  fill_screen(color)
 // ============================================================
 
@@ -70,7 +113,11 @@ static int l_display_fill_screen(lua_State* L)
     if (!ctx || !ctx->canvas) return 0;
 
     lv_color_t color = parseColor(L, 1);
-    auto guard = ctx->display->lockGuard();
+    uint16_t c = to565(color);
+    // 背景色未变 → 跳过（避免每帧样式应用 + 整容器失效；屏幕已有该背景）
+    if (ctx->bgSet && ctx->bg565 == c) return 0;
+    ctx->bg565 = c;
+    ctx->bgSet = true;
     lv_obj_set_style_bg_color(ctx->canvas, color, 0);
     lv_obj_set_style_bg_opa(ctx->canvas, LV_OPA_COVER, 0);
     return 0;
@@ -85,21 +132,22 @@ static int l_display_fill_rect(lua_State* L)
     auto* ctx = getCtx(L);
     if (!ctx || !ctx->canvas) return 0;
 
-    lv_coord_t x = (lv_coord_t)luaL_checkinteger(L, 1);
-    lv_coord_t y = (lv_coord_t)luaL_checkinteger(L, 2);
-    lv_coord_t w = (lv_coord_t)luaL_checkinteger(L, 3);
-    lv_coord_t h = (lv_coord_t)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int w = (int)luaL_checkinteger(L, 3);
+    int h = (int)luaL_checkinteger(L, 4);
     lv_color_t color = parseColor(L, 5);
 
-    auto guard = ctx->display->lockGuard();
-    lv_obj_t* rect = lv_obj_create(ctx->canvas);
-    lv_obj_remove_style_all(rect);
-    lv_obj_set_size(rect, w, h);
-    lv_obj_set_pos(rect, x, y);
-    lv_obj_set_style_bg_color(rect, color, 0);
-    lv_obj_set_style_bg_opa(rect, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(rect, 0, 0);
-    lv_obj_set_style_radius(rect, 0, 0);
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
+    if (!s) return 0;   // 静态跳过
+    lv_obj_t* o = s->obj;
+    lv_obj_remove_style_all(o);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_style_bg_color(o, color, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(o, 0, 0);
+    lv_obj_set_style_radius(o, 0, 0);
     return 0;
 }
 
@@ -112,22 +160,23 @@ static int l_display_draw_rect(lua_State* L)
     auto* ctx = getCtx(L);
     if (!ctx || !ctx->canvas) return 0;
 
-    lv_coord_t x = (lv_coord_t)luaL_checkinteger(L, 1);
-    lv_coord_t y = (lv_coord_t)luaL_checkinteger(L, 2);
-    lv_coord_t w = (lv_coord_t)luaL_checkinteger(L, 3);
-    lv_coord_t h = (lv_coord_t)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int w = (int)luaL_checkinteger(L, 3);
+    int h = (int)luaL_checkinteger(L, 4);
     lv_color_t color = parseColor(L, 5);
 
-    auto guard = ctx->display->lockGuard();
-    lv_obj_t* rect = lv_obj_create(ctx->canvas);
-    lv_obj_remove_style_all(rect);
-    lv_obj_set_size(rect, w, h);
-    lv_obj_set_pos(rect, x, y);
-    lv_obj_set_style_bg_opa(rect, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(rect, 2, 0);
-    lv_obj_set_style_border_color(rect, color, 0);
-    lv_obj_set_style_border_opa(rect, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(rect, 0, 0);
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
+    if (!s) return 0;
+    lv_obj_t* o = s->obj;
+    lv_obj_remove_style_all(o);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(o, 2, 0);
+    lv_obj_set_style_border_color(o, color, 0);
+    lv_obj_set_style_border_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(o, 0, 0);
     return 0;
 }
 
@@ -140,8 +189,8 @@ static int l_display_draw_text(lua_State* L)
     auto* ctx = getCtx(L);
     if (!ctx || !ctx->canvas) return 0;
 
-    lv_coord_t x = (lv_coord_t)luaL_checkinteger(L, 1);
-    lv_coord_t y = (lv_coord_t)luaL_checkinteger(L, 2);
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
     const char* text = luaL_checkstring(L, 3);
     int size = (int)luaL_optinteger(L, 4, (int)FontLoader::FontSize::Default);
     lv_color_t color = parseColor(L, 5);
@@ -151,13 +200,16 @@ static int l_display_draw_text(lua_State* L)
     if (size <= 24)        font = FontLoader::getDefault(FontLoader::FontSize::Small);
     else if (size <= 32)   font = FontLoader::getDefault(FontLoader::FontSize::Default);
     else                   font = FontLoader::getDefault(FontLoader::FontSize::Large);
+    if (!font) return 0;
 
-    auto guard = ctx->display->lockGuard();
-    lv_obj_t* label = lv_label_create(ctx->canvas);
-    lv_label_set_text(label, text);
-    lv_obj_set_pos(label, x, y);
-    lv_obj_set_style_text_font(label, font, 0);
-    lv_obj_set_style_text_color(label, color, 0);
+    // 文本槽位：静态（同位置同文本同色）跳过 → 不触发 LVGL 重绘
+    auto* s = slotAcquire(ctx, SLOT_TEXT, (int16_t)x, (int16_t)y, 0, 0, to565(color), text);
+    if (!s) return 0;
+    lv_obj_t* o = s->obj;
+    lv_label_set_text(o, text);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_style_text_font(o, font, 0);
+    lv_obj_set_style_text_color(o, color, 0);
     return 0;
 }
 
@@ -170,36 +222,32 @@ static int l_display_draw_line(lua_State* L)
     auto* ctx = getCtx(L);
     if (!ctx || !ctx->canvas) return 0;
 
-    lv_coord_t x0 = (lv_coord_t)luaL_checkinteger(L, 1);
-    lv_coord_t y0 = (lv_coord_t)luaL_checkinteger(L, 2);
-    lv_coord_t x1 = (lv_coord_t)luaL_checkinteger(L, 3);
-    lv_coord_t y1 = (lv_coord_t)luaL_checkinteger(L, 4);
+    int x0 = (int)luaL_checkinteger(L, 1);
+    int y0 = (int)luaL_checkinteger(L, 2);
+    int x1 = (int)luaL_checkinteger(L, 3);
+    int y1 = (int)luaL_checkinteger(L, 4);
     lv_color_t color = parseColor(L, 5);
 
-    // 使用细长矩形模拟线段
-    lv_coord_t dx = x1 - x0;
-    lv_coord_t dy = y1 - y0;
-    lv_coord_t len = 1;
-    if (dx != 0 || dy != 0) {
-        len = (lv_coord_t)sqrtf((float)(dx * dx + dy * dy));
-    }
-
-    auto guard = ctx->display->lockGuard();
-    lv_obj_t* line = lv_obj_create(ctx->canvas);
-    lv_obj_remove_style_all(line);
-    lv_obj_set_size(line, len, 3);  // 3px 粗
-    // 定位到中点，通过变换旋转
-    lv_obj_set_pos(line, (x0 + x1 - len) / 2, (y0 + y1) / 2 - 1);
-    lv_obj_set_style_bg_color(line, color, 0);
-    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(line, 0, 0);
-    lv_obj_set_style_radius(line, 0, 0);
-
-    // 计算旋转角度
+    // 槽位用包围盒（静态线跳过，不触发重绘）
+    int bx = std::min(x0, x1), by = std::min(y0, y1);
+    int bw = std::max(x0, x1) - bx + 1, bh = std::max(y0, y1) - by + 1;
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)bx, (int16_t)by, (int16_t)bw, (int16_t)bh, to565(color), nullptr);
+    if (!s) return 0;
+    lv_obj_t* o = s->obj;
+    // 细长矩形 + transform 旋转（仅在线条变化时更新）
+    lv_coord_t dx = x1 - x0, dy = y1 - y0;
+    lv_coord_t len = (dx != 0 || dy != 0) ? (lv_coord_t)sqrtf((float)(dx * dx + dy * dy)) : 1;
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, len, 3);
+    lv_obj_set_pos(o, (x0 + x1 - len) / 2, (y0 + y1) / 2 - 1);
+    lv_obj_set_style_bg_color(o, color, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(o, 0, 0);
+    lv_obj_set_style_radius(o, 0, 0);
     float angle = (float)(atan2f((float)dy, (float)dx) * 180.0f / M_PI);
-    lv_obj_set_style_transform_rotation(line, (int32_t)(angle * 10.0f), 0);
-    lv_obj_set_style_transform_pivot_x(line, 0, 0);
-    lv_obj_set_style_transform_pivot_y(line, 1, 0);
+    lv_obj_set_style_transform_rotation(o, (int32_t)(angle * 10.0f), 0);
+    lv_obj_set_style_transform_pivot_x(o, 0, 0);
+    lv_obj_set_style_transform_pivot_y(o, 1, 0);
     return 0;
 }
 
@@ -212,20 +260,22 @@ static int l_display_draw_circle(lua_State* L)
     auto* ctx = getCtx(L);
     if (!ctx || !ctx->canvas) return 0;
 
-    lv_coord_t cx = (lv_coord_t)luaL_checkinteger(L, 1);
-    lv_coord_t cy = (lv_coord_t)luaL_checkinteger(L, 2);
-    lv_coord_t r  = (lv_coord_t)luaL_checkinteger(L, 3);
+    int cx = (int)luaL_checkinteger(L, 1);
+    int cy = (int)luaL_checkinteger(L, 2);
+    int r  = (int)luaL_checkinteger(L, 3);
     lv_color_t color = parseColor(L, 4);
 
-    auto guard = ctx->display->lockGuard();
-    lv_obj_t* circle = lv_obj_create(ctx->canvas);
-    lv_obj_remove_style_all(circle);
-    lv_obj_set_size(circle, r * 2, r * 2);
-    lv_obj_set_pos(circle, cx - r, cy - r);
-    lv_obj_set_style_bg_color(circle, color, 0);
-    lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(circle, r, 0);
-    lv_obj_set_style_border_width(circle, 0, 0);
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)(cx - r), (int16_t)(cy - r),
+                          (int16_t)(r * 2), (int16_t)(r * 2), to565(color), nullptr);
+    if (!s) return 0;
+    lv_obj_t* o = s->obj;
+    lv_obj_remove_style_all(o);
+    lv_obj_set_pos(o, cx - r, cy - r);
+    lv_obj_set_size(o, r * 2, r * 2);
+    lv_obj_set_style_bg_color(o, color, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(o, r, 0);
+    lv_obj_set_style_border_width(o, 0, 0);
     return 0;
 }
 
@@ -267,4 +317,25 @@ extern "C" int luaopen_display(lua_State* L)
     lua_newtable(L);
     luaL_setfuncs(L, funcs, 0);
     return 1;
+}
+
+// ============================================================
+//  帧管理（LuaGameApp 调用）
+// ============================================================
+
+void luaDisplayBeginFrame(LuaDisplayContext* ctx)
+{
+    if (!ctx) return;
+    // 清理上一帧多出的槽位（本帧绘制数减少时残留的对象）
+    for (int i = ctx->slotIndex; i < ctx->prevSlotCount; i++)
+    {
+        if (ctx->slots[i].obj)
+        {
+            lv_obj_delete(ctx->slots[i].obj);
+            ctx->slots[i].obj = nullptr;
+            ctx->slots[i].kind = 0;
+        }
+    }
+    ctx->prevSlotCount = ctx->slotIndex;
+    ctx->slotIndex = 0;
 }
