@@ -28,6 +28,7 @@ void wifiApStart();
 void wifiApSet(const char* ssid, const char* password, wifi_auth_mode_t authMode = wifi_auth_mode_t::WIFI_AUTH_WPA2_WPA3_PSK);
 void wifiApStop();
 wifi_ap_config_t wifiApGetInfo();
+int wifiApGetStaCount();
 
 void wifiNatSetAutoStart(bool flag = true);
 bool wifiNatIsAutoStart();

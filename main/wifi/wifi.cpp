@@ -445,7 +445,8 @@ void wifiApSet(const char* ssid, const char* password, wifi_auth_mode_t authMode
 	strcpy((char*)config.ap.password, password);
 	config.ap.max_connection = 4;
 	config.ap.authmode = authMode;
-	config.ap.pmf_cfg.required = true;
+	// OPEN 认证下 PMF 必选无效（ESP-IDF 校验会报错），仅加密模式要求 PMF
+	config.ap.pmf_cfg.required = (authMode != wifi_auth_mode_t::WIFI_AUTH_OPEN);
 
 	esp_wifi_set_config(WIFI_IF_AP, &config);
 
@@ -493,6 +494,16 @@ wifi_ap_config_t wifiApGetInfo()
 	auto ret = esp_wifi_get_config(WIFI_IF_AP, &wifi);
 	ESP_ERROR_CHECK_WITHOUT_ABORT(ret);
 	return wifi.ap;
+}
+
+int wifiApGetStaCount()
+{
+	if (!wifiApStarted) return 0;
+
+	wifi_sta_list_t staList;
+	memset(&staList, 0, sizeof(staList));
+	if (esp_wifi_ap_get_sta_list(&staList) != ESP_OK) return 0;
+	return staList.num;
 }
 
 void wifiNatSetAutoStart(bool flag)
