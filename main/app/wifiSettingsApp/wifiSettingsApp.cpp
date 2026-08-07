@@ -313,7 +313,7 @@ void WifiSettingsApp::buildUi()
 		auto lab = GUI::createLabel(row, label);
 		lv_obj_set_style_text_font(lab, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
 		return row;
-	};
+		};
 	// value label：居中生长、右对齐、超长省略
 	auto makeValue = [&](lv_obj_t* row, const char* init) -> lv_obj_t* {
 		auto val = GUI::createLabel(row, init);
@@ -323,7 +323,7 @@ void WifiSettingsApp::buildUi()
 		lv_obj_set_style_pad_right(val, 8, 0);
 		lv_label_set_long_mode(val, LV_LABEL_LONG_DOT);
 		return val;
-	};
+		};
 	// 可聚焦动作行：label + value + 动作按钮，整行与按钮都响应 cb
 	auto makeApActionRow = [&](const char* label, const char* btnText, lv_event_cb_t cb, lv_obj_t** valueOut) -> lv_obj_t* {
 		auto row = makeApRow(label);
@@ -340,19 +340,19 @@ void WifiSettingsApp::buildUi()
 		lv_obj_set_style_border_width(row, 3, LV_STATE_FOCUSED);
 		lv_obj_set_style_border_color(row, lv_color_white(), LV_STATE_FOCUSED);
 		return row;
-	};
+		};
 	// 只读信息行：label + value
 	auto makeApInfoRow = [&](const char* label, lv_obj_t** valueOut) {
 		auto row = makeApRow(label);
 		auto val = makeValue(row, "-");
 		if (valueOut) *valueOut = val;
-	};
+		};
 
 	auto ssidRow = makeApActionRow("SSID", "编辑", onApSsidCb, &m_apSsidLabel);
-	auto pwdRow  = makeApActionRow("密码", "编辑", onApPwdCb, &m_apPwdLabel);
+	auto pwdRow = makeApActionRow("密码", "编辑", onApPwdCb, &m_apPwdLabel);
 	auto authRow = makeApActionRow("认证", "切换", onApAuthCb, &m_apAuthLabel);
 	makeApInfoRow("客户端", &m_apClientLabel);
-	auto natRow  = makeApActionRow("NAT(自动)", "切换", onApNatCb, &m_apNatLabel);
+	auto natRow = makeApActionRow("NAT(自动)", "切换", onApNatCb, &m_apNatLabel);
 	makeApInfoRow("网关", &m_apGatewayLabel);
 	auto hostRow = makeApActionRow("主机名", "编辑", onHostnameRowCb, &m_hostnameLabel);
 
@@ -1446,24 +1446,30 @@ void WifiSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		// B 键取消
 		if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 		{
+			// 关闭弹窗时同步设置动作冷却：防手柄 B 键震荡边沿紧接着触发退出 App
+			m_nextActionTime = xTaskGetTickCount() + 500;
 			hideEditDialog();
 			if (auto guard = display->lockGuard())
 				applyFocus();
 			return;
 		}
 
-		// A / L3 / START → 按下当前选中的键盘按键
+		// A / L3 / START → 按下当前选中的键盘按键（带防连击冷却；手柄无滤波易震荡）
 		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)) ||
 			(newPress & static_cast<uint16_t>(GamepadButton::BTN_START)))
 		{
-			if (auto guard = display->lockGuard())
+			if (m_nextActionTime < xTaskGetTickCount())
 			{
-				if (m_editKeyboard) {
-					uint16_t btn_id = lv_btnmatrix_get_selected_btn(m_editKeyboard);
-					if (btn_id != LV_BUTTONMATRIX_BUTTON_NONE) {
-						uint32_t id = btn_id;
-						lv_obj_send_event(m_editKeyboard, LV_EVENT_VALUE_CHANGED, &id);
+				m_nextActionTime = xTaskGetTickCount() + 500;
+				if (auto guard = display->lockGuard())
+				{
+					if (m_editKeyboard) {
+						uint16_t btn_id = lv_btnmatrix_get_selected_btn(m_editKeyboard);
+						if (btn_id != LV_BUTTONMATRIX_BUTTON_NONE) {
+							uint32_t id = btn_id;
+							lv_obj_send_event(m_editKeyboard, LV_EVENT_VALUE_CHANGED, &id);
+						}
 					}
 				}
 			}
@@ -1514,11 +1520,19 @@ void WifiSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		return;
 	}
 
-	// ── A / L3：激活焦点 ──
+	// ── A / L3：激活焦点（带防连击冷却；手柄事件无滤波易震荡） ──
 	if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
 		(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)))
 	{
-		activateFocus();
+		if (m_nextActionTime < xTaskGetTickCount())
+		{
+			m_nextActionTime = xTaskGetTickCount() + 500;
+			activateFocus();
+		}
+		else
+		{
+			ESP_LOGD(TAG, "激活冷却中，忽略");
+		}
 	}
 
 	// ── 摇杆归位判断 ──
@@ -1556,8 +1570,7 @@ void WifiSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 		}
 		if (lxRight)
 		{
-			m_focusGroup = FOCUS_STA_TITLE;
-			m_focusStaTitleIdx = 0;
+			m_focusGroup = m_focusApIdx == 0 ? FOCUS_STA_TITLE : FOCUS_STA_LIST;
 			if (auto guard = display->lockGuard())
 				applyFocus();
 		}
@@ -1691,13 +1704,6 @@ void WifiSettingsApp::onBackBtnCb(lv_event_t* e)
 {
 	auto* self = static_cast<WifiSettingsApp*>(lv_event_get_user_data(e));
 	self->m_focusGroup = FOCUS_TITLE;
-
-	if (xTaskGetTickCount() < self->m_nextActionTime)
-	{
-		ESP_LOGI(TAG, "多次点击，已过滤，请等待%ums", self->m_nextActionTime - xTaskGetTickCount());
-		return;
-	}
-	self->m_nextActionTime = xTaskGetTickCount() + 500;
 
 	// LVGL 事件回调中持锁，栈操作须延后
 	Task::addTask([](void* param) -> TickType_t
