@@ -63,4 +63,22 @@ struct DeviceContext {
     uint8_t batteryLevel{ 255 };   // 0~100, 255=未知
     uint16_t batteryHandle{};    // Battery Level 特征值句柄
     uint16_t batteryCccHandle{}; // Battery CCCD 句柄
+
+    // ── 连接期 GATT 阶段（严格线性推进，一次一个过程，避免过程交错） ──
+    enum class GattPhase : uint8_t {
+        Idle,           // 未开始
+        DiscHid,        // 发现 HID 特征
+        DiscBattery,    // 发现电池特征
+        SubHid,         // 订阅 HID 输入报告
+        SubBattery,     // 订阅电池通知
+        ReadBattery,    // 读电池初始值
+        Done,           // 完成
+    };
+    GattPhase gattPhase{ GattPhase::Idle };
+
+    uint16_t hidSvcStart{}, hidSvcEnd{};  // HID 服务句柄范围（特征发现用）
+    uint16_t batSvcStart{}, batSvcEnd{};  // 电池服务句柄范围
+    uint16_t hidReportHandle{};           // HID 输入报告特征值句柄
+    uint8_t hidSubRetries{};              // HID 订阅重试计数
+    uint8_t batterySubRetries{};          // 电池订阅重试计数
 };

@@ -605,11 +605,14 @@ void BleSettingsApp::updateConnectedList()
 			uint8_t batteryLevel = ctx->batteryLevel;
 			char infoBuffer[32]{};
 
-			const char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
-
-			uint8_t iconIndex = batteryLevel == 255 ? 0 : std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0]) - 1);
-
-			snprintf(infoBuffer, sizeof(infoBuffer), "%s %d%%", icons[iconIndex], batteryLevel);
+			if (batteryLevel == 255) {
+				// 电量未知（订阅失败/读异常）→ 不显示具体数值
+				snprintf(infoBuffer, sizeof(infoBuffer), "%s 未知", LV_SYMBOL_BATTERY_EMPTY);
+			} else {
+				const char* icons[]{ LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2, LV_SYMBOL_BATTERY_3, LV_SYMBOL_BATTERY_FULL };
+				uint8_t iconIndex = std::min(batteryLevel / 20u, sizeof(icons) / sizeof(icons[0]) - 1);
+				snprintf(infoBuffer, sizeof(infoBuffer), "%s %u%%", icons[iconIndex], batteryLevel);
+			}
 
 			lv_label_set_text(m_slotInfoLabels[i], infoBuffer);
 

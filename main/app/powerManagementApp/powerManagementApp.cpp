@@ -402,21 +402,22 @@ void PowerManagementApp::refreshSlotUi()
 		if (isConnected)
 		{
 			uint8_t battery = ctx->batteryLevel;
-			int percent = (battery <= 100) ? battery : 0;
+			bool unknown = (battery > 100);   // 255=未知（订阅失败/读异常），不显示为 0%
+			int percent = unknown ? 0 : battery;
 
 			// 名称
 			char slotText[40];
 			snprintf(slotText, sizeof(slotText), "P%d: %s", i + 1, ctx->name);
 			lv_label_set_text(m_slotLabels[i], slotText);
 
-			// 百分比
+			// 百分比（未知 → "--%" + 中性色，避免把未知当成 0% 红色低电量）
 			char pctStr[8];
-			snprintf(pctStr, sizeof(pctStr), "%d%%", percent);
+			snprintf(pctStr, sizeof(pctStr), unknown ? "--%%" : "%d%%", percent);
 			lv_label_set_text(m_slotPercentLabels[i], pctStr);
 
 			// 进度条
 			lv_bar_set_value(m_slotBars[i], percent, LV_ANIM_ON);
-			lv_color_t color = BatteryManager::getColor(percent);
+			lv_color_t color = unknown ? GUI::Color::SUBTLE : BatteryManager::getColor(percent);
 			lv_obj_set_style_bg_color(m_slotBars[i], color, LV_PART_INDICATOR);
 			lv_obj_set_style_text_color(m_slotPercentLabels[i], color, 0);
 

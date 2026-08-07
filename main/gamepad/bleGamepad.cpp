@@ -739,44 +739,14 @@ int BleGamepad::connectDirect(const ScanDevice& dev)
 	return rc;
 }
 
-// 订阅 CCCD 写回调
-static int subWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
-	struct ble_gatt_attr* attr, void* arg)
-{
-	if (error->status == 0)
-		ESP_LOGI(TAG, "    -> Subscribed! Ready for HID input.");
-	else
-		ESP_LOGE(TAG, "    -> Subscribe failed: %d", error->status);
-	return 0;
-}
-
-// HID 服务特征发现回调
-static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
-	const struct ble_gatt_chr* chr, void* arg)
-{
-	if (error->status == 0 && chr) {
-		uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
-		ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
-			chr->val_handle, uuid, chr->properties);
-
-		// HID Input Report (0x2A4D) — 订阅通知
-		if (uuid == 0x2A4D && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
-			ESP_LOGI(TAG, "    -> HID Input Report! Subscribing at handle %u...", chr->val_handle + 1);
-			uint8_t val[] = { 0x01, 0x00 };
-			ble_gattc_write_flat(conn_handle, chr->val_handle + 1, val, sizeof(val),
-				subWriteCb, nullptr);
-		}
-	}
-	else if (error->status == BLE_HS_EDONE) {
-		ESP_LOGI(TAG, "  HID characteristic discovery complete");
-	}
-	else if (error->status != 0) {
-		ESP_LOGE(TAG, "  HID char discovery error: %d", error->status);
-	}
-	return 0;
-}
-
-// ── 电池回调 ──
+// ── 连接期 GATT 阶段机 ──
+// 目的：连接建立后的所有 GATT 客户端过程严格串行推进（一次一个过程）。
+// ESP-IDF 的 NimBLE fork 启用了 BLE_GATTC_PROC_PREEMPTION_PROTECT：在某个
+// 过程（如特征发现）的回调内联发起新过程会触发抢占，导致正在跑的发现过程以
+// error:3 (EINVAL) / error:10 (EBADDATA) 终止（日志中的 "Battery/HID char
+// discovery error"）。因此：发现回调只记录句柄，read/订阅统一在上一过程
+// 完成（EDONE / 报错）回调里发起下一步。
+// 阶段推进：DiscHid → DiscBattery → SubHid → SubBattery → ReadBattery → Done
 
 // 获取可修改的 DeviceContext 指针（供 GATT 回调使用）
 static DeviceContext* mutableDeviceCtx(uint8_t playerId)
@@ -784,64 +754,239 @@ static DeviceContext* mutableDeviceCtx(uint8_t playerId)
 	return const_cast<DeviceContext*>(BleGamepad::instance().getDevice(playerId));
 }
 
-// Battery Level 读完成回调
+static constexpr uint8_t BATTERY_SUB_MAX_RETRIES = 5;   // 电池订阅最大重试次数
+static constexpr uint8_t HID_SUB_MAX_RETRIES    = 5;    // HID 订阅最大重试次数
+
+// 前置声明（advanceAfter* 推进函数在特征发现回调之前引用它们）
+static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	const struct ble_gatt_chr* chr, void* arg);
+static int batChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	const struct ble_gatt_chr* chr, void* arg);
+
+// Battery Level 读完成回调（防御：默认 255=未知，仅拷贝成功且数据完整才写入）
 static int batReadCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 	struct ble_gatt_attr* attr, void* arg)
 {
 	uintptr_t pid = (uintptr_t)arg;
-	if (error->status == 0 && attr && pid < MaxPlayers) {
-		uint8_t level = attr->om ? 0 : 255;
-		if (attr->om) {
-			ble_hs_mbuf_to_flat(attr->om, &level, sizeof(level), nullptr);
+	auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
+	if (!ctx) return 0;
+
+	if (error->status == 0 && attr) {
+		uint8_t level = 255;   // 默认未知，绝不把读异常当作 0%
+		bool ok = false;
+		if (attr->om && OS_MBUF_PKTLEN(attr->om) >= 1) {
+			ok = (ble_hs_mbuf_to_flat(attr->om, &level, sizeof(level), nullptr) == 0);
 		}
-		auto* ctx = mutableDeviceCtx((uint8_t)pid);
-		if (ctx) ctx->batteryLevel = level;
-		ESP_LOGI(TAG, "    Battery initial level: %u%%", level);
+		if (ok) {
+			ctx->batteryLevel = level;
+			ESP_LOGI(TAG, "    P%d battery read: %u%%", pid, level);
+		} else {
+			// 读到的数据无效 → 保持未知(255)，不写入 0
+			ESP_LOGW(TAG, "    P%d battery read data invalid, keep unknown", pid);
+		}
 	}
-	else if (error->status != 0) {
-		ESP_LOGW(TAG, "    Battery read error: %d", error->status);
+	else {
+		ESP_LOGW(TAG, "    P%d battery read error: %d (keep unknown)", pid, error->status);
+	}
+	ctx->gattPhase = DeviceContext::GattPhase::Done;
+	return 0;
+}
+
+// 读电池初始值（阶段 ReadBattery）
+static void startBatteryRead(uint16_t conn_handle, uint8_t pid)
+{
+	auto* ctx = mutableDeviceCtx(pid);
+	if (!ctx || ctx->gattPhase != DeviceContext::GattPhase::ReadBattery) return;
+	if (ctx->batteryHandle != 0) {
+		ble_gattc_read(conn_handle, ctx->batteryHandle, batReadCb, (void*)(uintptr_t)pid);
+	} else {
+		ctx->gattPhase = DeviceContext::GattPhase::Done;
+	}
+}
+
+// 电池 CCCD 订阅写回调（有限重试；最终失败 → 电量保持 255 未知）
+static int batSubWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
+	if (!ctx || !ctx->connected || ctx->gattPhase != DeviceContext::GattPhase::SubBattery)
+		return 0;
+
+	if (error->status == 0) {
+		ESP_LOGI(TAG, "    P%d battery subscribed", pid);
+		ctx->batterySubRetries = 0;
+		ctx->gattPhase = DeviceContext::GattPhase::ReadBattery;
+		startBatteryRead(conn_handle, (uint8_t)pid);
+		return 0;
+	}
+
+	ESP_LOGW(TAG, "    P%d battery subscribe failed: %d (attempt %u/%u)",
+		pid, error->status, ctx->batterySubRetries + 1, BATTERY_SUB_MAX_RETRIES);
+	if (ctx->batterySubRetries < BATTERY_SUB_MAX_RETRIES) {
+		ctx->batterySubRetries++;
+		uint8_t val[] = { 0x01, 0x00 };
+		ble_gattc_write_flat(conn_handle, ctx->batteryCccHandle, val, sizeof(val),
+			batSubWriteCb, (void*)pid);
+	} else {
+		// 订阅失败 → 不信任任何读值，电量保持未知(255)，避免假低电量
+		ESP_LOGW(TAG, "    P%d battery subscribe give up → 电量保持未知(255)", pid);
+		ctx->batteryLevel = 255;
+		ctx->gattPhase = DeviceContext::GattPhase::Done;
 	}
 	return 0;
 }
 
-// Battery Service 特征发现回调
-static int batChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+// 发起电池 CCCD 订阅（阶段 SubBattery）
+static void startBatterySubscribe(uint16_t conn_handle, uint8_t pid)
+{
+	auto* ctx = mutableDeviceCtx(pid);
+	if (!ctx || ctx->gattPhase != DeviceContext::GattPhase::SubBattery) return;
+	if (ctx->batteryCccHandle == 0) {
+		// 未找到电池特征 → 直接结束
+		ctx->gattPhase = DeviceContext::GattPhase::Done;
+		return;
+	}
+	ESP_LOGI(TAG, "    -> P%d Writing Battery CCCD (handle %u)...", pid, ctx->batteryCccHandle);
+	uint8_t val[] = { 0x01, 0x00 };
+	ble_gattc_write_flat(conn_handle, ctx->batteryCccHandle, val, sizeof(val),
+		batSubWriteCb, (void*)(uintptr_t)pid);
+}
+
+// HID 输入报告订阅写回调（有限重试；最终失败不阻塞电池流程）
+static int hidSubWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
+	if (!ctx || !ctx->connected || ctx->gattPhase != DeviceContext::GattPhase::SubHid)
+		return 0;
+
+	if (error->status == 0) {
+		ESP_LOGI(TAG, "    P%d HID report subscribed", pid);
+		ctx->hidSubRetries = 0;
+		ctx->gattPhase = DeviceContext::GattPhase::SubBattery;
+		startBatterySubscribe(conn_handle, (uint8_t)pid);
+		return 0;
+	}
+
+	ESP_LOGW(TAG, "    P%d HID report subscribe failed: %d (attempt %u/%u)",
+		pid, error->status, ctx->hidSubRetries + 1, HID_SUB_MAX_RETRIES);
+	if (ctx->hidSubRetries < HID_SUB_MAX_RETRIES) {
+		ctx->hidSubRetries++;
+		uint8_t val[] = { 0x01, 0x00 };
+		ble_gattc_write_flat(conn_handle, ctx->hidReportHandle + 1, val, sizeof(val),
+			hidSubWriteCb, (void*)pid);
+	} else {
+		ESP_LOGW(TAG, "    P%d HID report subscribe give up", pid);
+		// 通知订阅失败 HID 输入不可用，但仍继续电池流程
+		ctx->gattPhase = DeviceContext::GattPhase::SubBattery;
+		startBatterySubscribe(conn_handle, (uint8_t)pid);
+	}
+	return 0;
+}
+
+// 发起 HID 输入报告订阅（阶段 SubHid）
+static void startHidSubscribe(uint16_t conn_handle, uint8_t pid)
+{
+	auto* ctx = mutableDeviceCtx(pid);
+	if (!ctx || ctx->gattPhase != DeviceContext::GattPhase::SubHid) return;
+	if (ctx->hidReportHandle == 0) {
+		// 未找到输入报告特征 → 直接进电池订阅
+		ctx->gattPhase = DeviceContext::GattPhase::SubBattery;
+		startBatterySubscribe(conn_handle, pid);
+		return;
+	}
+	ESP_LOGI(TAG, "    -> P%d Subscribing HID report (handle %u)...", pid, ctx->hidReportHandle + 1);
+	uint8_t val[] = { 0x01, 0x00 };
+	ble_gattc_write_flat(conn_handle, ctx->hidReportHandle + 1, val, sizeof(val),
+		hidSubWriteCb, (void*)(uintptr_t)pid);
+}
+
+// 电池特征发现完成/报错 → 推进到订阅 HID 输入报告
+static void advanceAfterBatteryDisc(uint16_t conn_handle, uint8_t pid)
+{
+	auto* ctx = mutableDeviceCtx(pid);
+	if (!ctx) return;
+	if (ctx->gattPhase != DeviceContext::GattPhase::DiscBattery) return;  // 去重（错误可能多次回调）
+	ctx->gattPhase = DeviceContext::GattPhase::SubHid;
+	startHidSubscribe(conn_handle, pid);
+}
+
+// HID 特征发现完成/报错 → 推进到电池发现
+static void advanceAfterHidDisc(uint16_t conn_handle, uint8_t pid)
+{
+	auto* ctx = mutableDeviceCtx(pid);
+	if (!ctx) return;
+	if (ctx->gattPhase != DeviceContext::GattPhase::DiscHid) return;      // 去重
+	if (ctx->batSvcEnd != 0) {
+		ctx->gattPhase = DeviceContext::GattPhase::DiscBattery;
+		ESP_LOGI(TAG, "  -> Discovering Battery service characteristics...");
+		ble_gattc_disc_all_chrs(conn_handle, ctx->batSvcStart, ctx->batSvcEnd,
+			batChrDiscCb, (void*)(uintptr_t)pid);
+	} else {
+		// 无电池服务 → 直接进入订阅阶段
+		ctx->gattPhase = DeviceContext::GattPhase::SubHid;
+		startHidSubscribe(conn_handle, pid);
+	}
+}
+
+// HID 服务特征发现回调（只记录句柄；完成后推进到电池发现）
+static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 	const struct ble_gatt_chr* chr, void* arg)
 {
 	uintptr_t pid = (uintptr_t)arg;
-	if (error->status == 0 && chr) {
+	auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
+
+	if (error->status == 0 && chr && ctx) {
 		uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
 		ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
 			chr->val_handle, uuid, chr->properties);
 
-		// Battery Level (0x2A19) — 读初始值 + 订阅通知
-		if (uuid == 0x2A19 && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
-			ESP_LOGI(TAG, "    -> Battery Level! handle=%u, subscribing...", chr->val_handle);
+		// HID Input Report (0x2A4D) — 只记录句柄，订阅在发现完成后统一做
+		if (uuid == 0x2A4D && (chr->properties & BLE_GATT_CHR_PROP_NOTIFY)) {
+			ctx->hidReportHandle = chr->val_handle;
+			ESP_LOGI(TAG, "    -> HID Input Report found, handle=%u", chr->val_handle);
+		}
+	}
+	else if (error->status == BLE_HS_EDONE) {
+		ESP_LOGI(TAG, "  HID characteristic discovery complete");
+		advanceAfterHidDisc(conn_handle, (uint8_t)pid);
+	}
+	else if (error->status != 0) {
+		ESP_LOGE(TAG, "  HID char discovery error: %d", error->status);
+		// 报错也继续推进，避免卡死（过程被打断时句柄可能已拿到）
+		advanceAfterHidDisc(conn_handle, (uint8_t)pid);
+	}
+	return 0;
+}
 
-			// 保存句柄到 DeviceContext
-			auto* ctx = mutableDeviceCtx((uint8_t)pid);
-			if (ctx) {
-				ctx->batteryHandle = chr->val_handle;
-				ctx->batteryCccHandle = chr->val_handle + 1;
-			}
+// Battery Service 特征发现回调（只记录句柄；完成后推进到订阅阶段）
+static int batChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	const struct ble_gatt_chr* chr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
 
-			// 读初始值
-			if (chr->properties & BLE_GATT_CHR_PROP_READ) {
-				ble_gattc_read(conn_handle, chr->val_handle, batReadCb, (void*)pid);
-			}
+	if (error->status == 0 && chr && ctx) {
+		uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
+		ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
+			chr->val_handle, uuid, chr->properties);
 
-			// 订阅通知
-			ESP_LOGI(TAG, "    -> Writing CCCD at handle %u...", chr->val_handle + 1);
-			uint8_t val[] = { 0x01, 0x00 };
-			ble_gattc_write_flat(conn_handle, chr->val_handle + 1, val, sizeof(val),
-				subWriteCb, nullptr);
+		// Battery Level (0x2A19) — 只记录句柄，订阅/读取在发现完成后统一做
+		if (uuid == 0x2A19) {
+			ctx->batteryHandle = chr->val_handle;
+			ctx->batteryCccHandle = chr->val_handle + 1;
+			ESP_LOGI(TAG, "    -> Battery Level found, handle=%u (发现完成后订阅)", chr->val_handle);
 		}
 	}
 	else if (error->status == BLE_HS_EDONE) {
 		ESP_LOGI(TAG, "  Battery characteristic discovery complete");
+		advanceAfterBatteryDisc(conn_handle, (uint8_t)pid);
 	}
 	else if (error->status != 0) {
 		ESP_LOGE(TAG, "  Battery char discovery error: %d", error->status);
+		advanceAfterBatteryDisc(conn_handle, (uint8_t)pid);
 	}
 	return 0;
 }
@@ -867,7 +1012,7 @@ static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 	else if (error->status == BLE_HS_EDONE) {
 		ESP_LOGI(TAG, "  Service discovery complete (%d services)", s_svcCount);
 
-		// 通过 conn_handle 找 playerId（给电池回调用）
+		// 通过 conn_handle 找 playerId（给 GATT 阶段机用）
 		uintptr_t pid = MaxPlayers;
 		auto& self = BleGamepad::instance();
 		for (int p = 0; p < MaxPlayers; p++) {
@@ -877,19 +1022,39 @@ static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 				break;
 			}
 		}
+		auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
+		if (!ctx) { s_svcCount = 0; return 0; }
 
-		// 遍历所有服务，并行发现其特征
+		// 记录 HID / 电池服务范围（严格按序：先 HID 后电池）
+		ctx->hidSvcStart = ctx->hidSvcEnd = 0;
+		ctx->batSvcStart = ctx->batSvcEnd = 0;
 		for (int i = 0; i < s_svcCount; i++) {
 			if (s_svcList[i].uuid == 0x1812) {
-				ESP_LOGI(TAG, "  -> Discovering HID service characteristics...");
-				ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
-					hidChrDiscCb, nullptr);
+				ctx->hidSvcStart = s_svcList[i].start;
+				ctx->hidSvcEnd   = s_svcList[i].end;
 			}
 			else if (s_svcList[i].uuid == 0x180F) {
-				ESP_LOGI(TAG, "  -> Discovering Battery service characteristics...");
-				ble_gattc_disc_all_chrs(conn_handle, s_svcList[i].start, s_svcList[i].end,
-					batChrDiscCb, (void*)pid);
+				ctx->batSvcStart = s_svcList[i].start;
+				ctx->batSvcEnd   = s_svcList[i].end;
 			}
+		}
+		s_svcCount = 0;   // 用后即清（静态全局，避免跨连接累积）
+
+		ctx->gattPhase = DeviceContext::GattPhase::DiscHid;
+		if (ctx->hidSvcEnd != 0) {
+			ESP_LOGI(TAG, "  -> Discovering HID service characteristics...");
+			ble_gattc_disc_all_chrs(conn_handle, ctx->hidSvcStart, ctx->hidSvcEnd,
+				hidChrDiscCb, (void*)pid);
+		}
+		else if (ctx->batSvcEnd != 0) {
+			// 无 HID 服务 → 直接发现电池
+			ctx->gattPhase = DeviceContext::GattPhase::DiscBattery;
+			ESP_LOGI(TAG, "  -> Discovering Battery service characteristics...");
+			ble_gattc_disc_all_chrs(conn_handle, ctx->batSvcStart, ctx->batSvcEnd,
+				batChrDiscCb, (void*)pid);
+		}
+		else {
+			ctx->gattPhase = DeviceContext::GattPhase::Done;
 		}
 	}
 	else if (error->status != 0) {
