@@ -5,12 +5,19 @@
 #include "driver/jpeg_decode.h"
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <algorithm>
 
 static constexpr char TAG[] = "FruitNinjaRenderer";
 
 constexpr FruitNinjaRenderer::FruitColors FruitNinjaRenderer::COLORS[];
+
+// 随机浮点（[a, b)）
+static float randFloat(float a, float b)
+{
+	return a + (b - a) * ((float)rand() / (float)RAND_MAX);
+}
 
 // ============================================================
 // 颜色 / 像素辅助
@@ -83,6 +90,12 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 
 	// ── 水果图片硬件解码（失败自动回退纯色圆） ──
 	loadFruitImages();
+
+	// ── 竹叶精灵图硬件解码 + 白色抠图（失败回退不生成竹叶） ──
+	loadLeafImage();
+
+	// ── qiuyuan 人物精灵图硬件解码 + 白色抠图（失败回退不显示人物） ──
+	loadQiuyuanImage();
 
 	// ── HUD 标签 ──
 	m_scoreLabel = lv_label_create(parent);
@@ -190,6 +203,28 @@ FruitNinjaRenderer::~FruitNinjaRenderer()
 		m_bg.buf = nullptr;
 		m_bg.valid = false;
 	}
+	if (m_leafImg.buf)
+	{
+		heap_caps_free(const_cast<uint16_t*>(m_leafImg.buf));
+		m_leafImg.buf = nullptr;
+		m_leafImg.valid = false;
+	}
+	if (m_leafAlpha)
+	{
+		heap_caps_free(m_leafAlpha);
+		m_leafAlpha = nullptr;
+	}
+	if (m_qiuyuanImg.buf)
+	{
+		heap_caps_free(const_cast<uint16_t*>(m_qiuyuanImg.buf));
+		m_qiuyuanImg.buf = nullptr;
+		m_qiuyuanImg.valid = false;
+	}
+	if (m_qiuyuanAlpha)
+	{
+		heap_caps_free(m_qiuyuanAlpha);
+		m_qiuyuanAlpha = nullptr;
+	}
 }
 
 // ============================================================
@@ -257,6 +292,37 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::segBBox(const TrailSegment& s) cons
 	b.y1 = static_cast<int>(std::min(s.y1, s.y2)) - R;
 	b.x2 = static_cast<int>(std::max(s.x1, s.x2)) + R;
 	b.y2 = static_cast<int>(std::max(s.y1, s.y2)) + R;
+	return b;
+}
+
+FruitNinjaRenderer::BBox FruitNinjaRenderer::leafBBox(const LeafParticle& l) const
+{
+	// 半对角外接矩形（旋转安全超集）：l.scale * 图半对角
+	if (!m_leafImg.valid) return {};
+	float hr = 0.5f * l.scale * hypotf((float)m_leafImg.w, (float)m_leafImg.h);
+	int R = static_cast<int>(ceilf(hr)) + 1;
+	BBox b;
+	b.active = true;
+	b.x1 = static_cast<int>(l.x) - R;
+	b.y1 = static_cast<int>(l.y) - R;
+	b.x2 = static_cast<int>(l.x) + R;
+	b.y2 = static_cast<int>(l.y) + R;
+	return b;
+}
+
+FruitNinjaRenderer::BBox FruitNinjaRenderer::headBBox(const TouchHead& h) const
+{
+	// qiuyuan 人物：固定显示高度 → 半对角外接矩形（旋转安全超集）
+	if (!m_qiuyuanImg.valid) return {};
+	float scale = kQiuyuanHeight / (float)m_qiuyuanImg.h;
+	float hr = 0.5f * scale * hypotf((float)m_qiuyuanImg.w, (float)m_qiuyuanImg.h);
+	int R = static_cast<int>(ceilf(hr)) + 1;
+	BBox b;
+	b.active = true;
+	b.x1 = static_cast<int>(h.x) - R;
+	b.y1 = static_cast<int>(h.y) - R;
+	b.x2 = static_cast<int>(h.x) + R;
+	b.y2 = static_cast<int>(h.y) + R;
 	return b;
 }
 
@@ -464,6 +530,98 @@ void FruitNinjaRenderer::blitImage(int cx, int cy, int r, const FruitImage& img,
 	}
 }
 
+// ============================================================
+// 竹叶 blit — 逆旋转 + 最近邻采样 + 逐像素 alpha blend（白色背景已抠除）
+// ============================================================
+
+// 通用旋转精灵绘制：逆旋转 + 最近邻采样 + 逐像素 alpha*fadeByte 混合
+void FruitNinjaRenderer::blitRotatedSprite(const FruitImage& img, const uint8_t* alpha,
+	float cx, float cy, float scale, float angle, uint8_t fadeByte)
+{
+	if (!m_buf || !img.valid || !alpha) return;
+	const int iw = img.w, ih = img.h;
+	const float ca = cosf(angle), sa = sinf(angle);
+	// ⚠ 居中旋转：逆旋转须绕源图中心 (iw/2, ih/2) 采样。
+	// 旧代码少了 +源中心 偏移 → 精灵被推到基准点右上侧，超出半对角包围框被裁剪（人物只剩右上角 1/4）。
+	const float cxS = iw * 0.5f;
+	const float cyS = ih * 0.5f;
+
+	// 旋转后外接范围（半对角近似）
+	float hr = 0.5f * scale * hypotf((float)iw, (float)ih);
+	int x1 = (int)(cx - hr), y1 = (int)(cy - hr);
+	int x2 = (int)(cx + hr), y2 = (int)(cy + hr);
+	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
+	if (x1 < 0) x1 = 0;
+	if (y1 < 0) y1 = 0;
+	if (x2 >= W) x2 = W - 1;
+	if (y2 >= H) y2 = H - 1;
+
+	const float invScale = 1.0f / scale;
+	for (int y = y1; y <= y2; y++)
+	{
+		float ry = (y - cy) * invScale;
+		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
+		for (int x = x1; x <= x2; x++)
+		{
+			float rx = (x - cx) * invScale;
+			// 逆旋转（-angle）：绕源图中心采样，源坐标 = 源中心 + R(-θ)·(dest/scale)
+			float sx = cxS + (ca * rx + sa * ry);
+			float sy = cyS + (-sa * rx + ca * ry);
+			int si = (int)sx, sj = (int)sy;
+			if (si < 0 || sj < 0 || si >= iw || sj >= ih) continue;
+			uint8_t a = alpha[(size_t)sj * iw + si];
+			if (a < 8) continue;   // 近透明像素跳过
+			if (fadeByte < 255)
+			{
+				a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);   // 应用整体渐隐
+				if (a < 8) continue;
+			}
+			uint16_t src = img.buf[(size_t)sj * iw + si];
+			row[x] = blend565(row[x], src, a);
+		}
+	}
+}
+
+void FruitNinjaRenderer::blitLeaf(float cx, float cy, const LeafParticle& l)
+{
+	if (!m_leafImg.valid || !m_leafAlpha) return;
+	// 渐隐：前 50% 寿命保持不透明，后 50% 线性淡出（按 maxLife 比例）
+	float frac = (l.maxLife > 0.0f) ? (l.life / l.maxLife) : 1.0f;
+	float fade = (frac > 0.5f) ? 1.0f : (frac * 2.0f);
+	if (fade <= 0.0f) return;
+	uint8_t fadeByte = (uint8_t)(fade * 255.0f);
+	blitRotatedSprite(m_leafImg, m_leafAlpha, cx, cy, l.scale, l.angle, fadeByte);
+}
+
+void FruitNinjaRenderer::paintLeaves()
+{
+	for (int i = 0; i < kMaxLeaves; i++)
+	{
+		const auto& l = m_leaves[i];
+		if (!m_redrawLeaf[i] || !l.active) continue;
+		blitLeaf(l.x, l.y, l);
+	}
+}
+
+void FruitNinjaRenderer::blitQiuyuan(float cx, float cy, float angle)
+{
+	if (!m_qiuyuanImg.valid || !m_qiuyuanAlpha) return;
+	// 人物按固定显示高度等比缩放（保持比例）
+	float scale = kQiuyuanHeight / (float)m_qiuyuanImg.h;
+	blitRotatedSprite(m_qiuyuanImg, m_qiuyuanAlpha, cx, cy, scale, angle, 255);
+}
+
+void FruitNinjaRenderer::paintTouchHeads()
+{
+	for (int i = 0; i < kMaxTouchHeads; i++)
+	{
+		const auto& h = m_touchHeads[i];
+		if (!m_redrawHead[i] || !h.active) continue;
+		float angle = atan2f(h.dirY, h.dirX);   // 沿滑动方向旋转
+		blitQiuyuan(h.x, h.y, angle);
+	}
+}
+
 void FruitNinjaRenderer::paintFruit(const FruitNinjaLogic::Fruit& f)
 {
 	float r = FruitNinjaLogic::getFruitRadius(f.type);
@@ -574,6 +732,36 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		prev = cur;
 	}
 
+	// ── 竹叶（旋转/缩放/渐隐逐帧变化 → 活跃即每帧标脏重绘） ──
+	for (int i = 0; i < kMaxLeaves; i++)
+	{
+		BBox cur = m_leaves[i].active ? leafBBox(m_leaves[i]) : BBox{};
+		BBox& prev = m_prevLeaf[i];
+		bool changed = (cur.active != prev.active);
+		if (cur.active) changed = true;   // 竹叶有动画 → 每帧重绘（旋转角度不改变 bbox 也须刷新）
+		if (changed)
+		{
+			if (prev.active) dirtyAdd(prev.x1, prev.y1, prev.x2, prev.y2);
+			if (cur.active) dirtyAdd(cur.x1, cur.y1, cur.x2, cur.y2);
+		}
+		prev = cur;
+	}
+
+	// ── 触摸头部人物（跟随手指/旋转 → 活跃即每帧标脏重绘） ──
+	for (int i = 0; i < kMaxTouchHeads; i++)
+	{
+		BBox cur = m_touchHeads[i].active ? headBBox(m_touchHeads[i]) : BBox{};
+		BBox& prev = m_prevHead[i];
+		bool changed = (cur.active != prev.active);
+		if (cur.active) changed = true;   // 人物移动/旋转动画 → 每帧重绘
+		if (changed)
+		{
+			if (prev.active) dirtyAdd(prev.x1, prev.y1, prev.x2, prev.y2);
+			if (cur.active) dirtyAdd(cur.x1, cur.y1, cur.x2, cur.y2);
+		}
+		prev = cur;
+	}
+
 	// ── 2P 分割线：首帧强制标脏，保证初始即绘制（否则只有被水果/刀光覆盖时才补画，导致分割线缺失）──
 	if (logic.getPlayerCount() >= 2 && !m_dividerPainted)
 		dirtyAdd(W / 2 - 1, 0, W / 2, H - 1);
@@ -584,6 +772,8 @@ void FruitNinjaRenderer::expandRedraw(const FruitNinjaLogic& logic)
 	memset(m_redrawFruit, 0, sizeof(m_redrawFruit));
 	memset(m_redrawParticle, 0, sizeof(m_redrawParticle));
 	memset(m_redrawSeg, 0, sizeof(m_redrawSeg));
+	memset(m_redrawLeaf, 0, sizeof(m_redrawLeaf));
+	memset(m_redrawHead, 0, sizeof(m_redrawHead));
 	m_redrawDivider = false;
 
 	// 重画集 = 与脏区集合 D 相交的 active 对象（一次遍历，无 O(n²) 传播）。
@@ -600,6 +790,12 @@ void FruitNinjaRenderer::expandRedraw(const FruitNinjaLogic& logic)
 	for (int i = 0; i < kMaxSegments; i++)
 		if (m_segments[i].active && dirtyIntersects(segBBox(m_segments[i])))
 			m_redrawSeg[i] = true;
+	for (int i = 0; i < kMaxLeaves; i++)
+		if (m_leaves[i].active && dirtyIntersects(leafBBox(m_leaves[i])))
+			m_redrawLeaf[i] = true;
+	for (int i = 0; i < kMaxTouchHeads; i++)
+		if (m_touchHeads[i].active && dirtyIntersects(headBBox(m_touchHeads[i])))
+			m_redrawHead[i] = true;
 	if (logic.getPlayerCount() >= 2)
 	{
 		BBox db;
@@ -622,7 +818,7 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 			fillRect(d.x1, d.y1, d.x2, d.y2, m_bg565);
 	}
 
-	// 2. 按 z 序重画 R：水果 → 粒子 → 分隔线 → 刀光 → 提示文字
+	// 2. 按 z 序重画 R：水果 → 粒子 → 分隔线 → 刀光 → 竹叶 → 提示文字
 	for (int i = 0; i < MaxFruits; i++)
 		if (m_redrawFruit[i])
 			paintFruit(logic.getFruits()[i]);
@@ -637,7 +833,9 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 	for (int i = 0; i < kMaxSegments; i++)
 		if (m_redrawSeg[i])
 			drawWideLine(m_segments[i].x1, m_segments[i].y1,
-				m_segments[i].x2, m_segments[i].y2, 14, 0xffff);
+				m_segments[i].x2, m_segments[i].y2, 14, color565(kBambooGreen));   // 竹绿色拖尾
+	paintLeaves();
+	paintTouchHeads();
 	paintHints(logic);
 }
 
@@ -962,6 +1160,351 @@ void FruitNinjaRenderer::loadBackground()
 }
 
 // ============================================================
+// 竹叶精灵图 — 硬件解码 + 白色背景抠图 alpha（失败回退不生成竹叶）
+// ============================================================
+
+void FruitNinjaRenderer::loadLeafImage()
+{
+	static const char* path = "/root/system/fruitNinja/bamboo leaves.jpg";
+
+	FILE* f = fopen(path, "rb");
+	if (!f)
+	{
+		ESP_LOGW(TAG, "打开竹叶图失败: %s", path);
+		return;
+	}
+	fseek(f, 0, SEEK_END);
+	long fsz = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (fsz <= 0)
+	{
+		fclose(f);
+		return;
+	}
+
+	// 输入 buffer 必须用驱动专用 jpeg_alloc_decoder_mem 分配（硬件 DMA 对齐要求）
+	jpeg_decode_memory_alloc_cfg_t inMem = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
+	size_t inAlloc = 0;
+	uint8_t* jpg = static_cast<uint8_t*>(jpeg_alloc_decoder_mem((size_t)fsz, &inMem, &inAlloc));
+	if (!jpg)
+	{
+		fclose(f);
+		return;
+	}
+	if (fread(jpg, 1, (size_t)fsz, f) != (size_t)fsz)
+	{
+		heap_caps_free(jpg);
+		fclose(f);
+		return;
+	}
+	fclose(f);
+
+	jpeg_decode_picture_info_t info{};
+	if (jpeg_decoder_get_info(jpg, (uint32_t)fsz, &info) != ESP_OK || info.width == 0 || info.height == 0)
+	{
+		heap_caps_free(jpg);
+		ESP_LOGW(TAG, "竹叶图 JPEG 头解析失败: %s", path);
+		return;
+	}
+
+	// 解码器输出按 MCU 对齐（jpeg_parse_sof_marker）：process_h/process_v 是宽高的 MCU 倍数。
+	// YUV444/GRAY: MCU 8×8（8 像素对齐）；YUV422: 16×8；YUV420: 16×16。
+	int mcux = (info.sample_method == JPEG_DOWN_SAMPLING_YUV444 || info.sample_method == JPEG_DOWN_SAMPLING_GRAY) ? 8 : 16;
+	int mcuy = (info.sample_method == JPEG_DOWN_SAMPLING_YUV420) ? 16 : 8;
+	int processW = (int)(((uint32_t)info.width + mcux - 1) & ~(uint32_t)(mcux - 1));
+	int processH = (int)(((uint32_t)info.height + mcuy - 1) & ~(uint32_t)(mcuy - 1));
+	size_t fullSize = (size_t)processW * processH * 2;
+	jpeg_decode_memory_alloc_cfg_t outMem = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
+	size_t outAlloc = 0;
+	uint8_t* full = static_cast<uint8_t*>(jpeg_alloc_decoder_mem(fullSize, &outMem, &outAlloc));
+	if (!full)
+	{
+		heap_caps_free(jpg);
+		return;
+	}
+
+	jpeg_decode_engine_cfg_t eng_cfg = { .intr_priority = 0, .timeout_ms = 500 };
+	jpeg_decoder_handle_t eng = nullptr;
+	if (jpeg_new_decoder_engine(&eng_cfg, &eng) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		ESP_LOGE(TAG, "jpeg_new_decoder_engine 失败，竹叶特效禁用");
+		return;
+	}
+	jpeg_decode_cfg_t dec_cfg = {
+		.output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
+		.rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,   // 小端，可直接 uint16 读（与 canvas 一致）
+		.conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
+	};
+	uint32_t outSize = 0;
+	uint32_t outBufSize = (outAlloc >= fullSize) ? (uint32_t)outAlloc : (uint32_t)fullSize;
+	if (jpeg_decoder_process(eng, &dec_cfg, jpg, (uint32_t)fsz, full, outBufSize, &outSize) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		jpeg_del_decoder_engine(eng);
+		ESP_LOGW(TAG, "竹叶图解码失败: %s", path);
+		return;
+	}
+	heap_caps_free(jpg);
+	jpeg_del_decoder_engine(eng);
+
+	// 最近邻缩放到最大边 ≤128 + 统一重排为紧凑 RGB565（行 stride = sw）。
+	// ⚠ 回读行距必须用解码器真实 processW（MCU 对齐）：非 16 对齐宽度用 info.width 当行距会逐行错位斜切。
+	int sw = info.width, sh = info.height;
+	constexpr int MAX_SIDE = 128;
+	if (sw > MAX_SIDE || sh > MAX_SIDE)
+	{
+		float k = (float)MAX_SIDE / (sw > sh ? sw : sh);
+		sw = (int)(sw * k); if (sw < 1) sw = 1;
+		sh = (int)(sh * k); if (sh < 1) sh = 1;
+	}
+	uint16_t* small = static_cast<uint16_t*>(heap_caps_malloc((size_t)sw * sh * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!small)
+	{
+		heap_caps_free(full);
+		ESP_LOGW(TAG, "竹叶 重排分配失败，特效禁用");
+		return;
+	}
+	{
+		const uint16_t* src = reinterpret_cast<const uint16_t*>(full);
+		for (int y = 0; y < sh; y++)
+		{
+			int sy = (y * (int)info.height) / sh;
+			for (int x = 0; x < sw; x++)
+			{
+				int sx = (x * (int)info.width) / sw;
+				small[(size_t)y * sw + x] = src[(size_t)sy * processW + sx];
+			}
+		}
+	}
+	heap_caps_free(full);
+	full = reinterpret_cast<uint8_t*>(small);
+
+	// 白色/浅色背景抠图 → 逐像素 alpha（PSRAM 独立平面）
+	uint8_t* alpha = static_cast<uint8_t*>(heap_caps_malloc((size_t)sw * sh, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!alpha)
+	{
+		heap_caps_free(full);
+		ESP_LOGW(TAG, "竹叶 alpha 分配失败，特效禁用");
+		return;
+	}
+	const uint16_t* src = reinterpret_cast<const uint16_t*>(full);
+	for (int y = 0; y < sh; y++)
+	{
+		for (int x = 0; x < sw; x++)
+		{
+			uint16_t c = src[(size_t)y * sw + x];
+			// RGB565 → 8bit 分量，取最大通道作为亮度（白色=高亮）
+			int r = (c >> 11) & 0x1f; r = (r << 3) | (r >> 2);
+			int g = (c >> 5) & 0x3f;  g = (g << 2) | (g >> 6);
+			int b = c & 0x1f;         b = (b << 3) | (b >> 2);
+			int bright = r > g ? (r > b ? r : b) : (g > b ? g : b);
+			int a;
+			if (bright >= 240)      a = 0;                            // 近白 → 全透明
+			else if (bright >= 200) a = (240 - bright) * 255 / 40;    // 过渡带渐隐（平滑边缘）
+			else                    a = 255;                          // 叶片 → 不透明
+			alpha[(size_t)y * sw + x] = (uint8_t)a;
+		}
+	}
+
+	m_leafImg.buf = reinterpret_cast<const uint16_t*>(full);
+	m_leafImg.w = sw;
+	m_leafImg.h = sh;
+	m_leafImg.valid = true;
+	m_leafAlpha = alpha;
+	ESP_LOGI(TAG, "竹叶图就绪: %dx%d, alpha 抠图完成", sw, sh);
+}
+
+// ============================================================
+// qiuyuan 人物精灵图 — 硬件解码 + 16 像素对齐 + 白色背景抠图（失败回退不显示人物）
+// ============================================================
+
+void FruitNinjaRenderer::loadQiuyuanImage()
+{
+	static const char* path = "/root/system/fruitNinja/qiuyuan.jpg";
+
+	FILE* f = fopen(path, "rb");
+	if (!f)
+	{
+		ESP_LOGW(TAG, "打开 qiuyuan 图失败: %s", path);
+		return;
+	}
+	fseek(f, 0, SEEK_END);
+	long fsz = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (fsz <= 0)
+	{
+		fclose(f);
+		return;
+	}
+
+	// 输入 buffer 必须用驱动专用 jpeg_alloc_decoder_mem 分配（硬件 DMA 对齐要求）
+	jpeg_decode_memory_alloc_cfg_t inMem = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
+	size_t inAlloc = 0;
+	uint8_t* jpg = static_cast<uint8_t*>(jpeg_alloc_decoder_mem((size_t)fsz, &inMem, &inAlloc));
+	if (!jpg)
+	{
+		fclose(f);
+		return;
+	}
+	if (fread(jpg, 1, (size_t)fsz, f) != (size_t)fsz)
+	{
+		heap_caps_free(jpg);
+		fclose(f);
+		return;
+	}
+	fclose(f);
+
+	jpeg_decode_picture_info_t info{};
+	if (jpeg_decoder_get_info(jpg, (uint32_t)fsz, &info) != ESP_OK || info.width == 0 || info.height == 0)
+	{
+		heap_caps_free(jpg);
+		ESP_LOGW(TAG, "qiuyuan JPEG 头解析失败: %s", path);
+		return;
+	}
+
+	// 解码器输出按 MCU 对齐（jpeg_parse_sof_marker）：process_h/process_v 是宽高的 MCU 倍数。
+	// YUV444/GRAY: MCU 8×8（8 像素对齐）；YUV422: 16×8；YUV420: 16×16。
+	// ⚠ 必须用真实 processW 作回读行距：旧代码按 16 像素对齐，YUV444 且宽度 %16==8 时逐行错位斜切（人物只剩右下/旋转后右上 1/4）。
+	int mcux = (info.sample_method == JPEG_DOWN_SAMPLING_YUV444 || info.sample_method == JPEG_DOWN_SAMPLING_GRAY) ? 8 : 16;
+	int mcuy = (info.sample_method == JPEG_DOWN_SAMPLING_YUV420) ? 16 : 8;
+	int processW = (int)(((uint32_t)info.width + mcux - 1) & ~(uint32_t)(mcux - 1));
+	int processH = (int)(((uint32_t)info.height + mcuy - 1) & ~(uint32_t)(mcuy - 1));
+	size_t fullSize = (size_t)processW * processH * 2;
+	jpeg_decode_memory_alloc_cfg_t outMem = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
+	size_t outAlloc = 0;
+	uint8_t* full = static_cast<uint8_t*>(jpeg_alloc_decoder_mem(fullSize, &outMem, &outAlloc));
+	if (!full)
+	{
+		heap_caps_free(jpg);
+		return;
+	}
+
+	jpeg_decode_engine_cfg_t eng_cfg = { .intr_priority = 0, .timeout_ms = 500 };
+	jpeg_decoder_handle_t eng = nullptr;
+	if (jpeg_new_decoder_engine(&eng_cfg, &eng) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		ESP_LOGE(TAG, "jpeg_new_decoder_engine 失败，qiuyuan 人物禁用");
+		return;
+	}
+	jpeg_decode_cfg_t dec_cfg = {
+		.output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
+		.rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,   // 小端，可直接 uint16 读（与 canvas 一致）
+		.conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
+	};
+	uint32_t outSize = 0;
+	uint32_t outBufSize = (outAlloc >= fullSize) ? (uint32_t)outAlloc : (uint32_t)fullSize;
+	if (jpeg_decoder_process(eng, &dec_cfg, jpg, (uint32_t)fsz, full, outBufSize, &outSize) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		jpeg_del_decoder_engine(eng);
+		ESP_LOGW(TAG, "qiuyuan 解码失败: %s", path);
+		return;
+	}
+	heap_caps_free(jpg);
+	jpeg_del_decoder_engine(eng);
+
+	// 诊断日志：确认原图尺寸/采样方式/解码输出尺寸是否与 processW×processH 一致。
+	// ⚠ sample_method 是 COLOR_TYPE_ID 编码的大数值（如 YUV420=50331650），须用枚举名打印
+	const char* sampleName = "?";
+	switch (info.sample_method)
+	{
+	case JPEG_DOWN_SAMPLING_YUV444: sampleName = "YUV444"; break;
+	case JPEG_DOWN_SAMPLING_YUV422: sampleName = "YUV422"; break;
+	case JPEG_DOWN_SAMPLING_YUV420: sampleName = "YUV420"; break;
+	case JPEG_DOWN_SAMPLING_GRAY:   sampleName = "GRAY";   break;
+	default: break;
+	}
+	ESP_LOGI(TAG, "qiuyuan 原图 %dx%d sample=%s outSize=%u proc=%dx%d",
+		info.width, info.height, sampleName, outSize, processW, processH);
+
+	// 统一重排为紧凑 RGB565（无行填充）并缩到最大边 ≤256（控制内存 + 加速每帧 blit）
+	constexpr int MAX_SIDE = 256;
+	float k = 1.0f;
+	if ((int)info.width > MAX_SIDE || (int)info.height > MAX_SIDE)
+		k = (float)MAX_SIDE / ((int)info.width > (int)info.height ? (int)info.width : (int)info.height);
+	int sw = (int)(info.width * k);  if (sw < 1) sw = 1;
+	int sh = (int)(info.height * k); if (sh < 1) sh = 1;
+
+	uint16_t* compact = static_cast<uint16_t*>(heap_caps_malloc((size_t)sw * sh * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!compact)
+	{
+		heap_caps_free(full);
+		ESP_LOGW(TAG, "qiuyuan 重排分配失败，人物禁用");
+		return;
+	}
+	const uint16_t* src = reinterpret_cast<const uint16_t*>(full);
+	for (int y = 0; y < sh; y++)
+	{
+		int sy = (y * (int)info.height) / sh;
+		for (int x = 0; x < sw; x++)
+		{
+			int sx = (x * (int)info.width) / sw;
+			compact[(size_t)y * sw + x] = src[(size_t)sy * processW + sx];   // 源行 stride = processW（MCU 对齐）
+		}
+	}
+	heap_caps_free(full);
+
+	// 白色/浅色背景抠图 → 逐像素 alpha（PSRAM 独立平面）
+	uint8_t* alpha = static_cast<uint8_t*>(heap_caps_malloc((size_t)sw * sh, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!alpha)
+	{
+		heap_caps_free(compact);
+		ESP_LOGW(TAG, "qiuyuan alpha 分配失败，人物禁用");
+		return;
+	}
+	for (int y = 0; y < sh; y++)
+	{
+		for (int x = 0; x < sw; x++)
+		{
+			uint16_t c = compact[(size_t)y * sw + x];
+			// RGB565 → 8bit 分量
+			int r = (c >> 11) & 0x1f; r = (r << 3) | (r >> 2);
+			int g = (c >> 5) & 0x3f;  g = (g << 2) | (g >> 6);
+			int b = c & 0x1f;         b = (b << 3) | (b >> 2);
+			// 白色背景抠图：按“到纯白的距离”判透明——只抠真正接近白色的背景，
+			// 保留浅色但带颜色的人物主体（肤色/浅色衣服）。旧版按最大通道亮度
+			// （bright≥200 即抠）会把浅色主体也抠掉 → 人物缺块（“被切掉一部分”）。
+			int dr = 255 - r, dg = 255 - g, db = 255 - b;
+			int dist2 = dr * dr + dg * dg + db * db;
+			int a;
+			if (dist2 <= 1200)      a = 0;                            // 近纯白 → 全透明（背景）
+			else if (dist2 < 3000)  a = (dist2 - 1200) * 255 / 1800;  // 过渡带渐隐（平滑边缘）
+			else                    a = 255;                          // 有颜色的主体 → 不透明
+			alpha[(size_t)y * sw + x] = (uint8_t)a;
+		}
+	}
+
+	// 诊断：统计不透明像素包围盒，确认人物在 sprite 内的占比/位置（排查构图/抠图偏置）
+	{
+		int minX = sw, minY = sh, maxX = -1, maxY = -1;
+		for (int y = 0; y < sh; y++)
+			for (int x = 0; x < sw; x++)
+				if (alpha[(size_t)y * sw + x] > 0)
+				{
+					if (x < minX) minX = x;
+					if (x > maxX) maxX = x;
+					if (y < minY) minY = y;
+					if (y > maxY) maxY = y;
+				}
+		if (maxX >= 0)
+			ESP_LOGI(TAG, "qiuyuan 不透明 bbox: (%d,%d)-(%d,%d) 占 %dx%d", minX, minY, maxX, maxY, sw, sh);
+	}
+
+	m_qiuyuanImg.buf = reinterpret_cast<const uint16_t*>(compact);
+	m_qiuyuanImg.w = sw;
+	m_qiuyuanImg.h = sh;
+	m_qiuyuanImg.valid = true;
+	m_qiuyuanAlpha = alpha;
+	ESP_LOGI(TAG, "qiuyuan 人物图就绪: %dx%d, alpha 抠图完成", sw, sh);
+}
+
+// ============================================================
 // 背景区域复制 — 从已 cover 缩放的背景缓冲 memcpy 到 canvas（清脏区用）
 // ============================================================
 
@@ -1273,6 +1816,11 @@ void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2,
 		seg.player = static_cast<uint8_t>(player);
 		seg.active = true;
 		m_segWrite = (m_segWrite + 1) % kMaxSegments;
+
+		// 切割时随机飘散竹叶：沿刀光路径按概率生成（每段末端），向四周散开。
+		// 仅在竹叶图加载成功时生效；概率 ~50% 控密度（每 40px 一段，快划自然更密）。
+		if (m_leafImg.valid && (rand() & 1))
+			spawnLeaf(seg.x2, seg.y2, dx, dy);
 	}
 }
 
@@ -1292,6 +1840,65 @@ void FruitNinjaRenderer::ageTrail(float dt)
 		if (s.life <= 0.0f)
 			s.active = false;   // 超时 → 下一帧 render 清除 canvas 残留
 	}
+
+	ageLeaves(dt);   // 竹叶物理同步老化（重力/旋转/生命）
+}
+
+// ============================================================
+// 竹叶 — 物理老化（重力 + 位置/角度积分 + 生命递减）
+// ============================================================
+
+void FruitNinjaRenderer::ageLeaves(float dt)
+{
+	constexpr float GRAVITY = 900.0f;   // px/s² 重力加速度
+	for (int i = 0; i < kMaxLeaves; i++)
+	{
+		auto& l = m_leaves[i];
+		if (!l.active) continue;
+
+		l.vy += GRAVITY * dt;
+		l.x += l.vx * dt;
+		l.y += l.vy * dt;
+		l.angle += l.angVel * dt;
+		l.life -= dt;
+		if (l.life <= 0.0f)
+		{
+			l.active = false;   // 生命耗尽 → 下一帧 render 清除残留
+			if (m_activeLeafCount > 0)
+				m_activeLeafCount--;
+		}
+	}
+}
+
+// ============================================================
+// 竹叶 — 生成（切割点附近随机向四周飘散，轮询池复用）
+// ============================================================
+
+void FruitNinjaRenderer::spawnLeaf(float x, float y, float segDx, float segDy)
+{
+	// 同时活跃竹叶数已达上限 → 跳过（不生成），防止竹叶过多导致渲染卡顿
+	if (m_activeLeafCount >= kMaxActiveLeaves)
+		return;
+
+	bool prevActive = m_leaves[m_leafWrite].active;
+	auto& leaf = m_leaves[m_leafWrite];
+	m_leafWrite = (m_leafWrite + 1) % kMaxLeaves;
+
+	leaf.active = true;
+	leaf.x = x;
+	leaf.y = y;
+	// 随机向四周散开：沿刀光段方向 ±92° 锥形 + 向上偏置初速
+	float dir = atan2f(segDy, segDx) + randFloat(-1.6f, 1.6f);
+	float spd = randFloat(90.0f, 260.0f);
+	leaf.vx = cosf(dir) * spd;
+	leaf.vy = sinf(dir) * spd - randFloat(30.0f, 130.0f);
+	leaf.angle = randFloat(0.0f, 6.283f);         // 随机初始旋转
+	leaf.angVel = randFloat(-6.0f, 6.0f);         // 随机旋转速度
+	leaf.scale = randFloat(0.5f, 1.2f);           // 随机大小
+	leaf.life = randFloat(0.6f, 1.1f);            // 随机寿命
+	leaf.maxLife = leaf.life;                     // 渐隐比例基准
+	if (!prevActive)
+		m_activeLeafCount++;
 }
 
 // ============================================================
@@ -1303,6 +1910,12 @@ void FruitNinjaRenderer::clearTrail()
 	for (int i = 0; i < kMaxSegments; i++)
 		m_segments[i].active = false;
 	m_segWrite = 0;
+
+	// 一并清空竹叶（非游戏态/前台复位时立即消除残留）
+	for (int i = 0; i < kMaxLeaves; i++)
+		m_leaves[i].active = false;
+	m_leafWrite = 0;
+	m_activeLeafCount = 0;
 }
 
 // ============================================================
@@ -1318,4 +1931,41 @@ void FruitNinjaRenderer::forEachTrailSegment(
 		if (!s.active) continue;
 		cb(s.x1, s.y1, s.x2, s.y2, s.player);
 	}
+}
+
+// ============================================================
+// 触摸头部人物 — 设置/清空（跟随手指，沿滑动方向旋转）
+// ============================================================
+
+void FruitNinjaRenderer::setTouchHead(int index, float x, float y, float dirX, float dirY, bool active)
+{
+	if (index < 0 || index >= kMaxTouchHeads) return;
+	auto& h = m_touchHeads[index];
+	h.active = active;
+	if (!active) return;
+	// 方向仅在移动量足够时更新（抖动抑制，保持上一朝向）
+	float len2 = dirX * dirX + dirY * dirY;
+	if (len2 >= 4.0f)
+	{
+		h.dirX = dirX;
+		h.dirY = dirY;
+	}
+	// 人物不直接压在手指下：沿滑动反方向（身后）偏移 kQiuyuanTrail 跟随手运动，保证可见
+	float len = sqrtf(h.dirX * h.dirX + h.dirY * h.dirY);
+	float nx = (len > 0.01f) ? h.dirX / len : 0.0f;
+	float ny = (len > 0.01f) ? h.dirY / len : -1.0f;   // 无方向（刚按下）默认朝上 → 人物在手指下方
+	float px = x - nx * kQiuyuanTrail;
+	float py = y - ny * kQiuyuanTrail;
+	// 钳制到屏幕内：人物完整可见（半对角外接矩形不超出屏幕）
+	float hr = (m_qiuyuanImg.valid)
+		? 0.5f * (kQiuyuanHeight / (float)m_qiuyuanImg.h) * hypotf((float)m_qiuyuanImg.w, (float)m_qiuyuanImg.h)
+		: 0.0f;
+	h.x = (hr * 2.0f <= W) ? fminf(fmaxf(px, hr), (float)W - 1.0f - hr) : (float)W * 0.5f;
+	h.y = (hr * 2.0f <= H) ? fminf(fmaxf(py, hr), (float)H - 1.0f - hr) : (float)H * 0.5f;
+}
+
+void FruitNinjaRenderer::clearTouchHeads()
+{
+	for (int i = 0; i < kMaxTouchHeads; i++)
+		m_touchHeads[i].active = false;
 }

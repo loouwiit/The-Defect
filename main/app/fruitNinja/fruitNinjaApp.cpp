@@ -92,6 +92,7 @@ void FruitNinjaApp::onForeground()
 	if (auto guard = display->lockGuard())
 	{
 		m_renderer.clearTrail();
+		m_renderer.clearTouchHeads();
 		applyFocus();
 	}
 }
@@ -179,12 +180,13 @@ void FruitNinjaApp::gameLoop(void* param)
 
 void FruitNinjaApp::updateTouchFromSlots()
 {
-	// 非游戏状态：所有手指复位并清空刀光
+	// 非游戏状态：所有手指复位并清空刀光/头部人物
 	if (m_logic.getState() != FruitNinjaLogic::State::Playing)
 	{
 		for (auto& f : m_fingers)
 			f = FingerTouch{};
 		m_renderer.clearTrail();
+		m_renderer.clearTouchHeads();
 		return;
 	}
 
@@ -225,18 +227,27 @@ void FruitNinjaApp::updateTouchFromSlots()
 						player);
 					f.prevPoint = pt;
 				}
+				// 头部人物：始终跟随当前手指位置（方向由移动量决定，微小抖动沿用上一朝向）
+				m_renderer.setTouchHead(i,
+					static_cast<float>(pt.x), static_cast<float>(pt.y),
+					static_cast<float>(dx), static_cast<float>(dy), true);
 			}
 			else
 			{
 				// ── 按压起点：仅记录上一帧位置（线段需两个点，首帧不产生段） ──
 				f.prevPoint = pt;
 				f.hasPrev = true;
+				// 头部人物：显示在按压点，默认朝上
+				m_renderer.setTouchHead(i,
+					static_cast<float>(pt.x), static_cast<float>(pt.y),
+					0.0f, -1.0f, true);
 			}
 		}
 		else
 		{
 			// ── 松手：停止追加，已有线段交由渲染器超时老化清理 ──
 			f.hasPrev = false;
+			m_renderer.setTouchHead(i, 0.0f, 0.0f, 0.0f, 0.0f, false);
 		}
 	}
 }
