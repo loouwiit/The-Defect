@@ -23,6 +23,11 @@ INTRO = os.path.join(ROOT, 'codeIntro.md')
 OUT = os.path.join(ROOT, 'codeNumbered.txt')
 EXTS = ('.cpp', '.hpp', '.h', '.c', '.inl', '.inc')
 
+# reserces/ 下覆盖的代码类文件（软著文档补充：Web 前端 + Lua 脚本 + 配置）
+# 二进制（.jpg/.ttf）与数据文件（词库 .txt）不纳入
+RES_DIR = os.path.join(ROOT, 'reserces')
+RES_EXTS = ('.html', '.js', '.css', '.lua', '.json')
+
 # ---------------------------------------------------------------------------
 # 1. 模块 & 重要程度权重（数值越小越靠前；文件取"最长匹配"前缀）
 # ---------------------------------------------------------------------------
@@ -71,22 +76,22 @@ MODULES = [
     ('main/app/snake', 266),
     ('main/app/tetris', 267),
     ('main/app/testApp', 268),
-    ('reserces/server/config', 269),
-    ('reserces/server/gamepad', 270),
-    ('reserces/server/screen', 271),
-    ('reserces/server/server', 272),
-    ('reserces/server/tetris', 273),
-    ('reserces/server/index', 274),
-    
 ]
 
-HEADER_EXTS = ('hpp', 'h', 'inc', 'inl', "html", "js")   # 头文件/内联优先于实现文件
+# reserces/ 模块权重：置于 main 全部代码之后（权重 >> 268）
+RES_MODULES = [
+    ('reserces/lua', 1010),        # Lua 测试/示例脚本
+    ('reserces/server', 1020),     # HTTP 服务器静态资源（端口 80）
+    ('reserces/system', 1030),     # 系统配置文件
+]
+
+HEADER_EXTS = ('hpp', 'h', 'inc', 'inl')   # 头文件/内联优先于实现文件
 
 
 def file_rank(rel):
     """返回排序 key：(模块权重, 头文件优先, 路径)"""
     best_w, best_len = 10 ** 9, -1
-    for prefix, w in MODULES:
+    for prefix, w in list(MODULES) + list(RES_MODULES):
         # 前缀匹配：精确 / 子目录(main/task/...) / 同名前缀文件(main/app/app.cpp)
         if rel == prefix or rel.startswith(prefix + '/') or rel.startswith(prefix + '.'):
             if len(prefix) > best_len:
@@ -140,17 +145,90 @@ def scan_non_comment(line, in_block):
     return ''.join(code), in_block
 
 
+def scan_non_comment_lua(line, in_block):
+    """Lua 注释：`--` 行注释 / `--[[ ]]` 长注释。返回 (非注释代码部分, 长注释是否仍打开)。"""
+    code, i, n = [], 0, len(line)
+    while i < n:
+        if in_block:
+            idx = line.find(']]', i)
+            if idx == -1:
+                return ''.join(code), True         # 长注释跨行
+            i = idx + 2
+            in_block = False
+            continue
+        c = line[i]
+        if c == '-' and i + 1 < n and line[i + 1] == '-':
+            # 长注释 --[[ ... ]]：支持跨行
+            if i + 2 < n and line[i + 2] == '[':
+                idx = line.find(']]', i + 2)
+                if idx == -1:
+                    return ''.join(code), True     # 长注释跨行
+                i = idx + 2
+                continue
+            break                                    # 行注释：之后全部忽略
+        if c in ('"', "'"):
+            q = c
+            code.append(c)
+            i += 1
+            while i < n:
+                if line[i] == '\\':
+                    code.append(line[i])
+                    if i + 1 < n:
+                        code.append(line[i + 1])
+                    i += 2
+                    continue
+                code.append(line[i])
+                if line[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        code.append(c)
+        i += 1
+    return ''.join(code), False
+
+
+def scan_non_comment_html(line, in_block):
+    """HTML 注释：`<!-- ... -->`（支持跨行）。返回 (非注释代码部分, 块注释是否仍打开)。"""
+    out, i, n = [], 0, len(line)
+    while i < n:
+        if in_block:
+            end = line.find('-->', i)
+            if end == -1:
+                return ''.join(out), True           # 注释块跨行
+            i = end + 3
+            in_block = False
+            continue
+        start = line.find('<!--', i)
+        if start == -1:
+            out.append(line[i:])
+            break
+        out.append(line[i:start])
+        end = line.find('-->', start + 4)
+        if end == -1:
+            return ''.join(out), True               # 注释块跨行
+        i = end + 3
+    return ''.join(out), False
+
+
+def get_scanner(ext):
+    """按扩展名选择注释扫描器；默认 C 风格（// 与 /* */）。"""
+    return {'.lua': scan_non_comment_lua,
+            '.html': scan_non_comment_html}.get(ext, scan_non_comment)
+
+
 def process_file(path):
     """读取文件 → 删纯注释行 → 压缩连续空行 → 去首尾空行。返回保留行列表。"""
     with open(path, encoding='utf-8-sig') as f:   # utf-8-sig 自动去 BOM
         raw_lines = f.read().splitlines()
 
+    scanner = get_scanner(os.path.splitext(path)[1].lower())
     kept, in_block = [], False
     for line in raw_lines:
         if line.strip() == '':
             kept.append('')
             continue
-        code, in_block = scan_non_comment(line, in_block)
+        code, in_block = scanner(line, in_block)
         if code.strip() == '':
             continue                              # 纯注释行：删除
         kept.append(line)
@@ -199,21 +277,50 @@ def short_desc(text):
     return text[:idx] if idx > 0 else text
 
 
+def default_res_desc(rel):
+    """reserces/ 文件在 codeIntro.md 无说明时的默认模块说明（按目录推断）。"""
+    parts = rel.split('/')
+    if len(parts) < 2:
+        return '（未提供）'
+    if parts[1] == 'lua':
+        return 'Lua 脚本（测试/示例，运行于 Lua 沙箱引擎）'
+    if parts[1] == 'system':
+        return '系统配置文件（JSON，FAT 分区 /root/system/）'
+    if parts[1] == 'server':
+        sub = parts[2] if len(parts) > 2 else ''
+        if sub in ('screen', 'tetris', 'gamepad', 'wifi', 'server', 'ai'):
+            page = {'screen': '屏幕串流', 'tetris': 'Tetris',
+                    'gamepad': '虚拟手柄', 'wifi': 'WiFi 配置',
+                    'server': '服务器管理', 'ai': 'AI 配置'}[sub]
+            kind = '页面' if parts[-1].endswith('.html') else '脚本'
+            return 'HTTP 服务器静态资源：{} Web {}'.format(page, kind)
+        if parts[-1] == 'index.html':
+            return 'HTTP 服务器首页（FAT 静态资源，端口 80）'
+        if parts[-1] == 'index.css':
+            return 'HTTP 服务器全局样式表'
+        return 'HTTP 服务器静态资源（端口 80）'
+    return '（未提供）'
+
+
 def main():
-    # 收集全部代码文件
+    # 收集全部代码文件：main/ 的 C++ 代码 + reserces/ 的代码类文件（HTML/JS/CSS/Lua/JSON）
     files = []
-    for dp, _dn, fns in os.walk(MAIN_DIR):
-        for fn in fns:
-            if fn.endswith(EXTS):
-                rel = os.path.relpath(os.path.join(dp, fn), ROOT)
-                files.append(rel)
+    for root_dir, exts in ((MAIN_DIR, EXTS), (RES_DIR, RES_EXTS)):
+        for dp, _dn, fns in os.walk(root_dir):
+            for fn in fns:
+                if fn.endswith(exts):
+                    rel = os.path.relpath(os.path.join(dp, fn), ROOT)
+                    files.append(rel)
     files.sort(key=file_rank)
 
     desc = load_desc()
     out_lines, lineno, missing = [], 0, []
     for rel in files:
         if rel not in desc:
-            missing.append(rel)
+            if rel.startswith('reserces/'):
+                desc[rel] = default_res_desc(rel)   # reserces 用默认说明，不算缺失
+            else:
+                missing.append(rel)
         body = process_file(os.path.join(ROOT, rel))
         out_lines.append('文件路径：{}    模块说明：{}'.format(rel, short_desc(desc.get(rel))))
         for l in body:
