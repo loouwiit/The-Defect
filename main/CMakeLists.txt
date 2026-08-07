@@ -23,6 +23,8 @@ idf_component_register(SRCS "main.cpp"
                             "virtualIndev/virtualIndev.cpp" "virtualIndev/wsTouchHandler.cpp"
                             "lua/luaRuntime.cpp" "lua/luaModules.cpp" "lua/bindings/luaDisplay.cpp" "lua/bindings/luaInput.cpp" "lua/bindings/luaAudio.cpp" "lua/bindings/luaThread.cpp" "lua/bindings/luaStorage.cpp" "lua/bindings/luaTouch.cpp" "app/luaGameApp/luaGameApp.cpp"
 
+                            "elfProbe.cpp"
+
                             "app/app.cpp" "app/appStack.cpp" "app/appStackManager.cpp"
                             "app/testApp/testApp.cpp"
                             "app/desktopApp/desktopApp.cpp"
@@ -46,7 +48,7 @@ idf_component_register(SRCS "main.cpp"
                        "../managed_components/espressif__esp_lvgl_adapter/src/adapter"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display/ports"
                        REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip mdns lua
-                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_websocket_client esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt json esp_http_client)
+                       PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_websocket_client esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt json esp_http_client elf_loader)
 
 # Lua 需要 32-bit 模式（ESP32-P4 RISC-V 架构）
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LUA_32BITS=1)

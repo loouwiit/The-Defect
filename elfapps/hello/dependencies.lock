@@ -1,0 +1,17 @@
+dependencies:
+  espressif/cmake_utilities:
+    dependencies: []
+    source:
+      path: /home/lo/Develop/ESP/The-Defect/managed_components/espressif__cmake_utilities
+      type: local
+    version: 0.5.3
+  idf:
+    source:
+      type: idf
+    version: 5.5.2
+direct_dependencies:
+- espressif/cmake_utilities
+- idf
+manifest_hash: 6ccb3c6192b307f6bc2091d805187e1db2529ebd4881f5bce356953b0a56724a
+target: esp32p4
+version: 2.0.0

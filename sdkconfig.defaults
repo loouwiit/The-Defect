@@ -348,6 +348,18 @@ CONFIG_AUDIO_DECODER_FLAC=y
 CONFIG_AUDIO_DECODER_OPUS=y
 CONFIG_AUDIO_DECODER_VORBIS=y
 CONFIG_AUDIO_DECODER_ALAC=y
+
+# ============================================================
+# ELF Loader — 插件化游戏（.so 动态加载）
+# dlopen 传相对路径（相对 ELF_FILE_SYSTEM_BASE_PATH=/root）
+# ============================================================
+CONFIG_ELF_LOADER=y
+CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT=y
+CONFIG_ELF_FILE_SYSTEM_BASE_PATH="/root"
+CONFIG_ELF_LOADER_LOAD_PSRAM=y
+# 关闭 PMP IDRAM 分离：P4 上它会把 PSRAM heap 区 PMP 标为不可执行（RW），
+# 导致 ELF 插件代码段取指 Instruction access fault（elf_loader 在 P4 运行的前提）
+# CONFIG_ESP_SYSTEM_PMP_IDRAM_SPLIT is not set
 CONFIG_AUDIO_DECODER_PCM=y
 CONFIG_AUDIO_DECODER_SBC=y
 CONFIG_AUDIO_DECODER_LC3=y
