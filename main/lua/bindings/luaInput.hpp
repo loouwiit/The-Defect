@@ -16,6 +16,7 @@ extern "C" {
 struct LuaInputContext {
     const GamepadState* states[MaxPlayers]{};      // 当前帧快照
     const GamepadState* prevStates[MaxPlayers]{};  // 上一帧快照
+    bool connected[MaxPlayers]{};                  // 真实连接状态（BLE 链接是否建立）
     int playerCount{0};                             // 已连接手柄数
 };
 

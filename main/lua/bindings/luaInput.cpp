@@ -206,12 +206,8 @@ static int l_input_connected(lua_State* L)
     if (!ctx) { lua_pushboolean(L, 0); return 1; }
 
     int player = getPlayer(L, 1);
-    if (!ctx->states[player]) { lua_pushboolean(L, 0); return 1; }
-
-    const auto& s = *ctx->states[player];
-    // 非零按钮或 D-pad 非松开状态视为有连接
-    bool connected = (s.buttons != 0 || s.dpad != 15);
-    lua_pushboolean(L, connected);
+    // 真实连接状态：由 LuaGameApp 每帧从 BleGamepad 同步
+    lua_pushboolean(L, ctx->connected[player]);
     return 1;
 }
 

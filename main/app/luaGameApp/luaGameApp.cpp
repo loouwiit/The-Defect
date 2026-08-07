@@ -4,6 +4,7 @@
 #include "task/task.hpp"
 #include "storage/fat.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
+#include "gamepad/bleGamepad.hpp"
 #include <esp_log.h>
 #include <cstring>
 #include <cstdio>
@@ -299,6 +300,12 @@ void LuaGameApp::gameLoop()
 
     // 更新输入上下文（备份上一帧）
     memcpy(m_prevInputs, m_inputs, sizeof(m_inputs));
+
+    // 同步真实连接状态（BLE 链接），供 input.connected() / player_count() 使用
+    for (int i = 0; i < MaxPlayers; i++) {
+        const auto* dev = BleGamepad::instance().getDevice(i);
+        m_inputCtx.connected[i] = dev && dev->connected;
+    }
     m_inputCtx.playerCount = countConnectedPlayers();
 
     // 持 LVGL 锁 → 清空画布 → 调 Lua loop(dt) → 释放锁
@@ -356,9 +363,7 @@ int LuaGameApp::countConnectedPlayers() const
 {
     int count = 0;
     for (int i = 0; i < MaxPlayers; i++) {
-        if (m_inputs[i].buttons != 0 || m_inputs[i].dpad != 15) {
-            count++;
-        }
+        if (m_inputCtx.connected[i]) count++;
     }
     return count;
 }
