@@ -1156,7 +1156,7 @@ class App {
 | `tetrisRemoteApp.cpp` | **远程游戏 App**，全屏渲染远程主机画面 |
 
 **渲染性能设计**（TetrisRenderer canvas 化）：
-- 棋盘/预览**不使用逐格 LVGL 对象**：原 220（棋盘）+ 64（预览）个 cell 对象在锁块消行时批量样式更新，会使 LVGL 失效缓冲 `LV_INV_BUF_SIZE=32` 溢出 → **整屏软件重绘** → 卡顿。
+- 棋盘/预览**不使用逐格 LVGL 对象**：原 220（棋盘）+ 64（预览）个 cell 对象在锁块消行时批量样式更新，会使 LVGL 失效缓冲溢出（早期 `LV_INV_BUF_SIZE=32`）→ **整屏软件重绘** → 卡顿。现 `LV_INV_BUF_SIZE=256` 由 CMake 编译宏注入（见 [Patches](#patches) 段末「LVGL 构建选项覆盖」）。
 - 现改为：棋盘 = 1 个 `lv_canvas`（PSRAM RGB565 缓冲），预览 = 4 个 `lv_canvas`；方块/ghost 直接画进棋盘缓冲（`paintBoardCell`，ghost 用 `blend565` 30%/50% 混合）；`syncState` 用 `lv_obj_invalidate_area` 只失效变化区域（锁块时 5~8 条失效 < 32），日常移动仍是局部绘制 + 局部失效。
 - **⚠ 坑**：`lv_obj_invalidate_area(obj, area)` 的 `area` 是**屏幕坐标**（非对象本地坐标），需先用 `lv_obj_get_coords` 换算（见 `invalidateBoardLocal`）；`lv_obj_invalidate(obj)` 整对象失效自动用正确 coords。
 - 完整实现见 `main/app/tetris/renderer/tetris_renderer.hpp/.cpp`。
@@ -1882,6 +1882,21 @@ bash patches/apply.sh --revert # 还原所有
 ⚠ `idf.py reconfigure` 后需重新打补丁。
 ⚠ `apply.sh` 需要 `IDF_PATH` 环境变量；组件目录自动识别 `espressif__<组件>`，非 espressif 发布组件（如 `lvgl__lvgl`）直接用原名。
 ⚠ **不要对已应用的 patch 重跑全量 `apply.sh`**（`--forward` 对行号偏移的 hunk 可能重复应用 → 重复定义编译错误）；新 patch 应单独 `patch -d <组件目录> -p1 < xxx.patch`。
+
+### LVGL 构建选项覆盖（编译宏注入，非补丁）
+
+部分 LVGL 构建选项（如 `LV_INV_BUF_SIZE`）**不是 Kconfig 符号**，无法用 menuconfig/sdkconfig 配置。
+它们定义在 `lv_display_private.h` 等头文件中且有 `#ifndef` 保护 —— **编译期 `-D` 优先级高于头文件默认值**。
+
+**覆盖方式**：`main/CMakeLists.txt` 中用 `idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)` +
+`target_compile_definitions(${lvgl_lib} PUBLIC LV_INV_BUF_SIZE=256)` 注入编译宏
+（与 `esp_lvgl_adapter` 给 LVGL 注入 `LV_CACHE_DEF_SIZE` 的官方姿势一致，见 `espressif__esp_lvgl_adapter/CMakeLists.txt`）。
+
+**⚠ 规则**：
+- **不要手动修改 `managed_components/`** —— 组件管理器更新/重装会被覆盖。
+- 须用 `PUBLIC` 传播：`LV_INV_BUF_SIZE` 改变 `lv_display_t` 结构体布局（`inv_areas[LV_INV_BUF_SIZE]`），
+  `lvgl__lvgl`、`esp_lvgl_adapter`（bridge 里有自己的 `inv_areas[LV_INV_BUF_SIZE]` 副本）与 `main` 必须一致，
+  否则 ABI 不一致 → 内存踩踏。PUBLIC 沿链接接口传播可同时覆盖三者。
 
 ---
 

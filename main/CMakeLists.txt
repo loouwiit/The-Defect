@@ -50,3 +50,14 @@ idf_component_register(SRCS "main.cpp"
 
 # Lua 需要 32-bit 模式（ESP32-P4 RISC-V 架构）
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LUA_32BITS=1)
+
+# ── LVGL 构建选项覆盖 ────────────────────────────────────────
+# LV_INV_BUF_SIZE：失效区域缓冲大小（lv_display_private.h 中 #ifndef 保护）。
+# 编译期 -D 优先级高于头文件默认值，故用编译宏注入到 lvgl__lvgl 组件。
+# PUBLIC 沿链接接口传播到 esp_lvgl_adapter / main，保证 lv_display_t 结构体布局
+# （inv_areas[LV_INV_BUF_SIZE]）在所有 TU 一致，否则 ABI 不一致会内存踩踏。
+# 与 esp_lvgl_adapter 注入 LV_CACHE_DEF_SIZE 的方式一致（官方姿势）。
+idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
+if(TARGET ${lvgl_lib})
+    target_compile_definitions(${lvgl_lib} PUBLIC LV_INV_BUF_SIZE=256)
+endif()
