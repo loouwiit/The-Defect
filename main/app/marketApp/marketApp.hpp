@@ -87,7 +87,7 @@ private:
 	std::vector<bool> m_thumbLoaded;          // 缩略图是否已加载
 	std::vector<int> m_thumbQueue;            // 待加载缩略图队列（串行）
 	bool m_thumbLoading{ false };
-	std::vector<bool> m_downloaded;           // 脚本是否已下载到本地（/root/lua/market/）
+	std::vector<bool> m_downloaded;           // 脚本是否已下载到本地（/root/lua/market/<作者>/<游戏>/）
 
 	lv_obj_t* m_bottomBar{};
 	lv_obj_t* m_bottomBtns[BOTTOM_BTN_COUNT]{};
@@ -126,7 +126,8 @@ private:
 	void processThumbQueue();
 	void ensureVisibleThumbs();
 	bool isDownloaded(int idx) const;
-	static std::string localPathFor(const MarketScript& s);
+	static std::string localPathFor(const std::string& author, const std::string& id, const std::string& download);
+	static std::string localSubPathFor(const std::string& author, const std::string& id, const std::string& download);
 	void refreshDownloadedState();
 	void updateActionLabels();
 	void applyFocus();
@@ -136,6 +137,7 @@ private:
 	void loadScreenshot(const MarketScript& s);
 	void downloadAndRun();
 
+	void cleanupLegacyFlatFiles();
 	void setStatus(const char* text, lv_color_t color);
-	static std::string sanitizeFileName(const std::string& id, const std::string& name);
+	static std::string sanitizeSegment(const std::string& seg);
 };

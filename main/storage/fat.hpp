@@ -24,6 +24,7 @@ bool removeFile(const char* path);
 bool newFloor(const char* path);
 bool testFloor(const char* path);
 bool removeFloor(const char* path);
+bool removeFloorRecursive(const char* path);   // 递归删除目录及其内容（文件/子目录）
 
 const char* getBaseName(const char* path);
 

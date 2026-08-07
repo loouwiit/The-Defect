@@ -203,6 +203,60 @@ bool removeFloor(const char* path)
 	return rmdir(path) == 0;
 }
 
+bool removeFloorRecursive(const char* path)
+{
+	// 非目录 → 按文件删
+	if (!testFloor(path))
+	{
+		if (testFile(path)) return removeFile(path);
+		return false;
+	}
+
+	Floor floor;
+	if (!floor.open(path)) return false;
+
+	// 递归删除子目录
+	const char* sub = nullptr;
+	size_t subLenght = 0;
+	char* buffer = nullptr;
+	while (true)
+	{
+		sub = floor.read(Floor::Type::Floor);
+		if (sub == nullptr) break;
+		// 保险：跳过 "." / ".."（FatFs 一般不返回，防御死循环）
+		if (strcmp(sub, ".") == 0 || strcmp(sub, "..") == 0) continue;
+
+		subLenght = strlen(sub);
+		buffer = new char[subLenght + floor.getPathLenght() + 2];
+		memcpy(buffer, floor.getPath(), floor.getPathLenght());
+		buffer[floor.getPathLenght()] = '/';
+		memcpy(buffer + floor.getPathLenght() + 1, sub, subLenght + 1);
+		bool ok = removeFloorRecursive(buffer);
+		delete[] buffer;
+		if (!ok) return false;
+	}
+
+	// 删除文件
+	floor.backToBegin();
+	while (true)
+	{
+		sub = floor.read(Floor::Type::File);
+		if (sub == nullptr) break;
+
+		subLenght = strlen(sub);
+		buffer = new char[subLenght + floor.getPathLenght() + 2];
+		memcpy(buffer, floor.getPath(), floor.getPathLenght());
+		buffer[floor.getPathLenght()] = '/';
+		memcpy(buffer + floor.getPathLenght() + 1, sub, subLenght + 1);
+		removeFile(buffer);
+		delete[] buffer;
+	}
+	floor.close();
+
+	// 最后删除空目录本身
+	return removeFloor(path);
+}
+
 const char* getBaseName(const char* path)
 {
 	auto ret = path;

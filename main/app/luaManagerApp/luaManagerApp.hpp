@@ -124,6 +124,7 @@ private:
 	static constexpr TickType_t MOVE_DELAY = 120;
 
 	// ── 内部方法 ──
+	static bool isMarketPath(const std::string& path);   // 是否市场游戏脚本（/root/lua/market/，不支持重命名）
 	void scanScripts();
 	void rebuildList();
 	void runSelected();

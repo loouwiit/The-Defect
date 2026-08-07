@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cctype>
+#include <dirent.h>
 
 // ============================================================
 //  构造 / 析构
@@ -32,6 +33,29 @@ void MarketApp::setStatus(const char* text, lv_color_t color)
 	if (!m_statusLabel) return;
 	lv_label_set_text(m_statusLabel, text);
 	lv_obj_set_style_text_color(m_statusLabel, color, 0);
+}
+
+// ============================================================
+//  cleanupLegacyFlatFiles — 清理旧版扁平市场文件
+// ============================================================
+
+// 旧版把市场游戏存为 /root/lua/market/<id>.lua 扁平文件，直接删除不做迁移。
+// 新结构为 /root/lua/market/<作者>/<游戏>/，此处仅清理顶层 .lua，不动作者子目录。
+void MarketApp::cleanupLegacyFlatFiles()
+{
+	DIR* d = opendir("/root/lua/market");
+	if (!d) return;
+	struct dirent* entry;
+	while ((entry = readdir(d)) != nullptr) {
+		const char* name = entry->d_name;
+		if (entry->d_type != DT_REG) continue;
+		size_t len = strlen(name);
+		if (len < 5 || strcasecmp(name + len - 4, ".lua") != 0) continue;
+		std::string path = std::string("/root/lua/market/") + name;
+		ESP_LOGI(TAG, "清理旧版扁平市场文件: %s", path.c_str());
+		removeFile(path.c_str());
+	}
+	closedir(d);
 }
 
 // ============================================================
@@ -154,6 +178,9 @@ void MarketApp::init()
 
 	// 读取服务器配置
 	m_serverUrl = marketConfigGetUrl();
+
+	// 一次性清理旧版扁平市场文件（直接删除，不做迁移）
+	cleanupLegacyFlatFiles();
 
 	// 初始空列表
 	rebuildList();
@@ -449,7 +476,8 @@ void MarketApp::processThumbQueue()
 	const MarketScript& s = m_list[idx];
 	// 卡片优先用缩略图（小图，加载快），无缩略图则用大图
 	const std::string& imgRel = !s.thumb.empty() ? s.thumb : s.screenshot;
-	std::string path = "/root/mem/market_" + s.id + "_thumb.jpg";
+	// 缓存文件名带作者命名空间（防不同作者同 id 游戏缩略图互相覆盖）
+	std::string path = "/root/mem/market_" + sanitizeSegment(s.author) + "_" + s.id + "_thumb.jpg";
 	std::string url = m_serverUrl;
 
 	MarketClient::downloadFile(url, imgRel, path,
@@ -664,7 +692,8 @@ void MarketApp::loadScreenshot(const MarketScript& s)
 		return;
 	}
 
-	m_detailImagePath = "/root/mem/market_" + s.id + ".jpg";
+	// 截图缓存文件名带作者命名空间（防不同作者同 id 游戏截图互相覆盖）
+	m_detailImagePath = "/root/mem/market_" + sanitizeSegment(s.author) + "_" + s.id + ".jpg";
 	m_detailImageLoaded = false;
 
 	std::string url = m_serverUrl;
@@ -703,7 +732,7 @@ void MarketApp::downloadAndRun()
 
 	// 已下载 → 直接本地运行，不重复下载
 	if (selIdx < (int)m_downloaded.size() && m_downloaded[selIdx]) {
-		std::string path = localPathFor(s);
+		std::string path = localPathFor(s.author, s.id, s.download);
 		ESP_LOGI(TAG, "本地运行: %s", path.c_str());
 		if (m_manager) {
 			m_manager->push(new LuaGameApp(display, path.c_str()));
@@ -720,7 +749,8 @@ void MarketApp::downloadAndRun()
 
 	std::string url = m_serverUrl;
 	MarketClient::downloadScriptText(url, s.download,
-		[this, selIdx, id = s.id, name = s.name](bool ok, const std::string& content, const std::string& err) {
+		[this, selIdx, id = s.id, author = s.author, download = s.download]
+		(bool ok, const std::string& content, const std::string& err) {
 			m_downloading = false;
 			if (!running) return;   // App 已被销毁
 
@@ -730,10 +760,20 @@ void MarketApp::downloadAndRun()
 				return;
 			}
 
-			// 保存到 /root/lua/market/（市场专属目录，与用户脚本/AI 生成区分）
-			std::string fname = sanitizeFileName(id, name);
-			std::string path = "/root/lua/market/" + fname;
+			// 保存到 /root/lua/market/<作者>/<游戏>/（镜像服务器两级结构，作者/游戏隔离）
+			std::string path = localPathFor(author, id, download);
+
+			// 逐级建目录（mkdir 非递归）：/root/lua/market → <作者> → <游戏>
 			newFloor("/root/lua/market");
+			size_t lastSlash = path.rfind('/');
+			if (lastSlash != std::string::npos) {
+				std::string gameDir = path.substr(0, lastSlash);
+				std::string authorDir = gameDir;
+				size_t gameSlash = gameDir.rfind('/');
+				if (gameSlash != std::string::npos) authorDir = gameDir.substr(0, gameSlash);
+				newFloor(authorDir.c_str());
+				newFloor(gameDir.c_str());
+			}
 
 			FILE* f = fopen(path.c_str(), "w");
 			if (!f) {
@@ -761,37 +801,86 @@ void MarketApp::downloadAndRun()
 			}
 
 			// 上报一次下载（尽力而为，后台 Task 执行，不阻塞）
-			MarketClient::reportDownload(m_serverUrl, id);
+			// 组合键 作者/id：服务端按组合键统计，防同名游戏串号
+			MarketClient::reportDownload(m_serverUrl, author.empty() ? id : author + "/" + id);
 		});
 }
 
 // ============================================================
-//  文件名净化
+//  路径与文件名净化
 // ============================================================
 
-std::string MarketApp::sanitizeFileName(const std::string& id, const std::string& name)
+// 路径段净化：保留 UTF-8（支持中文作者名），仅清洗 FAT/路径非法字符，拒绝 "." / ".."
+std::string MarketApp::sanitizeSegment(const std::string& seg)
 {
-	std::string base = !id.empty() ? id : name;
+	if (seg == "." || seg == "..") return "";   // 拒绝路径穿越
 	std::string out;
-	for (char c : base) {
-		char lc = (char)tolower((unsigned char)c);
-		if (isalnum((unsigned char)c) || c == '_' || c == '-') {
-			out += lc;
-			if (out.size() >= 32) break;
+	out.reserve(seg.size());
+	for (char c : seg) {
+		if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
+			c == '"' || c == '<' || c == '>' || c == '|' ||
+			(unsigned char)c < 0x20) {
+			out += '_';
+		}
+		else {
+			out += c;
 		}
 	}
-	if (out.empty()) out = "market_game";
-	return out + ".lua";
+	if (out.size() > 128) out.resize(128);   // FAT 单段上限 255 字节，留余量
+	if (out.empty()) out = "_";
+	return out;
+}
+
+// 从下载 URL 提取市场内相对子路径（/games/<作者>/<游戏>/<文件> → <作者>/<游戏>/<文件>）
+std::string MarketApp::localSubPathFor(const std::string& author, const std::string& id,
+	const std::string& download)
+{
+	std::string rel;
+	std::string dl = download;
+	size_t g = dl.find("/games/");
+	if (g != std::string::npos) {
+		rel = dl.substr(g + 7);               // 去掉 "/games/" 前缀（与服务器目录镜像）
+	}
+	else {
+		// 兜底：作者/游戏/文件名（如 download 缺省 /scripts/<id>.lua）
+		std::string file = "game.lua";
+		size_t slash = dl.rfind('/');
+		if (slash != std::string::npos && slash + 1 < dl.size())
+			file = dl.substr(slash + 1);
+		if (file.empty()) file = "game.lua";
+		rel = (author.empty() ? "unknown" : author) + "/"
+			+ (id.empty() ? "game" : id) + "/" + file;
+	}
+
+	// 逐段净化（保留 UTF-8，拒绝路径穿越）
+	std::string out;
+	size_t pos = 0;
+	while (pos <= rel.size()) {
+		size_t s = rel.find('/', pos);
+		std::string seg = rel.substr(pos, (s == std::string::npos) ? std::string::npos : s - pos);
+		if (!seg.empty()) {
+			std::string clean = sanitizeSegment(seg);
+			if (!clean.empty()) {
+				if (!out.empty()) out += "/";
+				out += clean;
+			}
+		}
+		if (s == std::string::npos) break;
+		pos = s + 1;
+	}
+	if (out.empty()) out = "unknown/game/game.lua";
+	return out;
 }
 
 // ============================================================
 //  已下载状态
 // ============================================================
 
-// 脚本在本地市场目录的存储路径
-std::string MarketApp::localPathFor(const MarketScript& s)
+// 脚本在本地市场目录的存储路径（/root/lua/market/<作者>/<游戏>/<文件>）
+std::string MarketApp::localPathFor(const std::string& author, const std::string& id,
+	const std::string& download)
 {
-	return "/root/lua/market/" + sanitizeFileName(s.id, s.name);
+	return "/root/lua/market/" + localSubPathFor(author, id, download);
 }
 
 bool MarketApp::isDownloaded(int idx) const
@@ -805,7 +894,8 @@ void MarketApp::refreshDownloadedState()
 {
 	m_downloaded.assign(m_list.size(), false);
 	for (size_t i = 0; i < m_list.size(); i++) {
-		m_downloaded[i] = testFile(localPathFor(m_list[i]).c_str());
+		const auto& s = m_list[i];
+		m_downloaded[i] = testFile(localPathFor(s.author, s.id, s.download).c_str());
 	}
 }
 

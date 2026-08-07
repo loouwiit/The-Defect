@@ -40,11 +40,19 @@ void LuaManagerApp::scanScripts()
 {
 	m_scripts.clear();
 
-	const char* dirs[] = { "/root/lua/game", "/root/lua", "/root/lua/market" };
+	// 收集单个目录下的 .lua 文件（DT_REG）
+	auto collectDir = [&](const std::string& dir) {
+		DIR* d = opendir(dir.c_str());
+		if (!d) return;
 
-	for (const char* dir : dirs) {
-		DIR* d = opendir(dir);
-		if (!d) continue;
+		// 市场游戏目录（/root/lua/market/<作者>/<游戏>/）：显示「游戏 ID」（目录名）而非脚本文件名
+		//（服务器脚本通常叫 game.lua 这类通用名，游戏 ID 才是可读标识）
+		bool isMarketGame = (dir.rfind("/root/lua/market/", 0) == 0);
+		std::string marketGameId;
+		if (isMarketGame) {
+			size_t slash = dir.rfind('/');
+			marketGameId = (slash != std::string::npos) ? dir.substr(slash + 1) : std::string();
+		}
 
 		struct dirent* entry;
 		while ((entry = readdir(d)) != nullptr) {
@@ -57,11 +65,11 @@ void LuaManagerApp::scanScripts()
 
 			ScriptEntry se;
 			se.name = name;
-			se.displayName = std::string(name, len - 4);
-			se.path = std::string(dir) + "/" + name;
+			se.displayName = isMarketGame ? marketGameId : std::string(name, len - 4);
+			se.path = dir + "/" + name;
 
 			// 简短路径前缀
-			se.shortPath = std::string(dir + 5);  // 去掉 "/root"，如 "lua/game/" 或 "lua/"
+			se.shortPath = dir.substr(5);  // 去掉 "/root"，如 "lua/game/" 或 "lua/"
 			se.shortPath += "/";
 
 			// 获取文件大小
@@ -73,6 +81,35 @@ void LuaManagerApp::scanScripts()
 			m_scripts.push_back(std::move(se));
 		}
 		closedir(d);
+	};
+
+	// 平面目录：用户脚本 / AI 生成
+	const char* dirs[] = { "/root/lua/game", "/root/lua" };
+	for (const char* dir : dirs) {
+		collectDir(dir);
+	}
+
+	// 市场目录：两级子目录 <作者>/<游戏> 递归收集
+	const std::string marketRoot = "/root/lua/market";
+	DIR* md = opendir(marketRoot.c_str());
+	if (md) {
+		struct dirent* entry;
+		while ((entry = readdir(md)) != nullptr) {
+			if (entry->d_type != DT_DIR) continue;
+			if (entry->d_name[0] == '.') continue;
+
+			std::string authorDir = marketRoot + "/" + entry->d_name;
+			DIR* d2 = opendir(authorDir.c_str());
+			if (!d2) continue;
+			struct dirent* e2;
+			while ((e2 = readdir(d2)) != nullptr) {
+				if (e2->d_type != DT_DIR) continue;
+				if (e2->d_name[0] == '.') continue;
+				collectDir(authorDir + "/" + e2->d_name);
+			}
+			closedir(d2);
+		}
+		closedir(md);
 	}
 
 	// 排序：/root/lua/game/ 下的优先（AI 生成的），同目录按修改时间倒序
@@ -199,6 +236,12 @@ void LuaManagerApp::init()
 		}
 		else {
 			lv_obj_set_style_bg_color(m_bottomBtns[i], LV_COLOR_MAKE(0x30, 0x30, 0x40), 0);
+		}
+
+		// 重命名按钮：市场游戏选中时置灰（LV_STATE_DISABLED）
+		if (i == 2) {
+			lv_obj_set_style_bg_color(m_bottomBtns[i], LV_COLOR_MAKE(0x20, 0x20, 0x28), LV_STATE_DISABLED);
+			lv_obj_set_style_text_color(m_bottomBtns[i], LV_COLOR_MAKE(0x55, 0x55, 0x60), LV_STATE_DISABLED);
 		}
 	}
 
@@ -515,6 +558,21 @@ void LuaManagerApp::confirmDelete()
 
 	ESP_LOGI(TAG, "删除脚本: %s", m_pendingDeletePath.c_str());
 	removeFile(m_pendingDeletePath.c_str());
+
+	// 市场游戏：递归删除整个 <作者>/<游戏>/ 目录及其内容
+	if (isMarketPath(m_pendingDeletePath)) {
+		size_t slash = m_pendingDeletePath.rfind('/');
+		if (slash != std::string::npos) {
+			std::string gameDir = m_pendingDeletePath.substr(0, slash);
+			removeFloorRecursive(gameDir.c_str());
+			// 作者目录若无剩余游戏则一并删除（rmdir 非空会失败，忽略即可）
+			size_t gs = gameDir.rfind('/');
+			if (gs != std::string::npos) {
+				std::string authorDir = gameDir.substr(0, gs);
+				removeFloor(authorDir.c_str());
+			}
+		}
+	}
 	m_pendingDeletePath.clear();
 
 	m_mode = MODE_BROWSE;
@@ -528,10 +586,22 @@ void LuaManagerApp::confirmDelete()
 	}
 }
 
+// 是否市场游戏脚本（/root/lua/market/<作者>/<游戏>/，不支持重命名）
+bool LuaManagerApp::isMarketPath(const std::string& path)
+{
+	return path.rfind("/root/lua/market/", 0) == 0;
+}
+
 void LuaManagerApp::startRename()
 {
 	if (m_selectedIdx < 0 || m_selectedIdx >= (int)m_scripts.size()) return;
 	if (m_mode != MODE_BROWSE) return;
+
+	// 市场游戏不支持重命名（改名会破坏「已装」识别与游戏 ID 显示）
+	if (isMarketPath(m_scripts[m_selectedIdx].path)) {
+		ESP_LOGI(TAG, "市场游戏不支持重命名: %s", m_scripts[m_selectedIdx].path.c_str());
+		return;
+	}
 
 	m_mode = MODE_RENAME_INPUT;
 
@@ -609,6 +679,12 @@ void LuaManagerApp::startRename()
 void LuaManagerApp::submitRename()
 {
 	if (m_selectedIdx < 0 || m_selectedIdx >= (int)m_scripts.size()) return;
+
+	// 市场游戏不支持重命名（防御：即使 UI 被绕过也拦截）
+	if (isMarketPath(m_scripts[m_selectedIdx].path)) {
+		cancelRename();
+		return;
+	}
 
 	const char* newName = lv_textarea_get_text(m_renameField);
 	if (!newName || strlen(newName) == 0) {
@@ -690,6 +766,14 @@ void LuaManagerApp::applyFocus()
 	}
 	if (m_confirmCancelBtn) lv_obj_clear_state(m_confirmCancelBtn, LV_STATE_FOCUSED);
 	if (m_confirmOkBtn) lv_obj_clear_state(m_confirmOkBtn, LV_STATE_FOCUSED);
+
+	// 市场游戏不支持重命名 → 重命名按钮置灰（随选中项同步）
+	bool selIsMarket = (m_selectedIdx >= 0 && m_selectedIdx < (int)m_scripts.size())
+		&& isMarketPath(m_scripts[m_selectedIdx].path);
+	if (selIsMarket)
+		lv_obj_add_state(m_bottomBtns[2], LV_STATE_DISABLED);
+	else
+		lv_obj_clear_state(m_bottomBtns[2], LV_STATE_DISABLED);
 
 	// 再设置当前焦点组的焦点
 	switch (m_focusGroup) {

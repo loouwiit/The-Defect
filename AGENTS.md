@@ -1405,7 +1405,7 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 | 入口 | 桌面第 7 张卡片「游戏市场」；AI `open_app("market")` |
 | 一级界面 | 3 列截图卡片网格（缩略图懒加载串行队列，未加载显示 ★评分 占位） |
 | 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 简介/版本/更新时间/下载量/评分 + 下载运行 |
-| 已下载识别 | 下载存 `/root/lua/market/<id>.lua`；`testFile()` 检测 → 按钮变「运行」直接本地启动，卡片显示「已装」角标 |
+| 已下载识别 | 下载存 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器两级结构，作者/游戏隔离）；`testFile()` 检测 → 按钮变「运行」直接本地启动，卡片显示「已装」角标 |
 | 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载运行）；B 返回 |
 
 ---
