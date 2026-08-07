@@ -129,6 +129,14 @@ void FruitNinjaApp::gameLoop(void* param)
 		self.m_logic.tick(dt);
 		self.updateTouchFromSlots();
 		self.m_renderer.ageTrail(dt);
+
+		// 残留刀光切割：活跃刀光段在其 0.5s 存活期内每帧与水果做线段碰撞，
+		// 使水果飞过残留白刃也能被切（已超时段经 ageTrail 置 inactive，不参与）。
+		// 同一水果由 sliced 防重判，不重复计分；与当帧即时 swipe 互补。
+		self.m_renderer.forEachTrailSegment([&self](float x1, float y1, float x2, float y2, int segPlayer) {
+			self.m_logic.handleSwipe(segPlayer, x1, y1, x2, y2);
+		});
+
 		self.m_renderer.beginFrame(self.m_logic);
 
 		// 渲染提交（持锁：写 canvas buffer + invalidate + HUD）
@@ -213,7 +221,8 @@ void FruitNinjaApp::updateTouchFromSlots()
 						static_cast<float>(f.prevPoint.x),
 						static_cast<float>(f.prevPoint.y),
 						static_cast<float>(pt.x),
-						static_cast<float>(pt.y));
+						static_cast<float>(pt.y),
+						player);
 					f.prevPoint = pt;
 				}
 			}

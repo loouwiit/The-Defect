@@ -2,6 +2,7 @@
 
 #include "lvgl.h"
 #include "fruitNinjaLogic.hpp"
+#include <functional>
 
 /**
  * @brief 水果忍者 LVGL 渲染器（canvas 化重构）
@@ -49,14 +50,17 @@ public:
 	// 线段池模型：触摸每帧把 (上一帧位置, 当前帧位置) 作为一条线段段追加。
 	// 段池 + 超时消失：每段保持 TRAIL_LIFETIME 秒后消失（无渐隐，无每帧重绘）。
 
-	/** @brief 追加一条刀光线段段（触摸移动产生） */
-	void addTrailSegment(float x1, float y1, float x2, float y2);
+	/** @brief 追加一条刀光线段段（触摸移动产生；player 为段归属玩家，2P 分屏用） */
+	void addTrailSegment(float x1, float y1, float x2, float y2, int player);
 
 	/** @brief 每帧统一老化（递减各段剩余生命，超时后消失） */
 	void ageTrail(float dt);
 
 	/** @brief 一键清空所有线段段（保留上帧标记，下一帧 render 清除 canvas 残留） */
 	void clearTrail();
+
+	/** @brief 遍历当前所有活跃刀光段（残留 0.5s 内持续触发切割；gameLoop 线程调用，无锁） */
+	void forEachTrailSegment(const std::function<void(float, float, float, float, int)>& cb) const;
 
 private:
 	static constexpr int W = 1280;
@@ -92,6 +96,7 @@ private:
 	{
 		float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 		float life = 0;        // 剩余生命（秒），ageTrail 递减，<=0 消失
+		uint8_t player = 0;    // 段归属玩家（0=P1, 1=P2），残留切割按玩家过滤
 		bool active = false;
 	};
 	TrailSegment m_segments[kMaxSegments]{};
@@ -170,6 +175,11 @@ private:
 	static constexpr FruitImage s_emptyImg{};   // 空图片（valid=false）
 	void loadFruitImages();              // create() 持锁解码 5 张 JPG
 	void blitImage(int cx, int cy, int r, const FruitImage& img, uint8_t opa);
+
+	// ── 全屏背景图（esp_driver_jpeg 硬件解码 → 等比 cover 缩放居中裁剪到 W×H，PSRAM RGB565） ──
+	FruitImage m_bg{};                            // W×H 背景缓冲；valid=false 时回退纯色 m_bg565
+	void loadBackground();                        // create() 持锁解码 + cover 缩放
+	void paintBgRect(int x1, int y1, int x2, int y2);   // 从背景图复制矩形区域到 canvas（清脏区用）
 
 	// ── HUD / GameOver / 退出按钮（LVGL） ──
 	lv_obj_t* m_scoreLabel{};

@@ -72,7 +72,11 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 	else m_stride = (size_t)W * 2;
 
 	m_bg565 = color565(0x0a0a1e);
-	fillRect(0, 0, W - 1, H - 1, m_bg565);
+	loadBackground();                        // 解码全屏背景图（失败回退纯色）
+	if (m_bg.valid)
+		paintBgRect(0, 0, W - 1, H - 1);
+	else
+		fillRect(0, 0, W - 1, H - 1, m_bg565);
 
 	// ── 提示文字 glyph 预缓存（软件 blit，无 LVGL label） ──
 	preloadGlyphs();
@@ -180,6 +184,12 @@ FruitNinjaRenderer::~FruitNinjaRenderer()
 			im.buf = nullptr;
 			im.valid = false;
 		}
+	if (m_bg.buf)
+	{
+		heap_caps_free(const_cast<uint16_t*>(m_bg.buf));
+		m_bg.buf = nullptr;
+		m_bg.valid = false;
+	}
 }
 
 // ============================================================
@@ -602,11 +612,14 @@ void FruitNinjaRenderer::expandRedraw(const FruitNinjaLogic& logic)
 
 void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 {
-	// 1. 清 D 各区域背景
+	// 1. 清 D 各区域背景（有背景图则从图复制，否则纯色）
 	for (int i = 0; i < m_dirtyCount; i++)
 	{
 		const auto& d = m_dirty[i];
-		fillRect(d.x1, d.y1, d.x2, d.y2, m_bg565);
+		if (m_bg.valid)
+			paintBgRect(d.x1, d.y1, d.x2, d.y2);
+		else
+			fillRect(d.x1, d.y1, d.x2, d.y2, m_bg565);
 	}
 
 	// 2. 按 z 序重画 R：水果 → 粒子 → 分隔线 → 刀光 → 提示文字
@@ -847,6 +860,127 @@ void FruitNinjaRenderer::loadFruitImages()
 	}
 
 	jpeg_del_decoder_engine(eng);
+}
+
+// ============================================================
+// 全屏背景图 — 硬件解码（直接 1280×720 同尺寸，一次加载，逐帧仅按区域 memcpy）
+// ============================================================
+
+void FruitNinjaRenderer::loadBackground()
+{
+	static const char* path = "/root/system/fruitNinja/fruitbackground.jpg";
+
+	FILE* f = fopen(path, "rb");
+	if (!f)
+	{
+		ESP_LOGW(TAG, "打开背景图失败: %s", path);
+		return;
+	}
+	fseek(f, 0, SEEK_END);
+	long fsz = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (fsz <= 0)
+	{
+		fclose(f);
+		return;
+	}
+
+	jpeg_decode_memory_alloc_cfg_t inMem = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
+	size_t inAlloc = 0;
+	uint8_t* jpg = static_cast<uint8_t*>(jpeg_alloc_decoder_mem((size_t)fsz, &inMem, &inAlloc));
+	if (!jpg)
+	{
+		fclose(f);
+		return;
+	}
+	if (fread(jpg, 1, (size_t)fsz, f) != (size_t)fsz)
+	{
+		heap_caps_free(jpg);
+		fclose(f);
+		return;
+	}
+	fclose(f);
+
+	jpeg_decode_picture_info_t info{};
+	if (jpeg_decoder_get_info(jpg, (uint32_t)fsz, &info) != ESP_OK || info.width == 0 || info.height == 0)
+	{
+		heap_caps_free(jpg);
+		ESP_LOGW(TAG, "背景图 JPEG 头解析失败: %s", path);
+		return;
+	}
+
+	// 背景图须与画布同尺寸（1280×720），直接 1:1 使用，无需缩放/对齐。
+	if (info.width != W || info.height != H)
+	{
+		heap_caps_free(jpg);
+		ESP_LOGW(TAG, "背景图尺寸 %dx%d 与画布 %dx%d 不符，回退纯色", info.width, info.height, W, H);
+		return;
+	}
+
+	size_t fullSize = (size_t)info.width * info.height * 2;
+	jpeg_decode_memory_alloc_cfg_t outMem = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
+	size_t outAlloc = 0;
+	uint8_t* full = static_cast<uint8_t*>(jpeg_alloc_decoder_mem(fullSize, &outMem, &outAlloc));
+	if (!full)
+	{
+		heap_caps_free(jpg);
+		return;
+	}
+
+	jpeg_decode_engine_cfg_t eng_cfg = { .intr_priority = 0, .timeout_ms = 500 };
+	jpeg_decoder_handle_t eng = nullptr;
+	if (jpeg_new_decoder_engine(&eng_cfg, &eng) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		ESP_LOGE(TAG, "jpeg_new_decoder_engine 失败，背景回退纯色");
+		return;
+	}
+	jpeg_decode_cfg_t dec_cfg = {
+		.output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
+		.rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,   // 小端，可直接 uint16 读（与 canvas 一致）
+		.conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
+	};
+	uint32_t outSize = 0;
+	uint32_t outBufSize = (outAlloc >= fullSize) ? (uint32_t)outAlloc : (uint32_t)fullSize;
+	if (jpeg_decoder_process(eng, &dec_cfg, jpg, (uint32_t)fsz, full, outBufSize, &outSize) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		jpeg_del_decoder_engine(eng);
+		ESP_LOGW(TAG, "背景图解码失败: %s", path);
+		return;
+	}
+	heap_caps_free(jpg);
+	jpeg_del_decoder_engine(eng);
+
+	m_bg.buf = reinterpret_cast<const uint16_t*>(full);
+	m_bg.w = W;
+	m_bg.h = H;
+	m_bg.valid = true;
+	ESP_LOGI(TAG, "背景图就绪: %dx%d", info.width, info.height);
+}
+
+// ============================================================
+// 背景区域复制 — 从已 cover 缩放的背景缓冲 memcpy 到 canvas（清脏区用）
+// ============================================================
+
+void FruitNinjaRenderer::paintBgRect(int x1, int y1, int x2, int y2)
+{
+	if (!m_buf || !m_bg.valid) return;
+	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
+	if (x1 < 0) x1 = 0;
+	if (y1 < 0) y1 = 0;
+	if (x2 >= W) x2 = W - 1;
+	if (y2 >= H) y2 = H - 1;
+
+	const int cw = x2 - x1 + 1;
+	for (int y = y1; y <= y2; y++)
+	{
+		const uint16_t* src = m_bg.buf + (size_t)y * m_bg.w + x1;
+		uint16_t* dst = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride) + x1;
+		memcpy(dst, src, (size_t)cw * 2);
+	}
 }
 
 const FruitNinjaRenderer::GlyphCache* FruitNinjaRenderer::findGlyph(uint32_t letter) const
@@ -1116,7 +1250,7 @@ void FruitNinjaRenderer::showGameOver(lv_obj_t* parent, const FruitNinjaLogic& l
 // 刀光线段 — 追加一条线段段（触摸每帧产生；段池回绕，超时消失）
 // ============================================================
 
-void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
+void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2, int player)
 {
 	// 长线段拆分为多段短段（每段 ≤ kMaxSegLen）。
 	// drawWideLine 遍历整段包围盒逐像素做距离判断：短段包围盒贴近线段本身（遍历≈填充），
@@ -1136,6 +1270,7 @@ void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2)
 		seg.x2 = x1 + dx * t1;
 		seg.y2 = y1 + dy * t1;
 		seg.life = TRAIL_LIFETIME;   // 回绕覆盖旧段时重置生命周期
+		seg.player = static_cast<uint8_t>(player);
 		seg.active = true;
 		m_segWrite = (m_segWrite + 1) % kMaxSegments;
 	}
@@ -1168,4 +1303,19 @@ void FruitNinjaRenderer::clearTrail()
 	for (int i = 0; i < kMaxSegments; i++)
 		m_segments[i].active = false;
 	m_segWrite = 0;
+}
+
+// ============================================================
+// 白刃轨迹 — 遍历活跃段（残留 0.5s 内持续触发切割）
+// ============================================================
+
+void FruitNinjaRenderer::forEachTrailSegment(
+	const std::function<void(float, float, float, float, int)>& cb) const
+{
+	for (int i = 0; i < kMaxSegments; i++)
+	{
+		const auto& s = m_segments[i];
+		if (!s.active) continue;
+		cb(s.x1, s.y1, s.x2, s.y2, s.player);
+	}
 }
