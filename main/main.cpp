@@ -43,6 +43,7 @@
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "monitor/cpuMonitor.hpp"
 #include "battery/batteryManager.hpp"
+#include "battery/batteryMonitor.hpp"
 #include "time/timeService.hpp"
 
 static constexpr char TAG[] = "main";
@@ -210,6 +211,9 @@ extern "C" void app_main(void)
 	AiAgentOverlay::instance().start(&display);
 
 	// 手势检测由 AiAgentOverlay 内部通过 LVGL 事件完成（无需后台 Task）
+
+	// 低电量检测提醒（主机 + 蓝牙手柄，lv_layer_sys 弹窗 + 提示音）
+	BatteryMonitor::instance().start(&display);
 
 	// wifi
 	wifiInit(true);

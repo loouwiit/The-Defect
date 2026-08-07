@@ -3,6 +3,7 @@
 #include "host/udpInput.hpp"
 #include "app/app.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
+#include "battery/batteryMonitor.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -116,8 +117,9 @@ void VirtualGamepad::dispatchTask(void* arg)
 		auto startTick = xTaskGetTickCount();
 
 		if (self.m_display) {
-			// AI Overlay 显示时独占输入，不向 App 分发
-			if (!AiAgentOverlay::instance().isVisible()) {
+			// AI Overlay 或低电量弹窗显示时独占输入，不向 App 分发
+			if (!AiAgentOverlay::instance().isVisible() &&
+				!BatteryMonitor::instance().isAlertShown()) {
 				auto* app = self.m_display->getActiveApp();
 				if (app) {
 					for (int h = 0; h < 4; h++) {
