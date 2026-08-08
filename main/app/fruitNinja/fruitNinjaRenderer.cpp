@@ -97,6 +97,9 @@ void FruitNinjaRenderer::create(lv_obj_t* parent)
 	// ── qiuyuan 人物精灵图硬件解码 + 白色抠图（失败回退不显示人物） ──
 	loadQiuyuanImage();
 
+	// ── sword 光效刀光精灵图硬件解码 + 亮度抠图（失败回退竹绿线条） ──
+	loadSwordImage();
+
 	// ── HUD 标签 ──
 	m_scoreLabel = lv_label_create(parent);
 	lv_label_set_text(m_scoreLabel, "");
@@ -225,6 +228,17 @@ FruitNinjaRenderer::~FruitNinjaRenderer()
 		heap_caps_free(m_qiuyuanAlpha);
 		m_qiuyuanAlpha = nullptr;
 	}
+	if (m_swordImg.buf)
+	{
+		heap_caps_free(const_cast<uint16_t*>(m_swordImg.buf));
+		m_swordImg.buf = nullptr;
+		m_swordImg.valid = false;
+	}
+	if (m_swordAlpha)
+	{
+		heap_caps_free(m_swordAlpha);
+		m_swordAlpha = nullptr;
+	}
 }
 
 // ============================================================
@@ -285,6 +299,28 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::particleBBox(const FruitNinjaLogic:
 
 FruitNinjaRenderer::BBox FruitNinjaRenderer::segBBox(const TrailSegment& s) const
 {
+	// 光效刀光：sword 图有效时按旋转精灵半对角外接矩形（段中点为中心，scale 与 blitSwordSegment 一致）
+	if (m_swordImg.valid)
+	{
+		float imgLong = (m_swordImg.w >= m_swordImg.h) ? (float)m_swordImg.w : (float)m_swordImg.h;
+		if (imgLong > 0.0f)
+		{
+			float len = hypotf(s.x2 - s.x1, s.y2 - s.y1);
+			float scale = kSwordScale * len / imgLong;
+			float hr = 0.5f * scale * hypotf((float)m_swordImg.w, (float)m_swordImg.h);
+			int R = static_cast<int>(ceilf(hr)) + 1;
+			float mx = (s.x1 + s.x2) * 0.5f;
+			float my = (s.y1 + s.y2) * 0.5f;
+			BBox b;
+			b.active = true;
+			b.x1 = static_cast<int>(mx) - R;
+			b.y1 = static_cast<int>(my) - R;
+			b.x2 = static_cast<int>(mx) + R;
+			b.y2 = static_cast<int>(my) + R;
+			return b;
+		}
+	}
+	// 回退：14px 线宽包围盒
 	constexpr int R = 7;   // 刀光半宽（14px）
 	BBox b;
 	b.active = true;
@@ -582,6 +618,86 @@ void FruitNinjaRenderer::blitRotatedSprite(const FruitImage& img, const uint8_t*
 	}
 }
 
+// 通用旋转精灵绘制（加法混合）：逆旋转 + 最近邻采样 + 逐像素 alpha*fadeByte 加法混合
+// 用于深色底光效图（sword）：dst = clamp(dst + src*alpha/255)，发光更亮、叠加更自然
+void FruitNinjaRenderer::blitRotatedSpriteAdd(const FruitImage& img, const uint8_t* alpha,
+	float cx, float cy, float scale, float angle, uint8_t fadeByte)
+{
+	if (!m_buf || !img.valid || !alpha) return;
+	const int iw = img.w, ih = img.h;
+	const float ca = cosf(angle), sa = sinf(angle);
+	const float cxS = iw * 0.5f;
+	const float cyS = ih * 0.5f;
+
+	float hr = 0.5f * scale * hypotf((float)iw, (float)ih);
+	int x1 = (int)(cx - hr), y1 = (int)(cy - hr);
+	int x2 = (int)(cx + hr), y2 = (int)(cy + hr);
+	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
+	if (x1 < 0) x1 = 0;
+	if (y1 < 0) y1 = 0;
+	if (x2 >= W) x2 = W - 1;
+	if (y2 >= H) y2 = H - 1;
+
+	const float invScale = 1.0f / scale;
+	for (int y = y1; y <= y2; y++)
+	{
+		float ry = (y - cy) * invScale;
+		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
+		for (int x = x1; x <= x2; x++)
+		{
+			float rx = (x - cx) * invScale;
+			float sx = cxS + (ca * rx + sa * ry);
+			float sy = cyS + (-sa * rx + ca * ry);
+			int si = (int)sx, sj = (int)sy;
+			if (si < 0 || sj < 0 || si >= iw || sj >= ih) continue;
+			uint8_t a = alpha[(size_t)sj * iw + si];
+			if (a < 8) continue;
+			if (fadeByte < 255)
+			{
+				a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);
+				if (a < 8) continue;
+			}
+			uint16_t src = img.buf[(size_t)sj * iw + si];
+			// 加法混合：dst = clamp(dst + src*alpha/255)（RGB565 各通道按位宽钳制）
+			uint8_t dr = (row[x] >> 11) & 0x1f, dg = (row[x] >> 5) & 0x3f, db = row[x] & 0x1f;
+			uint8_t sr = (src >> 11) & 0x1f, sg = (src >> 5) & 0x3f, sb = src & 0x1f;
+			uint32_t r = dr + ((uint32_t)sr * a) / 255; if (r > 31) r = 31;
+			uint32_t g = dg + ((uint32_t)sg * a) / 255; if (g > 63) g = 63;
+			uint32_t b = db + ((uint32_t)sb * a) / 255; if (b > 31) b = 31;
+			row[x] = (uint16_t)((r << 11) | (g << 5) | b);
+		}
+	}
+}
+
+// ============================================================
+// sword 光效刀光 — 单段旋转绘制（光效精灵 + 残影渐隐，加法混合）
+// ============================================================
+
+void FruitNinjaRenderer::blitSwordSegment(float x1, float y1, float x2, float y2, float life)
+{
+	if (!m_swordImg.valid || !m_swordAlpha) return;
+	float dx = x2 - x1, dy = y2 - y1;
+	float len = sqrtf(dx * dx + dy * dy);
+	float imgLong = (m_swordImg.w >= m_swordImg.h) ? (float)m_swordImg.w : (float)m_swordImg.h;
+	if (len < 0.1f || imgLong <= 0.0f) return;
+
+	// 缩放：光效长轴 ≈ 段长 × kSwordScale（段连续拼接 → 连续光带）
+	float scale = kSwordScale * len / imgLong;
+
+	// 主轴朝向：图长轴在水平（w>=h）→ 对齐段方向；竖直（h>w）→ 减 90°；再加手动微调
+	float axisOffset = (m_swordImg.w >= m_swordImg.h) ? 0.0f : -1.5707963f;
+	float angle = atan2f(dy, dx) + axisOffset + kSwordAngleOffset;
+
+	// 残影渐隐：按剩余生命比例 alpha 递减（新段亮、旧段暗 → 光掠过留残影）
+	float frac = (TRAIL_LIFETIME > 0.0f) ? (life / TRAIL_LIFETIME) : 1.0f;
+	if (frac < 0.0f) frac = 0.0f;
+	else if (frac > 1.0f) frac = 1.0f;
+	uint8_t fadeByte = (uint8_t)((0.3f + 0.7f * frac) * 255.0f);
+
+	blitRotatedSpriteAdd(m_swordImg, m_swordAlpha,
+		(x1 + x2) * 0.5f, (y1 + y2) * 0.5f, scale, angle, fadeByte);
+}
+
 void FruitNinjaRenderer::blitLeaf(float cx, float cy, const LeafParticle& l)
 {
 	if (!m_leafImg.valid || !m_leafAlpha) return;
@@ -715,7 +831,7 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		prev = cur;
 	}
 
-	// ── 刀光段（超时消失：仅新增/移除/回绕顶掉标脏，不每帧重绘） ──
+	// ── 刀光段（光效残影：sword 图有效时每帧渐隐 → 活跃段每帧重绘；否则仅增删/回绕标脏） ──
 	for (int i = 0; i < kMaxSegments; i++)
 	{
 		BBox cur = m_segments[i].active ? segBBox(m_segments[i]) : BBox{};
@@ -724,6 +840,7 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		bool changed = (cur.active != prev.active)
 			|| (cur.active && (cur.x1 != prev.x1 || cur.y1 != prev.y1 ||
 				cur.x2 != prev.x2 || cur.y2 != prev.y2));
+		if (cur.active && m_swordImg.valid) changed = true;   // 残影渐隐逐帧变化 → 活跃段每帧重绘
 		if (changed)
 		{
 			if (prev.active) dirtyAdd(prev.x1, prev.y1, prev.x2, prev.y2);
@@ -832,8 +949,13 @@ void FruitNinjaRenderer::paint(const FruitNinjaLogic& logic)
 	}
 	for (int i = 0; i < kMaxSegments; i++)
 		if (m_redrawSeg[i])
-			drawWideLine(m_segments[i].x1, m_segments[i].y1,
-				m_segments[i].x2, m_segments[i].y2, 14, color565(kBambooGreen));   // 竹绿色拖尾
+		{
+			const auto& seg = m_segments[i];
+			if (m_swordImg.valid)
+				blitSwordSegment(seg.x1, seg.y1, seg.x2, seg.y2, seg.life);   // 光效精灵 + 残影渐隐
+			else
+				drawWideLine(seg.x1, seg.y1, seg.x2, seg.y2, 14, color565(kBambooGreen));   // 回退竹绿拖尾
+		}
 	paintLeaves();
 	paintTouchHeads();
 	paintHints(logic);
@@ -1500,6 +1622,156 @@ void FruitNinjaRenderer::loadQiuyuanImage()
 	m_qiuyuanImg.valid = true;
 	m_qiuyuanAlpha = alpha;
 	ESP_LOGI(TAG, "qiuyuan 人物图就绪: %dx%d, alpha 抠图完成", sw, sh);
+}
+
+// ============================================================
+// sword 光效刀光 — 硬件解码（深色底光效图 → 亮度抠 alpha + 加法混合）
+// ============================================================
+
+void FruitNinjaRenderer::loadSwordImage()
+{
+	static const char* path = "/root/system/fruitNinja/sword.jpg";
+
+	FILE* f = fopen(path, "rb");
+	if (!f)
+	{
+		ESP_LOGW(TAG, "打开 sword 光效图失败: %s", path);
+		return;
+	}
+	fseek(f, 0, SEEK_END);
+	long fsz = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (fsz <= 0)
+	{
+		fclose(f);
+		return;
+	}
+
+	// 输入 buffer 必须用驱动专用 jpeg_alloc_decoder_mem 分配（硬件 DMA 对齐要求）
+	jpeg_decode_memory_alloc_cfg_t inMem = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
+	size_t inAlloc = 0;
+	uint8_t* jpg = static_cast<uint8_t*>(jpeg_alloc_decoder_mem((size_t)fsz, &inMem, &inAlloc));
+	if (!jpg)
+	{
+		fclose(f);
+		return;
+	}
+	if (fread(jpg, 1, (size_t)fsz, f) != (size_t)fsz)
+	{
+		heap_caps_free(jpg);
+		fclose(f);
+		return;
+	}
+	fclose(f);
+
+	jpeg_decode_picture_info_t info{};
+	if (jpeg_decoder_get_info(jpg, (uint32_t)fsz, &info) != ESP_OK || info.width == 0 || info.height == 0)
+	{
+		heap_caps_free(jpg);
+		ESP_LOGW(TAG, "sword JPEG 头解析失败: %s", path);
+		return;
+	}
+
+	// 解码器输出按 MCU 对齐（同 qiuyuan）：YUV444/GRAY 8 像素、其余 16，用真实 processW 作回读行距
+	int mcux = (info.sample_method == JPEG_DOWN_SAMPLING_YUV444 || info.sample_method == JPEG_DOWN_SAMPLING_GRAY) ? 8 : 16;
+	int mcuy = (info.sample_method == JPEG_DOWN_SAMPLING_YUV420) ? 16 : 8;
+	int processW = (int)(((uint32_t)info.width + mcux - 1) & ~(uint32_t)(mcux - 1));
+	int processH = (int)(((uint32_t)info.height + mcuy - 1) & ~(uint32_t)(mcuy - 1));
+	size_t fullSize = (size_t)processW * processH * 2;
+	jpeg_decode_memory_alloc_cfg_t outMem = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
+	size_t outAlloc = 0;
+	uint8_t* full = static_cast<uint8_t*>(jpeg_alloc_decoder_mem(fullSize, &outMem, &outAlloc));
+	if (!full)
+	{
+		heap_caps_free(jpg);
+		return;
+	}
+
+	jpeg_decode_engine_cfg_t eng_cfg = { .intr_priority = 0, .timeout_ms = 500 };
+	jpeg_decoder_handle_t eng = nullptr;
+	if (jpeg_new_decoder_engine(&eng_cfg, &eng) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		ESP_LOGE(TAG, "jpeg_new_decoder_engine 失败，sword 光效禁用");
+		return;
+	}
+	jpeg_decode_cfg_t dec_cfg = {
+		.output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
+		.rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,   // 小端，可直接 uint16 读（与 canvas 一致）
+		.conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
+	};
+	uint32_t outSize = 0;
+	uint32_t outBufSize = (outAlloc >= fullSize) ? (uint32_t)outAlloc : (uint32_t)fullSize;
+	if (jpeg_decoder_process(eng, &dec_cfg, jpg, (uint32_t)fsz, full, outBufSize, &outSize) != ESP_OK)
+	{
+		heap_caps_free(full);
+		heap_caps_free(jpg);
+		jpeg_del_decoder_engine(eng);
+		ESP_LOGW(TAG, "sword 解码失败: %s", path);
+		return;
+	}
+	heap_caps_free(jpg);
+	jpeg_del_decoder_engine(eng);
+
+	// 统一重排为紧凑 RGB565（无行填充）并缩到最大边 ≤256（控制内存 + 加速每帧 blit）
+	constexpr int MAX_SIDE = 256;
+	float k = 1.0f;
+	if ((int)info.width > MAX_SIDE || (int)info.height > MAX_SIDE)
+		k = (float)MAX_SIDE / ((int)info.width > (int)info.height ? (int)info.width : (int)info.height);
+	int sw = (int)(info.width * k);  if (sw < 1) sw = 1;
+	int sh = (int)(info.height * k); if (sh < 1) sh = 1;
+
+	uint16_t* compact = static_cast<uint16_t*>(heap_caps_malloc((size_t)sw * sh * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!compact)
+	{
+		heap_caps_free(full);
+		ESP_LOGW(TAG, "sword 重排分配失败，光效禁用");
+		return;
+	}
+	const uint16_t* src = reinterpret_cast<const uint16_t*>(full);
+	for (int y = 0; y < sh; y++)
+	{
+		int sy = (y * (int)info.height) / sh;
+		for (int x = 0; x < sw; x++)
+		{
+			int sx = (x * (int)info.width) / sw;
+			compact[(size_t)y * sw + x] = src[(size_t)sy * processW + sx];   // 源行 stride = processW（MCU 对齐）
+		}
+	}
+	heap_caps_free(full);
+
+	// ── 深色背景抠图（按亮度）：光效像素亮、背景暗 → alpha 由最大通道亮度决定，加法混合叠加更自然 ──
+	uint8_t* alpha = static_cast<uint8_t*>(heap_caps_malloc((size_t)sw * sh, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!alpha)
+	{
+		heap_caps_free(compact);
+		ESP_LOGW(TAG, "sword 抠图缓冲分配失败，光效禁用");
+		return;
+	}
+	for (int y = 0; y < sh; y++)
+	{
+		for (int x = 0; x < sw; x++)
+		{
+			uint16_t c = compact[(size_t)y * sw + x];
+			// RGB565 → 0-255
+			int r = (c >> 11) & 0x1f; r = (r << 3) | (r >> 2);
+			int g = (c >> 5) & 0x3f;  g = (g << 2) | (g >> 6);
+			int b = c & 0x1f;         b = (b << 3) | (b >> 2);
+			int mx = (r > g) ? (r > b ? r : b) : (g > b ? g : b);   // 最大通道 = 光效亮度（彩色光不被 luma 误压暗）
+			int a = (int)((float)(mx - (int)kSwordAlphaFloor) * kSwordAlphaGain);
+			if (a < 0) a = 0;
+			else if (a > 255) a = 255;
+			alpha[(size_t)y * sw + x] = (uint8_t)a;
+		}
+	}
+
+	m_swordImg.buf = reinterpret_cast<const uint16_t*>(compact);
+	m_swordImg.w = sw;
+	m_swordImg.h = sh;
+	m_swordImg.valid = true;
+	m_swordAlpha = alpha;
+	ESP_LOGI(TAG, "sword 光效图就绪: %dx%d, 亮度抠图完成", sw, sh);
 }
 
 // ============================================================

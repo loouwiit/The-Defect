@@ -85,7 +85,13 @@ private:
 	static constexpr int kMaxTouchHeads = 5;     // 触摸头部人物上限（对齐 GT911 槽位）
 	static constexpr float kQiuyuanHeight = 100.0f;   // qiuyuan 人物显示高度（px，按图高等比缩放）
 	static constexpr float kQiuyuanTrail = 110.0f;    // 人物跟随手指的"身后"偏移距离（px），避免被手遮住
-	static constexpr uint32_t kBambooGreen = 0x9acd32;   // 竹绿色（刀光拖尾）
+	static constexpr uint32_t kBambooGreen = 0x9acd32;   // 竹绿色（刀光拖尾，sword 图加载失败时回退）
+
+	// ── sword 光效刀光（sword.jpg：深色底光效图 → 亮度抠 alpha + 加法混合，逐段旋转 + 残影渐隐） ──
+	static constexpr float kSwordScale = 1.3f;        // 每段光效缩放倍率（相对段长/图长边；调残影大小/密度）
+	static constexpr float kSwordAngleOffset = 0.0f;  // 图片主轴朝向额外偏移（rad），按 sword.jpg 实际朝向微调
+	static constexpr float kSwordAlphaGain = 1.5f;    // 亮度→alpha 增益（深底抠图阈值，越高背景抠得越狠）
+	static constexpr uint8_t kSwordAlphaFloor = 32;   // 亮度下限：低于此视为深底背景 → 透明
 
 	// ── canvas ──
 	lv_obj_t* m_canvas{};
@@ -241,6 +247,14 @@ private:
 	void blitQiuyuan(float cx, float cy, float angle);   // 固定显示高度旋转绘制
 	void blitRotatedSprite(const FruitImage& img, const uint8_t* alpha,
 		float cx, float cy, float scale, float angle, uint8_t fadeByte);   // 通用旋转精灵绘制（竹叶/人物共用）
+
+	// ── sword 光效刀光（sword.jpg：深色底光效 → 亮度抠 alpha；沿轨迹逐段旋转 + 残影渐隐） ──
+	FruitImage m_swordImg{};              // RGB565 像素（最大边 ≤ 256）
+	uint8_t* m_swordAlpha = nullptr;      // 逐像素 alpha（亮度抠图，0-255）
+	void loadSwordImage();                // create() 持锁解码 + 亮度抠图
+	void blitSwordSegment(float x1, float y1, float x2, float y2, float life);  // 单段旋转绘制 + 残影渐隐
+	void blitRotatedSpriteAdd(const FruitImage& img, const uint8_t* alpha,
+		float cx, float cy, float scale, float angle, uint8_t fadeByte);   // 加法混合旋转精灵（光效用）
 
 	// ── HUD / GameOver / 退出按钮（LVGL） ──
 	lv_obj_t* m_scoreLabel{};
