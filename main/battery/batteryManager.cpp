@@ -1,4 +1,5 @@
 #include "battery/batteryManager.hpp"
+#include "adc_battery_estimation.h"
 #include "gui/gui.hpp"
 #include "esp_log.h"
 #include "gpio/gpio.hpp"

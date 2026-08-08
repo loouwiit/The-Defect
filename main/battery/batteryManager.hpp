@@ -2,7 +2,8 @@
 
 #include "lvgl.h"
 #include <cstdint>
-#include "adc_battery_estimation.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
 #include "gpio/gpio.hpp"
 
 /**
