@@ -27,13 +27,14 @@ CXXFILT = os.environ.get("RISCV_CXXFILT", "riscv32-esp-elf-c++filt")
 # ── 白名单配置（改这里即改暴露面） ──────────────────────────
 
 # C 函数前缀（name==symbol）
-C_PREFIXES = ("lv_", "esp_log", "cJSON_", "esp_lv_adapter_", "jpeg_", "esp_jpeg_")
+C_PREFIXES = ("lv_", "esp_log", "cJSON_", "esp_lv_adapter_", "jpeg_", "esp_jpeg_", "xTask", "vTask")
 # C 函数精确名（不在前缀里但插件常用）
 C_EXACT = {
-    "snprintf", "vsnprintf", "memcmp", "strcmp", "strlen", "memset", "memcpy",
+    "snprintf", "vsnprintf", "memcmp", "strcmp", "strlen", "memset", "memcpy", "memmove",
     "strstr", "strchr", "strrchr",
     "atan2f", "sqrtf", "ceilf", "floorf", "fabsf", "fmodf", "powf", "sinf", "cosf",
     "rand", "srand", "esp_random",
+    "__assert_func", "time"
 }
 
 # C++ 类白名单（c++filt 反解后匹配 ^Class::）
@@ -144,7 +145,7 @@ def main():
                 selected.add(name)
                 continue
             if (dem.startswith("operator new") or dem.startswith("operator delete")
-                    or dem.startswith("__cxa_")):
+                    or dem.startswith("__cxa_") or dem.startswith("std::")):
                 selected.add(name)
                 continue
             continue
