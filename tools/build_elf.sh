@@ -19,3 +19,7 @@ cd "$DIR"
 idf.py so
 
 echo "→ $DIR/build/$NAME.so"
+
+# 符号检查：.so 的 UND 符号必须能由主固件 .elf 解析（否则 dlopen 失败）
+# 缺失 → 非零退出，阻止上传带病插件
+"$ROOT/tools/check_elf_syms.sh" "$NAME"

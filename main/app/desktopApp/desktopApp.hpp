@@ -45,7 +45,7 @@ private:
 	std::vector<GameCard> m_cards;      // 卡片数据表
 	std::vector<lv_obj_t*> m_cardObjs;  // 对应卡片对象（与 m_cards 同序）
 
-	static constexpr int BUILTIN_COUNT = 4;   // fruitNinja/tetris/doudizhu/chineseChess
+	static constexpr int BUILTIN_COUNT = 2;   // tetris/doudizhu（fruitNinja/chineseChess 已迁移 ELF）
 	static constexpr int SYSTEM_COUNT = 3;    // luaManager/market/testApp
 	static constexpr int MAX_ELF_CARDS = 8;
 

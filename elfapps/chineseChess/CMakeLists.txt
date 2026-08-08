@@ -9,14 +9,13 @@ set(EXTRA_COMPONENT_DIRS
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(smoke)
+project(chineseChess)
 
 # ── C++ .so 构建 ─────────────────────────────────────────────
-# 方案：smoke.cpp 作为正常组件（main/CMakeLists.txt）编译为 PIC 目标文件，
-# IDF 组件系统全自动解析 REQUIRES 传递依赖（lvgl/esp_lvgl_adapter/esp_lcd 等），
-# 这里仅把组件库（libmain.a，只含 smoke.cpp.o）强制全量链接为 .so。
+# 同 snake：chineseChess 源作为正常组件编译（IDF 组件系统自动解析 REQUIRES 传递依赖），
+# 这里仅把组件库（libmain.a，只含 chineseChess 的 .o）强制全量链接为 .so。
 # 链接 flags：-nostdlib -static-libgcc；libstdc++ 不链接 → 运行时符号
-# （operator new 等）保持 UND，运行时解析到主固件注册表。
+# （operator new / GUI:: / FontLoader 等）保持 UND，运行时解析到主固件注册表。
 if(CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT)
     set(so_link_flags -shared
                       -fPIC

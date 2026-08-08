@@ -1,7 +1,6 @@
 #include "desktopApp.hpp"
 #include "gui/gui.hpp"
 #include "app/appStackManager.hpp"
-#include "app/fruitNinja/fruitNinjaRoom.hpp"
 #include "app/testApp/testApp.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
 #include "app/wifiSettingsApp/wifiSettingsApp.hpp"
@@ -10,7 +9,6 @@
 #include "app/consoleManager/consoleManagerApp.hpp"
 #include "elfManager/elfManager.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
-#include "app/chineseChess/chineseChessRoom.hpp"
 #include "app/douDiZhu/douDiZhuRoom.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
 #include "app/luaManagerApp/luaManagerApp.hpp"
@@ -32,16 +30,14 @@
 
 void DesktopApp::buildBuiltinCards()
 {
-	// 内置游戏（未迁移 ELF 的原生 App）→ 索引 0..3
+	// 内置游戏（未迁移 ELF 的原生 App）→ 索引 0..1
 	static const struct {
 		const char* name;
 		const char* desc;
 		const char* icon;
 	} kBuiltin[] = {
-		{ "水果忍者", "快速切水果，享受爽快连击！", "F:system/desktop/fruitNinja.jpg" },
 		{ "俄罗斯方块", "经典俄罗斯方块，消除行数得分！", "F:system/desktop/tetris.jpg" },
 		{ "斗地主", "三人斗地主，比拼牌技！", "F:system/desktop/douDiZhu.jpg" },
-		{ "中国象棋", "中国象棋，楚河汉界对弈！", "F:system/desktop/chess.jpg" },
 	};
 	for (int i = 0; i < BUILTIN_COUNT; i++)
 	{
@@ -740,20 +736,12 @@ void DesktopApp::startGame()
 		switch (c.index)
 		{
 		case 0:
-			// 水果忍者
-			m_manager->pushToNewStack(new FruitNinjaRoom(display));
-			break;
-		case 1:
 			// 俄罗斯方块 — 先打开房间选人
 			m_manager->pushToNewStack(new TetrisRoomApp(display));
 			break;
-		case 2:
+		case 1:
 			// 斗地主 — 大厅（单机 AI / 多主机联机）
 			m_manager->pushToNewStack(new DouDizhuRoom(display));
-			break;
-		case 3:
-			// 中国象棋
-			m_manager->pushToNewStack(new ChineseChessRoom(display));
 			break;
 		}
 		break;
@@ -826,10 +814,8 @@ std::string DesktopApp::getAiContext()
 std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 {
 	std::vector<AiAppTarget> targets = {
-		{ "fruitNinja", "水果忍者", &FruitNinjaRoom::newApp },
 		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
 		{ "doudizhu", "斗地主", &DouDizhuRoom::newApp },
-		{ "chineseChess", "中国象棋", &ChineseChessRoom::newApp },
 		{ "luaManager", "Lua 脚本管理器", &LuaManagerApp::newApp },
 		{ "market", "游戏市场", &MarketApp::newApp },
 		{ "timeSettings", "时间设置", &TimeSettingsApp::newApp },

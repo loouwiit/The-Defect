@@ -23,8 +23,6 @@ idf_component_register(SRCS "main.cpp"
                             "virtualIndev/virtualIndev.cpp" "virtualIndev/wsTouchHandler.cpp"
                             "lua/luaRuntime.cpp" "lua/luaModules.cpp" "lua/bindings/luaDisplay.cpp" "lua/bindings/luaInput.cpp" "lua/bindings/luaAudio.cpp" "lua/bindings/luaThread.cpp" "lua/bindings/luaStorage.cpp" "lua/bindings/luaTouch.cpp" "app/luaGameApp/luaGameApp.cpp"
 
-                            "elfProbe.cpp"
-
                             "elfSdk/elf_sdk.cpp" "elfSdk/elf_symtab.c"
                             "elfManager/elfManager.cpp"
 
@@ -36,8 +34,6 @@ idf_component_register(SRCS "main.cpp"
                             "app/wifiSettingsApp/wifiSettingsApp.cpp"
                             "app/timeSettingsApp/timeSettingsApp.cpp"
                             "app/tetris/gameLogic/tetris_client.cpp" "app/tetris/gameLogic/player_state.cpp" "app/tetris/renderer/tetris_renderer.cpp" "app/tetris/tetrisApp.cpp" "app/tetris/tetrisRoomApp.cpp" "app/tetris/tetrisRemoteApp.cpp" "app/tetris/net/tetris_net.cpp" "app/tetris/net/tetrisRemoteClient.cpp" "app/tetris/net/tetrisTcpHost.cpp"
-                            "app/fruitNinja/fruitNinjaRoom.cpp" "app/fruitNinja/fruitNinjaApp.cpp" "app/fruitNinja/fruitNinjaLogic.cpp" "app/fruitNinja/fruitNinjaRenderer.cpp"
-                            "app/chineseChess/chineseChessApp.cpp" "app/chineseChess/chineseChessRoom.cpp" "app/chineseChess/chessLogic.cpp" "app/chineseChess/chessAI.cpp" "app/chineseChess/openingBook.cpp" "app/chineseChess/transpositionTable.cpp"
                             "app/douDiZhu/douDiZhuLogic.cpp" "app/douDiZhu/douDiZhuAI.cpp" "app/douDiZhu/douDiZhuTable.cpp" "app/douDiZhu/douDiZhuApp.cpp" "app/douDiZhu/douDiZhuRemoteApp.cpp" "app/douDiZhu/douDiZhuRoom.cpp" "app/douDiZhu/net/douDiZhuRemoteClient.cpp" "app/douDiZhu/net/douDiZhuTcpHost.cpp"
                             "app/aiAgentApp/aiAgentOverlay.cpp" "app/aiAgentApp/pinyinDict.cpp"
                             "app/consoleManager/consoleManagerApp.cpp"
@@ -65,3 +61,19 @@ idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
 if(TARGET ${lvgl_lib})
     target_compile_definitions(${lvgl_lib} PUBLIC LV_INV_BUF_SIZE=256)
 endif()
+
+# ── ELF 插件符号保活：--undefined 强制保留 ──────────────────
+# 背景：符号表（elf_symtab.c）从主固件 .elf 提取，而 .elf 只含被引用的符号。
+#       插件（.so）引用但主固件未引用的符号会被 --gc-sections 回收 → .elf 没有
+#       → 无法导出 → dlopen "Can't find common"。
+# 机制：--undefined=<sym> 是链接器原生强制：无条件保留符号（即使无人引用）。
+#       ⚠ 必须用 INTERFACE 传播：main 是静态库（libmain.a），PRIVATE 链接选项
+#         不参与最终 firmware 链接，会静默失效（曾踩坑）。
+#       ⚠ 曾尝试 __attribute__((used, retain)) 数组保活，但 ESP-IDF 自定义链接
+#         脚本不收集 retain 节（数组整个被 GC）——已废弃，统一用 --undefined。
+# 维护：tools/check_elf_syms.sh 构建插件后自动对照 .elf 检查缺失符号；
+#       缺哪个就往下面列表加一行。注意此列表只放"主固件完全不引用"的少数符号，
+#       大部分缺失其实是白名单漏选（tools/gen_elf_syms.py 的 C_EXACT/LIBGCC_PREFIXES）。
+target_link_options(${COMPONENT_LIB} INTERFACE
+    "-Wl,--undefined=lv_obj_set_style_transform_scale_x"
+    "-Wl,--undefined=lv_obj_set_style_transform_scale_y")

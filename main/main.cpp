@@ -45,7 +45,6 @@
 #include "battery/batteryManager.hpp"
 #include "battery/batteryMonitor.hpp"
 #include "time/timeService.hpp"
-#include "elfProbe.hpp"
 #include "elfSdk/elf_sdk.h"
 
 static constexpr char TAG[] = "main";
@@ -86,8 +85,6 @@ extern "C" void app_main(void)
 	mountFlash();
 	mountMem();
 
-	// Phase 0 临时验证：dlopen/dlsym 加载 .so 插件（Phase 1 由 ELFGameApp 替代）
-	elfProbeStart();
 	Task::addTask([](void*)->TickType_t{ mountSd(); return Task::infinityTime; }, "mount sd", nullptr, 0, Task::Affinity::None);
 
 	// nvs

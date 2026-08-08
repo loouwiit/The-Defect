@@ -132,6 +132,7 @@ extern int _ZN3App12getAiContextB5cxx11Ev;
 extern int _ZN3App12onAiActivateEv;
 extern int _ZN3App12onBackgroundEv;
 extern int _ZN3App12onForegroundEv;
+extern int _ZN3App12setElfModuleEPKc;
 extern int _ZN3App14onGamepadInputEhhRK12GamepadState;
 extern int _ZN3App15executeAiActionERK8AiAction;
 extern int _ZN3App15getOpenableAppsEv;
@@ -258,6 +259,7 @@ extern int _ZNKSt17basic_string_viewIcSt11char_traitsIcEE7compareEjjPKcj;
 extern int _ZNKSt20bad_array_new_length4whatEv;
 extern int _ZNKSt6vectorI10ScanDeviceSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI10ScanDeviceSaIS0_EE5emptyEv;
+extern int _ZNKSt6vectorI11AiAppTargetSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI12MarketScriptSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI12MarketScriptSaIS0_EE5emptyEv;
 extern int _ZNKSt6vectorI12PairedDeviceSaIS0_EE12_M_check_lenEjPKc;
@@ -268,12 +270,7 @@ extern int _ZNKSt6vectorI17DiscoveredConsoleSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI17DiscoveredConsoleSaIS0_EE5emptyEv;
 extern int _ZNKSt6vectorI8AiActionSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI8AiActionSaIS0_EE5emptyEv;
-extern int _ZNKSt6vectorIN10ChessLogic4MoveESaIS1_EE12_M_check_lenEjPKc;
-extern int _ZNKSt6vectorIN10ChessLogic4MoveESaIS1_EE5emptyEv;
-extern int _ZNKSt6vectorIN10ChessLogic8PositionESaIS1_EE12_M_check_lenEjPKc;
-extern int _ZNKSt6vectorIN10ChessLogic8PositionESaIS1_EE5emptyEv;
-extern int _ZNKSt6vectorIN11OpeningBook8BookMoveESaIS1_EE12_M_check_lenEjPKc;
-extern int _ZNKSt6vectorIN11OpeningBook8BookMoveESaIS1_EE5emptyEv;
+extern int _ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE5emptyEv;
 extern int _ZNKSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE12_M_check_lenEjPKc;
@@ -293,8 +290,6 @@ extern int _ZNKSt6vectorIbSaIbEE4sizeEv;
 extern int _ZNKSt6vectorIbSaIbEE8capacityEv;
 extern int _ZNKSt6vectorIiSaIiEE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorIiSaIiEE5emptyEv;
-extern int _ZNKSt6vectorIySaIyEE12_M_check_lenEjPKc;
-extern int _ZNKSt6vectorIySaIyEE5emptyEv;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcj;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcjj;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEcj;
@@ -304,6 +299,8 @@ extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE5rfindEcj;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEjj;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc;
+extern int _ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_;
+extern int _ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_;
 extern int _ZNKSt8functionIFbPKhiEEclES1_i;
 extern int _ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_;
 extern int _ZNKSt8functionIFvPKcjEEclES1_j;
@@ -359,13 +356,8 @@ extern int _ZNSt12_Vector_baseI17DiscoveredConsoleSaIS0_EED2Ev;
 extern int _ZNSt12_Vector_baseI8AiActionSaIS0_EE17_Vector_impl_data12_M_swap_dataERS3_;
 extern int _ZNSt12_Vector_baseI8AiActionSaIS0_EED1Ev;
 extern int _ZNSt12_Vector_baseI8AiActionSaIS0_EED2Ev;
-extern int _ZNSt12_Vector_baseIN10ChessLogic4MoveESaIS1_EED1Ev;
-extern int _ZNSt12_Vector_baseIN10ChessLogic4MoveESaIS1_EED2Ev;
-extern int _ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EE17_Vector_impl_data12_M_swap_dataERS4_;
-extern int _ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EED1Ev;
-extern int _ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EED2Ev;
-extern int _ZNSt12_Vector_baseIN11OpeningBook8BookMoveESaIS1_EED1Ev;
-extern int _ZNSt12_Vector_baseIN11OpeningBook8BookMoveESaIS1_EED2Ev;
+extern int _ZNSt12_Vector_baseIN10DesktopApp8GameCardESaIS1_EED1Ev;
+extern int _ZNSt12_Vector_baseIN10DesktopApp8GameCardESaIS1_EED2Ev;
 extern int _ZNSt12_Vector_baseIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev;
 extern int _ZNSt12_Vector_baseIN13LuaManagerApp11ScriptEntryESaIS1_EED2Ev;
 extern int _ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED1Ev;
@@ -386,8 +378,6 @@ extern int _ZNSt12_Vector_baseISt5arrayIhLj6EESaIS1_EED1Ev;
 extern int _ZNSt12_Vector_baseISt5arrayIhLj6EESaIS1_EED2Ev;
 extern int _ZNSt12_Vector_baseIiSaIiEED1Ev;
 extern int _ZNSt12_Vector_baseIiSaIiEED2Ev;
-extern int _ZNSt12_Vector_baseIySaIyEED1Ev;
-extern int _ZNSt12_Vector_baseIySaIyEED2Ev;
 extern int _ZNSt12__shared_ptrIN11AudioHandle4ImplELN9__gnu_cxx12_Lock_policyE1EE5resetEv;
 extern int _ZNSt12length_errorC1EPKc;
 extern int _ZNSt12length_errorC2EPKc;
@@ -419,9 +409,7 @@ extern int _ZNSt15__new_allocatorI12PairedDeviceE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI16wifi_ap_record_tE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI17DiscoveredConsoleE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI8AiActionE8allocateEjPKv;
-extern int _ZNSt15__new_allocatorIN10ChessLogic4MoveEE8allocateEjPKv;
-extern int _ZNSt15__new_allocatorIN10ChessLogic8PositionEE8allocateEjPKv;
-extern int _ZNSt15__new_allocatorIN11OpeningBook8BookMoveEE8allocateEjPKv;
+extern int _ZNSt15__new_allocatorIN10DesktopApp8GameCardEE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorIN13LuaManagerApp11ScriptEntryEE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorIP3AppE8allocateEjPKv;
@@ -432,7 +420,6 @@ extern int _ZNSt15__new_allocatorISt4pairImSt8functionIFvvEEEE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorISt5arrayIhLj6EEE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorIiE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorImE8allocateEjPKv;
-extern int _ZNSt15__new_allocatorIyE8allocateEjPKv;
 extern int _ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE10_M_destroyEv;
 extern int _ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE10_M_releaseEv;
 extern int _ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE19_M_release_last_useEv;
@@ -455,6 +442,10 @@ extern int _ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx1
 extern int _ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED0Ev;
 extern int _ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED1Ev;
 extern int _ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED2Ev;
+extern int _ZNSt3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleESt4lessIS5_ESaISt4pairIKS5_S7_EEE11lower_boundERSB_;
+extern int _ZNSt3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleESt4lessIS5_ESaISt4pairIKS5_S7_EEEixERSB_;
+extern int _ZNSt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleEEC1IJRS6_EJLj0EEJEJEEERSt5tupleIJDpT_EERSC_IJDpT1_EESt12_Index_tupleIJXspT0_EEESL_IJXspT2_EEE;
+extern int _ZNSt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleEEC2IJRS6_EJLj0EEJEJEEERSt5tupleIJDpT_EERSC_IJDpT1_EESt12_Index_tupleIJXspT0_EEESL_IJXspT2_EEE;
 extern int _ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1EOS6_;
 extern int _ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1ERKS6_;
 extern int _ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1IRA10_KcRS5_EEOT_OT0_;
@@ -468,6 +459,7 @@ extern int _ZNSt6vectorI10ScanDeviceSaIS0_EE5eraseEN9__gnu_cxx17__normal_iterato
 extern int _ZNSt6vectorI10ScanDeviceSaIS0_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS0_S2_EE;
 extern int _ZNSt6vectorI10ScanDeviceSaIS0_EE9push_backERKS0_;
 extern int _ZNSt6vectorI10ScanDeviceSaIS0_EEaSERKS2_;
+extern int _ZNSt6vectorI11AiAppTargetSaIS0_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS0_S2_EEOS0_;
 extern int _ZNSt6vectorI11AiAppTargetSaIS0_EEC1ESt16initializer_listIS0_ERKS1_;
 extern int _ZNSt6vectorI11AiAppTargetSaIS0_EEC2ESt16initializer_listIS0_ERKS1_;
 extern int _ZNSt6vectorI12MarketScriptSaIS0_EE14_M_move_assignEOS2_St17integral_constantIbLb1EE;
@@ -487,11 +479,8 @@ extern int _ZNSt6vectorI8AiActionSaIS0_EE4backEv;
 extern int _ZNSt6vectorI8AiActionSaIS0_EE9push_backERKS0_;
 extern int _ZNSt6vectorI8AiActionSaIS0_EED1Ev;
 extern int _ZNSt6vectorI8AiActionSaIS0_EED2Ev;
-extern int _ZNSt6vectorIN10ChessLogic4MoveESaIS1_EE4backEv;
-extern int _ZNSt6vectorIN10ChessLogic4MoveESaIS1_EE9push_backERKS1_;
-extern int _ZNSt6vectorIN10ChessLogic8PositionESaIS1_EE14_M_move_assignEOS3_St17integral_constantIbLb1EE;
-extern int _ZNSt6vectorIN10ChessLogic8PositionESaIS1_EE4backEv;
-extern int _ZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE9push_backERKS1_;
+extern int _ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE6insertEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EERS6_;
+extern int _ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE9push_backERKS1_;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE15_M_erase_at_endEPS1_;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE4backEv;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev;
@@ -509,7 +498,10 @@ extern int _ZNSt6vectorIP8AppStackSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorI
 extern int _ZNSt6vectorIP8AppStackSaIS1_EE6rbeginEv;
 extern int _ZNSt6vectorIP8AppStackSaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE;
 extern int _ZNSt6vectorIP8AppStackSaIS1_EE9push_backERKS1_;
+extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEjRKS1_;
+extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EEOS1_;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE4backEv;
+extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE6resizeEjRKS1_;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE9push_backERKS1_;
 extern int _ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE12emplace_backIJS7_EEERS7_DpOT_;
 extern int _ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE4backEv;
@@ -539,8 +531,6 @@ extern int _ZNSt6vectorIbSaIbEEixEj;
 extern int _ZNSt6vectorIiSaIiEE5eraseEN9__gnu_cxx17__normal_iteratorIPKiS1_EE;
 extern int _ZNSt6vectorIiSaIiEE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPiS1_EE;
 extern int _ZNSt6vectorIiSaIiEE9push_backERKi;
-extern int _ZNSt6vectorIySaIyEE4backEv;
-extern int _ZNSt6vectorIySaIyEE9push_backERKy;
 extern int _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv;
 extern int _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEjjPKcj;
 extern int _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEjjjc;
@@ -579,6 +569,19 @@ extern int _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEaSEOS4_;
 extern int _ZNSt7__cxx119to_stringEi;
 extern int _ZNSt7__cxx119to_stringEj;
 extern int _ZNSt7__cxx119to_stringEy;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_node9_M_insertES6_IPSt18_Rb_tree_node_baseSJ_E;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_nodeD1Ev;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_nodeD2Ev;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE12_M_erase_auxESt23_Rb_tree_const_iteratorISA_E;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_create_nodeIJRKSt21piecewise_construct_tSt5tupleIJRS7_EESL_IJEEEEEPSt13_Rb_tree_nodeISA_EDpOT_;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_insert_nodeEPSt18_Rb_tree_node_baseSI_PSt13_Rb_tree_nodeISA_E;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPSt13_Rb_tree_nodeISA_EPSt18_Rb_tree_node_baseRS7_;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE22_M_emplace_hint_uniqueIJRKSt21piecewise_construct_tSt5tupleIJRS7_EESL_IJEEEEESt17_Rb_tree_iteratorISA_ESt23_Rb_tree_const_iteratorISA_EDpOT_;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE24_M_get_insert_unique_posERS7_;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE29_M_get_insert_hint_unique_posESt23_Rb_tree_const_iteratorISA_ERS7_;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE5eraseB5cxx11ESt17_Rb_tree_iteratorISA_E;
+extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE8_M_eraseEPSt13_Rb_tree_nodeISA_E;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEE4swapERS5_;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1EOS5_;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2EOS5_;
@@ -643,6 +646,8 @@ extern int _ZSt14__relocate_a_1IPSt4pairImSt8functionIFvvEEES5_SaIS4_EET0_T_S8_S
 extern int _ZSt15get_new_handlerv;
 extern int _ZSt16__do_uninit_copyIN9__gnu_cxx17__normal_iteratorIPKSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_ESt6vectorIS9_SaIS9_EEEEPS9_ET0_T_SI_SH_;
 extern int _ZSt17__throw_bad_allocv;
+extern int _ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base;
+extern int _ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base;
 extern int _ZSt18__allocate_guardedISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEESt15__allocated_ptrIT_ERS9_;
 extern int _ZSt18uninitialized_copyIN9__gnu_cxx17__normal_iteratorIPKSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_ESt6vectorIS9_SaIS9_EEEEPS9_ET0_T_SI_SH_;
 extern int _ZSt19__throw_logic_errorPKc;
@@ -652,7 +657,9 @@ extern int _ZSt22__copy_move_backward_aILb0ESt13_Bit_iteratorS0_ET1_T0_S2_S1_;
 extern int _ZSt23__copy_move_backward_a1ILb0ESt13_Bit_iteratorS0_ET1_T0_S2_S1_;
 extern int _ZSt24__throw_out_of_range_fmtPKcz;
 extern int _ZSt25__throw_bad_function_callv;
+extern int _ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_;
 extern int _ZSt28__throw_bad_array_new_lengthv;
+extern int _ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_;
 extern int _ZSt4copyISt13_Bit_iteratorS0_ET0_T_S2_S1_;
 extern int _ZSt4copyISt19_Bit_const_iteratorSt13_Bit_iteratorET0_T_S3_S2_;
 extern int _ZSt4swapI13DeviceContextENSt9enable_ifIXsrSt6__and_IJSt6__not_ISt15__is_tuple_likeIT_EESt21is_move_constructibleIS5_ESt18is_move_assignableIS5_EEE5valueEvE4typeERS5_SF_;
@@ -669,6 +676,8 @@ extern int _ZStplIcSt11char_traitsIcESaIcEENSt7__cxx1112basic_stringIT_T0_T1_EER
 extern int _ZStplRKSt13_Bit_iteratori;
 extern int _ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev;
+extern int _ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD1Ev;
+extern int _ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorI12PairedDeviceSaIS0_EE17_M_default_appendEjEN6_GuardD1Ev;
@@ -683,12 +692,10 @@ extern int _ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6
 extern int _ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev;
-extern int _ZZNSt6vectorIN10ChessLogic4MoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev;
-extern int _ZZNSt6vectorIN10ChessLogic4MoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev;
-extern int _ZZNSt6vectorIN10ChessLogic8PositionESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev;
-extern int _ZZNSt6vectorIN10ChessLogic8PositionESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev;
-extern int _ZZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev;
-extern int _ZZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev;
+extern int _ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev;
+extern int _ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev;
+extern int _ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_insertIJRKS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD1Ev;
+extern int _ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_insertIJRKS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE17_M_realloc_appendIJRKS5_EEEvDpOT_EN6_GuardD1Ev;
@@ -701,6 +708,8 @@ extern int _ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_E
 extern int _ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev;
+extern int _ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_insertIJS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD1Ev;
+extern int _ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_insertIJS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE17_M_realloc_appendIJS7_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE17_M_realloc_appendIJS7_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorISt4pairImSt8functionIFvvEEESaIS4_EE17_M_realloc_appendIJRmS3_EEEvDpOT_EN6_GuardD1Ev;
@@ -709,8 +718,6 @@ extern int _ZZNSt6vectorISt5arrayIhLj6EESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDp
 extern int _ZZNSt6vectorISt5arrayIhLj6EESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorIiSaIiEE17_M_realloc_appendIJRKiEEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorIiSaIiEE17_M_realloc_appendIJRKiEEEvDpOT_EN6_GuardD2Ev;
-extern int _ZZNSt6vectorIySaIyEE17_M_realloc_appendIJRKyEEEvDpOT_EN6_GuardD1Ev;
-extern int _ZZNSt6vectorIySaIyEE17_M_realloc_appendIJRKyEEEvDpOT_EN6_GuardD2Ev;
 extern int _ZdaPv;
 extern int _ZdaPvj;
 extern int _ZdlPv;
@@ -720,12 +727,66 @@ extern int _ZdlPvjSt11align_val_t;
 extern int _Znaj;
 extern int _ZnajRKSt9nothrow_t;
 extern int _Znwj;
+extern int __adddf3;
+extern int __addvdi3;
+extern int __addvsi3;
 extern int __assert_func;
+extern int __clzdi2;
+extern int __clzsi2;
+extern int __cmpdi2;
+extern int __ctzdi2;
+extern int __ctzsi2;
 extern int __cxa_atexit;
-extern int __cxa_guard_abort;
 extern int __cxa_guard_acquire;
 extern int __cxa_guard_release;
-extern int __cxa_pure_virtual;
+extern int __divdc3;
+extern int __divdf3;
+extern int __divdi3;
+extern int __divsc3;
+extern int __divsi3;
+extern int __extenddftf2;
+extern int __extendsfdf2;
+extern int __fixdfdi;
+extern int __fixdfsi;
+extern int __fixsfdi;
+extern int __fixunsdfsi;
+extern int __fixunssfdi;
+extern int __fixunssfsi;
+extern int __floatdidf;
+extern int __floatdisf;
+extern int __floatsidf;
+extern int __floatundidf;
+extern int __floatundisf;
+extern int __floatunsidf;
+extern int __moddi3;
+extern int __modsi3;
+extern int __muldc3;
+extern int __muldf3;
+extern int __muldi3;
+extern int __mulsc3;
+extern int __mulsi3;
+extern int __multadd;
+extern int __multiply;
+extern int __mulvdi3;
+extern int __mulvsi3;
+extern int __negdf2;
+extern int __negdi2;
+extern int __negvdi2;
+extern int __negvsi2;
+extern int __popcountdi2;
+extern int __popcountsi2;
+extern int __subdf3;
+extern int __submore;
+extern int __subvdi3;
+extern int __subvsi3;
+extern int __truncdfsf2;
+extern int __trunctfdf2;
+extern int __udiv_w_sdiv;
+extern int __udivdi3;
+extern int __udivmoddi4;
+extern int __udivsi3;
+extern int __umoddi3;
+extern int __umodsi3;
 extern int atan2f;
 extern int cJSON_AddArrayToObject;
 extern int cJSON_AddBoolToObject;
@@ -755,7 +816,10 @@ extern int cJSON_ParseWithLengthOpts;
 extern int cJSON_ParseWithOpts;
 extern int cJSON_PrintUnformatted;
 extern int cJSON_free;
+extern int ceil;
 extern int ceilf;
+extern int closedir;
+extern int cos;
 extern int cosf;
 extern int esp_log;
 extern int esp_log_cache_add;
@@ -803,9 +867,65 @@ extern int esp_lv_adapter_unlock;
 extern int esp_lv_adapter_unregister_input_device;
 extern int esp_lv_adapter_unregister_touch;
 extern int esp_random;
+extern int esp_timer_create;
+extern int esp_timer_delete;
+extern int esp_timer_early_init;
+extern int esp_timer_get_expiry_time;
+extern int esp_timer_get_time;
+extern int esp_timer_impl_early_init;
+extern int esp_timer_impl_get_min_period_us;
+extern int esp_timer_impl_get_time;
+extern int esp_timer_impl_init;
+extern int esp_timer_impl_init_system_time;
+extern int esp_timer_impl_set_alarm_id;
+extern int esp_timer_init;
+extern int esp_timer_init_include_func;
+extern int esp_timer_is_active;
+extern int esp_timer_start_once;
+extern int esp_timer_start_periodic;
+extern int esp_timer_stop;
+extern int fabs;
 extern int fabsf;
+extern int fclose;
+extern int feof;
+extern int ferror;
+extern int fflush;
+extern int floor;
 extern int floorf;
+extern int fmod;
 extern int fmodf;
+extern int fopen;
+extern int fread;
+extern int fseek;
+extern int ftell;
+extern int fwrite;
+extern int heap_caps_add_region_with_caps;
+extern int heap_caps_aligned_alloc;
+extern int heap_caps_aligned_alloc_base;
+extern int heap_caps_aligned_alloc_default;
+extern int heap_caps_aligned_calloc;
+extern int heap_caps_calloc;
+extern int heap_caps_calloc_base;
+extern int heap_caps_calloc_prefer;
+extern int heap_caps_check_add_region_allowed;
+extern int heap_caps_enable_nonos_stack_heaps;
+extern int heap_caps_free;
+extern int heap_caps_get_allocated_size;
+extern int heap_caps_get_free_size;
+extern int heap_caps_get_info;
+extern int heap_caps_get_largest_free_block;
+extern int heap_caps_get_minimum_free_size;
+extern int heap_caps_get_total_size;
+extern int heap_caps_init;
+extern int heap_caps_malloc;
+extern int heap_caps_malloc_base;
+extern int heap_caps_malloc_default;
+extern int heap_caps_malloc_extmem_enable;
+extern int heap_caps_malloc_prefer;
+extern int heap_caps_match;
+extern int heap_caps_realloc;
+extern int heap_caps_realloc_base;
+extern int heap_caps_realloc_default;
 extern int jpeg_acquire_codec_handle;
 extern int jpeg_alloc_decoder_mem;
 extern int jpeg_calloc_align_inner;
@@ -1636,7 +1756,6 @@ extern int lv_roller_set_options;
 extern int lv_roller_set_selected;
 extern int lv_scale_set_image_needle_value;
 extern int lv_scale_set_line_needle_value;
-extern int lv_screen_active;
 extern int lv_screen_load;
 extern int lv_screen_load_anim;
 extern int lv_slider_create;
@@ -1795,12 +1914,21 @@ extern int memcmp;
 extern int memcpy;
 extern int memmove;
 extern int memset;
+extern int mkdir;
+extern int opendir;
+extern int pow;
 extern int powf;
 extern int rand;
+extern int readdir;
+extern int remove;
+extern int rename;
+extern int sin;
 extern int sinf;
 extern int snprintf;
+extern int sqrt;
 extern int sqrtf;
 extern int srand;
+extern int stat;
 extern int strchr;
 extern int strcmp;
 extern int strlen;
@@ -1978,6 +2106,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN3App12onAiActivateEv", (void*)&_ZN3App12onAiActivateEv },
     { "_ZN3App12onBackgroundEv", (void*)&_ZN3App12onBackgroundEv },
     { "_ZN3App12onForegroundEv", (void*)&_ZN3App12onForegroundEv },
+    { "_ZN3App12setElfModuleEPKc", (void*)&_ZN3App12setElfModuleEPKc },
     { "_ZN3App14onGamepadInputEhhRK12GamepadState", (void*)&_ZN3App14onGamepadInputEhhRK12GamepadState },
     { "_ZN3App15executeAiActionERK8AiAction", (void*)&_ZN3App15executeAiActionERK8AiAction },
     { "_ZN3App15getOpenableAppsEv", (void*)&_ZN3App15getOpenableAppsEv },
@@ -2104,6 +2233,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt20bad_array_new_length4whatEv", (void*)&_ZNKSt20bad_array_new_length4whatEv },
     { "_ZNKSt6vectorI10ScanDeviceSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI10ScanDeviceSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI10ScanDeviceSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI10ScanDeviceSaIS0_EE5emptyEv },
+    { "_ZNKSt6vectorI11AiAppTargetSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI11AiAppTargetSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI12MarketScriptSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI12MarketScriptSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI12MarketScriptSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI12MarketScriptSaIS0_EE5emptyEv },
     { "_ZNKSt6vectorI12PairedDeviceSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI12PairedDeviceSaIS0_EE12_M_check_lenEjPKc },
@@ -2114,12 +2244,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt6vectorI17DiscoveredConsoleSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI17DiscoveredConsoleSaIS0_EE5emptyEv },
     { "_ZNKSt6vectorI8AiActionSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI8AiActionSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI8AiActionSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI8AiActionSaIS0_EE5emptyEv },
-    { "_ZNKSt6vectorIN10ChessLogic4MoveESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN10ChessLogic4MoveESaIS1_EE12_M_check_lenEjPKc },
-    { "_ZNKSt6vectorIN10ChessLogic4MoveESaIS1_EE5emptyEv", (void*)&_ZNKSt6vectorIN10ChessLogic4MoveESaIS1_EE5emptyEv },
-    { "_ZNKSt6vectorIN10ChessLogic8PositionESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN10ChessLogic8PositionESaIS1_EE12_M_check_lenEjPKc },
-    { "_ZNKSt6vectorIN10ChessLogic8PositionESaIS1_EE5emptyEv", (void*)&_ZNKSt6vectorIN10ChessLogic8PositionESaIS1_EE5emptyEv },
-    { "_ZNKSt6vectorIN11OpeningBook8BookMoveESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN11OpeningBook8BookMoveESaIS1_EE12_M_check_lenEjPKc },
-    { "_ZNKSt6vectorIN11OpeningBook8BookMoveESaIS1_EE5emptyEv", (void*)&_ZNKSt6vectorIN11OpeningBook8BookMoveESaIS1_EE5emptyEv },
+    { "_ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE5emptyEv", (void*)&_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE5emptyEv },
     { "_ZNKSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE12_M_check_lenEjPKc },
@@ -2139,8 +2264,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt6vectorIbSaIbEE8capacityEv", (void*)&_ZNKSt6vectorIbSaIbEE8capacityEv },
     { "_ZNKSt6vectorIiSaIiEE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIiSaIiEE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorIiSaIiEE5emptyEv", (void*)&_ZNKSt6vectorIiSaIiEE5emptyEv },
-    { "_ZNKSt6vectorIySaIyEE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIySaIyEE12_M_check_lenEjPKc },
-    { "_ZNKSt6vectorIySaIyEE5emptyEv", (void*)&_ZNKSt6vectorIySaIyEE5emptyEv },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcj", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcj },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcjj", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcjj },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEcj", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEcj },
@@ -2150,6 +2273,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEjj", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEjj },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_ },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc },
+    { "_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_", (void*)&_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_ },
+    { "_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_", (void*)&_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_ },
     { "_ZNKSt8functionIFbPKhiEEclES1_i", (void*)&_ZNKSt8functionIFbPKhiEEclES1_i },
     { "_ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_", (void*)&_ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_ },
     { "_ZNKSt8functionIFvPKcjEEclES1_j", (void*)&_ZNKSt8functionIFvPKcjEEclES1_j },
@@ -2205,13 +2330,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt12_Vector_baseI8AiActionSaIS0_EE17_Vector_impl_data12_M_swap_dataERS3_", (void*)&_ZNSt12_Vector_baseI8AiActionSaIS0_EE17_Vector_impl_data12_M_swap_dataERS3_ },
     { "_ZNSt12_Vector_baseI8AiActionSaIS0_EED1Ev", (void*)&_ZNSt12_Vector_baseI8AiActionSaIS0_EED1Ev },
     { "_ZNSt12_Vector_baseI8AiActionSaIS0_EED2Ev", (void*)&_ZNSt12_Vector_baseI8AiActionSaIS0_EED2Ev },
-    { "_ZNSt12_Vector_baseIN10ChessLogic4MoveESaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIN10ChessLogic4MoveESaIS1_EED1Ev },
-    { "_ZNSt12_Vector_baseIN10ChessLogic4MoveESaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIN10ChessLogic4MoveESaIS1_EED2Ev },
-    { "_ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EE17_Vector_impl_data12_M_swap_dataERS4_", (void*)&_ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EE17_Vector_impl_data12_M_swap_dataERS4_ },
-    { "_ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EED1Ev },
-    { "_ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIN10ChessLogic8PositionESaIS1_EED2Ev },
-    { "_ZNSt12_Vector_baseIN11OpeningBook8BookMoveESaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIN11OpeningBook8BookMoveESaIS1_EED1Ev },
-    { "_ZNSt12_Vector_baseIN11OpeningBook8BookMoveESaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIN11OpeningBook8BookMoveESaIS1_EED2Ev },
+    { "_ZNSt12_Vector_baseIN10DesktopApp8GameCardESaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIN10DesktopApp8GameCardESaIS1_EED1Ev },
+    { "_ZNSt12_Vector_baseIN10DesktopApp8GameCardESaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIN10DesktopApp8GameCardESaIS1_EED2Ev },
     { "_ZNSt12_Vector_baseIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev },
     { "_ZNSt12_Vector_baseIN13LuaManagerApp11ScriptEntryESaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIN13LuaManagerApp11ScriptEntryESaIS1_EED2Ev },
     { "_ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED1Ev", (void*)&_ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED1Ev },
@@ -2232,8 +2352,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt12_Vector_baseISt5arrayIhLj6EESaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseISt5arrayIhLj6EESaIS1_EED2Ev },
     { "_ZNSt12_Vector_baseIiSaIiEED1Ev", (void*)&_ZNSt12_Vector_baseIiSaIiEED1Ev },
     { "_ZNSt12_Vector_baseIiSaIiEED2Ev", (void*)&_ZNSt12_Vector_baseIiSaIiEED2Ev },
-    { "_ZNSt12_Vector_baseIySaIyEED1Ev", (void*)&_ZNSt12_Vector_baseIySaIyEED1Ev },
-    { "_ZNSt12_Vector_baseIySaIyEED2Ev", (void*)&_ZNSt12_Vector_baseIySaIyEED2Ev },
     { "_ZNSt12__shared_ptrIN11AudioHandle4ImplELN9__gnu_cxx12_Lock_policyE1EE5resetEv", (void*)&_ZNSt12__shared_ptrIN11AudioHandle4ImplELN9__gnu_cxx12_Lock_policyE1EE5resetEv },
     { "_ZNSt12length_errorC1EPKc", (void*)&_ZNSt12length_errorC1EPKc },
     { "_ZNSt12length_errorC2EPKc", (void*)&_ZNSt12length_errorC2EPKc },
@@ -2265,9 +2383,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt15__new_allocatorI16wifi_ap_record_tE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI16wifi_ap_record_tE8allocateEjPKv },
     { "_ZNSt15__new_allocatorI17DiscoveredConsoleE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI17DiscoveredConsoleE8allocateEjPKv },
     { "_ZNSt15__new_allocatorI8AiActionE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI8AiActionE8allocateEjPKv },
-    { "_ZNSt15__new_allocatorIN10ChessLogic4MoveEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIN10ChessLogic4MoveEE8allocateEjPKv },
-    { "_ZNSt15__new_allocatorIN10ChessLogic8PositionEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIN10ChessLogic8PositionEE8allocateEjPKv },
-    { "_ZNSt15__new_allocatorIN11OpeningBook8BookMoveEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIN11OpeningBook8BookMoveEE8allocateEjPKv },
+    { "_ZNSt15__new_allocatorIN10DesktopApp8GameCardEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIN10DesktopApp8GameCardEE8allocateEjPKv },
     { "_ZNSt15__new_allocatorIN13LuaManagerApp11ScriptEntryEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIN13LuaManagerApp11ScriptEntryEE8allocateEjPKv },
     { "_ZNSt15__new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8allocateEjPKv },
     { "_ZNSt15__new_allocatorIP3AppE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIP3AppE8allocateEjPKv },
@@ -2278,7 +2394,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt15__new_allocatorISt5arrayIhLj6EEE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorISt5arrayIhLj6EEE8allocateEjPKv },
     { "_ZNSt15__new_allocatorIiE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIiE8allocateEjPKv },
     { "_ZNSt15__new_allocatorImE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorImE8allocateEjPKv },
-    { "_ZNSt15__new_allocatorIyE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorIyE8allocateEjPKv },
     { "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE10_M_destroyEv", (void*)&_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE10_M_destroyEv },
     { "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE10_M_releaseEv", (void*)&_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE10_M_releaseEv },
     { "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE19_M_release_last_useEv", (void*)&_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE1EE19_M_release_last_useEv },
@@ -2301,6 +2416,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED0Ev", (void*)&_ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED0Ev },
     { "_ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED1Ev", (void*)&_ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED1Ev },
     { "_ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED2Ev", (void*)&_ZNSt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EED2Ev },
+    { "_ZNSt3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleESt4lessIS5_ESaISt4pairIKS5_S7_EEE11lower_boundERSB_", (void*)&_ZNSt3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleESt4lessIS5_ESaISt4pairIKS5_S7_EEE11lower_boundERSB_ },
+    { "_ZNSt3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleESt4lessIS5_ESaISt4pairIKS5_S7_EEEixERSB_", (void*)&_ZNSt3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleESt4lessIS5_ESaISt4pairIKS5_S7_EEEixERSB_ },
+    { "_ZNSt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleEEC1IJRS6_EJLj0EEJEJEEERSt5tupleIJDpT_EERSC_IJDpT1_EESt12_Index_tupleIJXspT0_EEESL_IJXspT2_EEE", (void*)&_ZNSt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleEEC1IJRS6_EJLj0EEJEJEEERSt5tupleIJDpT_EERSC_IJDpT1_EESt12_Index_tupleIJXspT0_EEESL_IJXspT2_EEE },
+    { "_ZNSt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleEEC2IJRS6_EJLj0EEJEJEEERSt5tupleIJDpT_EERSC_IJDpT1_EESt12_Index_tupleIJXspT0_EEESL_IJXspT2_EEE", (void*)&_ZNSt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEN10ElfManager6ModuleEEC2IJRS6_EJLj0EEJEJEEERSt5tupleIJDpT_EERSC_IJDpT1_EESt12_Index_tupleIJXspT0_EEESL_IJXspT2_EEE },
     { "_ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1EOS6_", (void*)&_ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1EOS6_ },
     { "_ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1ERKS6_", (void*)&_ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1ERKS6_ },
     { "_ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1IRA10_KcRS5_EEOT_OT0_", (void*)&_ZNSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_EC1IRA10_KcRS5_EEOT_OT0_ },
@@ -2314,6 +2433,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorI10ScanDeviceSaIS0_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS0_S2_EE", (void*)&_ZNSt6vectorI10ScanDeviceSaIS0_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS0_S2_EE },
     { "_ZNSt6vectorI10ScanDeviceSaIS0_EE9push_backERKS0_", (void*)&_ZNSt6vectorI10ScanDeviceSaIS0_EE9push_backERKS0_ },
     { "_ZNSt6vectorI10ScanDeviceSaIS0_EEaSERKS2_", (void*)&_ZNSt6vectorI10ScanDeviceSaIS0_EEaSERKS2_ },
+    { "_ZNSt6vectorI11AiAppTargetSaIS0_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS0_S2_EEOS0_", (void*)&_ZNSt6vectorI11AiAppTargetSaIS0_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS0_S2_EEOS0_ },
     { "_ZNSt6vectorI11AiAppTargetSaIS0_EEC1ESt16initializer_listIS0_ERKS1_", (void*)&_ZNSt6vectorI11AiAppTargetSaIS0_EEC1ESt16initializer_listIS0_ERKS1_ },
     { "_ZNSt6vectorI11AiAppTargetSaIS0_EEC2ESt16initializer_listIS0_ERKS1_", (void*)&_ZNSt6vectorI11AiAppTargetSaIS0_EEC2ESt16initializer_listIS0_ERKS1_ },
     { "_ZNSt6vectorI12MarketScriptSaIS0_EE14_M_move_assignEOS2_St17integral_constantIbLb1EE", (void*)&_ZNSt6vectorI12MarketScriptSaIS0_EE14_M_move_assignEOS2_St17integral_constantIbLb1EE },
@@ -2333,11 +2453,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorI8AiActionSaIS0_EE9push_backERKS0_", (void*)&_ZNSt6vectorI8AiActionSaIS0_EE9push_backERKS0_ },
     { "_ZNSt6vectorI8AiActionSaIS0_EED1Ev", (void*)&_ZNSt6vectorI8AiActionSaIS0_EED1Ev },
     { "_ZNSt6vectorI8AiActionSaIS0_EED2Ev", (void*)&_ZNSt6vectorI8AiActionSaIS0_EED2Ev },
-    { "_ZNSt6vectorIN10ChessLogic4MoveESaIS1_EE4backEv", (void*)&_ZNSt6vectorIN10ChessLogic4MoveESaIS1_EE4backEv },
-    { "_ZNSt6vectorIN10ChessLogic4MoveESaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIN10ChessLogic4MoveESaIS1_EE9push_backERKS1_ },
-    { "_ZNSt6vectorIN10ChessLogic8PositionESaIS1_EE14_M_move_assignEOS3_St17integral_constantIbLb1EE", (void*)&_ZNSt6vectorIN10ChessLogic8PositionESaIS1_EE14_M_move_assignEOS3_St17integral_constantIbLb1EE },
-    { "_ZNSt6vectorIN10ChessLogic8PositionESaIS1_EE4backEv", (void*)&_ZNSt6vectorIN10ChessLogic8PositionESaIS1_EE4backEv },
-    { "_ZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE9push_backERKS1_ },
+    { "_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE6insertEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EERS6_", (void*)&_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE6insertEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EERS6_ },
+    { "_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE9push_backERKS1_ },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE15_M_erase_at_endEPS1_", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE15_M_erase_at_endEPS1_ },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE4backEv", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE4backEv },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev },
@@ -2355,7 +2472,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorIP8AppStackSaIS1_EE6rbeginEv", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE6rbeginEv },
     { "_ZNSt6vectorIP8AppStackSaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE },
     { "_ZNSt6vectorIP8AppStackSaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE9push_backERKS1_ },
+    { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEjRKS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEjRKS1_ },
+    { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EEOS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EEOS1_ },
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE4backEv", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE4backEv },
+    { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE6resizeEjRKS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE6resizeEjRKS1_ },
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE9push_backERKS1_ },
     { "_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE12emplace_backIJS7_EEERS7_DpOT_", (void*)&_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE12emplace_backIJS7_EEERS7_DpOT_ },
     { "_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE4backEv", (void*)&_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE4backEv },
@@ -2385,8 +2505,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorIiSaIiEE5eraseEN9__gnu_cxx17__normal_iteratorIPKiS1_EE", (void*)&_ZNSt6vectorIiSaIiEE5eraseEN9__gnu_cxx17__normal_iteratorIPKiS1_EE },
     { "_ZNSt6vectorIiSaIiEE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPiS1_EE", (void*)&_ZNSt6vectorIiSaIiEE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPiS1_EE },
     { "_ZNSt6vectorIiSaIiEE9push_backERKi", (void*)&_ZNSt6vectorIiSaIiEE9push_backERKi },
-    { "_ZNSt6vectorIySaIyEE4backEv", (void*)&_ZNSt6vectorIySaIyEE4backEv },
-    { "_ZNSt6vectorIySaIyEE9push_backERKy", (void*)&_ZNSt6vectorIySaIyEE9push_backERKy },
     { "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv", (void*)&_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv },
     { "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEjjPKcj", (void*)&_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEjjPKcj },
     { "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEjjjc", (void*)&_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEjjjc },
@@ -2425,6 +2543,19 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt7__cxx119to_stringEi", (void*)&_ZNSt7__cxx119to_stringEi },
     { "_ZNSt7__cxx119to_stringEj", (void*)&_ZNSt7__cxx119to_stringEj },
     { "_ZNSt7__cxx119to_stringEy", (void*)&_ZNSt7__cxx119to_stringEy },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_node9_M_insertES6_IPSt18_Rb_tree_node_baseSJ_E", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_node9_M_insertES6_IPSt18_Rb_tree_node_baseSJ_E },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_nodeD1Ev", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_nodeD1Ev },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_nodeD2Ev", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE10_Auto_nodeD2Ev },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE12_M_erase_auxESt23_Rb_tree_const_iteratorISA_E", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE12_M_erase_auxESt23_Rb_tree_const_iteratorISA_E },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_create_nodeIJRKSt21piecewise_construct_tSt5tupleIJRS7_EESL_IJEEEEEPSt13_Rb_tree_nodeISA_EDpOT_", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_create_nodeIJRKSt21piecewise_construct_tSt5tupleIJRS7_EESL_IJEEEEEPSt13_Rb_tree_nodeISA_EDpOT_ },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_insert_nodeEPSt18_Rb_tree_node_baseSI_PSt13_Rb_tree_nodeISA_E", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_insert_nodeEPSt18_Rb_tree_node_baseSI_PSt13_Rb_tree_nodeISA_E },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPSt13_Rb_tree_nodeISA_EPSt18_Rb_tree_node_baseRS7_", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPSt13_Rb_tree_nodeISA_EPSt18_Rb_tree_node_baseRS7_ },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE22_M_emplace_hint_uniqueIJRKSt21piecewise_construct_tSt5tupleIJRS7_EESL_IJEEEEESt17_Rb_tree_iteratorISA_ESt23_Rb_tree_const_iteratorISA_EDpOT_", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE22_M_emplace_hint_uniqueIJRKSt21piecewise_construct_tSt5tupleIJRS7_EESL_IJEEEEESt17_Rb_tree_iteratorISA_ESt23_Rb_tree_const_iteratorISA_EDpOT_ },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE24_M_get_insert_unique_posERS7_", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE24_M_get_insert_unique_posERS7_ },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE29_M_get_insert_hint_unique_posESt23_Rb_tree_const_iteratorISA_ERS7_", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE29_M_get_insert_hint_unique_posESt23_Rb_tree_const_iteratorISA_ERS7_ },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_ },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE5eraseB5cxx11ESt17_Rb_tree_iteratorISA_E", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE5eraseB5cxx11ESt17_Rb_tree_iteratorISA_E },
+    { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE8_M_eraseEPSt13_Rb_tree_nodeISA_E", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE8_M_eraseEPSt13_Rb_tree_nodeISA_E },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEE4swapERS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEE4swapERS5_ },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1EOS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1EOS5_ },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2EOS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2EOS5_ },
@@ -2489,6 +2620,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZSt15get_new_handlerv", (void*)&_ZSt15get_new_handlerv },
     { "_ZSt16__do_uninit_copyIN9__gnu_cxx17__normal_iteratorIPKSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_ESt6vectorIS9_SaIS9_EEEEPS9_ET0_T_SI_SH_", (void*)&_ZSt16__do_uninit_copyIN9__gnu_cxx17__normal_iteratorIPKSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_ESt6vectorIS9_SaIS9_EEEEPS9_ET0_T_SI_SH_ },
     { "_ZSt17__throw_bad_allocv", (void*)&_ZSt17__throw_bad_allocv },
+    { "_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base", (void*)&_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base },
+    { "_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base", (void*)&_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base },
     { "_ZSt18__allocate_guardedISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEESt15__allocated_ptrIT_ERS9_", (void*)&_ZSt18__allocate_guardedISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEESt15__allocated_ptrIT_ERS9_ },
     { "_ZSt18uninitialized_copyIN9__gnu_cxx17__normal_iteratorIPKSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_ESt6vectorIS9_SaIS9_EEEEPS9_ET0_T_SI_SH_", (void*)&_ZSt18uninitialized_copyIN9__gnu_cxx17__normal_iteratorIPKSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_ESt6vectorIS9_SaIS9_EEEEPS9_ET0_T_SI_SH_ },
     { "_ZSt19__throw_logic_errorPKc", (void*)&_ZSt19__throw_logic_errorPKc },
@@ -2498,7 +2631,9 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZSt23__copy_move_backward_a1ILb0ESt13_Bit_iteratorS0_ET1_T0_S2_S1_", (void*)&_ZSt23__copy_move_backward_a1ILb0ESt13_Bit_iteratorS0_ET1_T0_S2_S1_ },
     { "_ZSt24__throw_out_of_range_fmtPKcz", (void*)&_ZSt24__throw_out_of_range_fmtPKcz },
     { "_ZSt25__throw_bad_function_callv", (void*)&_ZSt25__throw_bad_function_callv },
+    { "_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_", (void*)&_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_ },
     { "_ZSt28__throw_bad_array_new_lengthv", (void*)&_ZSt28__throw_bad_array_new_lengthv },
+    { "_ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_", (void*)&_ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_ },
     { "_ZSt4copyISt13_Bit_iteratorS0_ET0_T_S2_S1_", (void*)&_ZSt4copyISt13_Bit_iteratorS0_ET0_T_S2_S1_ },
     { "_ZSt4copyISt19_Bit_const_iteratorSt13_Bit_iteratorET0_T_S3_S2_", (void*)&_ZSt4copyISt19_Bit_const_iteratorSt13_Bit_iteratorET0_T_S3_S2_ },
     { "_ZSt4swapI13DeviceContextENSt9enable_ifIXsrSt6__and_IJSt6__not_ISt15__is_tuple_likeIT_EESt21is_move_constructibleIS5_ESt18is_move_assignableIS5_EEE5valueEvE4typeERS5_SF_", (void*)&_ZSt4swapI13DeviceContextENSt9enable_ifIXsrSt6__and_IJSt6__not_ISt15__is_tuple_likeIT_EESt21is_move_constructibleIS5_ESt18is_move_assignableIS5_EEE5valueEvE4typeERS5_SF_ },
@@ -2515,6 +2650,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZStplRKSt13_Bit_iteratori", (void*)&_ZStplRKSt13_Bit_iteratori },
     { "_ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev },
+    { "_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD1Ev },
+    { "_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorI12PairedDeviceSaIS0_EE17_M_default_appendEjEN6_GuardD1Ev", (void*)&_ZZNSt6vectorI12PairedDeviceSaIS0_EE17_M_default_appendEjEN6_GuardD1Ev },
@@ -2529,12 +2666,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI8AiActionSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev },
-    { "_ZZNSt6vectorIN10ChessLogic4MoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIN10ChessLogic4MoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev },
-    { "_ZZNSt6vectorIN10ChessLogic4MoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIN10ChessLogic4MoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev },
-    { "_ZZNSt6vectorIN10ChessLogic8PositionESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIN10ChessLogic8PositionESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev },
-    { "_ZZNSt6vectorIN10ChessLogic8PositionESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIN10ChessLogic8PositionESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev },
-    { "_ZZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev },
-    { "_ZZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIN11OpeningBook8BookMoveESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev },
+    { "_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD1Ev },
+    { "_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev },
+    { "_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_insertIJRKS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_insertIJRKS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD1Ev },
+    { "_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_insertIJRKS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE17_M_realloc_insertIJRKS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE17_M_realloc_appendIJRKS5_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE17_M_realloc_appendIJRKS5_EEEvDpOT_EN6_GuardD1Ev },
@@ -2547,6 +2682,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_appendIJS1_EEEvDpOT_EN6_GuardD2Ev },
+    { "_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_insertIJS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_insertIJS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD1Ev },
+    { "_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_insertIJS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIP9_lv_obj_tSaIS1_EE17_M_realloc_insertIJS1_EEEvN9__gnu_cxx17__normal_iteratorIPS1_S3_EEDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE17_M_realloc_appendIJS7_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE17_M_realloc_appendIJS7_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE17_M_realloc_appendIJS7_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE17_M_realloc_appendIJS7_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorISt4pairImSt8functionIFvvEEESaIS4_EE17_M_realloc_appendIJRmS3_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorISt4pairImSt8functionIFvvEEESaIS4_EE17_M_realloc_appendIJRmS3_EEEvDpOT_EN6_GuardD1Ev },
@@ -2555,8 +2692,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZZNSt6vectorISt5arrayIhLj6EESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorISt5arrayIhLj6EESaIS1_EE17_M_realloc_appendIJRKS1_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorIiSaIiEE17_M_realloc_appendIJRKiEEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIiSaIiEE17_M_realloc_appendIJRKiEEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorIiSaIiEE17_M_realloc_appendIJRKiEEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIiSaIiEE17_M_realloc_appendIJRKiEEEvDpOT_EN6_GuardD2Ev },
-    { "_ZZNSt6vectorIySaIyEE17_M_realloc_appendIJRKyEEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorIySaIyEE17_M_realloc_appendIJRKyEEEvDpOT_EN6_GuardD1Ev },
-    { "_ZZNSt6vectorIySaIyEE17_M_realloc_appendIJRKyEEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorIySaIyEE17_M_realloc_appendIJRKyEEEvDpOT_EN6_GuardD2Ev },
     { "_ZdaPv", (void*)&_ZdaPv },
     { "_ZdaPvj", (void*)&_ZdaPvj },
     { "_ZdlPv", (void*)&_ZdlPv },
@@ -2566,12 +2701,66 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_Znaj", (void*)&_Znaj },
     { "_ZnajRKSt9nothrow_t", (void*)&_ZnajRKSt9nothrow_t },
     { "_Znwj", (void*)&_Znwj },
+    { "__adddf3", (void*)&__adddf3 },
+    { "__addvdi3", (void*)&__addvdi3 },
+    { "__addvsi3", (void*)&__addvsi3 },
     { "__assert_func", (void*)&__assert_func },
+    { "__clzdi2", (void*)&__clzdi2 },
+    { "__clzsi2", (void*)&__clzsi2 },
+    { "__cmpdi2", (void*)&__cmpdi2 },
+    { "__ctzdi2", (void*)&__ctzdi2 },
+    { "__ctzsi2", (void*)&__ctzsi2 },
     { "__cxa_atexit", (void*)&__cxa_atexit },
-    { "__cxa_guard_abort", (void*)&__cxa_guard_abort },
     { "__cxa_guard_acquire", (void*)&__cxa_guard_acquire },
     { "__cxa_guard_release", (void*)&__cxa_guard_release },
-    { "__cxa_pure_virtual", (void*)&__cxa_pure_virtual },
+    { "__divdc3", (void*)&__divdc3 },
+    { "__divdf3", (void*)&__divdf3 },
+    { "__divdi3", (void*)&__divdi3 },
+    { "__divsc3", (void*)&__divsc3 },
+    { "__divsi3", (void*)&__divsi3 },
+    { "__extenddftf2", (void*)&__extenddftf2 },
+    { "__extendsfdf2", (void*)&__extendsfdf2 },
+    { "__fixdfdi", (void*)&__fixdfdi },
+    { "__fixdfsi", (void*)&__fixdfsi },
+    { "__fixsfdi", (void*)&__fixsfdi },
+    { "__fixunsdfsi", (void*)&__fixunsdfsi },
+    { "__fixunssfdi", (void*)&__fixunssfdi },
+    { "__fixunssfsi", (void*)&__fixunssfsi },
+    { "__floatdidf", (void*)&__floatdidf },
+    { "__floatdisf", (void*)&__floatdisf },
+    { "__floatsidf", (void*)&__floatsidf },
+    { "__floatundidf", (void*)&__floatundidf },
+    { "__floatundisf", (void*)&__floatundisf },
+    { "__floatunsidf", (void*)&__floatunsidf },
+    { "__moddi3", (void*)&__moddi3 },
+    { "__modsi3", (void*)&__modsi3 },
+    { "__muldc3", (void*)&__muldc3 },
+    { "__muldf3", (void*)&__muldf3 },
+    { "__muldi3", (void*)&__muldi3 },
+    { "__mulsc3", (void*)&__mulsc3 },
+    { "__mulsi3", (void*)&__mulsi3 },
+    { "__multadd", (void*)&__multadd },
+    { "__multiply", (void*)&__multiply },
+    { "__mulvdi3", (void*)&__mulvdi3 },
+    { "__mulvsi3", (void*)&__mulvsi3 },
+    { "__negdf2", (void*)&__negdf2 },
+    { "__negdi2", (void*)&__negdi2 },
+    { "__negvdi2", (void*)&__negvdi2 },
+    { "__negvsi2", (void*)&__negvsi2 },
+    { "__popcountdi2", (void*)&__popcountdi2 },
+    { "__popcountsi2", (void*)&__popcountsi2 },
+    { "__subdf3", (void*)&__subdf3 },
+    { "__submore", (void*)&__submore },
+    { "__subvdi3", (void*)&__subvdi3 },
+    { "__subvsi3", (void*)&__subvsi3 },
+    { "__truncdfsf2", (void*)&__truncdfsf2 },
+    { "__trunctfdf2", (void*)&__trunctfdf2 },
+    { "__udiv_w_sdiv", (void*)&__udiv_w_sdiv },
+    { "__udivdi3", (void*)&__udivdi3 },
+    { "__udivmoddi4", (void*)&__udivmoddi4 },
+    { "__udivsi3", (void*)&__udivsi3 },
+    { "__umoddi3", (void*)&__umoddi3 },
+    { "__umodsi3", (void*)&__umodsi3 },
     { "atan2f", (void*)&atan2f },
     { "cJSON_AddArrayToObject", (void*)&cJSON_AddArrayToObject },
     { "cJSON_AddBoolToObject", (void*)&cJSON_AddBoolToObject },
@@ -2601,7 +2790,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "cJSON_ParseWithOpts", (void*)&cJSON_ParseWithOpts },
     { "cJSON_PrintUnformatted", (void*)&cJSON_PrintUnformatted },
     { "cJSON_free", (void*)&cJSON_free },
+    { "ceil", (void*)&ceil },
     { "ceilf", (void*)&ceilf },
+    { "closedir", (void*)&closedir },
+    { "cos", (void*)&cos },
     { "cosf", (void*)&cosf },
     { "esp_log", (void*)&esp_log },
     { "esp_log_cache_add", (void*)&esp_log_cache_add },
@@ -2649,9 +2841,65 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "esp_lv_adapter_unregister_input_device", (void*)&esp_lv_adapter_unregister_input_device },
     { "esp_lv_adapter_unregister_touch", (void*)&esp_lv_adapter_unregister_touch },
     { "esp_random", (void*)&esp_random },
+    { "esp_timer_create", (void*)&esp_timer_create },
+    { "esp_timer_delete", (void*)&esp_timer_delete },
+    { "esp_timer_early_init", (void*)&esp_timer_early_init },
+    { "esp_timer_get_expiry_time", (void*)&esp_timer_get_expiry_time },
+    { "esp_timer_get_time", (void*)&esp_timer_get_time },
+    { "esp_timer_impl_early_init", (void*)&esp_timer_impl_early_init },
+    { "esp_timer_impl_get_min_period_us", (void*)&esp_timer_impl_get_min_period_us },
+    { "esp_timer_impl_get_time", (void*)&esp_timer_impl_get_time },
+    { "esp_timer_impl_init", (void*)&esp_timer_impl_init },
+    { "esp_timer_impl_init_system_time", (void*)&esp_timer_impl_init_system_time },
+    { "esp_timer_impl_set_alarm_id", (void*)&esp_timer_impl_set_alarm_id },
+    { "esp_timer_init", (void*)&esp_timer_init },
+    { "esp_timer_init_include_func", (void*)&esp_timer_init_include_func },
+    { "esp_timer_is_active", (void*)&esp_timer_is_active },
+    { "esp_timer_start_once", (void*)&esp_timer_start_once },
+    { "esp_timer_start_periodic", (void*)&esp_timer_start_periodic },
+    { "esp_timer_stop", (void*)&esp_timer_stop },
+    { "fabs", (void*)&fabs },
     { "fabsf", (void*)&fabsf },
+    { "fclose", (void*)&fclose },
+    { "feof", (void*)&feof },
+    { "ferror", (void*)&ferror },
+    { "fflush", (void*)&fflush },
+    { "floor", (void*)&floor },
     { "floorf", (void*)&floorf },
+    { "fmod", (void*)&fmod },
     { "fmodf", (void*)&fmodf },
+    { "fopen", (void*)&fopen },
+    { "fread", (void*)&fread },
+    { "fseek", (void*)&fseek },
+    { "ftell", (void*)&ftell },
+    { "fwrite", (void*)&fwrite },
+    { "heap_caps_add_region_with_caps", (void*)&heap_caps_add_region_with_caps },
+    { "heap_caps_aligned_alloc", (void*)&heap_caps_aligned_alloc },
+    { "heap_caps_aligned_alloc_base", (void*)&heap_caps_aligned_alloc_base },
+    { "heap_caps_aligned_alloc_default", (void*)&heap_caps_aligned_alloc_default },
+    { "heap_caps_aligned_calloc", (void*)&heap_caps_aligned_calloc },
+    { "heap_caps_calloc", (void*)&heap_caps_calloc },
+    { "heap_caps_calloc_base", (void*)&heap_caps_calloc_base },
+    { "heap_caps_calloc_prefer", (void*)&heap_caps_calloc_prefer },
+    { "heap_caps_check_add_region_allowed", (void*)&heap_caps_check_add_region_allowed },
+    { "heap_caps_enable_nonos_stack_heaps", (void*)&heap_caps_enable_nonos_stack_heaps },
+    { "heap_caps_free", (void*)&heap_caps_free },
+    { "heap_caps_get_allocated_size", (void*)&heap_caps_get_allocated_size },
+    { "heap_caps_get_free_size", (void*)&heap_caps_get_free_size },
+    { "heap_caps_get_info", (void*)&heap_caps_get_info },
+    { "heap_caps_get_largest_free_block", (void*)&heap_caps_get_largest_free_block },
+    { "heap_caps_get_minimum_free_size", (void*)&heap_caps_get_minimum_free_size },
+    { "heap_caps_get_total_size", (void*)&heap_caps_get_total_size },
+    { "heap_caps_init", (void*)&heap_caps_init },
+    { "heap_caps_malloc", (void*)&heap_caps_malloc },
+    { "heap_caps_malloc_base", (void*)&heap_caps_malloc_base },
+    { "heap_caps_malloc_default", (void*)&heap_caps_malloc_default },
+    { "heap_caps_malloc_extmem_enable", (void*)&heap_caps_malloc_extmem_enable },
+    { "heap_caps_malloc_prefer", (void*)&heap_caps_malloc_prefer },
+    { "heap_caps_match", (void*)&heap_caps_match },
+    { "heap_caps_realloc", (void*)&heap_caps_realloc },
+    { "heap_caps_realloc_base", (void*)&heap_caps_realloc_base },
+    { "heap_caps_realloc_default", (void*)&heap_caps_realloc_default },
     { "jpeg_acquire_codec_handle", (void*)&jpeg_acquire_codec_handle },
     { "jpeg_alloc_decoder_mem", (void*)&jpeg_alloc_decoder_mem },
     { "jpeg_calloc_align_inner", (void*)&jpeg_calloc_align_inner },
@@ -3482,7 +3730,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "lv_roller_set_selected", (void*)&lv_roller_set_selected },
     { "lv_scale_set_image_needle_value", (void*)&lv_scale_set_image_needle_value },
     { "lv_scale_set_line_needle_value", (void*)&lv_scale_set_line_needle_value },
-    { "lv_screen_active", (void*)&lv_screen_active },
     { "lv_screen_load", (void*)&lv_screen_load },
     { "lv_screen_load_anim", (void*)&lv_screen_load_anim },
     { "lv_slider_create", (void*)&lv_slider_create },
@@ -3641,12 +3888,21 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "memcpy", (void*)&memcpy },
     { "memmove", (void*)&memmove },
     { "memset", (void*)&memset },
+    { "mkdir", (void*)&mkdir },
+    { "opendir", (void*)&opendir },
+    { "pow", (void*)&pow },
     { "powf", (void*)&powf },
     { "rand", (void*)&rand },
+    { "readdir", (void*)&readdir },
+    { "remove", (void*)&remove },
+    { "rename", (void*)&rename },
+    { "sin", (void*)&sin },
     { "sinf", (void*)&sinf },
     { "snprintf", (void*)&snprintf },
+    { "sqrt", (void*)&sqrt },
     { "sqrtf", (void*)&sqrtf },
     { "srand", (void*)&srand },
+    { "stat", (void*)&stat },
     { "strchr", (void*)&strchr },
     { "strcmp", (void*)&strcmp },
     { "strlen", (void*)&strlen },
@@ -3697,4 +3953,3 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "xTaskResumeAll", (void*)&xTaskResumeAll },
     { NULL, NULL }
 };
-
