@@ -78,7 +78,7 @@ private:
 	// 64 段：60fps 持续划线 0.5s ≈ 30 段，池够大不顶掉；触摸停止后从尾部逐段消失
 	static constexpr int kMaxSegments = 64;
 	static constexpr float kMaxSegLen = 40.0f;   // 单段最大长度（px）：更长的线段在 addTrailSegment 拆分为多段
-	static constexpr float TRAIL_LIFETIME = 0.5f;   // 段超时（秒）
+	static constexpr float TRAIL_LIFETIME = 0.3f;   // 段超时（秒）
 
 	static constexpr int kMaxLeaves = 48;        // 竹叶粒子池（切割时随机向四周飘散）
 	static constexpr int kMaxActiveLeaves = 6;   // 同时活跃竹叶上限（超限跳过生成，防卡顿）
@@ -88,7 +88,7 @@ private:
 	static constexpr uint32_t kBambooGreen = 0x9acd32;   // 竹绿色（刀光拖尾，sword 图加载失败时回退）
 
 	// ── sword 光效刀光（sword.jpg：深色底光效图 → 亮度抠 alpha + 加法混合，逐段旋转 + 残影渐隐） ──
-	static constexpr float kSwordScale = 1.3f;        // 每段光效缩放倍率（相对段长/图长边；调残影大小/密度）
+	static constexpr float kSwordScale = 2.0f;        // 每段光效缩放倍率（相对段长/图长边；调残影大小/密度）
 	static constexpr float kSwordAngleOffset = 0.0f;  // 图片主轴朝向额外偏移（rad），按 sword.jpg 实际朝向微调
 	static constexpr float kSwordAlphaGain = 1.5f;    // 亮度→alpha 增益（深底抠图阈值，越高背景抠得越狠）
 	static constexpr uint8_t kSwordAlphaFloor = 32;   // 亮度下限：低于此视为深底背景 → 透明
