@@ -2,8 +2,10 @@
 
 #include "app/app.hpp"
 #include "aiAgent/aiProtocol.hpp"
+#include "elfManager/elfManager.hpp"
 #include <cstdint>
 #include <ctime>
+#include <vector>
 
 class DesktopApp final : public App
 {
@@ -28,11 +30,35 @@ public:
 private:
 	tm showedTime{};
 
-	// ── 游戏数据 ──
-	static constexpr int GAME_COUNT = 8;
-	static const char* GAME_NAMES[GAME_COUNT];
-	static const char* GAME_DESCS[GAME_COUNT];
-	static const char* GAME_ICONS[GAME_COUNT];
+	// ── 动态游戏卡片 ──
+	// 顺序：ELF 插件卡片（扫描插入最前）→ 内置游戏 → 系统卡片
+	enum class CardKind : uint8_t { Elf, Builtin, System };
+	struct GameCard {
+		CardKind kind;
+		char displayName[64];   // 显示名（中文）
+		char desc[128];         // 描述
+		char icon[64];          // 图标路径
+		char elfPath[64];       // kind==Elf：.so 完整路径
+		char pluginName[32];    // kind==Elf：info->name（ASCII，AI open_app 键）
+		int8_t index;           // kind==Builtin/System：分发 switch 索引
+	};
+	std::vector<GameCard> m_cards;      // 卡片数据表
+	std::vector<lv_obj_t*> m_cardObjs;  // 对应卡片对象（与 m_cards 同序）
+
+	static constexpr int BUILTIN_COUNT = 4;   // fruitNinja/tetris/doudizhu/chineseChess
+	static constexpr int SYSTEM_COUNT = 3;    // luaManager/market/testApp
+	static constexpr int MAX_ELF_CARDS = 8;
+
+	// ── ELF 扫描（后台渐进式） ──
+	bool m_elfScanStarted = false;
+	volatile bool m_elfScanStopped = false;
+
+	void buildBuiltinCards();                      // 填充内置+系统卡片（init 时）
+	lv_obj_t* createCardObject(int idx);           // 创建第 idx 张卡片对象（须持 LVGL 锁）
+	void startElfScan();                           // 启动后台扫描 Task
+	static TickType_t elfScanTask(void* param);    // 渐进式：占位 → 逐个 inspect → 更新
+	void addElfCardPlaceholder(const char* fullPath);  // 快速占位卡片（插入最前）
+	void updateElfCard(const char* elfPath, const ElfManager::ScanEntry& e); // 元数据就绪刷新（按 path 定位）
 
 	// ── 焦点导航组 ──
 	enum FocusGroup : int8_t {
@@ -54,7 +80,7 @@ private:
 		STATUS_COUNT = 7,
 	};
 	FocusGroup m_focusGroup{ FOCUS_CARDS };
-	int8_t m_focusCardsIdx{ 0 };      // 0..GAME_COUNT-1
+	int8_t m_focusCardsIdx{ 0 };      // 0..m_cards.size()-1
 	int8_t m_focusStatusIdx{ 0 };     // 0=时间,1=WiFi,2=蓝牙,3=音量,4=亮度,5=多主机,6=电池（见 StatusIdx）
 	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
@@ -66,7 +92,7 @@ private:
 
 	// ── UI 对象成员 ──
 	lv_obj_t* m_cardsRow{};              // 卡片 flex 容器
-	lv_obj_t* m_gameCards[GAME_COUNT]{}; // 5 张卡片
+	// 卡片对象存于 m_cardObjs（动态，与 m_cards 同序）
 
 	lv_obj_t* m_prevBtn{};
 	lv_obj_t* m_nextBtn{};

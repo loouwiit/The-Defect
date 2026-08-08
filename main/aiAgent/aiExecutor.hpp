@@ -14,6 +14,7 @@
 #include "gamepad/bleGamepad.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
+#include "elfManager/elfManager.hpp"
 #include <cstdio>
 
 /**
@@ -134,7 +135,10 @@ public:
                     for (const auto& t : activeApp->getOpenableApps()) {
                         if (action.text == t.name) {
                             found = true;
-                            App* app = t.create(display, action.params);
+                            // ELF 插件目标：经 ElfManager 动态加载；否则走静态工厂
+                            App* app = t.elfPath
+                                ? ElfManager::instance().createApp(t.elfPath, display, action.params)
+                                : t.create(display, action.params);
                             if (app && manager) {
                                 manager->pushToNewStack(app);
                                 handled = true;

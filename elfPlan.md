@@ -38,7 +38,14 @@
 - **AppStack 全权管理生命周期**：push/pop/init/deinit/onForeground/onBackground/onGamepadInput 全部虚分派进 .so（vtable 在 PSRAM）
 - 插件与原生 App 完全一致：自建事件循环/线程、onGamepadInput 直收输入、display->lockGuard() 直接调用
 
-## 3. 当前状态（2026-08-08：R1 + Phase 1 + Phase 2 snake 迁移 全绿 ✅）
+## 3. 当前状态（2026-08-08：R1 + Phase 1 + Phase 2 snake + Phase 4 桌面动态扫描（代码完成））
+
+**Phase 4 桌面动态扫描（代码已落地，主固件构建通过，待设备验证）**：
+
+- **ABI v2**（`ELF_SDK_VERSION` 1→2）：`elf_plugin_info_t` 扩展 `display_name`/`description`/`icon_path`（可 NULL），插件自带中文名/描述/图标 → 桌面卡片无需主固件硬编码
+- **ElfManager 多模块化**：`Module m_module` → `std::map<std::string, Module>`（path 键）；`App::m_elfModule` void* → `char m_elfModulePath[64]`（map 节点地址漂移，改存 path）；锁粒度双层（map 轻锁 + 慢操作锁外）
+- **桌面动态卡片**：`GAME_COUNT` 静态数组 → 动态 `m_cards`（ELF 插件卡片在前 + 内置 4 游戏 + 系统 3 卡片）；`startElfScan()` 后台渐进式：`listElfFiles`（快，占位卡）→ 逐个 `inspectModule`（dlopen→读元数据→dlclose，不增 refcount）→ 按 path 定位更新卡片
+- **AI 动态能力**：`AiAppTarget` 加 `elfPath` 字段（aiExecutor 优先走 `ElfManager::createApp`）；`getOpenableApps()` 动态并入 ELF 插件；`getAiContext()` cards 描述动态生成
 
 **Phase 2 实测（snake 插件，设备验证）**：
 
@@ -220,23 +227,28 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 ## 14. 路线图
 
 - **Phase 2**：迁移单机游戏。**snake ✅（已完成，模板+流程验证）** → chineseChess（含 AI 引擎）→ fruitNinja（canvas 渲染器最重，放最后）。编译目标从 main 改 elfapps + 工厂导出；符号表已含 std::/FreeRTOS/GUI/Task 等，后续迁移主要用 `nm -u` 核对即可。
-- **Phase 3**：迁移联机游戏（tetris/douDiZhu，lwip socket 已导出 + WS/TCP 桥接决策：SDK `elf_ws_register` vs 插件自开端口）。
+- **Phase 3**：迁移联机游戏（tetris/douDiZhu，lwip socket 已导出 + WS/TCP 桥接决策：SDK `elf_ws_register` vs 插件自开端口）。**决策：导出全套网络符号**（socket 族 + wsServer + httpd_ws + esp_websocket_client，插件像原生代码）。
 - **Phase 4**：桌面动态扫描 `/root/elf/*.so`；主固件瘦身（5MB→~2.5-3MB）；删 `elfProbe`；market 分发 .so（可选）；文档回填（newAGENTS/newreadme）。
+  - **✅ 已完成（2026-08-08，代码+主固件构建通过，待设备验证）**：ABI v2 元数据字段、ElfManager 多模块 map + listElfFiles/inspectModule、桌面动态卡片（后台渐进式扫描）、AI 能力动态合并（AiAppTarget.elfPath）、`setElfModule` 指针→path。
+  - ⏳ 待验证：重编 snake/smoke 插件（补元数据字段）→ 上传 → 设备验证清单（见下）。
+  - ⏳ 待做：主固件瘦身（迁移更多游戏后）、删 `elfProbe`（确认无用后）、删 `appFactory`（死代码，无引用）、删 `elfapps/hello`/`smoke`（确认无用后）。
 
 ## 15. 相关文件清单
 
 | 文件 | 说明 |
 |------|------|
-| `main/elfSdk/elf_sdk.h` | ABI 契约（`elf_plugin_info_t` + `ELF_SDK_VERSION` + `elf_sdk_init` 声明） |
+| `main/elfSdk/elf_sdk.h` | ABI 契约（`elf_plugin_info_t` + `ELF_SDK_VERSION` + `elf_sdk_init` 声明）。**v2：+display_name/description/icon_path** |
 | `main/elfSdk/elf_sdk.cpp` | `elf_sdk_init()` 注册 `g_main_elfsyms`（单表） |
 | `main/elfSdk/elf_symtab.c` | **符号表（脚本生成）**：`g_main_elfsyms`，tools/gen_elf_syms.py 白名单生成 |
 | `tools/gen_elf_syms.py` | 符号表生成脚本（nm + c++filt + 白名单 + MUST_HAVE 校验） |
-| `main/elfManager/elfManager.hpp/.cpp` | 模块缓存/refcount/热更新/内部 RAM 加载 worker |
-| `main/app/app.hpp` | App 基类 + `setElfModule`/`m_elfModule` |
-| `main/app/appStack.cpp` | 两处删除点 `delete` 后调 `onAppDestroyed` |
-| `main/app/testApp/testApp.hpp/.cpp` | ELF 测试面板 |
-| `elfapps/smoke/` | C++ smoke 插件工程（CMakeLists + smoke.cpp） |
-| `elfapps/snake/` | **snake 插件工程（Phase 2 完成）**：main/snakeRoom/ + snakeGame/ + snakePlugin.cpp |
+| `main/elfManager/elfManager.hpp/.cpp` | **多模块 map**：path→Module；listElfFiles/inspectModule 扫描；双层锁粒度 |
+| `main/app/app.hpp` | App 基类 + `setElfModule(path)`/`m_elfModulePath[64]` + `AiAppTarget.elfPath` |
+| `main/app/appStack.cpp` | 两处删除点 `delete` 后按 path 调 `onAppDestroyed` |
+| `main/app/desktopApp/desktopApp.hpp/.cpp` | **动态卡片**：m_cards/m_cardObjs + 后台 ELF 扫描 + 按 kind 分发 |
+| `main/aiAgent/aiExecutor.hpp` | open_app：`t.elfPath ? ElfManager::createApp : t.create` |
+| `main/app/testApp/testApp.hpp/.cpp` | ELF 测试面板（状态查询改按 path 传参） |
+| `elfapps/smoke/` | C++ smoke 插件工程（CMakeLists + smoke.cpp，**v2 元数据已补**） |
+| `elfapps/snake/` | **snake 插件工程（Phase 2 完成）**：main/snakeRoom/ + snakeGame/ + snakePlugin.cpp（**v2 元数据已补**） |
 | `tools/build_elf.sh` / `gen_elf_syms.py` | 构建插件 .so（Ninja）/ 符号表生成+校验+搜索 |
 
 ## 16. 开发日志（时间线）
@@ -244,3 +256,4 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 - **2026-08-08**：设计确定（App* 工厂模型，替代容器）；R1 代码落地；依次解决：operator new 语法坑 → 5 个 App/单例 mangled 名（nm 核实）→ `size_t`=`j` → smoke .so 6 个 UND 符号 → **ElfManager::loadOne 把 dlsym 函数指针当结构体解引用**（假版本 1303）→ **R1 全绿 ✅**。
 - **2026-08-08（Phase 1 符号面脚本化）**：4 张手写符号表 → **单表 `g_main_elfsyms`（gen_elf_syms.py 从 .elf 白名单生成）**；删 7 个 C 包装；主固件 build 通过。**关键验证**：① `extern int _ZN...;` + `&_ZN...` 对 C++ mangled 符号链接通过（假设成立）；② static inline 的 LVGL API 不在 .elf（`lv_obj_clear_flag` 等取址 undefined）→ 修正为过渡表 include `lvgl.h` 取址生成本地副本；最终脚本 nm 天然排除 inline，.so 自行内联。smoke P7 打开单例直出（Task/BatteryManager/BleGamepad），待设备验证。
 - **2026-08-08（Phase 2 snake 迁移）**：用户把 `main/app/snake/` 移到 `elfapps/snake/main/`；主固件 desktopApp/appFactory 路由改 `ElfManager::createApp("/root/elf/snake.so", ...)`（AI 能力表 create 换静态适配器 `createSnakePlugin`）。依次解决：**① Unix Makefiles 生成器无法构建 .so**（自定义目标跨目录依赖 libmain.a 无规则）→ `build_elf.sh` 改 Ninja；**② 符号表鸡生蛋**（snake 独占 inline `AudioHandle::isPlaying` 被 GC → 陈旧表链接失败）→ 手动摘除 + 重生成；**③ std:: 运行时符号未导出**（`_M_replace_cold`/`__throw_out_of_range_fmt`）→ 白名单加 `std::` 前缀（1799 符号）；**④ 游戏快 10 倍**（插件 FREERTOS_HZ=100 与主固件 1000 不匹配）→ sdkconfig.defaults 同步 `CONFIG_FREERTOS_HZ=1000`。**设备全链路验证通过**（游戏表现与原生一致 / refcount=0→dlclose / AI open_app + 上下文 / 无 .so 兜底不崩）。清理 `SnakeRoom::newApp`（死代码）。
+- **2026-08-08（Phase 4 桌面动态扫描，代码完成）**：ABI v2（`elf_plugin_info_t` +display_name/description/icon_path，`ELF_SDK_VERSION`→2）；ElfManager 单模块→多模块 map（`setElfModule` 指针→path，map 节点地址漂移坑）+ `listElfFiles`/`inspectModule` 扫描（dlopen→读→dlclose 不增 refcount）；桌面 `GAME_COUNT` 静态数组→动态 m_cards（ELF 在前+内置+系统）+ 后台渐进式扫描 Task；`AiAppTarget` +elfPath（aiExecutor 动态加载）；`getAiContext`/`getOpenableApps` 动态化；删 `createSnakePlugin` 适配器。编译坑：`/*` 注释内 `*.so` 触发 -Werror=comment、memset 非平凡类型、snprintf 截断（memcpy 手动拼）。**主固件构建通过（5.2MB）**；待重编 snake/smoke 插件 + 设备验证。

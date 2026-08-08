@@ -186,12 +186,13 @@ void TestApp::refreshElfPanel()
 
 	auto& em = ElfManager::instance();
 	char buf[160];
-	if (em.isLoaded())
+	if (em.isLoaded(SMOKE_PATH))
 	{
 		snprintf(buf, sizeof(buf),
 			"module=%s v%lu ref=%lu load=%lums size=%u",
-			em.name(), (unsigned long)em.version(), (unsigned long)em.refcount(),
-			(unsigned long)em.loadTimeMs(), (unsigned)em.moduleSize());
+			em.name(SMOKE_PATH), (unsigned long)em.version(SMOKE_PATH),
+			(unsigned long)em.refcount(SMOKE_PATH),
+			(unsigned long)em.loadTimeMs(SMOKE_PATH), (unsigned)em.moduleSize(SMOKE_PATH));
 	}
 	else
 	{
@@ -202,7 +203,7 @@ void TestApp::refreshElfPanel()
 	{
 		lv_label_set_text(m_elfStatus, buf);
 		lv_obj_set_style_text_color(m_elfStatus,
-			em.isLoaded() ? GUI::Color::SUCCESS : GUI::Color::SUBTLE, 0);
+			em.isLoaded(SMOKE_PATH) ? GUI::Color::SUCCESS : GUI::Color::SUBTLE, 0);
 	}
 }
 

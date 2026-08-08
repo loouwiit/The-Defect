@@ -177,6 +177,9 @@ extern "C" const elf_plugin_info_t* elf_plugin_entry(void)
     static const elf_plugin_info_t info = {
         ELF_SDK_VERSION,
         "smoke",
+        "SMOKE 测试",
+        "ELF 插件探测面板（开发调试）",
+        nullptr,
         smoke_create_app,
         smoke_destroy_app,
     };

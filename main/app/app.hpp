@@ -4,6 +4,7 @@
 #include "gamepad/gamepadState.hpp"
 #include <string>
 #include <vector>
+#include <cstdio>
 #include <esp_log.h>
 class Display;
 class AppStackManager;
@@ -32,6 +33,8 @@ struct AiAppTarget {
     const char* name;
     const char* desc;
     App* (*create)(Display* display, const cJSON* params);
+    /** 非空：经 ElfManager::createApp 动态加载（替代 create 字段） */
+    const char* elfPath = nullptr;
 };
 
 /**
@@ -87,8 +90,15 @@ public:
 	Display* getDisplay() const { return display; }
 
 	// ── ELF 插件支持（由 ElfManager 设置，AppStack 在 delete 后回调卸载） ──
-	/** @brief 记录本 App 所属的 ELF 模块（ElfManager::createApp 设置） */
-	void setElfModule(void* module) { m_elfModule = module; }
+	/** @brief 记录本 App 所属 ELF 模块的路径（ElfManager::createApp 设置；
+	 *  map 节点地址随增删漂移，故存 path 而非指针） */
+	void setElfModule(const char* fullPath)
+	{
+		if (fullPath && *fullPath)
+			snprintf(m_elfModulePath, sizeof(m_elfModulePath), "%s", fullPath);
+		else
+			m_elfModulePath[0] = '\0';
+	}
 
 protected:
 	Display* display{};
@@ -98,7 +108,7 @@ protected:
 	bool deletable{ true };
 
 	AppStackManager* m_manager{};
-	void* m_elfModule{};   // ELF 模块句柄（非 ELF App 为 null；AppStack delete 后据此 dlclose）
+	char m_elfModulePath[64]{};   // 所属 ELF 模块路径（非 ELF App 为空串；AppStack delete 后据此 dlclose）
 
 	friend class Display;
 	friend class AppStack;

@@ -21,12 +21,13 @@ AppStack::~AppStack()
 	// 清理仍在栈内的 app（非空栈被销毁时）
 	for (auto it = m_stack.rbegin(); it != m_stack.rend(); ++it)
 	{
-		void* elfModule = (*it)->m_elfModule;   // delete 前取（delete 后对象已释放）
+		char elfPath[64];
+		snprintf(elfPath, sizeof(elfPath), "%s", (*it)->m_elfModulePath);   // delete 前取（delete 后对象已释放）
 		(*it)->deinit();
 		while (!(*it)->deletable) vTaskDelay(10);
 		delete* it;
-		if (elfModule)
-			ElfManager::instance().onAppDestroyed(elfModule);
+		if (elfPath[0])
+			ElfManager::instance().onAppDestroyed(elfPath);
 	}
 	m_stack.clear();
 }
@@ -137,8 +138,9 @@ void AppStack::scheduleDeletion(App* app)
 			if (!oldApp->deletable)
 				return 10;
 
-			// delete 前取 ELF 模块句柄（delete 后对象已释放，不能读成员）
-			void* elfModule = oldApp->m_elfModule;
+			// delete 前取 ELF 模块路径（delete 后对象已释放，不能读成员）
+			char elfPath[64];
+			snprintf(elfPath, sizeof(elfPath), "%s", oldApp->m_elfModulePath);
 
 			if (auto guard = oldApp->display->lockGuard())
 			{
@@ -151,8 +153,8 @@ void AppStack::scheduleDeletion(App* app)
 			}
 
 			// delete 完成后：ELF 模块 refcount--，归 0 时 dlclose
-			if (elfModule)
-				ElfManager::instance().onAppDestroyed(elfModule);
+			if (elfPath[0])
+				ElfManager::instance().onAppDestroyed(elfPath);
 
 			return Task::infinityTime;
 		}, "deleteApp", app, 0, Task::Affinity::None);

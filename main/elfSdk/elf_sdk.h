@@ -21,14 +21,17 @@ extern "C" {
  * 任何影响布局的框架头文件（app.hpp/display.hpp/gamepadState.hpp 等）变更时 +1，
  * 旧 .so 会被 ElfManager 拒绝加载而非静默错位。
  */
-#define ELF_SDK_VERSION 1
+#define ELF_SDK_VERSION 2
 
 /* ── 插件信息 ─────────────────────────────────────────────
  * 由 .so 的 elf_plugin_entry() 返回。
  */
 typedef struct elf_plugin_info {
     uint32_t version;                          /* 必须 == ELF_SDK_VERSION */
-    const char* name;                          /* 插件名（如 "smoke"） */
+    const char* name;                          /* 插件名（如 "smoke"，ASCII，作文件/路由键） */
+    const char* display_name;                  /* 显示名（中文，桌面卡片标题；可 NULL 回退 name） */
+    const char* description;                   /* 一句话描述（桌面卡片副标题；可 NULL） */
+    const char* icon_path;                     /* 图标文件路径（如 "F:system/desktop/snake.jpg"；可 NULL 用默认） */
     void* (*create_app)(void* display, const void* cjson_params);  /* 返回 App*（C++ 层 cast） */
     void  (*destroy_app)(void* app);           /* 可选；NULL 时主固件用 delete */
 } elf_plugin_info_t;

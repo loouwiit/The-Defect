@@ -26,43 +26,55 @@
 #include "display/ili9881c.hpp"
 #include "battery/batteryManager.hpp"
 
-// ========== 游戏数据 ==========
+// ════════════════════════════════════════════════════════════════
+// 动态卡片数据（内置 + 系统；ELF 卡片由扫描任务渐进式插入最前）
+// ════════════════════════════════════════════════════════════════
 
-const char* DesktopApp::GAME_NAMES[] =
+void DesktopApp::buildBuiltinCards()
 {
-	"贪吃蛇",
-	"水果忍者",
-	"俄罗斯方块",
-	"斗地主",
-	"中国象棋",
-	"Lua 脚本管理",
-	"游戏市场",
-	"测试",
-};
+	// 内置游戏（未迁移 ELF 的原生 App）→ 索引 0..3
+	static const struct {
+		const char* name;
+		const char* desc;
+		const char* icon;
+	} kBuiltin[] = {
+		{ "水果忍者", "快速切水果，享受爽快连击！", "F:system/desktop/fruitNinja.jpg" },
+		{ "俄罗斯方块", "经典俄罗斯方块，消除行数得分！", "F:system/desktop/tetris.jpg" },
+		{ "斗地主", "三人斗地主，比拼牌技！", "F:system/desktop/douDiZhu.jpg" },
+		{ "中国象棋", "中国象棋，楚河汉界对弈！", "F:system/desktop/chess.jpg" },
+	};
+	for (int i = 0; i < BUILTIN_COUNT; i++)
+	{
+		GameCard c{};
+		c.kind = CardKind::Builtin;
+		snprintf(c.displayName, sizeof(c.displayName), "%s", kBuiltin[i].name);
+		snprintf(c.desc, sizeof(c.desc), "%s", kBuiltin[i].desc);
+		snprintf(c.icon, sizeof(c.icon), "%s", kBuiltin[i].icon);
+		c.index = (int8_t)i;
+		m_cards.push_back(c);
+	}
 
-const char* DesktopApp::GAME_DESCS[] =
-{
-	"经典贪吃蛇游戏，吃食物成长！",
-	"快速切水果，享受爽快连击！",
-	"经典俄罗斯方块，消除行数得分！",
-	"三人斗地主，比拼牌技！",
-	"中国象棋，楚河汉界对弈！",
-	"浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏",
-	"浏览并下载社区 Lua 游戏脚本，扩展游戏库！",
-	"测试",
-};
-
-const char* DesktopApp::GAME_ICONS[] =
-{
-	"F:system/desktop/snake.jpg",
-	"F:system/desktop/fruitNinja.jpg",
-	"F:system/desktop/tetris.jpg",
-	"F:system/desktop/douDiZhu.jpg",
-	"F:system/desktop/chess.jpg",
-	"F:system/desktop/lua.jpg",
-	"F:system/desktop/gameMarket.jpg",
-	"F:system/desktop/test.jpg",
-};
+	// 系统卡片 → 索引 0..2
+	static const struct {
+		const char* name;
+		const char* desc;
+		const char* icon;
+	} kSystem[] = {
+		{ "Lua 脚本管理", "浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏", "F:system/desktop/lua.jpg" },
+		{ "游戏市场", "浏览并下载社区 Lua 游戏脚本，扩展游戏库！", "F:system/desktop/gameMarket.jpg" },
+		{ "测试", "测试", "F:system/desktop/test.jpg" },
+	};
+	for (int i = 0; i < SYSTEM_COUNT; i++)
+	{
+		GameCard c{};
+		c.kind = CardKind::System;
+		snprintf(c.displayName, sizeof(c.displayName), "%s", kSystem[i].name);
+		snprintf(c.desc, sizeof(c.desc), "%s", kSystem[i].desc);
+		snprintf(c.icon, sizeof(c.icon), "%s", kSystem[i].icon);
+		c.index = (int8_t)i;
+		m_cards.push_back(c);
+	}
+}
 
 DesktopApp::DesktopApp(Display* display)
 	: App(display)
@@ -122,11 +134,15 @@ void DesktopApp::init()
 		}, 5000, this);
 	updateBatteryIcon();
 
+	// 后台渐进式扫描 /root/elf/*.so → 动态插入 ELF 游戏卡片
+	startElfScan();
+
 	ESP_LOGI(TAG, "桌面初始化完成");
 }
 
 void DesktopApp::deinit()
 {
+	m_elfScanStopped = true;   // 终止后台扫描（任务在下一次更新前退出）
 	if (m_timeTimer)
 	{
 		lv_timer_del(m_timeTimer);
@@ -333,42 +349,10 @@ void DesktopApp::buildUi()
 	lv_obj_set_scrollbar_mode(m_cardsRow, LV_SCROLLBAR_MODE_OFF);
 	lv_obj_set_flex_align(m_cardsRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-	// 创建五个游戏卡片
-	for (int i = 0; i < GAME_COUNT; i++)
-	{
-		auto card = lv_obj_create(m_cardsRow);
-		lv_obj_set_size(card, CARD_W, CARD_H);
-		lv_obj_set_style_bg_color(card, LV_COLOR_MAKE(0xFF, 0xFF, 0xFF), 0);
-		lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-		lv_obj_set_style_radius(card, 16, 0);
-		lv_obj_set_style_border_width(card, 0, 0);
-		lv_obj_set_style_pad_all(card, 0, 0);
-		lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
-		lv_obj_set_user_data(card, (void*)(uintptr_t)i);
-
-		// 聚焦样式 — 仅用彩色边框，无阴影
-		lv_obj_set_style_border_width(card, 3, LV_STATE_FOCUSED);
-		lv_obj_set_style_border_color(card, lv_color_white(), LV_STATE_FOCUSED);
-		lv_obj_set_style_border_side(card, LV_BORDER_SIDE_FULL, LV_STATE_FOCUSED);
-
-		// 图片
-		auto img = lv_image_create(card);
-		lv_image_set_src(img, GAME_ICONS[i]);
-		lv_obj_set_size(img, lv_pct(100), lv_pct(100));
-		lv_obj_center(img);
-
-		// 点击聚焦
-		lv_obj_add_event_cb(card, [](lv_event_t* e) {
-			auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-			auto* c = static_cast<lv_obj_t*>(lv_event_get_target(e));
-			self->m_focusGroup = FOCUS_CARDS;
-			self->m_focusCardsIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
-			self->updateSelectionLabels();
-			self->applyFocus();
-			}, LV_EVENT_CLICKED, this);
-
-		m_gameCards[i] = card;
-	}
+	// 创建卡片（内置 + 系统；ELF 卡片由扫描任务渐进式插入）
+	buildBuiltinCards();
+	for (int i = 0; i < (int)m_cards.size(); i++)
+		createCardObject(i);
 
 	// 右箭头（触控备选，不参与焦点导航）
 	lv_obj_set_style_pad_right(cards_section, 32, 0);
@@ -406,18 +390,174 @@ void DesktopApp::buildUi()
 }
 
 // ════════════════════════════════════════════════════════════════
+// 动态卡片对象
+// ════════════════════════════════════════════════════════════════
+
+lv_obj_t* DesktopApp::createCardObject(int idx)
+{
+	auto card = lv_obj_create(m_cardsRow);
+	lv_obj_set_size(card, CARD_W, CARD_H);
+	lv_obj_set_style_bg_color(card, LV_COLOR_MAKE(0xFF, 0xFF, 0xFF), 0);
+	lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+	lv_obj_set_style_radius(card, 16, 0);
+	lv_obj_set_style_border_width(card, 0, 0);
+	lv_obj_set_style_pad_all(card, 0, 0);
+	lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_set_user_data(card, (void*)(uintptr_t)idx);
+
+	// 聚焦样式 — 仅用彩色边框，无阴影
+	lv_obj_set_style_border_width(card, 3, LV_STATE_FOCUSED);
+	lv_obj_set_style_border_color(card, lv_color_white(), LV_STATE_FOCUSED);
+	lv_obj_set_style_border_side(card, LV_BORDER_SIDE_FULL, LV_STATE_FOCUSED);
+
+	// 图片
+	auto img = lv_image_create(card);
+	lv_image_set_src(img, m_cards[idx].icon);
+	lv_obj_set_size(img, lv_pct(100), lv_pct(100));
+	lv_obj_center(img);
+
+	// 点击聚焦（user_data=卡片索引，插入/更新后统一刷新）
+	lv_obj_add_event_cb(card, [](lv_event_t* e) {
+		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		auto* c = static_cast<lv_obj_t*>(lv_event_get_target(e));
+		self->m_focusGroup = FOCUS_CARDS;
+		self->m_focusCardsIdx = (int8_t)(uintptr_t)lv_obj_get_user_data(c);
+		self->updateSelectionLabels();
+		self->applyFocus();
+		}, LV_EVENT_CLICKED, this);
+
+	if (idx >= (int)m_cardObjs.size())
+		m_cardObjs.resize(idx + 1, nullptr);
+	m_cardObjs[idx] = card;
+	return card;
+}
+
+// ════════════════════════════════════════════════════════════════
+// ELF 插件扫描（后台渐进式：占位卡片 → 逐个 inspect → 元数据就绪）
+// ════════════════════════════════════════════════════════════════
+
+void DesktopApp::startElfScan()
+{
+	if (m_elfScanStarted) return;
+	m_elfScanStarted = true;
+	m_elfScanStopped = false;
+	Task::addTask(elfScanTask, "elfScan", this, 0, Task::Affinity::None);
+}
+
+TickType_t DesktopApp::elfScanTask(void* param)
+{
+	auto* self = static_cast<DesktopApp*>(param);
+	auto& em = ElfManager::instance();
+
+	// 1. 快速：列出 /root/elf/*.so → 全部先插占位卡片（立即可见，无阻塞）
+	char paths[MAX_ELF_CARDS][64];
+	size_t n = em.listElfFiles(paths, MAX_ELF_CARDS);
+	for (size_t i = 0; i < n; i++)
+	{
+		if (self->m_elfScanStopped) return Task::infinityTime;
+		self->addElfCardPlaceholder(paths[i]);
+	}
+
+	// 2. 渐进：逐个 inspect（dlopen→读元数据→dlclose，~600ms/个，无 LVGL 锁）
+	//    完成后持锁更新对应卡片（名称/描述/图标，按 path 定位——插入顺序与文件顺序相反）
+	for (size_t i = 0; i < n; i++)
+	{
+		if (self->m_elfScanStopped) return Task::infinityTime;
+		ElfManager::ScanEntry e;
+		if (em.inspectModule(paths[i], &e))
+			self->updateElfCard(paths[i], e);
+	}
+
+	self->m_elfScanStopped = true;
+	ESP_LOGI(TAG, "ELF 扫描完成: %u 个插件", (unsigned)n);
+	return Task::infinityTime;
+}
+
+void DesktopApp::addElfCardPlaceholder(const char* fullPath)
+{
+	// 占位名：文件 basename 去 .so 扩展名
+	const char* base = strrchr(fullPath, '/');
+	base = base ? base + 1 : fullPath;
+	char name[32];
+	snprintf(name, sizeof(name), "%s", base);
+	size_t len = strlen(name);
+	if (len > 3) name[len - 3] = '\0';   // 去 ".so"
+
+	GameCard c{};
+	c.kind = CardKind::Elf;
+	snprintf(c.displayName, sizeof(c.displayName), "%s", name);
+	snprintf(c.pluginName, sizeof(c.pluginName), "%s", name);
+	snprintf(c.desc, sizeof(c.desc), "加载中...");
+	snprintf(c.elfPath, sizeof(c.elfPath), "%s", fullPath);
+	c.index = -1;
+
+	auto guard = display->lockGuard();   // 数据 + LVGL 对象须在锁内
+	m_cards.insert(m_cards.begin(), c);
+	m_cardObjs.insert(m_cardObjs.begin(), nullptr);   // 同步插入（防覆盖旧卡片对象引用）
+	createCardObject(0);
+	lv_obj_move_to_index(m_cardObjs[0], 0);   // 移到行首（内置卡片之前）
+	// 插入后所有旧卡片索引 +1，刷新 user_data
+	for (int i = 0; i < (int)m_cardObjs.size(); i++)
+		lv_obj_set_user_data(m_cardObjs[i], (void*)(uintptr_t)i);
+
+	ESP_LOGI(TAG, "ELF 占位卡片: %s", fullPath);
+}
+
+void DesktopApp::updateElfCard(const char* elfPath, const ElfManager::ScanEntry& e)
+{
+	auto guard = display->lockGuard();
+
+	// 按路径定位卡片（ELF 卡片 insert(begin)，与 listElfFiles 顺序相反）
+	int elfIdx = -1;
+	for (int i = 0; i < (int)m_cards.size(); i++)
+	{
+		if (m_cards[i].kind == CardKind::Elf && strcmp(m_cards[i].elfPath, elfPath) == 0)
+		{
+			elfIdx = i;
+			break;
+		}
+	}
+	if (elfIdx < 0)
+		return;
+
+	GameCard& c = m_cards[elfIdx];
+	if (e.displayName[0])
+		snprintf(c.displayName, sizeof(c.displayName), "%s", e.displayName);
+	if (e.name[0])
+		snprintf(c.pluginName, sizeof(c.pluginName), "%s", e.name);
+	if (e.desc[0])
+		snprintf(c.desc, sizeof(c.desc), "%s", e.desc);
+	else
+		snprintf(c.desc, sizeof(c.desc), "ELF 游戏插件");
+	if (e.iconPath[0])
+		snprintf(c.icon, sizeof(c.icon), "%s", e.iconPath);
+
+	// 刷新卡片图标（图片是 card 的第一个子对象）
+	if (elfIdx < (int)m_cardObjs.size() && m_cardObjs[elfIdx])
+	{
+		auto img = lv_obj_get_child(m_cardObjs[elfIdx], 0);
+		if (img) lv_image_set_src(img, c.icon);
+	}
+	if (elfIdx == m_focusCardsIdx)
+		updateSelectionLabels();
+	ESP_LOGI(TAG, "ELF 元数据就绪: %s → %s", e.path, c.displayName);
+}
+
+// ════════════════════════════════════════════════════════════════
 // 选中标签更新
 // ════════════════════════════════════════════════════════════════
 
 void DesktopApp::updateSelectionLabels()
 {
+	if (m_focusCardsIdx < 0 || m_focusCardsIdx >= (int)m_cards.size())
+		return;
 	if (m_descLabel)
 	{
-		lv_label_set_text(m_descLabel, GAME_DESCS[m_focusCardsIdx]);
+		lv_label_set_text(m_descLabel, m_cards[m_focusCardsIdx].desc);
 	}
 	if (m_infoLabel)
 	{
-		lv_label_set_text_fmt(m_infoLabel, "已选择: %s", GAME_NAMES[m_focusCardsIdx]);
+		lv_label_set_text_fmt(m_infoLabel, "已选择: %s", m_cards[m_focusCardsIdx].displayName);
 	}
 }
 
@@ -455,7 +595,7 @@ void DesktopApp::applyFocus()
 	clearFocus(m_brightnessLabel);
 	clearFocus(m_consoleLabel);
 	clearFocus(m_batteryLabel);
-	for (auto* card : m_gameCards) clearFocus(card);
+	for (auto* card : m_cardObjs) clearFocus(card);
 	clearFocus(m_startBtn);
 
 	// 设置当前聚焦对象的 LV_STATE_FOCUSED
@@ -467,11 +607,11 @@ void DesktopApp::applyFocus()
 	switch (m_focusGroup)
 	{
 	case FOCUS_CARDS:
-		if (m_focusCardsIdx >= 0 && m_focusCardsIdx < GAME_COUNT)
+		if (m_focusCardsIdx >= 0 && m_focusCardsIdx < (int)m_cardObjs.size())
 		{
-			focus(m_gameCards[m_focusCardsIdx]);
+			focus(m_cardObjs[m_focusCardsIdx]);
 			// 刷新布局后滚动到视图
-			lv_obj_scroll_to_view(m_gameCards[m_focusCardsIdx], LV_ANIM_OFF);
+			lv_obj_scroll_to_view(m_cardObjs[m_focusCardsIdx], LV_ANIM_OFF);
 		}
 		break;
 
@@ -516,24 +656,24 @@ void DesktopApp::activateFocus()
 
 void DesktopApp::navCardsLeft()
 {
+	auto guard = display->lockGuard();
 	if (m_focusCardsIdx <= 0)
 		return;
-	auto guard = display->lockGuard();
 	m_focusCardsIdx--;
 	updateSelectionLabels();
 	applyFocus();
-	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[m_focusCardsIdx], m_focusCardsIdx);
+	ESP_LOGI(TAG, "已选择: %s (index=%d)", m_cards[m_focusCardsIdx].displayName, m_focusCardsIdx);
 }
 
 void DesktopApp::navCardsRight()
 {
-	if (m_focusCardsIdx >= GAME_COUNT - 1)
-		return;
 	auto guard = display->lockGuard();
+	if (m_focusCardsIdx >= (int)m_cards.size() - 1)
+		return;
 	m_focusCardsIdx++;
 	updateSelectionLabels();
 	applyFocus();
-	ESP_LOGI(TAG, "已选择: %s (index=%d)", GAME_NAMES[m_focusCardsIdx], m_focusCardsIdx);
+	ESP_LOGI(TAG, "已选择: %s (index=%d)", m_cards[m_focusCardsIdx].displayName, m_focusCardsIdx);
 }
 
 // ── 底部导航 ──
@@ -573,7 +713,10 @@ void DesktopApp::navFromStatusDown()
 
 void DesktopApp::startGame()
 {
-	ESP_LOGI(TAG, "启动游戏: %s", GAME_NAMES[m_focusCardsIdx]);
+	if (m_focusCardsIdx < 0 || m_focusCardsIdx >= (int)m_cards.size())
+		return;
+
+	ESP_LOGI(TAG, "启动游戏: %s", m_cards[m_focusCardsIdx].displayName);
 
 	if (!m_manager)
 	{
@@ -581,54 +724,58 @@ void DesktopApp::startGame()
 		return;
 	}
 
-	switch (m_focusCardsIdx)
+	const GameCard& c = m_cards[m_focusCardsIdx];
+	switch (c.kind)
 	{
-	case 0:
-		// 贪吃蛇 — ELF 插件（/root/elf/snake.so 动态加载）
-		if (auto* app = ElfManager::instance().createApp("/root/elf/snake.so", display, nullptr)) {
+	case CardKind::Elf:
+		// ELF 插件：ElfManager 动态加载（缺 .so / 版本不符 → 优雅提示不崩）
+		if (auto* app = ElfManager::instance().createApp(c.elfPath, display, nullptr)) {
 			m_manager->pushToNewStack(app);
 		} else {
-			ESP_LOGW(TAG, "snake 插件未安装或加载失败（缺 /root/elf/snake.so）");
+			ESP_LOGW(TAG, "ELF 插件未安装或加载失败（%s）", c.elfPath);
 		}
 		break;
 
-	case 1:
-		// 水果忍者
-		m_manager->pushToNewStack(new FruitNinjaRoom(display));
+	case CardKind::Builtin:
+		switch (c.index)
+		{
+		case 0:
+			// 水果忍者
+			m_manager->pushToNewStack(new FruitNinjaRoom(display));
+			break;
+		case 1:
+			// 俄罗斯方块 — 先打开房间选人
+			m_manager->pushToNewStack(new TetrisRoomApp(display));
+			break;
+		case 2:
+			// 斗地主 — 大厅（单机 AI / 多主机联机）
+			m_manager->pushToNewStack(new DouDizhuRoom(display));
+			break;
+		case 3:
+			// 中国象棋
+			m_manager->pushToNewStack(new ChineseChessRoom(display));
+			break;
+		}
 		break;
 
-	case 2:
-		// 俄罗斯方块 — 先打开房间选人
-		m_manager->pushToNewStack(new TetrisRoomApp(display));
+	case CardKind::System:
+		switch (c.index)
+		{
+		case 0:
+			// Lua 脚本管理器
+			m_manager->pushToNewStack(new LuaManagerApp(display));
+			break;
+		case 1:
+			// 游戏市场
+			m_manager->pushToNewStack(new MarketApp(display));
+			break;
+		case 2:
+		default:
+			// 测试
+			m_manager->pushToNewStack(new TestApp(display, esp_random()));
+			break;
+		}
 		break;
-
-	case 3:
-		// 斗地主 — 大厅（单机 AI / 多主机联机）
-		m_manager->pushToNewStack(new DouDizhuRoom(display));
-		break;
-
-	case 4:
-		// 中国象棋
-		m_manager->pushToNewStack(new ChineseChessRoom(display));
-		break;
-
-	case 5:
-		// Lua 脚本管理器
-		m_manager->pushToNewStack(new LuaManagerApp(display));
-		break;
-
-	case 6:
-		// 游戏市场
-		m_manager->pushToNewStack(new MarketApp(display));
-		break;
-
-	case 7:
-		// 测试
-	default:
-		// 未实现的游戏 — TestApp 占位
-		m_manager->pushToNewStack(new TestApp(display, esp_random()));
-		break;
-
 	}
 }
 
@@ -651,8 +798,16 @@ std::string DesktopApp::getAiContext()
 	}
 
 	ctx += "\n"
-		"可用焦点组（select 的 text 参数）：\n"
-		"- cards(0-6)\t游戏卡片（snake/fruitNinja/tetris/doudizhu/chineseChess/luaManager/market）\n"
+		"可用焦点组（select 的 text 参数）：\n";
+
+	// 卡片组动态生成（ELF 插件 + 内置 + 系统）
+	ctx += "- cards(0-" + std::to_string((int)m_cards.size() - 1) + ")\t游戏卡片：";
+	for (int i = 0; i < (int)m_cards.size(); i++)
+	{
+		if (i) ctx += "/";
+		ctx += m_cards[i].displayName;
+	}
+	ctx += "\n"
 		"- status(0-6)\t状态栏（时间/WiFi/蓝牙/音量/亮度/多主机/电池）\n"
 		"- buttons(0)\t开始游戏按钮\n\n";
 
@@ -668,16 +823,9 @@ std::string DesktopApp::getAiContext()
 	return ctx;
 }
 
-/** @brief snake 已迁移为 ELF 插件：AI open_app 经 ElfManager 动态加载 */
-static App* createSnakePlugin(Display* display, const cJSON* params)
-{
-	return ElfManager::instance().createApp("/root/elf/snake.so", display, params);
-}
-
 std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 {
-	return {
-		{ "snake", "贪吃蛇", &createSnakePlugin },
+	std::vector<AiAppTarget> targets = {
 		{ "fruitNinja", "水果忍者", &FruitNinjaRoom::newApp },
 		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
 		{ "doudizhu", "斗地主", &DouDizhuRoom::newApp },
@@ -691,6 +839,15 @@ std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 		{ "consoleManager", "多主机管理", &ConsoleManagerApp::newApp },
 		{ "testApp", "测试app", &TestApp::newApp },
 	};
+
+	// 动态并入 ELF 插件：AiAppTarget {name, desc, create=nullptr, elfPath}
+	//  name=info->name（ASCII，AI open_app 键）；指针指向 m_cards 内，桌面存活期有效
+	for (const auto& c : m_cards)
+	{
+		if (c.kind == CardKind::Elf)
+			targets.insert(targets.begin(), { c.pluginName, c.displayName, nullptr, c.elfPath });
+	}
+	return targets;
 }
 
 void DesktopApp::onAiSelect(const AiSelectTarget& target)
@@ -698,12 +855,12 @@ void DesktopApp::onAiSelect(const AiSelectTarget& target)
 	auto guard = display->lockGuard();
 	if (!guard) return;
 
-	if (target.group == "cards" && target.index >= 0 && target.index < GAME_COUNT) {
+	if (target.group == "cards" && target.index >= 0 && target.index < (int)m_cards.size()) {
 		m_focusGroup = FOCUS_CARDS;
 		m_focusCardsIdx = static_cast<int8_t>(target.index);
 		updateSelectionLabels();
 		applyFocus();
-		ESP_LOGI(TAG, "AI select cards %d: %s", target.index, GAME_NAMES[target.index]);
+		ESP_LOGI(TAG, "AI select cards %d: %s", target.index, m_cards[target.index].displayName);
 	}
 	else if (target.group == "buttons" && target.index == 0) {
 		m_focusGroup = FOCUS_BOTTOM;

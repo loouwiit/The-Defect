@@ -29,6 +29,9 @@ extern "C" const elf_plugin_info_t* elf_plugin_entry(void)
     static const elf_plugin_info_t info = {
         ELF_SDK_VERSION,
         "snake",
+        "贪吃蛇",
+        "经典贪吃蛇游戏，吃食物成长！",
+        "F:system/desktop/snake.jpg",
         snake_create_app,
         snake_destroy_app,
     };
