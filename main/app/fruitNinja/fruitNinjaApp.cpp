@@ -4,6 +4,10 @@
 #include "esp_timer.h"
 #include "lvgl.h"
 
+// 性能插桩（Phase 1）：每 60 帧输出一次渲染耗时/活跃计数/dirty 面积，便于优化前后对比。
+// 设为 0 关闭（编译期开关，不参与运行逻辑）。
+#define FRUIT_NINJA_PERF 1
+
 // ============================================================
 // 构造 / 析构
 // ============================================================
@@ -113,11 +117,22 @@ void FruitNinjaApp::gameLoop(void* param)
 	constexpr float TICK_MS = 16.0f; // ~60fps 渲染节拍
 	constexpr float MAX_DT = 0.05f;  // 单帧最大 dt（50ms），防长时间阻塞后螺旋死亡
 
+#ifdef FRUIT_NINJA_PERF
+	int64_t t0Us = 0;
+	int64_t accLoopUs = 0, accPaintUs = 0;
+	int frameCnt = 0;
+	int accSegs = 0, accLeaves = 0, accHeads = 0, accDirty = 0;
+	uint64_t accDirtyPx = 0;
+#endif
+
 	TickType_t lastWake = xTaskGetTickCount();
 	int64_t lastUs = esp_timer_get_time();
 
 	while (self.running)
 	{
+#ifdef FRUIT_NINJA_PERF
+		t0Us = esp_timer_get_time();
+#endif
 		// 实时 dt：以真实流逝时间推进游戏，使倒计时/物理/生成间隔随真实时间走，
 		// 不被渲染帧率下降 / LVGL 锁竞争稀释（固定 dt 在低帧率下会把游戏时间拉长）
 		int64_t nowUs = esp_timer_get_time();
@@ -143,6 +158,9 @@ void FruitNinjaApp::gameLoop(void* param)
 		// 渲染提交（持锁：写 canvas buffer + invalidate + HUD）
 		if (auto guard = self.display->lockGuard())
 		{
+#ifdef FRUIT_NINJA_PERF
+			int64_t tPaint0 = esp_timer_get_time();
+#endif
 			self.m_renderer.render(self.m_logic);
 
 			// GameOver 检测
@@ -158,7 +176,33 @@ void FruitNinjaApp::gameLoop(void* param)
 
 				self.applyFocus();
 			}
+#ifdef FRUIT_NINJA_PERF
+			accPaintUs += esp_timer_get_time() - tPaint0;
+#endif
 		}
+
+#ifdef FRUIT_NINJA_PERF
+		{
+			auto st = self.m_renderer.getFrameStats();
+			accSegs += st.activeSegs;
+			accLeaves += st.activeLeaves;
+			accHeads += st.activeHeads;
+			accDirty += st.dirtyCount;
+			accDirtyPx += st.dirtyPx;
+			accLoopUs += esp_timer_get_time() - t0Us;
+			if (++frameCnt >= 60)
+			{
+				ESP_LOGI(TAG, "[perf] loop=%.2fms paint=%.2fms seg=%d leaf=%d head=%d dirty=%d px=%u",
+					accLoopUs / 1000.0f / frameCnt, accPaintUs / 1000.0f / frameCnt,
+					accSegs / frameCnt, accLeaves / frameCnt, accHeads / frameCnt,
+					accDirty / frameCnt, (unsigned)(accDirtyPx / frameCnt));
+				accLoopUs = accPaintUs = 0;
+				accSegs = accLeaves = accHeads = accDirty = 0;
+				accDirtyPx = 0;
+				frameCnt = 0;
+			}
+		}
+#endif
 
 		vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(static_cast<int>(TICK_MS)));
 	}

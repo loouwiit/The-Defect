@@ -19,6 +19,29 @@ static float randFloat(float a, float b)
 	return a + (b - a) * ((float)rand() / (float)RAND_MAX);
 }
 
+// 旋转后外接半尺寸（4 角点极值 → 紧致 AABB；比半对角超集小，减少旋转 blit 的无效循环）
+// ⚠ 必须与 blit 的实际旋转采样一致（同一 scale/angle），否则会裁剪内容
+static void rotatedExtents(int iw, int ih, float scale, float angle, float& hw, float& hh)
+{
+	const float ca = cosf(angle), sa = sinf(angle);
+	const float cxs = iw * 0.5f, cys = ih * 0.5f;
+	float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
+	const float corners[4][2] = { {0,0}, {(float)iw,0}, {0,(float)ih}, {(float)iw,(float)ih} };
+	for (const auto& c : corners)
+	{
+		float rx = (c[0] - cxs) * scale;
+		float ry = (c[1] - cys) * scale;
+		float px = ca * rx - sa * ry;
+		float py = sa * rx + ca * ry;
+		if (px < minx) minx = px;
+		if (px > maxx) maxx = px;
+		if (py < miny) miny = py;
+		if (py > maxy) maxy = py;
+	}
+	hw = (maxx - minx) * 0.5f;
+	hh = (maxy - miny) * 0.5f;
+}
+
 // ============================================================
 // 颜色 / 像素辅助
 // ============================================================
@@ -299,7 +322,7 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::particleBBox(const FruitNinjaLogic:
 
 FruitNinjaRenderer::BBox FruitNinjaRenderer::segBBox(const TrailSegment& s) const
 {
-	// 光效刀光：sword 图有效时按旋转精灵半对角外接矩形（段中点为中心，scale 与 blitSwordSegment 一致）
+	// 光效刀光：sword 图有效时按旋转精灵紧致 AABB（段中点为中心，scale/angle 与 blitSwordSegment 一致）
 	if (m_swordImg.valid)
 	{
 		float imgLong = (m_swordImg.w >= m_swordImg.h) ? (float)m_swordImg.w : (float)m_swordImg.h;
@@ -307,16 +330,17 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::segBBox(const TrailSegment& s) cons
 		{
 			float len = hypotf(s.x2 - s.x1, s.y2 - s.y1);
 			float scale = kSwordScale * len / imgLong;
-			float hr = 0.5f * scale * hypotf((float)m_swordImg.w, (float)m_swordImg.h);
-			int R = static_cast<int>(ceilf(hr)) + 1;
+			float hw, hh;
+			rotatedExtents(m_swordImg.w, m_swordImg.h, scale,
+				swordAngleForSeg(s.x1, s.y1, s.x2, s.y2), hw, hh);
 			float mx = (s.x1 + s.x2) * 0.5f;
 			float my = (s.y1 + s.y2) * 0.5f;
 			BBox b;
 			b.active = true;
-			b.x1 = static_cast<int>(mx) - R;
-			b.y1 = static_cast<int>(my) - R;
-			b.x2 = static_cast<int>(mx) + R;
-			b.y2 = static_cast<int>(my) + R;
+			b.x1 = static_cast<int>(floorf(mx - hw)) - 1;
+			b.y1 = static_cast<int>(floorf(my - hh)) - 1;
+			b.x2 = static_cast<int>(ceilf(mx + hw)) + 1;
+			b.y2 = static_cast<int>(ceilf(my + hh)) + 1;
 			return b;
 		}
 	}
@@ -348,17 +372,19 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::leafBBox(const LeafParticle& l) con
 
 FruitNinjaRenderer::BBox FruitNinjaRenderer::headBBox(const TouchHead& h) const
 {
-	// qiuyuan 人物：固定显示高度 → 半对角外接矩形（旋转安全超集）
+	// qiuyuan 人物直立（不旋转）：紧致 AABB（显示尺寸居中），比半对角超集小得多
 	if (!m_qiuyuanImg.valid) return {};
 	float scale = kQiuyuanHeight / (float)m_qiuyuanImg.h;
-	float hr = 0.5f * scale * hypotf((float)m_qiuyuanImg.w, (float)m_qiuyuanImg.h);
-	int R = static_cast<int>(ceilf(hr)) + 1;
+	int hw = static_cast<int>(m_qiuyuanImg.w * scale * 0.5f);
+	int hh = static_cast<int>(m_qiuyuanImg.h * scale * 0.5f);
+	if (hw < 1) hw = 1;
+	if (hh < 1) hh = 1;
 	BBox b;
 	b.active = true;
-	b.x1 = static_cast<int>(h.x) - R;
-	b.y1 = static_cast<int>(h.y) - R;
-	b.x2 = static_cast<int>(h.x) + R;
-	b.y2 = static_cast<int>(h.y) + R;
+	b.x1 = static_cast<int>(h.x) - hw;
+	b.y1 = static_cast<int>(h.y) - hh;
+	b.x2 = static_cast<int>(h.x) + hw;
+	b.y2 = static_cast<int>(h.y) + hh;
 	return b;
 }
 
@@ -567,6 +593,51 @@ void FruitNinjaRenderer::blitImage(int cx, int cy, int r, const FruitImage& img,
 }
 
 // ============================================================
+// 轴对齐缩放 + 逐像素 alpha blend（不旋转；用于直立的人物，比旋转 blit 快得多）
+// ============================================================
+
+void FruitNinjaRenderer::blitScaledAlpha(const FruitImage& img, const uint8_t* alpha,
+	float cx, float cy, int outW, int outH, uint8_t fadeByte)
+{
+	if (!m_buf || !img.valid || !alpha || outW <= 0 || outH <= 0) return;
+	int x1 = (int)floorf(cx - outW * 0.5f);
+	int y1 = (int)floorf(cy - outH * 0.5f);
+	int x2 = x1 + outW - 1;
+	int y2 = y1 + outH - 1;
+	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
+	if (x1 < 0) x1 = 0;
+	if (y1 < 0) y1 = 0;
+	if (x2 >= W) x2 = W - 1;
+	if (y2 >= H) y2 = H - 1;
+
+	const int iw = img.w, ih = img.h;
+	// 最近邻缩放映射：显示区 outW×outH ← 源图 iw×ih
+	for (int y = y1; y <= y2; y++)
+	{
+		int sy = (y - y1) * ih / outH;
+		if (sy < 0) sy = 0;
+		else if (sy >= ih) sy = ih - 1;
+		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
+		const uint16_t* srcRow = img.buf + (size_t)sy * iw;
+		const uint8_t* aRow = alpha + (size_t)sy * iw;
+		for (int x = x1; x <= x2; x++)
+		{
+			int sx = (x - x1) * iw / outW;
+			if (sx < 0) sx = 0;
+			else if (sx >= iw) sx = iw - 1;
+			uint8_t a = aRow[sx];
+			if (a < 8) continue;
+			if (fadeByte < 255)
+			{
+				a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);
+				if (a < 8) continue;
+			}
+			row[x] = blend565(row[x], srcRow[sx], a);
+		}
+	}
+}
+
+// ============================================================
 // 竹叶 blit — 逆旋转 + 最近邻采样 + 逐像素 alpha blend（白色背景已抠除）
 // ============================================================
 
@@ -582,10 +653,11 @@ void FruitNinjaRenderer::blitRotatedSprite(const FruitImage& img, const uint8_t*
 	const float cxS = iw * 0.5f;
 	const float cyS = ih * 0.5f;
 
-	// 旋转后外接范围（半对角近似）
-	float hr = 0.5f * scale * hypotf((float)iw, (float)ih);
-	int x1 = (int)(cx - hr), y1 = (int)(cy - hr);
-	int x2 = (int)(cx + hr), y2 = (int)(cy + hr);
+	// 紧致旋转 AABB（4 角点极值，比半对角超集小 → 减少无效循环）
+	float hw, hh;
+	rotatedExtents(iw, ih, scale, angle, hw, hh);
+	int x1 = (int)floorf(cx - hw), y1 = (int)floorf(cy - hh);
+	int x2 = (int)ceilf(cx + hw), y2 = (int)ceilf(cy + hh);
 	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
 	if (x1 < 0) x1 = 0;
 	if (y1 < 0) y1 = 0;
@@ -593,27 +665,40 @@ void FruitNinjaRenderer::blitRotatedSprite(const FruitImage& img, const uint8_t*
 	if (y2 >= H) y2 = H - 1;
 
 	const float invScale = 1.0f / scale;
+	// 增量步进：sx/sy 随 x 线性变化（dsx/dsy 为每 +1px 的增量），
+	// 代替逐像素 4 乘 4 加，仅 2 次浮点加（采样结果与原式完全一致）
+	const float dsx = ca * invScale;
+	const float dsy = -sa * invScale;
 	for (int y = y1; y <= y2; y++)
 	{
 		float ry = (y - cy) * invScale;
+		float rx0 = (x1 - cx) * invScale;
+		float sx = cxS + (ca * rx0 + sa * ry);
+		float sy = cyS + (-sa * rx0 + ca * ry);
 		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
 		for (int x = x1; x <= x2; x++)
 		{
-			float rx = (x - cx) * invScale;
-			// 逆旋转（-angle）：绕源图中心采样，源坐标 = 源中心 + R(-θ)·(dest/scale)
-			float sx = cxS + (ca * rx + sa * ry);
-			float sy = cyS + (-sa * rx + ca * ry);
 			int si = (int)sx, sj = (int)sy;
-			if (si < 0 || sj < 0 || si >= iw || sj >= ih) continue;
-			uint8_t a = alpha[(size_t)sj * iw + si];
-			if (a < 8) continue;   // 近透明像素跳过
-			if (fadeByte < 255)
+			bool valid = (si >= 0 && sj >= 0 && si < iw && sj < ih);
+			if (valid)
 			{
-				a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);   // 应用整体渐隐
-				if (a < 8) continue;
+				uint8_t a = alpha[(size_t)sj * iw + si];
+				if (a >= 8)   // 近透明像素跳过
+				{
+					if (fadeByte < 255)
+					{
+						a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);   // 应用整体渐隐
+						if (a < 8) valid = false;
+					}
+					if (valid)
+					{
+						uint16_t src = img.buf[(size_t)sj * iw + si];
+						row[x] = blend565(row[x], src, a);
+					}
+				}
 			}
-			uint16_t src = img.buf[(size_t)sj * iw + si];
-			row[x] = blend565(row[x], src, a);
+			sx += dsx;
+			sy += dsy;
 		}
 	}
 }
@@ -629,9 +714,11 @@ void FruitNinjaRenderer::blitRotatedSpriteAdd(const FruitImage& img, const uint8
 	const float cxS = iw * 0.5f;
 	const float cyS = ih * 0.5f;
 
-	float hr = 0.5f * scale * hypotf((float)iw, (float)ih);
-	int x1 = (int)(cx - hr), y1 = (int)(cy - hr);
-	int x2 = (int)(cx + hr), y2 = (int)(cy + hr);
+	// 紧致旋转 AABB（4 角点极值）
+	float hw, hh;
+	rotatedExtents(iw, ih, scale, angle, hw, hh);
+	int x1 = (int)floorf(cx - hw), y1 = (int)floorf(cy - hh);
+	int x2 = (int)ceilf(cx + hw), y2 = (int)ceilf(cy + hh);
 	if (x2 < 0 || y2 < 0 || x1 >= W || y1 >= H) return;
 	if (x1 < 0) x1 = 0;
 	if (y1 < 0) y1 = 0;
@@ -639,34 +726,67 @@ void FruitNinjaRenderer::blitRotatedSpriteAdd(const FruitImage& img, const uint8
 	if (y2 >= H) y2 = H - 1;
 
 	const float invScale = 1.0f / scale;
+	// 增量步进：sx/sy 随 x 线性变化（采样结果与原式完全一致）
+	const float dsx = ca * invScale;
+	const float dsy = -sa * invScale;
 	for (int y = y1; y <= y2; y++)
 	{
 		float ry = (y - cy) * invScale;
+		float rx0 = (x1 - cx) * invScale;
+		float sx = cxS + (ca * rx0 + sa * ry);
+		float sy = cyS + (-sa * rx0 + ca * ry);
 		uint16_t* row = reinterpret_cast<uint16_t*>(m_buf + (size_t)y * m_stride);
 		for (int x = x1; x <= x2; x++)
 		{
-			float rx = (x - cx) * invScale;
-			float sx = cxS + (ca * rx + sa * ry);
-			float sy = cyS + (-sa * rx + ca * ry);
 			int si = (int)sx, sj = (int)sy;
-			if (si < 0 || sj < 0 || si >= iw || sj >= ih) continue;
-			uint8_t a = alpha[(size_t)sj * iw + si];
-			if (a < 8) continue;
-			if (fadeByte < 255)
+			if (si >= 0 && sj >= 0 && si < iw && sj < ih)
 			{
-				a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);
-				if (a < 8) continue;
+				uint8_t a = alpha[(size_t)sj * iw + si];
+				if (a >= 8)
+				{
+					if (fadeByte < 255)
+					{
+						a = (uint8_t)(((uint32_t)a * fadeByte) >> 8);
+						if (a < 8) { sx += dsx; sy += dsy; continue; }
+					}
+					uint16_t src = img.buf[(size_t)sj * iw + si];
+					// 加法混合：dst = clamp(dst + src*alpha/255)（RGB565 各通道按位宽钳制）
+					uint8_t dr = (row[x] >> 11) & 0x1f, dg = (row[x] >> 5) & 0x3f, db = row[x] & 0x1f;
+					uint8_t sr = (src >> 11) & 0x1f, sg = (src >> 5) & 0x3f, sb = src & 0x1f;
+					uint32_t r = dr + ((uint32_t)sr * a) / 255; if (r > 31) r = 31;
+					uint32_t g = dg + ((uint32_t)sg * a) / 255; if (g > 63) g = 63;
+					uint32_t b = db + ((uint32_t)sb * a) / 255; if (b > 31) b = 31;
+					row[x] = (uint16_t)((r << 11) | (g << 5) | b);
+				}
 			}
-			uint16_t src = img.buf[(size_t)sj * iw + si];
-			// 加法混合：dst = clamp(dst + src*alpha/255)（RGB565 各通道按位宽钳制）
-			uint8_t dr = (row[x] >> 11) & 0x1f, dg = (row[x] >> 5) & 0x3f, db = row[x] & 0x1f;
-			uint8_t sr = (src >> 11) & 0x1f, sg = (src >> 5) & 0x3f, sb = src & 0x1f;
-			uint32_t r = dr + ((uint32_t)sr * a) / 255; if (r > 31) r = 31;
-			uint32_t g = dg + ((uint32_t)sg * a) / 255; if (g > 63) g = 63;
-			uint32_t b = db + ((uint32_t)sb * a) / 255; if (b > 31) b = 31;
-			row[x] = (uint16_t)((r << 11) | (g << 5) | b);
+			sx += dsx;
+			sy += dsy;
 		}
 	}
+}
+
+// ============================================================
+// sword 光效刀光 — 段旋转角 / 量化淡出等级（bbox 与绘制共用，保证脏区一致）
+// ============================================================
+
+float FruitNinjaRenderer::swordAngleForSeg(float x1, float y1, float x2, float y2) const
+{
+	float dx = x2 - x1, dy = y2 - y1;
+	// 主轴朝向：图长轴在水平（w>=h）→ 对齐段方向；竖直（h>w）→ 减 90°；再加手动微调
+	float axisOffset = (m_swordImg.w >= m_swordImg.h) ? 0.0f : -1.5707963f;
+	return atan2f(dy, dx) + axisOffset + kSwordAngleOffset;
+}
+
+uint8_t FruitNinjaRenderer::fadeLevelOf(const TrailSegment& s)
+{
+	// 分级量化：frac(life/TRAIL_LIFETIME) → 0..kFadeLevels-1（四舍五入到最近等级）
+	float frac = (TRAIL_LIFETIME > 0.0f) ? (s.life / TRAIL_LIFETIME) : 1.0f;
+	if (frac < 0.0f) frac = 0.0f;
+	else if (frac > 1.0f) frac = 1.0f;
+	int lvl = (int)(frac * (kFadeLevels - 1) + 0.5f);
+	if (lvl < 0) lvl = 0;
+	else if (lvl > kFadeLevels - 1) lvl = kFadeLevels - 1;
+	return (uint8_t)lvl;
 }
 
 // ============================================================
@@ -684,14 +804,18 @@ void FruitNinjaRenderer::blitSwordSegment(float x1, float y1, float x2, float y2
 	// 缩放：光效长轴 ≈ 段长 × kSwordScale（段连续拼接 → 连续光带）
 	float scale = kSwordScale * len / imgLong;
 
-	// 主轴朝向：图长轴在水平（w>=h）→ 对齐段方向；竖直（h>w）→ 减 90°；再加手动微调
-	float axisOffset = (m_swordImg.w >= m_swordImg.h) ? 0.0f : -1.5707963f;
-	float angle = atan2f(dy, dx) + axisOffset + kSwordAngleOffset;
+	// 主轴朝向（与 segBBox 一致，保证脏区覆盖绘制区域）
+	float angle = swordAngleForSeg(x1, y1, x2, y2);
 
-	// 残影渐隐：按剩余生命比例 alpha 递减（新段亮、旧段暗 → 光掠过留残影）
+	// 残影渐隐（分级量化）：alpha 按量化等级取中值，与 collectDirty 的 fadeLevelOf 一致，
+	// 只有等级跳变才重绘 → 省去逐帧全段重绘（阶梯淡出，画质损失小）
 	float frac = (TRAIL_LIFETIME > 0.0f) ? (life / TRAIL_LIFETIME) : 1.0f;
 	if (frac < 0.0f) frac = 0.0f;
 	else if (frac > 1.0f) frac = 1.0f;
+	int lvl = (int)(frac * (kFadeLevels - 1) + 0.5f);
+	if (lvl < 0) lvl = 0;
+	else if (lvl > kFadeLevels - 1) lvl = kFadeLevels - 1;
+	frac = (kFadeLevels > 1) ? (float)lvl / (float)(kFadeLevels - 1) : 1.0f;
 	uint8_t fadeByte = (uint8_t)((0.3f + 0.7f * frac) * 255.0f);
 
 	blitRotatedSpriteAdd(m_swordImg, m_swordAlpha,
@@ -719,12 +843,14 @@ void FruitNinjaRenderer::paintLeaves()
 	}
 }
 
-void FruitNinjaRenderer::blitQiuyuan(float cx, float cy, float angle)
+void FruitNinjaRenderer::blitQiuyuan(float cx, float cy)
 {
 	if (!m_qiuyuanImg.valid || !m_qiuyuanAlpha) return;
-	// 人物按固定显示高度等比缩放（保持比例）
+	// 人物直立（不旋转）：轴对齐缩放 + 逐像素 alpha，远快于旋转 blit
 	float scale = kQiuyuanHeight / (float)m_qiuyuanImg.h;
-	blitRotatedSprite(m_qiuyuanImg, m_qiuyuanAlpha, cx, cy, scale, angle, 255);
+	int outW = (int)(m_qiuyuanImg.w * scale + 0.5f);
+	int outH = (int)(m_qiuyuanImg.h * scale + 0.5f);
+	blitScaledAlpha(m_qiuyuanImg, m_qiuyuanAlpha, cx, cy, outW, outH, 255);
 }
 
 void FruitNinjaRenderer::paintTouchHeads()
@@ -733,8 +859,7 @@ void FruitNinjaRenderer::paintTouchHeads()
 	{
 		const auto& h = m_touchHeads[i];
 		if (!m_redrawHead[i] || !h.active) continue;
-		float angle = atan2f(h.dirY, h.dirX);   // 沿滑动方向旋转
-		blitQiuyuan(h.x, h.y, angle);
+		blitQiuyuan(h.x, h.y);   // 直立，不随滑动方向旋转
 	}
 }
 
@@ -831,16 +956,26 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		prev = cur;
 	}
 
-	// ── 刀光段（光效残影：sword 图有效时每帧渐隐 → 活跃段每帧重绘；否则仅增删/回绕标脏） ──
+	// ── 刀光段（光效残影：sword 图有效时做分级量化渐隐 → 仅等级跳变/增删/回绕标脏；否则仅增删标脏） ──
 	for (int i = 0; i < kMaxSegments; i++)
 	{
-		BBox cur = m_segments[i].active ? segBBox(m_segments[i]) : BBox{};
+		auto& seg = m_segments[i];
+		BBox cur = seg.active ? segBBox(seg) : BBox{};
 		BBox& prev = m_prevSeg[i];
 		// 比较 bbox 而非仅 active：回绕顶掉旧段时 active 不变（true→true）也须标脏
 		bool changed = (cur.active != prev.active)
 			|| (cur.active && (cur.x1 != prev.x1 || cur.y1 != prev.y1 ||
 				cur.x2 != prev.x2 || cur.y2 != prev.y2));
-		if (cur.active && m_swordImg.valid) changed = true;   // 残影渐隐逐帧变化 → 活跃段每帧重绘
+		if (cur.active && m_swordImg.valid)
+		{
+			// 分级量化渐隐：仅当量化等级跳变时重绘（省去逐帧全段重绘，阶梯淡出）
+			uint8_t lvl = fadeLevelOf(seg);
+			if (lvl != seg.fadeLevel)
+			{
+				seg.fadeLevel = lvl;
+				changed = true;
+			}
+		}
 		if (changed)
 		{
 			if (prev.active) dirtyAdd(prev.x1, prev.y1, prev.x2, prev.y2);
@@ -864,13 +999,14 @@ void FruitNinjaRenderer::collectDirty(const FruitNinjaLogic& logic)
 		prev = cur;
 	}
 
-	// ── 触摸头部人物（跟随手指/旋转 → 活跃即每帧标脏重绘） ──
+	// ── 触摸头部人物（直立不旋转 → 仅位置/激活变化时重绘；被脏区覆盖时由 expandRedraw 补画） ──
 	for (int i = 0; i < kMaxTouchHeads; i++)
 	{
 		BBox cur = m_touchHeads[i].active ? headBBox(m_touchHeads[i]) : BBox{};
 		BBox& prev = m_prevHead[i];
-		bool changed = (cur.active != prev.active);
-		if (cur.active) changed = true;   // 人物移动/旋转动画 → 每帧重绘
+		bool changed = (cur.active != prev.active)
+			|| (cur.active && (cur.x1 != prev.x1 || cur.y1 != prev.y1 ||
+				cur.x2 != prev.x2 || cur.y2 != prev.y2));
 		if (changed)
 		{
 			if (prev.active) dirtyAdd(prev.x1, prev.y1, prev.x2, prev.y2);
@@ -1897,6 +2033,21 @@ void FruitNinjaRenderer::beginFrame(const FruitNinjaLogic& logic)
 	expandRedraw(logic);
 }
 
+FruitNinjaRenderer::FrameStats FruitNinjaRenderer::getFrameStats() const
+{
+	FrameStats st;
+	for (int i = 0; i < kMaxSegments; i++)     if (m_segments[i].active)    st.activeSegs++;
+	for (int i = 0; i < kMaxLeaves; i++)       if (m_leaves[i].active)      st.activeLeaves++;
+	for (int i = 0; i < kMaxTouchHeads; i++)   if (m_touchHeads[i].active)  st.activeHeads++;
+	st.dirtyCount = m_dirtyCount;
+	for (int i = 0; i < m_dirtyCount; i++)
+	{
+		const auto& d = m_dirty[i];
+		st.dirtyPx += (uint32_t)((d.x2 - d.x1 + 1) * (d.y2 - d.y1 + 1));
+	}
+	return st;
+}
+
 void FruitNinjaRenderer::render(const FruitNinjaLogic& logic)
 {
 	auto state = logic.getState();
@@ -2084,6 +2235,7 @@ void FruitNinjaRenderer::addTrailSegment(float x1, float y1, float x2, float y2,
 		seg.y2 = y1 + dy * t1;
 		seg.life = TRAIL_LIFETIME;   // 回绕覆盖旧段时重置生命周期
 		seg.player = static_cast<uint8_t>(player);
+		seg.fadeLevel = 0;           // 重置量化等级（首次 collectDirty 会按新生命周期更新）
 		seg.active = true;
 		m_segWrite = (m_segWrite + 1) % kMaxSegments;
 
@@ -2226,12 +2378,12 @@ void FruitNinjaRenderer::setTouchHead(int index, float x, float y, float dirX, f
 	float ny = (len > 0.01f) ? h.dirY / len : -1.0f;   // 无方向（刚按下）默认朝上 → 人物在手指下方
 	float px = x - nx * kQiuyuanTrail;
 	float py = y - ny * kQiuyuanTrail;
-	// 钳制到屏幕内：人物完整可见（半对角外接矩形不超出屏幕）
-	float hr = (m_qiuyuanImg.valid)
-		? 0.5f * (kQiuyuanHeight / (float)m_qiuyuanImg.h) * hypotf((float)m_qiuyuanImg.w, (float)m_qiuyuanImg.h)
-		: 0.0f;
-	h.x = (hr * 2.0f <= W) ? fminf(fmaxf(px, hr), (float)W - 1.0f - hr) : (float)W * 0.5f;
-	h.y = (hr * 2.0f <= H) ? fminf(fmaxf(py, hr), (float)H - 1.0f - hr) : (float)H * 0.5f;
+	// 钳制到屏幕内：人物完整可见（直立 → 按显示尺寸 AABB，不越界）
+	float scale = (m_qiuyuanImg.valid) ? (kQiuyuanHeight / (float)m_qiuyuanImg.h) : 0.0f;
+	float hw = (m_qiuyuanImg.valid) ? (m_qiuyuanImg.w * scale * 0.5f) : 0.0f;
+	float hh = (m_qiuyuanImg.valid) ? (m_qiuyuanImg.h * scale * 0.5f) : 0.0f;
+	h.x = (hw * 2.0f <= W) ? fminf(fmaxf(px, hw), (float)W - 1.0f - hw) : (float)W * 0.5f;
+	h.y = (hh * 2.0f <= H) ? fminf(fmaxf(py, hh), (float)H - 1.0f - hh) : (float)H * 0.5f;
 }
 
 void FruitNinjaRenderer::clearTouchHeads()

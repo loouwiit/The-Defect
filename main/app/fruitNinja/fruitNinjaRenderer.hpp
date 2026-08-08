@@ -46,6 +46,15 @@ public:
 	/** @brief 获取退出按钮（供 App 注册回调） */
 	lv_obj_t* getExitBtn() const { return m_exitBtn; }
 
+	// ── 性能插桩（Phase 1：优化前后对比用；每次 beginFrame 后调用，开销可忽略） ──
+	struct FrameStats
+	{
+		int activeSegs = 0, activeLeaves = 0, activeHeads = 0;
+		int dirtyCount = 0;
+		uint32_t dirtyPx = 0;
+	};
+	FrameStats getFrameStats() const;
+
 	// ── 白刃轨迹接口 ──
 	// 线段池模型：触摸每帧把 (上一帧位置, 当前帧位置) 作为一条线段段追加。
 	// 段池 + 超时消失：每段保持 TRAIL_LIFETIME 秒后消失（无渐隐，无每帧重绘）。
@@ -74,14 +83,16 @@ private:
 	static constexpr int MaxFruits = FruitNinjaLogic::MaxFruits;
 	static constexpr int MaxParticles = FruitNinjaLogic::MaxParticles;
 
-	// 刀光段池 + 超时不透明：段保持 TRAIL_LIFETIME 秒后瞬间消失（无逐帧淡出，性能最优）
+	// 刀光段池：段保持 TRAIL_LIFETIME 秒后消失。sword 光效开启时做分级量化渐隐
+	// （kFadeLevels 级阶梯淡出，仅在等级跳变时重绘，避免逐帧全段重绘）。
 	// 64 段：60fps 持续划线 0.5s ≈ 30 段，池够大不顶掉；触摸停止后从尾部逐段消失
 	static constexpr int kMaxSegments = 64;
 	static constexpr float kMaxSegLen = 40.0f;   // 单段最大长度（px）：更长的线段在 addTrailSegment 拆分为多段
-	static constexpr float TRAIL_LIFETIME = 0.3f;   // 段超时（秒）
+	static constexpr float TRAIL_LIFETIME = 0.2f;   // 段超时（秒）
+	static constexpr int kFadeLevels = 6;        // 刀光残影分级量化等级（每段寿命内重绘次数，越低越省）
 
 	static constexpr int kMaxLeaves = 48;        // 竹叶粒子池（切割时随机向四周飘散）
-	static constexpr int kMaxActiveLeaves = 6;   // 同时活跃竹叶上限（超限跳过生成，防卡顿）
+	static constexpr int kMaxActiveLeaves = 4;   // 同时活跃竹叶上限（超限跳过生成，防卡顿）
 	static constexpr int kMaxTouchHeads = 5;     // 触摸头部人物上限（对齐 GT911 槽位）
 	static constexpr float kQiuyuanHeight = 100.0f;   // qiuyuan 人物显示高度（px，按图高等比缩放）
 	static constexpr float kQiuyuanTrail = 110.0f;    // 人物跟随手指的"身后"偏移距离（px），避免被手遮住
@@ -116,6 +127,7 @@ private:
 		float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 		float life = 0;        // 剩余生命（秒），ageTrail 递减，<=0 消失
 		uint8_t player = 0;    // 段归属玩家（0=P1, 1=P2），残留切割按玩家过滤
+		uint8_t fadeLevel = 0; // 当前量化淡出等级（sword 光效：等级跳变才重绘）
 		bool active = false;
 	};
 	TrailSegment m_segments[kMaxSegments]{};
@@ -226,6 +238,9 @@ private:
 	static constexpr FruitImage s_emptyImg{};   // 空图片（valid=false）
 	void loadFruitImages();              // create() 持锁解码 5 张 JPG
 	void blitImage(int cx, int cy, int r, const FruitImage& img, uint8_t opa);
+	// 轴对齐缩放 + 逐像素 alpha blend（不旋转，用于直立的人物；比旋转 blit 快得多）
+	void blitScaledAlpha(const FruitImage& img, const uint8_t* alpha,
+		float cx, float cy, int outW, int outH, uint8_t fadeByte);
 
 	// ── 全屏背景图（esp_driver_jpeg 硬件解码 → 等比 cover 缩放居中裁剪到 W×H，PSRAM RGB565） ──
 	FruitImage m_bg{};                            // W×H 背景缓冲；valid=false 时回退纯色 m_bg565
@@ -244,7 +259,7 @@ private:
 	FruitImage m_qiuyuanImg{};            // RGB565 像素
 	uint8_t* m_qiuyuanAlpha = nullptr;    // 逐像素 alpha
 	void loadQiuyuanImage();              // create() 持锁解码 + 抠图
-	void blitQiuyuan(float cx, float cy, float angle);   // 固定显示高度旋转绘制
+	void blitQiuyuan(float cx, float cy);                // 固定显示高度直立绘制（不旋转）
 	void blitRotatedSprite(const FruitImage& img, const uint8_t* alpha,
 		float cx, float cy, float scale, float angle, uint8_t fadeByte);   // 通用旋转精灵绘制（竹叶/人物共用）
 
@@ -253,6 +268,8 @@ private:
 	uint8_t* m_swordAlpha = nullptr;      // 逐像素 alpha（亮度抠图，0-255）
 	void loadSwordImage();                // create() 持锁解码 + 亮度抠图
 	void blitSwordSegment(float x1, float y1, float x2, float y2, float life);  // 单段旋转绘制 + 残影渐隐
+	float swordAngleForSeg(float x1, float y1, float x2, float y2) const;   // 段旋转角（bbox/绘制共用，保证脏区一致）
+	static uint8_t fadeLevelOf(const TrailSegment& s);                       // 段量化淡出等级（与 fadeByte 一致）
 	void blitRotatedSpriteAdd(const FruitImage& img, const uint8_t* alpha,
 		float cx, float cy, float scale, float angle, uint8_t fadeByte);   // 加法混合旋转精灵（光效用）
 
