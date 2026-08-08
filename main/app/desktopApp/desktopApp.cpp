@@ -8,7 +8,7 @@
 #include "app/timeSettingsApp/timeSettingsApp.hpp"
 #include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/consoleManager/consoleManagerApp.hpp"
-#include "app/snake/snakeRoom/snakeRoom.hpp"
+#include "elfManager/elfManager.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
 #include "app/douDiZhu/douDiZhuRoom.hpp"
@@ -584,8 +584,12 @@ void DesktopApp::startGame()
 	switch (m_focusCardsIdx)
 	{
 	case 0:
-		// 贪吃蛇 — 通过 AppStack 启动
-		m_manager->pushToNewStack(new SnakeRoom(display));
+		// 贪吃蛇 — ELF 插件（/root/elf/snake.so 动态加载）
+		if (auto* app = ElfManager::instance().createApp("/root/elf/snake.so", display, nullptr)) {
+			m_manager->pushToNewStack(app);
+		} else {
+			ESP_LOGW(TAG, "snake 插件未安装或加载失败（缺 /root/elf/snake.so）");
+		}
 		break;
 
 	case 1:
@@ -664,10 +668,16 @@ std::string DesktopApp::getAiContext()
 	return ctx;
 }
 
+/** @brief snake 已迁移为 ELF 插件：AI open_app 经 ElfManager 动态加载 */
+static App* createSnakePlugin(Display* display, const cJSON* params)
+{
+	return ElfManager::instance().createApp("/root/elf/snake.so", display, params);
+}
+
 std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 {
 	return {
-		{ "snake", "贪吃蛇", &SnakeRoom::newApp },
+		{ "snake", "贪吃蛇", &createSnakePlugin },
 		{ "fruitNinja", "水果忍者", &FruitNinjaRoom::newApp },
 		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
 		{ "doudizhu", "斗地主", &DouDizhuRoom::newApp },

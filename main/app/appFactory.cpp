@@ -1,6 +1,6 @@
 #include "appFactory.hpp"
 #include "app/tetris/tetrisRoomApp.hpp"
-#include "app/snake/snakeRoom/snakeRoom.hpp"
+#include "elfManager/elfManager.hpp"
 #include "app/fruitNinja/fruitNinjaRoom.hpp"
 #include "app/chineseChess/chineseChessRoom.hpp"
 #include "app/bleSettingsApp/bleSettingsApp.hpp"
@@ -19,7 +19,7 @@ App* AppFactory::create(const std::string& name, Display* display) {
         return new TetrisRoomApp(display);
     }
     if (name == "snake") {
-        return new SnakeRoom(display);
+        return ElfManager::instance().createApp("/root/elf/snake.so", display, nullptr);
     }
     if (name == "fruitninja" || name == "fruit_ninja" || name == "fruitNinja") {
         return new FruitNinjaRoom(display);

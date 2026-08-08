@@ -1,0 +1,7 @@
+## ELF .so 插件工程（snake 贪吃蛇 — 第一个真实迁移游戏）
+## 组件由根 CMakeLists 的 EXTRA_COMPONENT_DIRS 复用主工程 managed_components 提供
+## （elf_loader / cmake_utilities / lvgl / esp_lvgl_adapter / 音频组件），无需组件管理器下载。
+## snake 通过 audio/Audio.hpp 使用音频（Room 播放 BGM），故需要音频组件头文件。
+dependencies:
+  idf:
+    version: '>=4.1.0'

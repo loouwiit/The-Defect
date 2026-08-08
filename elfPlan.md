@@ -1,6 +1,8 @@
 # elfPlan.md — ELF 游戏插件化（开发中活文档）
 
-> **本文件定位**：ELF 游戏插件化的**活的开发文档**（本分支专属，内部不分发）。所有设计决策、当前状态、ABI 结论、测试计划/结果、路线图都在这里高频更新；**架构稳定后**（如 Phase 2 迁完第一个游戏）再一次性回填到 `newAGENTS.md` / `newreadme.md`。
+> **本文件定位**：ELF 游戏插件化的**活的开发文档**（本分支专属，内部不分发）。所有设计决策、当前状态、ABI 结论、测试计划/结果、路线图都在这里高频更新。
+>
+> **⚠ 分支策略**：ELF 改造是大工程，**全部完成前不合并主分支、不分发**。`AGENTS.md` / `readme.md` 待整个 ELF 大工程完成后**一次性**修订回填（避免迁移期间频繁改动污染 AI 上下文），此前的所有改动/决策以本文件为准。
 >
 > **相关代码**：`main/elfSdk/`（ABI + 符号表）、`main/elfManager/`（模块管理）、`elfapps/`（.so 插件工程）、`tools/`（构建/校验脚本）、`main/app/testApp/`（测试台）。
 
@@ -21,10 +23,10 @@
 ```
 主固件（C++ monolith）                        .so 插件工程（elfapps/<name>/，C++）
 ├─ elfSdk 层                                  ├─ 唯一 C 入口 elf_plugin_entry()
-│   ├─ elf_export_syms.c     — C 库生成表     │   └─ 返回 elf_plugin_info_t
-│   ├─ elf_cpp_runtime.cpp   — C++ 运行时表   │       { version, name, create_app, destroy_app }
-│   ├─ elf_framework_syms.cpp— C++ 框架/单例  ├─ XxxElfApp : public App（.so 内 new）
-│   └─ elf_sdk.cpp           — 注册 + C 包装  ├─ 自建事件循环/线程（原生灵活性）
+│   ├─ elf_symtab.c    — 符号表（脚本生成）   │   └─ 返回 elf_plugin_info_t
+│   ├─ elf_sdk.cpp     — 注册 g_main_elfsyms  │       { version, name, create_app, destroy_app }
+│   └─ gen_elf_syms.py — 白名单生成工具       ├─ XxxElfApp : public App（.so 内 new）
+│                                            ├─ 自建事件循环/线程（原生灵活性）
 ├─ ElfManager                                  └─ 调用主固件符号（lockGuard/Task/单例…）
 │   ├─ 内部 RAM 栈任务 dlopen + version 校验
 │   ├─ refcount + size/mtime 热更新检测
@@ -36,9 +38,23 @@
 - **AppStack 全权管理生命周期**：push/pop/init/deinit/onForeground/onBackground/onGamepadInput 全部虚分派进 .so（vtable 在 PSRAM）
 - 插件与原生 App 完全一致：自建事件循环/线程、onGamepadInput 直收输入、display->lockGuard() 直接调用
 
-## 3. 当前状态（2026-08-08：R1 + Phase 1 符号脚本化 全绿 ✅）
+## 3. 当前状态（2026-08-08：R1 + Phase 1 + Phase 2 snake 迁移 全绿 ✅）
 
-**实测证据（串口日志）**：
+**Phase 2 实测（snake 插件，设备验证）**：
+
+```
+ElfManager: dlopen OK: name=snake version=1 create_app=0x...   （~620ms / 682KB）
+ElfManager: createApp OK: app=0x... refcount=1                 （SnakeRoom 从插件创建）
+SnakeGame: 游戏循环启动                                        （插件内 Thread + gameLoop）
+SnakeRoom: 多次点击，已过滤                                     （输入/防抖/焦点全走 .so）
+AppStack: push/pop                                             （原生栈全权管理插件 App）
+ElfManager: App 销毁，refcount=0                               （退出 → dlclose，无泄漏）
+AI open_app("snake") → getAiContext("双人模式") → 焦点@:1       （AI 上下文/动作进 .so）
+```
+- 游戏表现与原生**无差异**；`refcount=0 → dlclose` 回收正常；无 .so 时入口优雅提示不崩
+- `SnakeRoom::newApp` 旧 AI 工厂已清理（AI 启动走主固件 `createSnakePlugin` 适配器 → ElfManager）
+
+**R1 实测证据（串口日志）**：
 
 ```
 ElfManager: dlopen OK: name=smoke version=1 create_app=0x...   （30ms / 141KB）
@@ -91,6 +107,10 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 **已删除的旧 4 张手写表**：`elf_export_syms.c` / `elf_cpp_runtime.cpp` / `elf_framework_syms.cpp` / `elf_sdk.cpp` 的 C 包装（`elf_task_*`/`elf_battery_*`/`elf_gamepad_*`）——统一由脚本生成的单表替代。
 
+**Phase 2 补充（std:: 运行时导出）**：snake 用 std::string（getAiContext 拼接）触发 libstdc++ 内部符号（`_M_replace_cold`/`__throw_out_of_range_fmt`），原白名单只导 `operator new/delete` + `__cxa_` 前缀 → dlopen `Can't find common`。修复：运行时选择加 `or dem.startswith("std::")`（现 1799 符号，+458 std::）。另补 FreeRTOS 前缀 `xTask`/`vTask` + 精确名 `__assert_func`/`time`/`memmove`。
+
+- ⚠ **重生成符号表的"鸡生蛋"**：移除主固件某代码后，其独占的 inline 符号（snake 的 `AudioHandle::isPlaying`）被 `--gc-sections` 回收 → 陈旧表引用未定义符号 → 主固件**链接失败**。解法：手动摘除该条目 → 链接通过 → `gen_elf_syms.py` 重生成 → 重建。**每次迁移移除代码后都要重生成符号表**。
+
 **演进**：插件需要新符号 → 白名单加类名/前缀 → 重跑 `gen_elf_syms.py` → 重编主固件（不再手写任何符号表）。
 
 ## 6. 已核实的 ABI 名 / 坑（nm 结论，riscv32-esp-elf g++ 14.2.0 Itanium）
@@ -102,6 +122,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 - 类名长度要数准：`AppStackManager`=15、`popApp`=6
 - const 成员 `K` 紧跟 `_ZN`（`_ZNK...`）；参数编码前有 `E`（`_ZNK14VirtualGamepad8getStateEaa`）
 - C++14 **sized delete** `_ZdlPvj`（.so 会引用，需导出）
+- FreeRTOS 时序符号 `vTaskDelay`/`xTaskGetTickCount` 等（C 名，`xTask`/`vTask` 前缀导出）；libstdc++ 内部 `std::` 前缀（`_M_replace_cold`/`__throw_*`）需导出
 - loader 内置 libc 表**没有** `snprintf`/`memcmp` → 需自导出
 - `ESP_LOGI` 宏会引用 `esp_log`/`esp_log_timestamp`（App 内联虚函数 `onGamepadConnected/Disconnected` 里也有 ESP_LOGI，插件继承编译会带出）→ 需导出
 - 已核实正确（无需改）：`_ZN3AppC1/C2EP7Display`、`_ZN3AppD1/D2Ev`、`_ZN14VirtualGamepad8instanceEv`、`_ZN10BleGamepad8instanceEv`、`_ZNK10BleGamepad14connectedCountEv`、`_ZN14BatteryManager{10getPercent,12getVoltageMv,10isCharging}Ev`
@@ -121,7 +142,10 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
   - 用 `--whole-archive` 把 `__idf_main`（libmain.a，只含该 .so 的 .o）链接成 `.so`
   - 链接 flags：`-shared -fPIC -static-libgcc -nostdlib -nostartfiles` + `-fdata-sections -ffunction-sections -Wl,--gc-sections -fvisibility=hidden`（入口 `elf_plugin_entry` 加 `__attribute__((visibility("default")))`）
 - `main/CMakeLists.txt`：`PRIV_INCLUDE_DIRS` 指向 `../../main` + `../../main/elfSdk`（app.hpp / elf_sdk.h），`REQUIRES lvgl esp_lvgl_adapter`
-- 构建：`tools/build_elf.sh <name>`（`cd elfapps/<name> && idf.py -G 'Unix Makefiles' so` → `build/<name>.so`）
+- 构建：`tools/build_elf.sh <name>`（`cd elfapps/<name> && idf.py so` → `build/<name>.so`）——**必须用 Ninja**（默认）
+  - ⚠ 勿用 Unix Makefiles：对"自定义 .so 目标 → libmain.a 跨目录依赖"有缺陷（子 make 只读 so.dir/build.make，不含子目录 libmain.a 规则；smoke 能过仅因 libmain.a 早已存在）
+  - ⚠ 换生成器/改 sdkconfig.defaults 后须删旧 `build/` 与 `sdkconfig`（defaults 不覆盖已存在值）
+- **音频组件**：插件用 `Audio`（snakeRoom.hpp → audio/Audio.hpp → esp_audio_render/esp_audio_dec/esp_gmf_pool）→ REQUIRES + EXTRA_COMPONENT_DIRS 复用主工程 managed_components 的 6 个音频组件（esp_audio_render/gmf_audio/esp_audio_codec/esp_audio_effects/gmf_core/gmf_fft），仅头文件、.so 不链接音频代码
 - 上传：设备 HTTP 服务器文件管理界面（PUT → `/root/elf/<name>.so`；原 `upload_elf.sh` 已移除）
 
 ## 9. P4 关键坑
@@ -151,7 +175,8 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 - **禁止文件级非 POD static**：loader **不执行 `.init_array`** → 文件级对象不被构造（=UB）；constexpr/POD static 安全（进 .rodata）；非 POD 用**函数局部 static**（`__cxa_guard_acquire` 运行时执行）或堆。
 - 编译 `-fno-exceptions -fno-rtti`；与主固件**同头文件 + 同 sdkconfig** + `ELF_SDK_VERSION` 守卫（防类布局漂移）。
-- 单例/框架方法跨边界走符号注册（4 张表）；std::string 跨边界返回同工具链可行（AI 集成相关延后）。
+- ⚠ **sdkconfig 必须同步主固件时序/ABI 配置**：`CONFIG_FREERTOS_HZ=1000`（主固件）vs 插件默认 100 → `.so` 内 `pdMS_TO_TICKS(80)`=8 ticks，运行时 1000Hz 下 `vTaskDelay(8)`=8ms → **游戏快 10 倍**（snake 实测踩坑）。插件 sdkconfig.defaults 已加 `CONFIG_FREERTOS_HZ=1000`
+- 单例/框架方法跨边界走**单符号表**（`g_main_elfsyms`，脚本生成）；std::string 跨边界返回同工具链可行（AI 集成相关延后）。
 
 ## 13. 测试计划 + 结果
 
@@ -167,13 +192,26 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 | T5 | 退出 → delete → refcount=0 → dlclose | ✅ 干净卸载 |
 | 失败路径 | 无 .so / 版本不匹配 / 符号缺失 | ✅ 均优雅报错不崩 |
 
-### R2（待办）
+### R2（✅ 已完成，除可选测量）
 
-- [ ] 热更新实测：改 smoke 文案 → 重编 → PUT → 重进见新，主固件未重烧
+- [x] 热更新实测：改 smoke 文案 → 重编 → PUT → 重进见新，主固件未重烧（用户实测 ✅）
 - [x] 单例直出启用：smoke P7 调 Task::addTask/removeTask + BatteryManager::getPercent + BleGamepad::connectedCount/getBatteryLevel（设备验证通过 ✅；符号表已脚本化，无需手写）
-- [ ] 卸载后 PSRAM 堆回落测量（`heap_caps_get_free_size(MALLOC_CAP_SPIRAM)`）
-- [ ] 多 App 共享 .so（refcount=2，最后一个退出才 dlclose）
-- [ ] 无 .so 时入口"未安装"不崩溃
+- [ ] 卸载后 PSRAM 堆回落测量（`heap_caps_get_free_size(MALLOC_CAP_SPIRAM)`）— 可选
+- [ ] 多 App 共享 .so（refcount=2，最后一个退出才 dlclose）— 待后续迁移自然覆盖
+- [x] 无 .so 时入口"未安装"不崩溃（snake 实测：桌面卡片 0 缺 .so 优雅提示不崩 ✅）
+
+### Phase 2 — snake 迁移（✅ 已完成）
+
+| # | 验证点 | 结果 |
+|---|--------|------|
+| S1 | 插件构建（Ninja 生成器） | ✅ snake.so 构建成功 |
+| S2 | dlopen + createApp | ✅ dlopen OK / createApp OK / refcount=1 |
+| S3 | std:: 运行时符号解析 | ✅ 1799 符号（std:: 前缀补齐） |
+| S4 | 游戏表现与原生一致 | ✅ 无差异（FREERTOS_HZ=1000 同步后） |
+| S5 | 退出 → refcount=0 → dlclose | ✅ 无泄漏 |
+| S6 | AI open_app("snake") + 上下文 | ✅ 正常（createSnakePlugin 适配器） |
+| S7 | 无 .so 兜底 | ✅ 优雅提示不崩 |
+| S8 | newApp 清理 | ✅ 已删（AI 路径不走它） |
 
 ### 多轮迭代原则
 
@@ -181,7 +219,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 ## 14. 路线图
 
-- **Phase 2**：迁移单机游戏（snake → chineseChess → fruitNinja），编译目标从 main 改 elfapps + 工厂导出，用 `nm -u` 补齐框架表（GUI::/Task::addTask/FontLoader 等新符号）。
+- **Phase 2**：迁移单机游戏。**snake ✅（已完成，模板+流程验证）** → chineseChess（含 AI 引擎）→ fruitNinja（canvas 渲染器最重，放最后）。编译目标从 main 改 elfapps + 工厂导出；符号表已含 std::/FreeRTOS/GUI/Task 等，后续迁移主要用 `nm -u` 核对即可。
 - **Phase 3**：迁移联机游戏（tetris/douDiZhu，lwip socket 已导出 + WS/TCP 桥接决策：SDK `elf_ws_register` vs 插件自开端口）。
 - **Phase 4**：桌面动态扫描 `/root/elf/*.so`；主固件瘦身（5MB→~2.5-3MB）；删 `elfProbe`；market 分发 .so（可选）；文档回填（newAGENTS/newreadme）。
 
@@ -198,9 +236,11 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 | `main/app/appStack.cpp` | 两处删除点 `delete` 后调 `onAppDestroyed` |
 | `main/app/testApp/testApp.hpp/.cpp` | ELF 测试面板 |
 | `elfapps/smoke/` | C++ smoke 插件工程（CMakeLists + smoke.cpp） |
-| `tools/build_elf.sh` / `gen_elf_syms.py` | 构建插件 .so / 符号表生成+校验+搜索 |
+| `elfapps/snake/` | **snake 插件工程（Phase 2 完成）**：main/snakeRoom/ + snakeGame/ + snakePlugin.cpp |
+| `tools/build_elf.sh` / `gen_elf_syms.py` | 构建插件 .so（Ninja）/ 符号表生成+校验+搜索 |
 
 ## 16. 开发日志（时间线）
 
 - **2026-08-08**：设计确定（App* 工厂模型，替代容器）；R1 代码落地；依次解决：operator new 语法坑 → 5 个 App/单例 mangled 名（nm 核实）→ `size_t`=`j` → smoke .so 6 个 UND 符号 → **ElfManager::loadOne 把 dlsym 函数指针当结构体解引用**（假版本 1303）→ **R1 全绿 ✅**。
 - **2026-08-08（Phase 1 符号面脚本化）**：4 张手写符号表 → **单表 `g_main_elfsyms`（gen_elf_syms.py 从 .elf 白名单生成）**；删 7 个 C 包装；主固件 build 通过。**关键验证**：① `extern int _ZN...;` + `&_ZN...` 对 C++ mangled 符号链接通过（假设成立）；② static inline 的 LVGL API 不在 .elf（`lv_obj_clear_flag` 等取址 undefined）→ 修正为过渡表 include `lvgl.h` 取址生成本地副本；最终脚本 nm 天然排除 inline，.so 自行内联。smoke P7 打开单例直出（Task/BatteryManager/BleGamepad），待设备验证。
+- **2026-08-08（Phase 2 snake 迁移）**：用户把 `main/app/snake/` 移到 `elfapps/snake/main/`；主固件 desktopApp/appFactory 路由改 `ElfManager::createApp("/root/elf/snake.so", ...)`（AI 能力表 create 换静态适配器 `createSnakePlugin`）。依次解决：**① Unix Makefiles 生成器无法构建 .so**（自定义目标跨目录依赖 libmain.a 无规则）→ `build_elf.sh` 改 Ninja；**② 符号表鸡生蛋**（snake 独占 inline `AudioHandle::isPlaying` 被 GC → 陈旧表链接失败）→ 手动摘除 + 重生成；**③ std:: 运行时符号未导出**（`_M_replace_cold`/`__throw_out_of_range_fmt`）→ 白名单加 `std::` 前缀（1799 符号）；**④ 游戏快 10 倍**（插件 FREERTOS_HZ=100 与主固件 1000 不匹配）→ sdkconfig.defaults 同步 `CONFIG_FREERTOS_HZ=1000`。**设备全链路验证通过**（游戏表现与原生一致 / refcount=0→dlclose / AI open_app + 上下文 / 无 .so 兜底不崩）。清理 `SnakeRoom::newApp`（死代码）。

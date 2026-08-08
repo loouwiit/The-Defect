@@ -1,5 +1,5 @@
 #include "snakeRoom.hpp"
-#include "app/snake/snakeGame/snakeGame.hpp"
+#include "../snakeGame/snakeGame.hpp"
 #include "display/font.hpp"
 #include "display/display.hpp"
 #include "app/appStackManager.hpp"
