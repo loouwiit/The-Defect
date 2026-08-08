@@ -1,6 +1,7 @@
 #include "app/appStack.hpp"
 #include "app/appStackManager.hpp"
 #include "task/task.hpp"
+#include "elfManager/elfManager.hpp"
 #include <esp_log.h>
 
 static constexpr char TAG[] = "AppStack";
@@ -20,9 +21,12 @@ AppStack::~AppStack()
 	// 清理仍在栈内的 app（非空栈被销毁时）
 	for (auto it = m_stack.rbegin(); it != m_stack.rend(); ++it)
 	{
+		void* elfModule = (*it)->m_elfModule;   // delete 前取（delete 后对象已释放）
 		(*it)->deinit();
 		while (!(*it)->deletable) vTaskDelay(10);
 		delete* it;
+		if (elfModule)
+			ElfManager::instance().onAppDestroyed(elfModule);
 	}
 	m_stack.clear();
 }
@@ -133,6 +137,9 @@ void AppStack::scheduleDeletion(App* app)
 			if (!oldApp->deletable)
 				return 10;
 
+			// delete 前取 ELF 模块句柄（delete 后对象已释放，不能读成员）
+			void* elfModule = oldApp->m_elfModule;
+
 			if (auto guard = oldApp->display->lockGuard())
 			{
 				delete oldApp;
@@ -142,6 +149,10 @@ void AppStack::scheduleDeletion(App* app)
 				ESP_LOGE(TAG, "scheduleDeletion: failed to lock display, retrying");
 				return TickType_t(10);
 			}
+
+			// delete 完成后：ELF 模块 refcount--，归 0 时 dlclose
+			if (elfModule)
+				ElfManager::instance().onAppDestroyed(elfModule);
 
 			return Task::infinityTime;
 		}, "deleteApp", app, 0, Task::Affinity::None);

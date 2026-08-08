@@ -40,4 +40,12 @@ private:
 
 	uint32_t m_value{};
 	TickType_t nextAppChangeTime{};
+
+	// ── ELF 测试面板 ──
+	lv_obj_t* m_elfStatus{};       // 模块状态标签
+	int m_pendingAction{};         // 待执行动作（延迟任务用）
+	static constexpr const char* SMOKE_PATH = "/root/elf/smoke.so";
+	void refreshElfPanel();        // 刷新状态标签
+	void elfAction(int action);    // 0=加载 1=运行 2=卸载 3=重载
+	static void onElfBtnCb(lv_event_t* e);
 };

@@ -46,6 +46,7 @@
 #include "battery/batteryMonitor.hpp"
 #include "time/timeService.hpp"
 #include "elfProbe.hpp"
+#include "elfSdk/elf_sdk.h"
 
 static constexpr char TAG[] = "main";
 
@@ -91,6 +92,9 @@ extern "C" void app_main(void)
 
 	// nvs
 	nvsInit();
+
+	// ELF 插件 SDK：注册符号表（C 库 / C++ 运行时 / C++ 框架）——必须在任何 dlopen 之前
+	elf_sdk_init();
 
 	// 早期启动 C6 协处理器
 	Slave::instance().start();

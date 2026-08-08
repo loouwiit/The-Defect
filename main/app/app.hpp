@@ -86,6 +86,10 @@ public:
 	AppStackManager* getManager() const { return m_manager; }
 	Display* getDisplay() const { return display; }
 
+	// ── ELF 插件支持（由 ElfManager 设置，AppStack 在 delete 后回调卸载） ──
+	/** @brief 记录本 App 所属的 ELF 模块（ElfManager::createApp 设置） */
+	void setElfModule(void* module) { m_elfModule = module; }
+
 protected:
 	Display* display{};
 	lv_obj_t* screen{};
@@ -94,6 +98,7 @@ protected:
 	bool deletable{ true };
 
 	AppStackManager* m_manager{};
+	void* m_elfModule{};   // ELF 模块句柄（非 ELF App 为 null；AppStack delete 后据此 dlclose）
 
 	friend class Display;
 	friend class AppStack;

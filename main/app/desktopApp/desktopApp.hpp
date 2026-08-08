@@ -29,7 +29,7 @@ private:
 	tm showedTime{};
 
 	// ── 游戏数据 ──
-	static constexpr int GAME_COUNT = 7;
+	static constexpr int GAME_COUNT = 8;
 	static const char* GAME_NAMES[GAME_COUNT];
 	static const char* GAME_DESCS[GAME_COUNT];
 	static const char* GAME_ICONS[GAME_COUNT];

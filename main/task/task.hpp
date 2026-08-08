@@ -19,6 +19,8 @@ public:
 		Affinity(size_t affinity) : affinity{ affinity } {}
 		Affinity(Affinity&) = default;
 		Affinity(Affinity&&) = default;
+		Affinity& operator=(Affinity&) = default;
+		Affinity& operator=(Affinity&&) = default;
 
 		size_t affinity = None;
 		operator size_t& ()

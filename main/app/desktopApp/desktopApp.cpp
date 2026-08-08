@@ -37,6 +37,7 @@ const char* DesktopApp::GAME_NAMES[] =
 	"中国象棋",
 	"Lua 脚本管理",
 	"游戏市场",
+	"测试",
 };
 
 const char* DesktopApp::GAME_DESCS[] =
@@ -48,6 +49,7 @@ const char* DesktopApp::GAME_DESCS[] =
 	"中国象棋，楚河汉界对弈！",
 	"浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏",
 	"浏览并下载社区 Lua 游戏脚本，扩展游戏库！",
+	"测试",
 };
 
 const char* DesktopApp::GAME_ICONS[] =
@@ -59,6 +61,7 @@ const char* DesktopApp::GAME_ICONS[] =
 	"F:system/desktop/chess.jpg",
 	"F:system/desktop/lua.jpg",
 	"F:system/desktop/gameMarket.jpg",
+	"F:system/desktop/test.jpg",
 };
 
 DesktopApp::DesktopApp(Display* display)
@@ -615,6 +618,8 @@ void DesktopApp::startGame()
 		m_manager->pushToNewStack(new MarketApp(display));
 		break;
 
+	case 7:
+		// 测试
 	default:
 		// 未实现的游戏 — TestApp 占位
 		m_manager->pushToNewStack(new TestApp(display, esp_random()));
