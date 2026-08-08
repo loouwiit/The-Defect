@@ -2316,7 +2316,7 @@ void FruitNinjaRenderer::spawnLeaf(float x, float y, float segDx, float segDy)
 	leaf.vy = sinf(dir) * spd - randFloat(30.0f, 130.0f);
 	leaf.angle = randFloat(0.0f, 6.283f);         // 随机初始旋转
 	leaf.angVel = randFloat(-6.0f, 6.0f);         // 随机旋转速度
-	leaf.scale = randFloat(0.5f, 1.2f);           // 随机大小
+	leaf.scale = randFloat(0.35f, 0.8f);          // 随机大小（原 0.5~1.2，用户反馈偏大 → 缩小）
 	leaf.life = randFloat(0.6f, 1.1f);            // 随机寿命
 	leaf.maxLife = leaf.life;                     // 渐隐比例基准
 	if (!prevActive)
