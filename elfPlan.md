@@ -95,7 +95,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 ## 6. 已核实的 ABI 名 / 坑（nm 结论，riscv32-esp-elf g++ 14.2.0 Itanium）
 
-> ⚠ **不要手推 mangled 名，一律 `nm` / `tools/check_elf_syms.sh` 核实。**
+> ⚠ **不要手推 mangled 名，一律 `nm` / `tools/gen_elf_syms.py --search <elf> <关键字>` 核实。**
 
 - 32 位目标 `size_t`=unsigned int → 编码 `j`（`_Znwj`/`_Znaj`，**不是 `_Znwm`/`_Znam`**）
 - 成员函数参数 `App*` → 替换符 `S_`（`_ZN3App7pushAppEPS_`，不是 `EP3App`）
@@ -122,7 +122,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
   - 链接 flags：`-shared -fPIC -static-libgcc -nostdlib -nostartfiles` + `-fdata-sections -ffunction-sections -Wl,--gc-sections -fvisibility=hidden`（入口 `elf_plugin_entry` 加 `__attribute__((visibility("default")))`）
 - `main/CMakeLists.txt`：`PRIV_INCLUDE_DIRS` 指向 `../../main` + `../../main/elfSdk`（app.hpp / elf_sdk.h），`REQUIRES lvgl esp_lvgl_adapter`
 - 构建：`tools/build_elf.sh <name>`（`cd elfapps/<name> && idf.py -G 'Unix Makefiles' so` → `build/<name>.so`）
-- 上传：`tools/upload_elf.sh <name> <ip>`（HTTP PUT → `/root/elf/<name>.so`，复用主固件 `httpPut`，上限 10MB）
+- 上传：设备 HTTP 服务器文件管理界面（PUT → `/root/elf/<name>.so`；原 `upload_elf.sh` 已移除）
 
 ## 9. P4 关键坑
 
@@ -136,9 +136,8 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 | 工具 | 用途 |
 |------|------|
 | `build_elf.sh <name>` | 构建 `elfapps/<name>` → `build/<name>.so` |
-| `upload_elf.sh <name> <ip>` | HTTP PUT 上传 → `/root/elf/<name>.so` |
-| `check_elf_syms.sh <elf>` | 校验主固件 .elf 中符号表所需全部符号存在（ABI 名核对）；`<elf> <关键字>` 搜实际 mangled 名 |
-| `gen_elf_syms.py <elf>` | 从 .elf 生成完整 C 库导出表（替换 `elf_export_syms.c`） |
+| `gen_elf_syms.py <elf>` | 从 .elf 生成符号表（白名单 + MUST_HAVE 校验） |
+| `gen_elf_syms.py --search <elf> <关键字>` | 搜主固件实际 mangled 名（核对白名单/修正编码） |
 | `riscv32-esp-elf-nm -u build/<name>.so` | 列插件未定义符号，对照导出表补齐 |
 
 ## 11. TestApp — ELF 测试台（`main/app/testApp/`）
@@ -199,7 +198,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 | `main/app/appStack.cpp` | 两处删除点 `delete` 后调 `onAppDestroyed` |
 | `main/app/testApp/testApp.hpp/.cpp` | ELF 测试面板 |
 | `elfapps/smoke/` | C++ smoke 插件工程（CMakeLists + smoke.cpp） |
-| `tools/build_elf.sh` / `upload_elf.sh` / `check_elf_syms.sh` / `gen_elf_syms.py` | 构建/上传/校验/生成脚本 |
+| `tools/build_elf.sh` / `gen_elf_syms.py` | 构建插件 .so / 符号表生成+校验+搜索 |
 
 ## 16. 开发日志（时间线）
 

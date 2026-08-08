@@ -2,7 +2,8 @@
 """生成 main/elfSdk/elf_symtab.c（主固件 ELF 符号导出表，合并替代旧 4 张表）。
 
 用法:
-    python3 tools/gen_elf_syms.py build/The-Defect.elf > main/elfSdk/elf_symtab.c
+    python3 tools/gen_elf_syms.py build/The-Defect.elf > main/elfSdk/elf_symtab.c   # 生成符号表
+    python3 tools/gen_elf_syms.py --search build/The-Defect.elf Task                  # 搜实际 mangled 名
 
 从主固件 .elf 提取符号（nm --defined-only -g，含 WEAK 的 W/w 与 ROM 绝对符号 A），按白名单过滤：
   - C 函数（name==symbol）：前缀（lv_/esp_log_/cJSON_/esp_lv_adapter_/jpeg_/esp_jpeg_）+ 精确名
@@ -68,7 +69,29 @@ MUST_HAVE = RUNTIME_EXACT | {
 EXCLUDE = {"elf_find_sym", "g_main_elfsyms", "elf_sdk_init", "app_main"}
 
 
+def cmd_search(elf, keyword):
+    """搜索主固件 .elf 中与关键字匹配的全局符号（用于核对白名单/修正编码）。"""
+    try:
+        nm_out = subprocess.check_output([NM, "--defined-only", "-g", elf], text=True)
+    except FileNotFoundError:
+        print(f"ERROR: 找不到 {NM}", file=sys.stderr)
+        sys.exit(2)
+    print(f"== 搜索 \"{keyword}\" 相关符号（用结果修正白名单/编码） ==")
+    kw = keyword.lower()
+    for line in nm_out.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        typ, name = parts[1], parts[2]
+        if kw in name.lower():
+            print(f"  [{typ}] {name}")
+
+
 def main():
+    # --search 模式：python3 gen_elf_syms.py --search <elf> <关键字>
+    if len(sys.argv) >= 4 and sys.argv[1] == "--search":
+        cmd_search(sys.argv[2], sys.argv[3])
+        sys.exit(0)
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
@@ -101,7 +124,7 @@ def main():
     if cxx_names:
         try:
             filt = subprocess.run([CXXFILT], input="\n".join(cxx_names),
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, check=False)
             lines = filt.stdout.splitlines()
             for name, dem in zip(cxx_names, lines):
                 demapped[name] = dem
@@ -133,7 +156,7 @@ def main():
     missing = sorted(s for s in MUST_HAVE if s not in func_names)
     if missing:
         print("ERROR: 主固件 .elf 缺少必需符号（白名单/编码可能错误，用"
-              " tools/check_elf_syms.sh <elf> <关键字> 查实际名）:", file=sys.stderr)
+              " gen_elf_syms.py --search <elf> <关键字> 查实际名）:", file=sys.stderr)
         for s in missing:
             print(f"  {s}", file=sys.stderr)
         sys.exit(3)
