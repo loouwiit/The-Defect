@@ -1,0 +1,7 @@
+## ELF .so 插件工程（tetris 俄罗斯方块 — 联机游戏迁移）
+## 组件由根 CMakeLists 的 EXTRA_COMPONENT_DIRS 复用主工程 managed_components 提供
+## （elf_loader / cmake_utilities / lvgl / esp_lvgl_adapter / 音频组件 / esp_websocket_client），
+## 无需组件管理器下载。
+dependencies:
+  idf:
+    version: '>=4.1.0'

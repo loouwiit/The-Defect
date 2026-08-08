@@ -33,8 +33,6 @@ idf_component_register(SRCS "main.cpp"
                             "app/powerManagementApp/powerManagementApp.cpp"
                             "app/wifiSettingsApp/wifiSettingsApp.cpp"
                             "app/timeSettingsApp/timeSettingsApp.cpp"
-                            "app/tetris/gameLogic/tetris_client.cpp" "app/tetris/gameLogic/player_state.cpp" "app/tetris/renderer/tetris_renderer.cpp" "app/tetris/tetrisApp.cpp" "app/tetris/tetrisRoomApp.cpp" "app/tetris/tetrisRemoteApp.cpp" "app/tetris/net/tetris_net.cpp" "app/tetris/net/tetrisRemoteClient.cpp" "app/tetris/net/tetrisTcpHost.cpp"
-                            "app/douDiZhu/douDiZhuLogic.cpp" "app/douDiZhu/douDiZhuAI.cpp" "app/douDiZhu/douDiZhuTable.cpp" "app/douDiZhu/douDiZhuApp.cpp" "app/douDiZhu/douDiZhuRemoteApp.cpp" "app/douDiZhu/douDiZhuRoom.cpp" "app/douDiZhu/net/douDiZhuRemoteClient.cpp" "app/douDiZhu/net/douDiZhuTcpHost.cpp"
                             "app/aiAgentApp/aiAgentOverlay.cpp" "app/aiAgentApp/pinyinDict.cpp"
                             "app/consoleManager/consoleManagerApp.cpp"
                             "app/luaManagerApp/luaManagerApp.cpp"
@@ -76,4 +74,23 @@ endif()
 #       大部分缺失其实是白名单漏选（tools/gen_elf_syms.py 的 C_EXACT/LIBGCC_PREFIXES）。
 target_link_options(${COMPONENT_LIB} INTERFACE
     "-Wl,--undefined=lv_obj_set_style_transform_scale_x"
-    "-Wl,--undefined=lv_obj_set_style_transform_scale_y")
+    "-Wl,--undefined=lv_obj_set_style_transform_scale_y"
+    # wsServerUnregister：主固件只有 tetris 调用（tetrisNetDeinit 注销 /ws/tetris），
+    # tetris 迁出 ELF 后被 GC 回收 → 保活供 .so 解析（Phase 3 联机游戏迁移）
+    "-Wl,--undefined=_Z18wsServerUnregisterPKc"
+    # __dso_handle：插件文件级非 POD static（带析构）引用，主固件自身由 libcxx（cxx_guards.cpp）
+    # 定义；--undefined 保活防 GC（导出供 .so 解析，勿自定义——会与 libcxx 重定义）
+    "-Wl,--undefined=__dso_handle"
+    # ── Phase 3：tetris 迁出 ELF 后，以下符号唯一调用方消失 → 被 --gc-sections 回收 ──
+    # 保活进 .elf 供插件解析（gen_elf_syms.py 白名单会自动选中：lv_ 前缀 / AudioSample、App 类）
+    "-Wl,--undefined=lv_canvas_create"
+    "-Wl,--undefined=lv_canvas_get_draw_buf"
+    "-Wl,--undefined=lv_canvas_set_buffer"
+    "-Wl,--undefined=lv_obj_set_style_margin_top"
+    "-Wl,--undefined=lv_obj_set_style_margin_bottom"
+    "-Wl,--undefined=_ZN11AudioSample4loadEPKc"
+    "-Wl,--undefined=_ZN11AudioSample4playEb"
+    "-Wl,--undefined=_ZN11AudioSample6unloadEv"
+    "-Wl,--undefined=_ZN3App11replaceWithEPS_"
+    # douDiZhu 迁出 ELF 后唯一调用方消失 → GC 回收（douDiZhuTable 用）→ 保活
+    "-Wl,--undefined=lv_obj_set_style_text_line_space")

@@ -27,6 +27,7 @@
 
 白名单 MUST_HAVE 符号缺失/未被选中 → 脚本报错退出（防表缺关键符号致 .so 解析失败）。
 """
+
 import subprocess
 import sys
 import os
@@ -42,40 +43,143 @@ CXXFILT = os.environ.get("RISCV_CXXFILT", "riscv32-esp-elf-c++filt")
 # ── 白名单配置（改这里即改暴露面） ──────────────────────────
 
 # C 函数前缀（name==symbol）
-C_PREFIXES = ("lv_", "esp_log", "cJSON_", "esp_lv_adapter_", "jpeg_", "esp_jpeg_", "xTask", "vTask", "esp_timer_", "heap_caps_")
+C_PREFIXES = (
+    "lv_",
+    "esp_log",
+    "cJSON_",
+    "esp_lv_adapter_",
+    "jpeg_",
+    "esp_jpeg_",
+    "xTask",
+    "vTask",
+    "esp_timer_",
+    "heap_caps_",
+    # 网络符号（Phase 3 联机游戏迁移）：lwip socket 族（LWIP_COMPAT_SOCKETS 宏映射
+    # socket→lwip_socket/close→lwip_close/inet_pton→lwip_inet_pton 等）、
+    # esp_http_server WS API（httpd_ws_recv_frame/httpd_req_to_sockfd...）、
+    # esp_websocket_client（客户端）、FreeRTOS 队列（xQueueSend→xQueueGenericSend 宏）
+    "lwip_",
+    "httpd_",
+    "esp_websocket_",
+    "xQueue",
+    "vQueue",
+)
 # C 函数精确名（不在前缀里但插件常用）
 # 注意：含 double 版数学（sqrt/pow/...）——插件用 double 运算会引用（chineseChess sqrt）；
 #  libgcc 软浮点辅助（__floatdisf/__adddf3/...）由编译器按需生成，同样需要导出。
 C_EXACT = {
-    "snprintf", "vsnprintf", "memcmp", "strcmp", "strlen", "memset", "memcpy", "memmove",
-    "strstr", "strchr", "strrchr",
-    "atan2f", "sqrtf", "ceilf", "floorf", "fabsf", "fmodf", "powf", "sinf", "cosf",
-    "atan2", "sqrt", "ceil", "floor", "fabs", "fmod", "pow", "sin", "cos",
-    "rand", "srand", "esp_random",
-    "__assert_func", "time",
+    "snprintf",
+    "vsnprintf",
+    "memcmp",
+    "strcmp",
+    "strlen",
+    "memset",
+    "memcpy",
+    "memmove",
+    "strstr",
+    "strchr",
+    "strrchr",
+    "atan2f",
+    "sqrtf",
+    "ceilf",
+    "floorf",
+    "fabsf",
+    "fmodf",
+    "powf",
+    "sinf",
+    "cosf",
+    "atan2",
+    "sqrt",
+    "ceil",
+    "floor",
+    "fabs",
+    "fmod",
+    "pow",
+    "sin",
+    "cos",
+    "rand",
+    "srand",
+    "esp_random",
+    "__assert_func",
+    "time",
+    "__errno",  # errno 宏底层（插件网络代码 ESP_LOGE(..., errno) 引用，loader 内置表未必有）
     # 文件 API（newlib/fatfs；插件读文件用——fruitNinja 读 JPG、存档等）
-    "fopen", "fclose", "fread", "fwrite", "fseek", "ftell", "feof", "ferror", "fflush",
-    "remove", "rename", "stat", "mkdir", "opendir", "readdir", "closedir",
+    "fopen",
+    "fclose",
+    "fread",
+    "fwrite",
+    "fseek",
+    "ftell",
+    "feof",
+    "ferror",
+    "fflush",
+    "remove",
+    "rename",
+    "stat",
+    "mkdir",
+    "opendir",
+    "readdir",
+    "closedir",
+    "strncpy",
 }
 
 # libgcc 软浮点/整数辅助函数前缀（编译器按需生成，.so 用 double/64 位运算会引用；
 # 覆盖 __floatdisf/__floatsidf/__adddf3/__divdf3/__extendsfdf2/__truncdfsf2/__cmpdf2 等，
 # 64 位除法/取模 __udivdi3/__divdi3/__umoddi3/__moddi3/__udivsi3 等，
 # 以及位运算辅助 __clzsi2/__ctzsi2/__popcountsi2（__builtin_clz/ctz 生成））
-LIBGCC_PREFIXES = ("__float", "__add", "__sub", "__mul", "__div", "__udiv", "__mod", "__umod",
-                   "__extend", "__trunc", "__fix", "__cmp", "__neg", "__clz", "__ctz", "__popcount")
+LIBGCC_PREFIXES = (
+    "__float",
+    "__add",
+    "__sub",
+    "__mul",
+    "__div",
+    "__udiv",
+    "__mod",
+    "__umod",
+    "__extend",
+    "__trunc",
+    "__fix",
+    "__cmp",
+    "__neg",
+    "__clz",
+    "__ctz",
+    "__popcount",
+)
 
 # C++ 类白名单（c++filt 反解后匹配 ^Class::）
 CPP_CLASSES = [
-    "App", "AppStack", "AppStackManager",
-    "Task", "Thread",
-    "GUI", "FontLoader",
-    "Display", "ILI9881c",
-    "Audio", "AudioHandle", "AudioSample", "ES8311",
-    "VirtualGamepad", "BleGamepad", "BatteryManager",
-    "VirtualIndev", "TimeService", "Touch", "GT911Indev",
-    "Mutex", "Lock",
+    "App",
+    "AppStack",
+    "AppStackManager",
+    "Task",
+    "Thread",
+    "GUI",
+    "FontLoader",
+    "Display",
+    "ILI9881c",
+    "Audio",
+    "AudioHandle",
+    "AudioSample",
+    "ES8311",
+    "VirtualGamepad",
+    "BleGamepad",
+    "BatteryManager",
+    "VirtualIndev",
+    "TimeService",
+    "Touch",
+    "GT911Indev",
+    "Mutex",
+    "Lock",
+    # Phase 3 联机游戏（tetris）补充：
+    "HostManager",
+    "BleSettingsApp",
 ]
+
+# C++ 文件级函数白名单（demangle 后无类名、以固定前缀开头，与 ^Class:: 匹配并列）
+# Phase 3：wsServer 的 5 个函数是 C++ mangled（wsServer.hpp 无 extern "C"），
+# demangle 后为 wsServerStart()/wsServerSendText(int, char const*, unsigned int) 等
+# 文件级函数，现有 ^Class:: 匹配不到 → 按 demangled 前缀收（同 Phase 2 加 std:: 前缀的成熟模式）。
+CPP_FN_PREFIXES = ("wsServer",)
 
 # C++ 运行时符号（精确 mangled 名；32 位 size_t → j 编码）
 # 注意：__cxa_guard_abort / __cxa_pure_virtual 已被 --gc-sections 回收
@@ -83,20 +187,43 @@ CPP_CLASSES = [
 # .elf 中不存在 → 不能放在 MUST_HAVE（否则生成报错），插件若用到需在
 # elf_sdk.cpp 显式引用强制保留后再加回。
 RUNTIME_EXACT = {
-    "_Znwj", "_Znaj", "_ZdlPv", "_ZdaPv", "_ZdlPvj",
-    "_ZSt17__throw_bad_allocv", "_ZSt20__throw_length_errorPKc",
-    "_ZSt28__throw_bad_array_new_lengthv", "_ZSt19__throw_logic_errorPKc",
-    "__cxa_guard_acquire", "__cxa_guard_release",
+    "_Znwj",
+    "_Znaj",
+    "_ZdlPv",
+    "_ZdaPv",
+    "_ZdlPvj",
+    "_ZSt17__throw_bad_allocv",
+    "_ZSt20__throw_length_errorPKc",
+    "_ZSt28__throw_bad_array_new_lengthv",
+    "_ZSt19__throw_logic_errorPKc",
+    "__cxa_guard_acquire",
+    "__cxa_guard_release",
     "__cxa_atexit",
 }
 
-# 必须存在且被选中的符号（生成后校验，缺失 → 报错退出）
-MUST_HAVE = RUNTIME_EXACT | {
-    "lv_obj_create", "lv_label_create", "snprintf", "esp_log_write",
-    "lv_color_hex", "lv_display_get_horizontal_resolution",
-    "_ZN3AppC1EP7Display", "_ZN14BatteryManager10getPercentEv",
-    "_ZNK14VirtualGamepad8getStateEaa",
+# 数据符号白名单（D/d 类型；脚本默认只收函数 T/t/W/w/A，这些按精确名额外收）
+# __dso_handle：libcxx（cxx_guards.cpp）已定义，插件文件级非 POD static（带析构）
+# 会引用它（__cxa_atexit 第三参）→ 需导出地址。注意：不要自己定义（重定义）。
+DATA_EXACT = {
+    "__dso_handle",
 }
+
+# 必须存在且被选中的符号（生成后校验，缺失 → 报错退出）
+MUST_HAVE = (
+    RUNTIME_EXACT
+    | DATA_EXACT
+    | {
+        "lv_obj_create",
+        "lv_label_create",
+        "snprintf",
+        "esp_log_write",
+        "lv_color_hex",
+        "lv_display_get_horizontal_resolution",
+        "_ZN3AppC1EP7Display",
+        "_ZN14BatteryManager10getPercentEv",
+        "_ZNK14VirtualGamepad8getStateEaa",
+    }
+)
 
 # 明确排除（主固件内部/自身）
 EXCLUDE = {"elf_find_sym", "g_main_elfsyms", "elf_sdk_init", "app_main"}
@@ -109,7 +236,7 @@ def cmd_search(elf, keyword):
     except FileNotFoundError:
         print(f"ERROR: 找不到 {NM}", file=sys.stderr)
         sys.exit(2)
-    print(f"== 搜索 \"{keyword}\" 相关符号（用结果修正白名单/编码） ==")
+    print(f'== 搜索 "{keyword}" 相关符号（用结果修正白名单/编码） ==')
     kw = keyword.lower()
     for line in nm_out.splitlines():
         parts = line.split()
@@ -128,7 +255,10 @@ def write_output(content, stdout_mode):
     else:
         with open(DEFAULT_OUT, "w", encoding="utf-8") as f:
             f.write(content)
-        print(f"# wrote {DEFAULT_OUT} ({content.count('extern int')} symbols)", file=sys.stderr)
+        print(
+            f"# wrote {DEFAULT_OUT} ({content.count('extern int')} symbols)",
+            file=sys.stderr,
+        )
 
 
 def emit_empty(reason, stdout_mode=False):
@@ -138,7 +268,10 @@ def emit_empty(reason, stdout_mode=False):
     此时先生成空表占位让编译通过，再从新 .elf 重新生成真实符号表。
     """
     print(reason, file=sys.stderr)
-    print("WARNING: 输出为空符号表占位（链接可用，但插件运行时无符号可解析）；", file=sys.stderr)
+    print(
+        "WARNING: 输出为空符号表占位（链接可用，但插件运行时无符号可解析）；",
+        file=sys.stderr,
+    )
     print("         主固件重新编译成功后，重跑本脚本生成真实符号表。", file=sys.stderr)
     out = [
         "/* 由 tools/gen_elf_syms.py 自动生成 — 勿手改。",
@@ -193,11 +326,15 @@ def main():
         if len(parts) < 3:
             continue
         typ = parts[1]
-        # A = 绝对符号（ROM 函数，如 memcmp/strcmp，由 ROM 链接脚本赋值到固定地址）
-        if typ not in ("T", "t", "W", "w", "A"):
-            continue
         name = parts[2]
         if name in EXCLUDE:
+            continue
+        # A = 绝对符号（ROM 函数，如 memcmp/strcmp，由 ROM 链接脚本赋值到固定地址）
+        if typ not in ("T", "t", "W", "w", "A"):
+            # 数据符号（D/d 等）：仅 DATA_EXACT 白名单（如 __dso_handle——libcxx 定义、
+            # .so 带析构 static 引用，需导出地址供解析）
+            if name in DATA_EXACT and typ in ("D", "d", "B", "b", "R", "r"):
+                func_names.append(name)
             continue
         func_names.append(name)
 
@@ -206,8 +343,13 @@ def main():
     demapped = {}
     if cxx_names:
         try:
-            filt = subprocess.run([CXXFILT], input="\n".join(cxx_names),
-                                  capture_output=True, text=True, check=False)
+            filt = subprocess.run(
+                [CXXFILT],
+                input="\n".join(cxx_names),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             lines = filt.stdout.splitlines()
             for name, dem in zip(cxx_names, lines):
                 demapped[name] = dem
@@ -221,13 +363,23 @@ def main():
         if name in RUNTIME_EXACT:
             selected.add(name)
             continue
+        if name in DATA_EXACT:
+            selected.add(name)
+            continue
         if name.startswith("_Z"):
             dem = demapped.get(name, "")
             if any(dem.startswith(c + "::") for c in CPP_CLASSES):
                 selected.add(name)
                 continue
-            if (dem.startswith("operator new") or dem.startswith("operator delete")
-                    or dem.startswith("__cxa_") or dem.startswith("std::")):
+            if any(dem.startswith(p) for p in CPP_FN_PREFIXES):
+                selected.add(name)
+                continue
+            if (
+                dem.startswith("operator new")
+                or dem.startswith("operator delete")
+                or dem.startswith("__cxa_")
+                or dem.startswith("std::")
+            ):
                 selected.add(name)
                 continue
             continue
@@ -241,21 +393,29 @@ def main():
     # 4. 存在性校验：MUST_HAVE 必须在 .elf 且被选中
     missing = sorted(s for s in MUST_HAVE if s not in func_names)
     if missing:
-        emit_empty("ERROR: 主固件 .elf 缺少必需符号（白名单/编码可能错误，用"
-                   " gen_elf_syms.py --search <elf> <关键字> 查实际名）:"
-                   " " + " ".join(missing), stdout_mode)
+        emit_empty(
+            "ERROR: 主固件 .elf 缺少必需符号（白名单/编码可能错误，用"
+            " gen_elf_syms.py --search <elf> <关键字> 查实际名）:"
+            " " + " ".join(missing),
+            stdout_mode,
+        )
         sys.exit(3)
     unselected = sorted(s for s in MUST_HAVE if s in func_names and s not in selected)
     if unselected:
-        emit_empty("ERROR: 必需符号存在但未被白名单选中（过滤规则漏配）:"
-                   " " + " ".join(unselected), stdout_mode)
+        emit_empty(
+            "ERROR: 必需符号存在但未被白名单选中（过滤规则漏配）:"
+            " " + " ".join(unselected),
+            stdout_mode,
+        )
         sys.exit(4)
 
     # 5. 生成 elf_symtab.c
     sel = sorted(selected)
     out = []
     out.append("/* 由 tools/gen_elf_syms.py 自动生成 — 勿手改。")
-    out.append(" * 符号从主固件 .elf 提取，&name 链接期取址；C++ mangled 名声明为 extern int 仅用于取址。 */")
+    out.append(
+        " * 符号从主固件 .elf 提取，&name 链接期取址；C++ mangled 名声明为 extern int 仅用于取址。 */"
+    )
     out.append('#include "esp_elf.h"')
     out.append("#include <stddef.h>")
     out.append("")
@@ -273,8 +433,10 @@ def main():
     out.append("};")
     out.append("")
     write_output("\n".join(out), stdout_mode)
-    print(f"# {len(sel)} symbols exported (from {len(func_names)} global funcs)",
-          file=sys.stderr)
+    print(
+        f"# {len(sel)} symbols exported (from {len(func_names)} global funcs)",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

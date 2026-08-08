@@ -38,12 +38,20 @@
 - **AppStack 全权管理生命周期**：push/pop/init/deinit/onForeground/onBackground/onGamepadInput 全部虚分派进 .so（vtable 在 PSRAM）
 - 插件与原生 App 完全一致：自建事件循环/线程、onGamepadInput 直收输入、display->lockGuard() 直接调用
 
-## 3. 当前状态（2026-08-08：R1 + Phase 1 + Phase 2 全部单机迁移完成 + Phase 4 桌面动态扫描 ✅）
+## 3. 当前状态（2026-08-09：R1 + Phase 1 + Phase 2 + **Phase 3 全部完成** + Phase 4 桌面动态扫描 ✅）
+
+**Phase 3 联机游戏全部迁移完成（tetris / douDiZhu，设备全链路验证通过）**：
+
+- 主固件瘦身：5.06MB → **4.79MB**（桌面只剩系统卡片，游戏全走 `/root/elf/*.so` 动态扫描）
+- 符号表 2055 → **2133 符号**（网络符号面一次性解决：lwip 51 / httpd 46 / esp_websocket 9 / xQueue 20 / wsServer 5）
+- **网络符号导出（Phase 3 核心）**：`gen_elf_syms.py` 白名单加 `lwip_`/`httpd_`/`esp_websocket_`/`xQueue` 前缀（lwip socket 族全是宏映射：`socket()`→`lwip_socket`/`close()`→`lwip_close`，`LWIP_COMPAT_SOCKETS` 确认）+ **`CPP_FN_PREFIXES`**（wsServer 5 个函数是 C++ mangled、无类名，demangle 后按前缀收）+ **`DATA_EXACT`**（`__dso_handle` 是 D 类型数据符号，脚本默认只收函数类型）
+- **插件 .so 自足 `__dso_handle`**：每个插件工程加 `dsoHandle.c`（`void* __dso_handle = (void*)&__dso_handle;`）——`.so` 用 `-nostdlib` 链接（不链接 crtbeginS.o），GNU ld 对 shared 目标 `__dso_handle` 引用做**硬检查**（undefined reference，非可留空 UND）；带析构的函数局部 static（含 `std::function`）会触发
+- **tetris 联机验证 ✅**：WS 玩家加入 `/ws/tetris`、TCP 8083 服务器 + send task 20fps、HostManager 槽位全正常；**douDiZhu ✅**：单机 AI 模式正常（联机待测，需另一块板子）
+- **回归 ✅**：snake / chineseChess / fruitNinja 旧插件符号表重构后仍正常；AI `open_app()` 动态路由正常
 
 **Phase 2 单机游戏全部迁移完成（snake / chineseChess / fruitNinja，设备全链路验证通过）**：
 
 - 桌面动态卡片自动出现（ABI v2 元数据：中文名/描述/图标）；退出 `refcount=0` → `dlclose` 干净卸载
-- 主固件瘦身：5.2MB → 5.06MB（内置卡片剩 tetris / douDiZhu）
 - **符号保活机制（本项目核心经验）**：插件符号缺失分两类——
   1. **白名单漏选**（.elf 有但脚本过滤掉，如 `sqrt`/`fseek`/`__clzsi2`）→ `gen_elf_syms.py` 补 `C_EXACT`/`LIBGCC_PREFIXES`（libgcc 辅助族含 `__clz/__ctz/__popcount`）
   2. **主固件没引用**（.elf 没有）→ `main/CMakeLists.txt` `target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--undefined=<sym>")`——**必须 INTERFACE**（main 是静态库，PRIVATE 静默失效）；`used,retain` 数组在 ESP-IDF 链接脚本下**无效**（节被 GC）
@@ -116,8 +124,11 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 - **提取**：`riscv32-esp-elf-nm --defined-only -g`（含 WEAK 的 W/w 类型，覆盖 weak 的 operator new / `__cxa_*`；组件 `tool/symbols.py` 的 readelf 方案漏 WEAK，故自建）
 - **白名单过滤**（脚本顶部，可读）：
   - C 函数：前缀（`lv_`/`esp_log_`/`cJSON_`/`esp_lv_adapter_`/`jpeg_`/`esp_jpeg_`）+ 精确名（`snprintf`/math/`rand`）
+  - **网络符号（Phase 3）**：`lwip_`（socket 族，宏映射 `socket()`→`lwip_socket`/`close()`→`lwip_close`/`inet_pton`→`lwip_inet_pton` 等）+ `httpd_`（esp_http_server WS API）+ `esp_websocket_`（客户端）+ `xQueue`（FreeRTOS 队列，宏 `xQueueSend`→`xQueueGenericSend`）
   - C++ 类方法（`_Z*`）：`c++filt` 反解后匹配 `^Class::`（App/Task/Thread/GUI/FontLoader/Audio/单例…），**单例直出** = `Xxx::instance().method()`，.so 像原生代码
+  - **C++ 文件级函数（Phase 3）**：`CPP_FN_PREFIXES` 按 demangled 前缀收（wsServer 5 函数是 C++ mangled 且无类名，`^Class::` 匹配不到）——同 Phase 2 加 `std::` 前缀的成熟模式
   - C++ 运行时：精确 mangled 名（`_Znwj`/`__cxa_*`）+ demangled 前缀（`operator new/delete`、`__cxa_`）
+  - **数据符号（Phase 3）**：`DATA_EXACT` 白名单（`__dso_handle` 是 D 类型，脚本默认只收函数 T/t/W/w/A 收不到）——nm 提取时对 D/d/B/b/R/r 类型仅放行白名单内符号
 - **生成** `{ "name", (void*)&name }`：`&name` **链接期取址**（主固件重编自动更新）；C++ mangled 名是合法 C 标识符，`extern int` 声明仅取址（链接器按字符串名匹配）
 - **MUST_HAVE 校验**：核心符号缺失/未选中 → 脚本报错退出（防表缺关键符号致 .so 解析失败）
 - ⚠ **static inline 的 LVGL API 不在 .elf**（调用时内联）→ 不导出；.so include `lvgl.h` 自行内联（无需符号解析）
@@ -142,6 +153,8 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 - FreeRTOS 时序符号 `vTaskDelay`/`xTaskGetTickCount` 等（C 名，`xTask`/`vTask` 前缀导出）；libstdc++ 内部 `std::` 前缀（`_M_replace_cold`/`__throw_*`）需导出
 - loader 内置 libc 表**没有** `snprintf`/`memcmp` → 需自导出
 - `ESP_LOGI` 宏会引用 `esp_log`/`esp_log_timestamp`（App 内联虚函数 `onGamepadConnected/Disconnected` 里也有 ESP_LOGI，插件继承编译会带出）→ 需导出
+- ⚠ **`__dso_handle`（Phase 3 实测）**：`.so` 用 `-nostdlib` 链接（不链接 crtbeginS.o）→ GNU ld 对 shared 目标 `__dso_handle` 引用做**硬检查**（`undefined reference`，不是可留空 UND）。触发条件：.so 内带析构的函数局部 static（如 `getS()` 里 `static S inst` 含 `std::function`）→ 引用 `__cxa_atexit(..., &inst, __dso_handle)`。**插件自足**：每个插件工程加 `dsoHandle.c`（`void* __dso_handle = (void*)&__dso_handle;`，等价 crtbeginS 惯例）。⚠ 勿在主固件自定义（ESP-IDF cxx 组件 cxx_guards.cpp 已定义 → multiple definition）；主固件侧 `DATA_EXACT` 导出 + `--undefined` 保活作双保险
+- ⚠ **check_elf_syms.sh 拦不住白名单漏类**：脚本对照主固件 `.elf`（有定义→绿），但运行时解析用符号表 `g_main_elfsyms`（白名单过滤）——两个不同集合。白名单漏类只能运行时炸 `Can't find common`（tetris 漏 `HostManager`/`BleSettingsApp` 实测）。**迁移后应跑"UND vs 符号表"预检**（`nm -u <so>` 对照 `g_main_elfsyms` 而非 .elf）
 - 已核实正确（无需改）：`_ZN3AppC1/C2EP7Display`、`_ZN3AppD1/D2Ev`、`_ZN14VirtualGamepad8instanceEv`、`_ZN10BleGamepad8instanceEv`、`_ZNK10BleGamepad14connectedCountEv`、`_ZN14BatteryManager{10getPercent,12getVoltageMv,10isCharging}Ev`
 
 ## 7. ElfManager（`main/elfManager/`）
@@ -163,6 +176,8 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
   - ⚠ 勿用 Unix Makefiles：对"自定义 .so 目标 → libmain.a 跨目录依赖"有缺陷（子 make 只读 so.dir/build.make，不含子目录 libmain.a 规则；smoke 能过仅因 libmain.a 早已存在）
   - ⚠ 换生成器/改 sdkconfig.defaults 后须删旧 `build/` 与 `sdkconfig`（defaults 不覆盖已存在值）
 - **音频组件**：插件用 `Audio`（snakeRoom.hpp → audio/Audio.hpp → esp_audio_render/esp_audio_dec/esp_gmf_pool）→ REQUIRES + EXTRA_COMPONENT_DIRS 复用主工程 managed_components 的 6 个音频组件（esp_audio_render/gmf_audio/esp_audio_codec/esp_audio_effects/gmf_core/gmf_fft），仅头文件、.so 不链接音频代码
+- **`dsoHandle.c`（Phase 3 起必备）**：每个插件工程 `main/` 下加 `void* __dso_handle = (void*)&__dso_handle;` 进 SRCS——`.so` `-nostdlib` 链接对 shared 目标的 `__dso_handle` 引用做硬检查（不链接 crtbeginS.o）；带析构的函数局部 static 必触发。tetris/douDiZhu 已加（smoke/snake/chineseChess/fruitNinja 的函数局部 static 无析构，未触发，但新工程一律加）
+- **`CONFIG_HTTPD_WS_SUPPORT`（Phase 3 起注意）**：插件用 `httpd_ws_*`（WS 服务器 API）须在 `sdkconfig.defaults` + `sdkconfig` 加 `CONFIG_HTTPD_WS_SUPPORT=y`——`esp_http_server.h` 用 `#ifdef CONFIG_HTTPD_WS_SUPPORT` 包裹这些声明，插件独立工程默认关（tetris_net.cpp 报未声明实测）。主固件已开
 - 上传：设备 HTTP 服务器文件管理界面（PUT → `/root/elf/<name>.so`；原 `upload_elf.sh` 已移除）
 
 ## 9. P4 关键坑
@@ -191,8 +206,15 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 ## 12. 插件编写规则
 
 - **禁止文件级非 POD static**：loader **不执行 `.init_array`** → 文件级对象不被构造（=UB）；constexpr/POD static 安全（进 .rodata）；非 POD 用**函数局部 static**（`__cxa_guard_acquire` 运行时执行）或堆。
+- ⚠ **文件级 `static struct {...} s` 的坑（Phase 3 tetris 实测）**：不仅不被构造，**默认成员初始化器也不生效**（BSS 零初始化 → `nextPlayerId = 1`/`listenSock = -1`/`myPlayerId = -1` 全变 0 = 运行时 bug）；且含 `std::function` 时 `.so` 链接报 `__dso_handle` undefined。**规范改法**：
+  ```cpp
+  struct S { int nextPlayerId = 1; std::function<void()> cb; };
+  static S& getS() { static S inst; return inst; }   // 函数局部 static，首次调用真构造
+  // 所有 s.xxx → getS().xxx
+  ```
+  （tetris 两个 net 文件 113 处 `s.` 机械替换实测可行）
 - 编译 `-fno-exceptions -fno-rtti`；与主固件**同头文件 + 同 sdkconfig** + `ELF_SDK_VERSION` 守卫（防类布局漂移）。
-- ⚠ **sdkconfig 必须同步主固件时序/ABI 配置**：`CONFIG_FREERTOS_HZ=1000`（主固件）vs 插件默认 100 → `.so` 内 `pdMS_TO_TICKS(80)`=8 ticks，运行时 1000Hz 下 `vTaskDelay(8)`=8ms → **游戏快 10 倍**（snake 实测踩坑）。插件 sdkconfig.defaults 已加 `CONFIG_FREERTOS_HZ=1000`
+- ⚠ **sdkconfig 必须同步主固件时序/ABI 配置**：`CONFIG_FREERTOS_HZ=1000`（主固件）vs 插件默认 100 → `.so` 内 `pdMS_TO_TICKS(80)`=8 ticks，运行时 1000Hz 下 `vTaskDelay(8)`=8ms → **游戏快 10 倍**（snake 实测踩坑）。插件 sdkconfig.defaults 已加 `CONFIG_FREERTOS_HZ=1000`；用 `httpd_ws_*` 另加 `CONFIG_HTTPD_WS_SUPPORT=y`
 - 单例/框架方法跨边界走**单符号表**（`g_main_elfsyms`，脚本生成）；std::string 跨边界返回同工具链可行（AI 集成相关延后）。
 
 ## 13. 测试计划 + 结果
@@ -230,6 +252,20 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 | S7 | 无 .so 兜底 | ✅ 优雅提示不崩 |
 | S8 | newApp 清理 | ✅ 已删（AI 路径不走它） |
 
+### Phase 3 — 联机游戏迁移（tetris / douDiZhu，✅ 已完成）
+
+| # | 验证点 | 结果 |
+|---|--------|------|
+| N1 | 网络符号导出 | ✅ lwip 51/httpd 46/esp_websocket 9/xQueue 20/wsServer 5/__errno，共 2133 符号 |
+| N2 | HTTPD_WS_SUPPORT | ✅ tetris sdkconfig 加 `CONFIG_HTTPD_WS_SUPPORT=y`（httpd_ws_* 未声明修复） |
+| N3 | tetris dlopen + 运行 | ✅ WS 玩家加入 /ws/tetris + TCP 8083 + send task 20fps + HostManager 槽位 |
+| N4 | tetris 退出卸载 | ✅ refcount=0 → dlclose 干净 |
+| N5 | douDiZhu dlopen + 单机 AI | ✅ 1332ms/844KB → createApp → 单机 AI 模式正常 → 退出 dlclose 干净 |
+| N6 | douDiZhu 联机 | ⏳ 待测（需第二块 P4：主机连从机 3 人对战 + 插件内 AI 引擎） |
+| N7 | 回归（旧插件） | ✅ snake/chineseChess/fruitNinja 符号表重构后仍正常 |
+| N8 | AI 动态路由 | ✅ open_app("tetris"/"doudizhu") 走 elfPath 正常 |
+| N9 | 主固件瘦身 | ✅ 4.79MB（tetris/douDiZhu 迁出） |
+
 ### 多轮迭代原则
 
 主固件（TestApp 测试台）只编一次；smoke.so 每轮热更新演进（改探测点重编 + PUT 即生效）。每轮 = 一个里程碑，独立可跑、结果可记录，不追求一轮全绿。
@@ -237,12 +273,12 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 ## 14. 路线图
 
 - **Phase 2**：迁移单机游戏。**snake ✅ + chineseChess ✅（含 AI 引擎）+ fruitNinja ✅（canvas 渲染器最重）——全部完成，设备验证通过**。迁移流程模板化：`git mv` 源文件 → 插件工程（CMakeLists + plugin.cpp + sdkconfig.defaults FREERTOS_HZ=1000）→ 主固件删源 + desktopApp 卡片/AI 路由 → 重生成符号表 → build_elf.sh（自动符号检查）→ PUT 上传。
-- **Phase 3**：迁移联机游戏（tetris/douDiZhu，lwip socket 已导出 + WS/TCP 桥接决策：SDK `elf_ws_register` vs 插件自开端口）。**决策：导出全套网络符号**（socket 族 + wsServer + httpd_ws + esp_websocket_client，插件像原生代码）。
+- **Phase 3**：迁移联机游戏（tetris/douDiZhu）。**决策：导出全套网络符号**（socket 族 + wsServer + httpd_ws + esp_websocket_client，插件像原生代码）。**✅ 全部完成（2026-08-09）**：网络符号面（lwip_/httpd_/esp_websocket_/xQueue 前缀 + wsServer CPP_FN + __dso_handle DATA_EXACT）、tetris 整文件夹迁移（含 TetrisRemoteApp 从机模式）、douDiZhu 迁移；设备验证通过（tetris WS/TCP 联机 ✅、douDiZhu 单机 AI ✅）；**douDiZhu 联机待测（需两块 P4）**。
 - **Phase 4**：桌面动态扫描 `/root/elf/*.so`；主固件瘦身（5MB→~2.5-3MB）；删 `elfProbe`；market 分发 .so（可选）；文档回填（newAGENTS/newreadme）。
   - **✅ 已完成（2026-08-08，代码+主固件构建通过，待设备验证）**：ABI v2 元数据字段、ElfManager 多模块 map + listElfFiles/inspectModule、桌面动态卡片（后台渐进式扫描）、AI 能力动态合并（AiAppTarget.elfPath）、`setElfModule` 指针→path。
   - ⏳ 待验证：重编 snake/smoke 插件（补元数据字段）→ 上传 → 设备验证清单（见下）。**✅ 已完成（含 fruitNinja/chineseChess）**
   - ✅ 已完成：删 `elfProbe`（已从 CMakeLists + main.cpp 移除）、删 `appFactory`（未编译死代码）、删 `elfapps/hello`（纯 C 原型）
-  - ⏳ 待做：主固件瘦身（迁移 tetris/douDiZhu 后）、删 `elfapps/smoke`（测试探针，确认无用后）
+  - ⏳ 待做：主固件瘦身（tetris/douDiZhu 已迁 → 现 4.79MB，**可评估再删 Lua/市场等系统 App**）、删 `elfapps/smoke`（测试探针，确认无用后）、AGENTS.md/readme 回填
 
 ## 15. 相关文件清单
 
@@ -257,13 +293,17 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 | `main/elfManager/elfManager.hpp/.cpp` | **多模块 map**：path→Module；listElfFiles/inspectModule 扫描；双层锁粒度 |
 | `main/app/app.hpp` | App 基类 + `setElfModule(path)`/`m_elfModulePath[64]` + `AiAppTarget.elfPath` |
 | `main/app/appStack.cpp` | 两处删除点 `delete` 后按 path 调 `onAppDestroyed` |
-| `main/app/desktopApp/desktopApp.hpp/.cpp` | **动态卡片**：m_cards/m_cardObjs + 后台 ELF 扫描 + 按 kind 分发（内置剩 tetris/douDiZhu） |
+| `main/app/desktopApp/desktopApp.hpp/.cpp` | **动态卡片**：m_cards/m_cardObjs + 后台 ELF 扫描 + 按 kind 分发（**内置卡片已全清**，CardKind 只剩 Elf/System） |
 | `main/aiAgent/aiExecutor.hpp` | open_app：`t.elfPath ? ElfManager::createApp : t.create` |
 | `main/app/testApp/testApp.hpp/.cpp` | ELF 测试面板（状态查询改按 path 传参） |
 | `elfapps/smoke/` | C++ smoke 插件工程（CMakeLists + smoke.cpp，**v2 元数据已补**） |
 | `elfapps/snake/` | **snake 插件工程（Phase 2 完成）**：main/snakeRoom/ + snakeGame/ + snakePlugin.cpp（**v2 元数据已补**） |
 | `elfapps/fruitNinja/` | **fruitNinja 插件工程（Phase 2 完成）**：main/fruitNinjaRoom/ + App/ + Logic/ + Renderer/ + fruitNinjaPlugin.cpp（REQUIRES esp_driver_jpeg/esp_timer/触摸 ABI 契约） |
 | `elfapps/chineseChess/` | **chineseChess 插件工程（Phase 2 完成）**：main/ 含 AI 引擎 + chineseChessPlugin.cpp（REQUIRES esp_timer） |
+| `elfapps/tetris/` | **tetris 插件工程（Phase 3 完成）**：main/app/tetris/ 整文件夹（含 TetrisRemoteApp）+ tetrisPlugin.cpp + **dsoHandle.c** + sdkconfig.defaults（FREERTOS_HZ=1000 + HTTPD_WS_SUPPORT=y）；REQUIRES esp_http_server/esp_websocket_client/json/lwip + 音频组件 |
+| `elfapps/douDiZhu/` | **douDiZhu 插件工程（Phase 3 完成）**：main/app/douDiZhu/ 整文件夹 + douDiZhuPlugin.cpp + **dsoHandle.c** + sdkconfig.defaults（FREERTOS_HZ=1000）；REQUIRES json/lwip（纯 TCP 无音频/WS） |
+| `main/elfSdk/` | `gen_elf_syms.py` 白名单含网络前缀（lwip_/httpd_/esp_websocket_/xQueue）+ `CPP_FN_PREFIXES`（wsServer）+ `DATA_EXACT`（__dso_handle） |
+| `main/CMakeLists.txt` | 符号保活含 `__dso_handle` + wsServerUnregister + lv_canvas 3 个 + margin 2 个 + AudioSample 3 个 + App::replaceWith + text_line_space（**9 个 GC 回收符号**） |
 | `tools/build_elf.sh` / `gen_elf_syms.py` / `check_elf_syms.sh` | 构建插件 .so（Ninja，自动符号检查）/ 符号表生成+校验+搜索（--empty 空表）/ .so↔.elf 符号对照 |
 
 ## 16. 开发日志（时间线）
@@ -273,3 +313,4 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 - **2026-08-08（Phase 2 snake 迁移）**：用户把 `main/app/snake/` 移到 `elfapps/snake/main/`；主固件 desktopApp/appFactory 路由改 `ElfManager::createApp("/root/elf/snake.so", ...)`（AI 能力表 create 换静态适配器 `createSnakePlugin`）。依次解决：**① Unix Makefiles 生成器无法构建 .so**（自定义目标跨目录依赖 libmain.a 无规则）→ `build_elf.sh` 改 Ninja；**② 符号表鸡生蛋**（snake 独占 inline `AudioHandle::isPlaying` 被 GC → 陈旧表链接失败）→ 手动摘除 + 重生成；**③ std:: 运行时符号未导出**（`_M_replace_cold`/`__throw_out_of_range_fmt`）→ 白名单加 `std::` 前缀（1799 符号）；**④ 游戏快 10 倍**（插件 FREERTOS_HZ=100 与主固件 1000 不匹配）→ sdkconfig.defaults 同步 `CONFIG_FREERTOS_HZ=1000`。**设备全链路验证通过**（游戏表现与原生一致 / refcount=0→dlclose / AI open_app + 上下文 / 无 .so 兜底不崩）。清理 `SnakeRoom::newApp`（死代码）。
 - **2026-08-08（Phase 4 桌面动态扫描，代码完成）**：ABI v2（`elf_plugin_info_t` +display_name/description/icon_path，`ELF_SDK_VERSION`→2）；ElfManager 单模块→多模块 map（`setElfModule` 指针→path，map 节点地址漂移坑）+ `listElfFiles`/`inspectModule` 扫描（dlopen→读→dlclose 不增 refcount）；桌面 `GAME_COUNT` 静态数组→动态 m_cards（ELF 在前+内置+系统）+ 后台渐进式扫描 Task；`AiAppTarget` +elfPath（aiExecutor 动态加载）；`getAiContext`/`getOpenableApps` 动态化；删 `createSnakePlugin` 适配器。编译坑：`/*` 注释内 `*.so` 触发 -Werror=comment、memset 非平凡类型、snprintf 截断（memcpy 手动拼）。**主固件构建通过（5.2MB）**；待重编 snake/smoke 插件 + 设备验证。
 - **2026-08-08（Phase 2 完成：fruitNinja + chineseChess 迁移）**：用户拍板迁移顺序 **fruitNinja（先，canvas 最重）→ chineseChess（后）**，联机游戏暂缓。清理死代码（`elfProbe`/`appFactory`/`elfapps-hello`）。依次解决：**① 插件编译缺头文件**（`esp_lcd_touch_gt911.h`/`esp_timer.h`）→ REQUIRES 加触摸 ABI 契约组件（`esp_lcd_touch`+`esp_lcd_touch_gt911`，EXTRA_COMPONENT_DIRS 复用，依赖链均 IDF 自带）+ `esp_timer`/`esp_driver_jpeg`；**② 符号缺失逐个炸**（`lv_obj_set_style_transform_scale_y`/`sqrt`/`__floatdisf`/`__udivdi3`/`fseek`/`__clzsi2`）→ 建立**符号保活三层机制**：白名单补 `LIBGCC_PREFIXES`（`__clz/__ctz/__popcount` 等）+ double 数学精确名 + 文件 API；`target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--undefined=...")`（⚠ PRIVATE 在静态库上静默失效；`used,retain` 数组在 ESP-IDF 链接脚本下无效——节被 GC 整个消失）；**③ 构建时符号检查** `tools/check_elf_syms.sh`（`nm -u` 含弱符号对照 .elf，缺失即拦截）；**④ 鸡生蛋一键化** `gen_elf_syms.py --empty` 空表占位 + 出错也输出空表（`>` 重定向后文件永远合法）；**⑤ `__cxa_guard_abort`/`__cxa_pure_virtual` 被 GC** → 移出 MUST_HAVE。**设备全链路验证通过**：三个插件加载→运行→退出→refcount=0→dlclose 干净卸载；fruitNinja JPEG 硬件解码 5 水果图正常；桌面动态卡片自动出现；主固件 5.06MB。
+- **2026-08-09（Phase 3 联机游戏迁移：tetris + douDiZhu，全部完成）**：用户 `git mv main/app/{tetris,douDiZhu} elfapps/<名>/main/app/`（目录对齐主固件 include 路径，13 处 `app/tetris/xxx` include 零改动）。**Phase 3A 网络符号面**：`gen_elf_syms.py` 白名单加 `lwip_`/`httpd_`/`esp_websocket_`/`xQueue` 前缀（lwip socket 宏映射 `LWIP_COMPAT_SOCKETS` 确认）+ `__errno` + **`CPP_FN_PREFIXES`**（wsServer 5 函数 C++ mangled 无类名）+ **`DATA_EXACT`**（`__dso_handle` D 类型数据符号，脚本只收函数类型收不到）；旧 .elf 模拟验证 2103 符号全选中。**tetris 迁移**：插件工程 REQUIRES esp_http_server/esp_websocket_client/json/lwip + 音频组件；主固件清 tetris 9 源 + desktop 卡片/AI 表 + 删 `BUILTIN_COUNT`（-Werror=switch 强制删 `CardKind::Builtin` 枚举）。**依次解决**：**① HTTPD_WS_SUPPORT 未开**（tetris_net.cpp 报 httpd_ws_* 未声明，esp_http_server.h 用 `#ifdef CONFIG_HTTPD_WS_SUPPORT` 包裹）→ sdkconfig.defaults + sdkconfig 加 `CONFIG_HTTPD_WS_SUPPORT=y`；**② 文件级 static struct 坑**（tetris 两 net 文件 `static struct {...} s` 含 std::function + 非零默认值 `nextPlayerId=1`/`listenSock=-1`，.so 链接报 `__dso_handle` undefined + loader 不执行 .init_array 默认值全变 0）→ 改 `struct S` + `static S& getS(){ static S inst; return inst; }`，113 处 `s.`→`getS().` 脚本机械替换；**③ __dso_handle 链接 vs 导出**：先在 elf_sdk.cpp 自定义 → 与 libcxx（cxx_guards.cpp:217）**重定义** → 撤销；正解是插件 .so 自足（`dsoHandle.c` 提供）+ 主固件 `DATA_EXACT` 导出双保险；**④ GC 回收符号 9 个**（lv_canvas×3 / margin×2 / AudioSample×3 / App::replaceWith —— tetris 迁出后唯一调用方消失）→ `--undefined` 保活；**⑤ 白名单漏类**（`HostManager`/`BleSettingsApp` 不在 CPP_CLASSES，check_elf_syms.sh 对照 .elf 拦不住，运行时炸 `Can't find common`）→ 补两个类名（2133 符号）。**douDiZhu 迁移**：纯 TCP（REQUIRES json/lwip），静态预检零缺口（调用的外部类全在白名单，ElfManager 只在注释，BidResult/Combo 等是自带枚举），仅 `lv_obj_set_style_text_line_space` 被 GC → 保活。**设备验证通过**：tetris WS 玩家加入 /ws/tetris + TCP 8083 + send task 20fps + HostManager 槽位正常 / douDiZhu 单机 AI 正常 / 均 refcount=0→dlclose 干净 / 旧插件回归正常 / AI open_app 动态路由正常 / 主固件 4.79MB。**douDiZhu 联机待测（需两块 P4）**。

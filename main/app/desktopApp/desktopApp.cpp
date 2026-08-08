@@ -8,8 +8,6 @@
 #include "app/powerManagementApp/powerManagementApp.hpp"
 #include "app/consoleManager/consoleManagerApp.hpp"
 #include "elfManager/elfManager.hpp"
-#include "app/tetris/tetrisRoomApp.hpp"
-#include "app/douDiZhu/douDiZhuRoom.hpp"
 #include "app/luaGameApp/luaGameApp.hpp"
 #include "app/luaManagerApp/luaManagerApp.hpp"
 #include "app/marketApp/marketApp.hpp"
@@ -30,25 +28,7 @@
 
 void DesktopApp::buildBuiltinCards()
 {
-	// 内置游戏（未迁移 ELF 的原生 App）→ 索引 0..1
-	static const struct {
-		const char* name;
-		const char* desc;
-		const char* icon;
-	} kBuiltin[] = {
-		{ "俄罗斯方块", "经典俄罗斯方块，消除行数得分！", "F:system/desktop/tetris.jpg" },
-		{ "斗地主", "三人斗地主，比拼牌技！", "F:system/desktop/douDiZhu.jpg" },
-	};
-	for (int i = 0; i < BUILTIN_COUNT; i++)
-	{
-		GameCard c{};
-		c.kind = CardKind::Builtin;
-		snprintf(c.displayName, sizeof(c.displayName), "%s", kBuiltin[i].name);
-		snprintf(c.desc, sizeof(c.desc), "%s", kBuiltin[i].desc);
-		snprintf(c.icon, sizeof(c.icon), "%s", kBuiltin[i].icon);
-		c.index = (int8_t)i;
-		m_cards.push_back(c);
-	}
+	// 内置游戏已全部迁移 ELF（tetris/douDiZhu 由桌面动态扫描插入）
 
 	// 系统卡片 → 索引 0..2
 	static const struct {
@@ -732,20 +712,6 @@ void DesktopApp::startGame()
 		}
 		break;
 
-	case CardKind::Builtin:
-		switch (c.index)
-		{
-		case 0:
-			// 俄罗斯方块 — 先打开房间选人
-			m_manager->pushToNewStack(new TetrisRoomApp(display));
-			break;
-		case 1:
-			// 斗地主 — 大厅（单机 AI / 多主机联机）
-			m_manager->pushToNewStack(new DouDizhuRoom(display));
-			break;
-		}
-		break;
-
 	case CardKind::System:
 		switch (c.index)
 		{
@@ -814,8 +780,6 @@ std::string DesktopApp::getAiContext()
 std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 {
 	std::vector<AiAppTarget> targets = {
-		{ "tetris", "俄罗斯方块", &TetrisRoomApp::newApp },
-		{ "doudizhu", "斗地主", &DouDizhuRoom::newApp },
 		{ "luaManager", "Lua 脚本管理器", &LuaManagerApp::newApp },
 		{ "market", "游戏市场", &MarketApp::newApp },
 		{ "timeSettings", "时间设置", &TimeSettingsApp::newApp },

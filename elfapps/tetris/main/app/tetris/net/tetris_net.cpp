@@ -27,7 +27,7 @@ constexpr int MAX_URI_LEN   = 128;
 constexpr int MSG_QUEUE_LEN = 16;
 constexpr int MSG_MAX_LEN   = 4096;  // snapshot 可能较大
 
-static struct {
+struct S {
     bool initialized = false;
     bool isHost      = false;
 
@@ -42,7 +42,12 @@ static struct {
 
     TetrisHostCallbacks   hostCb;
     TetrisClientCallbacks clientCb;
-} s;
+};
+static S& getS()
+{
+    static S inst;
+    return inst;
+}
 
 } // anonymous namespace
 
@@ -210,7 +215,7 @@ static void clientEventHandler(void* handlerArgs, esp_event_base_t base,
             if (!buf) break;
             memcpy(buf, data->data_ptr, copyLen);
             buf[copyLen] = '\0';
-            if (s.msgQueue) xQueueSend(s.msgQueue, &buf, 0);
+            if (getS().msgQueue) xQueueSend(getS().msgQueue, &buf, 0);
             else heap_caps_free(buf);
         }
         break;
@@ -229,9 +234,9 @@ static void clientEventHandler(void* handlerArgs, esp_event_base_t base,
 
 static void processClientQueue()
 {
-    if (!s.msgQueue) return;
+    if (!getS().msgQueue) return;
     char* buf = nullptr;
-    while (xQueueReceive(s.msgQueue, &buf, 0) == pdTRUE && buf) {
+    while (xQueueReceive(getS().msgQueue, &buf, 0) == pdTRUE && buf) {
         cJSON* root = cJSON_Parse(buf);
         heap_caps_free(buf);
         if (!root) continue;
@@ -243,16 +248,16 @@ static void processClientQueue()
         if (strcmp(tag, TetrisMsgTag::JOIN_ACK) == 0) {
             cJSON* p = cJSON_GetObjectItem(root, "player_id");
             if (p && cJSON_IsNumber(p)) {
-                s.myPlayerId = p->valueint;
-                ESP_LOGI(TAG, "joined as player %d", s.myPlayerId);
-                if (s.clientCb.onJoined) s.clientCb.onJoined(s.myPlayerId);
+                getS().myPlayerId = p->valueint;
+                ESP_LOGI(TAG, "joined as player %d", getS().myPlayerId);
+                if (getS().clientCb.onJoined) getS().clientCb.onJoined(getS().myPlayerId);
             }
         }
         else if (strcmp(tag, TetrisMsgTag::SNAPSHOT) == 0) {
             GameState state;
             gameStateFromJson(root, state);
-            if (s.clientCb.onSnapshot)
-                s.clientCb.onSnapshot(state);
+            if (getS().clientCb.onSnapshot)
+                getS().clientCb.onSnapshot(state);
         }
 
         cJSON_Delete(root);
@@ -300,10 +305,10 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
     if (!typeItem || !cJSON_IsString(typeItem)) { cJSON_Delete(root); return ESP_OK; }
     const char* tag = typeItem->valuestring;
 
-    if (s.isHost) {
+    if (getS().isHost) {
         if (strcmp(tag, TetrisMsgTag::JOIN) == 0) {
             // 清理已断开的旧客户端（fd 已失效）
-            for (auto& c : s.clients) {
+            for (auto& c : getS().clients) {
                 if (!c.active) continue;
                 auto info = httpd_ws_get_fd_info(req->handle, c.fd);
                 if (info != HTTPD_WS_CLIENT_WEBSOCKET) {
@@ -313,16 +318,16 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
             }
 
             // 清理与新连接同 fd 的旧记录（极少数 fd 刚好被复用的情况）
-            for (auto& c : s.clients) {
+            for (auto& c : getS().clients) {
                 if (c.active && c.fd == fd) { c.active = false; break; }
             }
 
-            int pid = s.nextPlayerId++;
+            int pid = getS().nextPlayerId++;
             int target = 0;
             cJSON* tgt = cJSON_GetObjectItem(root, "target");
             if (tgt && cJSON_IsNumber(tgt)) target = tgt->valueint;
 
-            for (auto& c : s.clients) {
+            for (auto& c : getS().clients) {
                 if (!c.active) {
                     c.fd = fd; c.playerId = pid; c.target = target; c.active = true;
                     break;
@@ -337,16 +342,16 @@ static esp_err_t tetrisWsHandler(httpd_req_t* req)
             if (ackStr) { wsServerSendText(fd, ackStr, strlen(ackStr)); cJSON_free(ackStr); }
             cJSON_Delete(ack);
             ESP_LOGI(TAG, "player %d joined (fd=%d), target=%d", pid, fd, target);
-            if (s.hostCb.onJoin) s.hostCb.onJoin(pid, fd);
+            if (getS().hostCb.onJoin) getS().hostCb.onJoin(pid, fd);
         }
         else if (strcmp(tag, TetrisMsgTag::INPUT) == 0) {
             cJSON* key  = cJSON_GetObjectItem(root, "key");
             cJSON* down = cJSON_GetObjectItem(root, "down");
             if (key && cJSON_IsString(key) && down && cJSON_IsBool(down)) {
                 int target = 0;
-                for (auto& c : s.clients) { if (c.fd == fd) { target = c.target; break; } }
-                if (s.hostCb.onInput)
-                    s.hostCb.onInput(target, key->valuestring, cJSON_IsTrue(down));
+                for (auto& c : getS().clients) { if (c.fd == fd) { target = c.target; break; } }
+                if (getS().hostCb.onInput)
+                    getS().hostCb.onInput(target, key->valuestring, cJSON_IsTrue(down));
             }
         }
     }
@@ -363,11 +368,11 @@ bool tetrisNetInit(bool isHost,
                    const TetrisHostCallbacks& hostCb,
                    const TetrisClientCallbacks& clientCb)
 {
-    if (s.initialized) return true;
+    if (getS().initialized) return true;
 
-    s.isHost = isHost;
-    s.hostCb = hostCb;
-    s.clientCb = clientCb;
+    getS().isHost = isHost;
+    getS().hostCb = hostCb;
+    getS().clientCb = clientCb;
 
     if (!wsServerRegisterWs("/ws/tetris", tetrisWsHandler)) {
         ESP_LOGE(TAG, "failed to register /ws/tetris");
@@ -375,42 +380,42 @@ bool tetrisNetInit(bool isHost,
     }
 
     if (!isHost) {
-        s.msgQueue = xQueueCreate(MSG_QUEUE_LEN, sizeof(char*));
-        if (!s.msgQueue) {
+        getS().msgQueue = xQueueCreate(MSG_QUEUE_LEN, sizeof(char*));
+        if (!getS().msgQueue) {
             ESP_LOGE(TAG, "msg queue create failed");
             wsServerUnregister("/ws/tetris");
             return false;
         }
     }
 
-    s.initialized = true;
+    getS().initialized = true;
     ESP_LOGI(TAG, "initialized (%s mode)", isHost ? "Host" : "Client");
     return true;
 }
 
 void tetrisNetDeinit()
 {
-    if (!s.initialized) return;
+    if (!getS().initialized) return;
 
     tetrisNetClientDisconnect();
 
-    if (s.msgQueue) {
+    if (getS().msgQueue) {
         char* buf = nullptr;
-        while (xQueueReceive(s.msgQueue, &buf, 0) == pdTRUE) heap_caps_free(buf);
-        vQueueDelete(s.msgQueue);
-        s.msgQueue = nullptr;
+        while (xQueueReceive(getS().msgQueue, &buf, 0) == pdTRUE) heap_caps_free(buf);
+        vQueueDelete(getS().msgQueue);
+        getS().msgQueue = nullptr;
     }
 
-    for (auto& c : s.clients) c = {};
+    for (auto& c : getS().clients) c = {};
     wsServerUnregister("/ws/tetris");
-    s.initialized = false;
-    s.isHost = false;
+    getS().initialized = false;
+    getS().isHost = false;
     ESP_LOGI(TAG, "deinitialized");
 }
 
 void tetrisNetUpdate()
 {
-    if (s.initialized && !s.isHost) {
+    if (getS().initialized && !getS().isHost) {
         processClientQueue();
     }
 }
@@ -421,8 +426,8 @@ void tetrisNetUpdate()
 
 int tetrisNetHostGetFirstClientFd()
 {
-    if (!s.initialized || !s.isHost) return -1;
-    for (auto& c : s.clients) {
+    if (!getS().initialized || !getS().isHost) return -1;
+    for (auto& c : getS().clients) {
         if (c.active) return c.fd;
     }
     return -1;
@@ -430,8 +435,8 @@ int tetrisNetHostGetFirstClientFd()
 
 int tetrisNetHostGetClientTarget()
 {
-    if (!s.initialized || !s.isHost) return 0;
-    for (auto& c : s.clients) {
+    if (!getS().initialized || !getS().isHost) return 0;
+    for (auto& c : getS().clients) {
         if (c.active) return c.target;
     }
     return 0;
@@ -439,7 +444,7 @@ int tetrisNetHostGetClientTarget()
 
 void tetrisNetHostSendSnapshot(int fd, int playerIndex, const GameState& state)
 {
-    if (!s.initialized || !s.isHost) return;
+    if (!getS().initialized || !getS().isHost) return;
 
     cJSON* root = gameStateToJson(state, playerIndex);
     if (!root) return;
@@ -454,7 +459,7 @@ void tetrisNetHostSendSnapshot(int fd, int playerIndex, const GameState& state)
 
 void tetrisNetHostBroadcastSnapshot(int playerIndex, const GameState& state)
 {
-    if (!s.initialized || !s.isHost) return;
+    if (!getS().initialized || !getS().isHost) return;
 
     cJSON* root = gameStateToJson(state, playerIndex);
     if (!root) return;
@@ -462,7 +467,7 @@ void tetrisNetHostBroadcastSnapshot(int playerIndex, const GameState& state)
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (str) {
-        for (auto& c : s.clients) {
+        for (auto& c : getS().clients) {
             if (c.active) wsServerSendText(c.fd, str, strlen(str));
         }
         cJSON_free(str);
@@ -475,7 +480,7 @@ void tetrisNetHostBroadcastSnapshot(int playerIndex, const GameState& state)
 
 bool tetrisNetClientConnect(const char* host, uint16_t port)
 {
-    if (!s.initialized || s.isHost) return false;
+    if (!getS().initialized || getS().isHost) return false;
 
     char uri[MAX_URI_LEN];
     int n = snprintf(uri, sizeof(uri), "ws://%s:%d/ws/tetris", host, port);
@@ -491,21 +496,21 @@ bool tetrisNetClientConnect(const char* host, uint16_t port)
     cfg.network_timeout_ms     = 10000;
     cfg.disable_auto_reconnect = true;
 
-    s.wsClient = esp_websocket_client_init(&cfg);
-    if (!s.wsClient) { ESP_LOGE(TAG, "ws client init failed"); return false; }
+    getS().wsClient = esp_websocket_client_init(&cfg);
+    if (!getS().wsClient) { ESP_LOGE(TAG, "ws client init failed"); return false; }
 
     esp_err_t ret = esp_websocket_register_events(
-        s.wsClient, WEBSOCKET_EVENT_ANY, clientEventHandler, nullptr);
+        getS().wsClient, WEBSOCKET_EVENT_ANY, clientEventHandler, nullptr);
     if (ret != ESP_OK) {
-        esp_websocket_client_destroy(s.wsClient);
-        s.wsClient = nullptr;
+        esp_websocket_client_destroy(getS().wsClient);
+        getS().wsClient = nullptr;
         return false;
     }
 
-    ret = esp_websocket_client_start(s.wsClient);
+    ret = esp_websocket_client_start(getS().wsClient);
     if (ret != ESP_OK) {
-        esp_websocket_client_destroy(s.wsClient);
-        s.wsClient = nullptr;
+        esp_websocket_client_destroy(getS().wsClient);
+        getS().wsClient = nullptr;
         return false;
     }
 
@@ -515,18 +520,18 @@ bool tetrisNetClientConnect(const char* host, uint16_t port)
 
 void tetrisNetClientDisconnect()
 {
-    if (s.wsClient) {
-        esp_websocket_client_stop(s.wsClient);
-        esp_websocket_client_destroy(s.wsClient);
-        s.wsClient = nullptr;
+    if (getS().wsClient) {
+        esp_websocket_client_stop(getS().wsClient);
+        esp_websocket_client_destroy(getS().wsClient);
+        getS().wsClient = nullptr;
         ESP_LOGI(TAG, "WS client destroyed");
     }
-    s.myPlayerId = -1;
+    getS().myPlayerId = -1;
 }
 
 bool tetrisNetClientIsConnected()
 {
-    return s.wsClient && esp_websocket_client_is_connected(s.wsClient);
+    return getS().wsClient && esp_websocket_client_is_connected(getS().wsClient);
 }
 
 void tetrisNetClientSendInput(const char* key, bool down)
@@ -540,7 +545,7 @@ void tetrisNetClientSendInput(const char* key, bool down)
     char* str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (str) {
-        esp_websocket_client_send_text(s.wsClient, str, strlen(str), pdMS_TO_TICKS(1000));
+        esp_websocket_client_send_text(getS().wsClient, str, strlen(str), pdMS_TO_TICKS(1000));
         cJSON_free(str);
     }
 }

@@ -6,6 +6,11 @@
 /* extern 声明（跳过内置声明类型不匹配告警） */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
+extern int _Z13wsServerStartv;
+extern int _Z16wsServerSendTextiPKcj;
+extern int _Z18wsServerRegisterWsPKcPFiP9httpd_reqE;
+extern int _Z18wsServerUnregisterPKc;
+extern int _Z19wsServerCloseClienti;
 extern int _ZN10BleGamepad10autoScanCbEP13ble_gap_eventPv;
 extern int _ZN10BleGamepad10conectNextEm;
 extern int _ZN10BleGamepad10conectNextEv;
@@ -65,6 +70,19 @@ extern int _ZN11AudioHandleaSEOS_;
 extern int _ZN11AudioSample4loadEPKc;
 extern int _ZN11AudioSample4playEb;
 extern int _ZN11AudioSample6unloadEv;
+extern int _ZN11HostManager11setHostMaskEPKh;
+extern int _ZN11HostManager13connectToHostEPKctS1_;
+extern int _ZN11HostManager16disconnectClientEi;
+extern int _ZN11HostManager16notifySlotUpdateEv;
+extern int _ZN11HostManager18disconnectFromHostEv;
+extern int _ZN11HostManager18onClientRegisteredEiPKcS1_i;
+extern int _ZN11HostManager20onClientDisconnectedEi;
+extern int _ZN11HostManager8instanceEv;
+extern int _ZN11HostManager9swapSlotsEii;
+extern int _ZN11HostManagerC1Ev;
+extern int _ZN11HostManagerC2Ev;
+extern int _ZN11HostManagerD1Ev;
+extern int _ZN11HostManagerD2Ev;
 extern int _ZN11TimeService11setAutoSyncEb;
 extern int _ZN11TimeService12onGotIpEventEPvPKclS0_;
 extern int _ZN11TimeService12onTimeSyncCbEP7timeval;
@@ -96,6 +114,52 @@ extern int _ZN14BatteryManager4initEv;
 extern int _ZN14BatteryManager7getIconEi;
 extern int _ZN14BatteryManager8getColorEi;
 extern int _ZN14BatteryManager8instanceEv;
+extern int _ZN14BleSettingsApp10applyFocusEv;
+extern int _ZN14BleSettingsApp10navListEndEv;
+extern int _ZN14BleSettingsApp10onAiSelectERK14AiSelectTarget;
+extern int _ZN14BleSettingsApp10toggleScanEv;
+extern int _ZN14BleSettingsApp11navListDownEv;
+extern int _ZN14BleSettingsApp11navListHomeEv;
+extern int _ZN14BleSettingsApp11onBackBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp11onMoveBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp11onSaveBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp11onScanBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp12doDisconnectEh;
+extern int _ZN14BleSettingsApp12getAiContextB5cxx11Ev;
+extern int _ZN14BleSettingsApp12navSlotsLeftEv;
+extern int _ZN14BleSettingsApp12navTitleLeftEv;
+extern int _ZN14BleSettingsApp12onAiActivateEv;
+extern int _ZN14BleSettingsApp12onBackgroundEv;
+extern int _ZN14BleSettingsApp12onForegroundEv;
+extern int _ZN14BleSettingsApp13activateFocusEv;
+extern int _ZN14BleSettingsApp13navSlotsRightEv;
+extern int _ZN14BleSettingsApp13navTitleRightEv;
+extern int _ZN14BleSettingsApp13onDeleteBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp14cancelMoveModeEv;
+extern int _ZN14BleSettingsApp14onConnectBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp14onGamepadInputEhhRK12GamepadState;
+extern int _ZN14BleSettingsApp14updateScanListEv;
+extern int _ZN14BleSettingsApp15activityTimerCbEP11_lv_timer_t;
+extern int _ZN14BleSettingsApp17onDisconnectBtnCbEP11_lv_event_t;
+extern int _ZN14BleSettingsApp18onGamepadConnectedEh;
+extern int _ZN14BleSettingsApp19updateConnectedListEv;
+extern int _ZN14BleSettingsApp21onGamepadDisconnectedEh;
+extern int _ZN14BleSettingsApp25refreshActivityIndicatorsEv;
+extern int _ZN14BleSettingsApp4initEv;
+extern int _ZN14BleSettingsApp6deinitEv;
+extern int _ZN14BleSettingsApp6doMoveEhh;
+extern int _ZN14BleSettingsApp6newAppEP7DisplayPK5cJSON;
+extern int _ZN14BleSettingsApp7buildUiEv;
+extern int _ZN14BleSettingsApp7timerCbEP11_lv_timer_t;
+extern int _ZN14BleSettingsApp8doDeleteEj;
+extern int _ZN14BleSettingsApp9doConnectEj;
+extern int _ZN14BleSettingsApp9navListUpEv;
+extern int _ZN14BleSettingsApp9refreshUiEv;
+extern int _ZN14BleSettingsAppC1EP7Display;
+extern int _ZN14BleSettingsAppC2EP7Display;
+extern int _ZN14BleSettingsAppD0Ev;
+extern int _ZN14BleSettingsAppD1Ev;
+extern int _ZN14BleSettingsAppD2Ev;
 extern int _ZN14VirtualGamepad11resetPlayerEaa;
 extern int _ZN14VirtualGamepad11setAllMasksEPKh;
 extern int _ZN14VirtualGamepad12dispatchTaskEPv;
@@ -301,18 +365,12 @@ extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc;
 extern int _ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_;
 extern int _ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_;
-extern int _ZNKSt8functionIFbPKhiEEclES1_i;
 extern int _ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_;
 extern int _ZNKSt8functionIFvPKcjEEclES1_j;
-extern int _ZNKSt8functionIFvRK9GameStateEEclES2_;
 extern int _ZNKSt8functionIFvbEEclEb;
 extern int _ZNKSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEclEbS7_;
 extern int _ZNKSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEclEbS7_S7_;
 extern int _ZNKSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEclEbS3_SB_;
-extern int _ZNKSt8functionIFviEEclEi;
-extern int _ZNKSt8functionIFviPKcbEEclEiS1_b;
-extern int _ZNKSt8functionIFviPKhiEEclEiS1_i;
-extern int _ZNKSt8functionIFviiEEclEii;
 extern int _ZNKSt8functionIFvvEEclEv;
 extern int _ZNKSt9bad_alloc4whatEv;
 extern int _ZNKSt9type_info14__is_pointer_pEv;
@@ -590,10 +648,6 @@ extern int _ZNSt8functionIFvPKcjEE4swapERS3_;
 extern int _ZNSt8functionIFvPKcjEEC1EOS3_;
 extern int _ZNSt8functionIFvPKcjEEC2EOS3_;
 extern int _ZNSt8functionIFvPKcjEEaSEOS3_;
-extern int _ZNSt8functionIFvRK9GameStateEE4swapERS4_;
-extern int _ZNSt8functionIFvRK9GameStateEEC1ERKS4_;
-extern int _ZNSt8functionIFvRK9GameStateEEC2ERKS4_;
-extern int _ZNSt8functionIFvRK9GameStateEEaSERKS4_;
 extern int _ZNSt8functionIFvbEE4swapERS1_;
 extern int _ZNSt8functionIFvbEEC1EOS1_;
 extern int _ZNSt8functionIFvbEEC2EOS1_;
@@ -604,29 +658,10 @@ extern int _ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIc
 extern int _ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEC2EOS9_;
 extern int _ZNSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC1EOSD_;
 extern int _ZNSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2EOSD_;
-extern int _ZNSt8functionIFviEE4swapERS1_;
-extern int _ZNSt8functionIFviEEC1ERKS1_;
-extern int _ZNSt8functionIFviEEC2ERKS1_;
-extern int _ZNSt8functionIFviEEaSERKS1_;
-extern int _ZNSt8functionIFviPKcbEE4swapERS3_;
-extern int _ZNSt8functionIFviPKcbEEC1ERKS3_;
-extern int _ZNSt8functionIFviPKcbEEC2ERKS3_;
-extern int _ZNSt8functionIFviPKcbEEaSERKS3_;
-extern int _ZNSt8functionIFviPKhiEE4swapERS3_;
-extern int _ZNSt8functionIFviPKhiEEC1ERKS3_;
-extern int _ZNSt8functionIFviPKhiEEC2ERKS3_;
-extern int _ZNSt8functionIFviPKhiEEaSERKS3_;
-extern int _ZNSt8functionIFviiEE4swapERS1_;
-extern int _ZNSt8functionIFviiEEC1ERKS1_;
-extern int _ZNSt8functionIFviiEEC2ERKS1_;
-extern int _ZNSt8functionIFviiEEaSERKS1_;
 extern int _ZNSt8functionIFvvEE4swapERS1_;
 extern int _ZNSt8functionIFvvEEC1EOS1_;
-extern int _ZNSt8functionIFvvEEC1ERKS1_;
 extern int _ZNSt8functionIFvvEEC2EOS1_;
-extern int _ZNSt8functionIFvvEEC2ERKS1_;
 extern int _ZNSt8functionIFvvEEaSEOS1_;
-extern int _ZNSt8functionIFvvEEaSERKS1_;
 extern int _ZNSt9bad_allocD0Ev;
 extern int _ZNSt9bad_allocD1Ev;
 extern int _ZNSt9bad_allocD2Ev;
@@ -744,6 +779,8 @@ extern int __divdf3;
 extern int __divdi3;
 extern int __divsc3;
 extern int __divsi3;
+extern int __dso_handle;
+extern int __errno;
 extern int __extenddftf2;
 extern int __extendsfdf2;
 extern int __fixdfdi;
@@ -884,6 +921,15 @@ extern int esp_timer_is_active;
 extern int esp_timer_start_once;
 extern int esp_timer_start_periodic;
 extern int esp_timer_stop;
+extern int esp_websocket_client_destroy;
+extern int esp_websocket_client_init;
+extern int esp_websocket_client_is_connected;
+extern int esp_websocket_client_send_text;
+extern int esp_websocket_client_send_with_opcode;
+extern int esp_websocket_client_set_uri;
+extern int esp_websocket_client_start;
+extern int esp_websocket_client_stop;
+extern int esp_websocket_register_events;
 extern int fabs;
 extern int fabsf;
 extern int fclose;
@@ -926,6 +972,52 @@ extern int heap_caps_match;
 extern int heap_caps_realloc;
 extern int heap_caps_realloc_base;
 extern int heap_caps_realloc_default;
+extern int httpd_default_recv;
+extern int httpd_default_send;
+extern int httpd_is_sess_available;
+extern int httpd_queue_work;
+extern int httpd_recv;
+extern int httpd_recv_with_opt;
+extern int httpd_register_uri_handler;
+extern int httpd_req_delete;
+extern int httpd_req_get_hdr_value_str;
+extern int httpd_req_handle_err;
+extern int httpd_req_new;
+extern int httpd_req_recv;
+extern int httpd_req_to_sockfd;
+extern int httpd_resp_send;
+extern int httpd_resp_send_err;
+extern int httpd_resp_set_status;
+extern int httpd_resp_set_type;
+extern int httpd_send;
+extern int httpd_sess_clear_ctx;
+extern int httpd_sess_close_all;
+extern int httpd_sess_close_lru;
+extern int httpd_sess_delete;
+extern int httpd_sess_delete_invalid;
+extern int httpd_sess_enum;
+extern int httpd_sess_free_ctx;
+extern int httpd_sess_get;
+extern int httpd_sess_get_free;
+extern int httpd_sess_init;
+extern int httpd_sess_new;
+extern int httpd_sess_pending;
+extern int httpd_sess_process;
+extern int httpd_sess_set_descriptors;
+extern int httpd_sess_trigger_close;
+extern int httpd_sess_trigger_close_;
+extern int httpd_start;
+extern int httpd_unrecv;
+extern int httpd_unregister_all_uri_handlers;
+extern int httpd_unregister_uri_handler;
+extern int httpd_uri;
+extern int httpd_ws_get_fd_info;
+extern int httpd_ws_get_frame_type;
+extern int httpd_ws_recv_frame;
+extern int httpd_ws_respond_server_handshake;
+extern int httpd_ws_send_data_async;
+extern int httpd_ws_send_frame;
+extern int httpd_ws_send_frame_async;
 extern int jpeg_acquire_codec_handle;
 extern int jpeg_alloc_decoder_mem;
 extern int jpeg_calloc_align_inner;
@@ -1910,6 +2002,57 @@ extern int lv_trigo_sin;
 extern int lv_unlock;
 extern int lv_utils_bsearch;
 extern int lv_vsnprintf;
+extern int lwip_accept;
+extern int lwip_bind;
+extern int lwip_close;
+extern int lwip_connect;
+extern int lwip_fcntl;
+extern int lwip_freeaddrinfo;
+extern int lwip_getaddrinfo;
+extern int lwip_getpeername;
+extern int lwip_getsockname;
+extern int lwip_getsockopt;
+extern int lwip_getsockopt_impl_ext;
+extern int lwip_hook_ip6_input;
+extern int lwip_hook_tcp_isn;
+extern int lwip_htonl;
+extern int lwip_htons;
+extern int lwip_inet_ntop;
+extern int lwip_inet_pton;
+extern int lwip_init;
+extern int lwip_init_tcp_isn;
+extern int lwip_ioctl;
+extern int lwip_listen;
+extern int lwip_netconn_do_accepted;
+extern int lwip_netconn_do_bind;
+extern int lwip_netconn_do_close;
+extern int lwip_netconn_do_connect;
+extern int lwip_netconn_do_delconn;
+extern int lwip_netconn_do_disconnect;
+extern int lwip_netconn_do_getaddr;
+extern int lwip_netconn_do_gethostbyname;
+extern int lwip_netconn_do_join_leave_group;
+extern int lwip_netconn_do_join_leave_group_netif;
+extern int lwip_netconn_do_listen;
+extern int lwip_netconn_do_newconn;
+extern int lwip_netconn_do_recv;
+extern int lwip_netconn_do_send;
+extern int lwip_netconn_do_write;
+extern int lwip_netconn_is_deallocated_msg;
+extern int lwip_netconn_is_err_msg;
+extern int lwip_read;
+extern int lwip_recv;
+extern int lwip_recvfrom;
+extern int lwip_select;
+extern int lwip_send;
+extern int lwip_sendto;
+extern int lwip_setsockopt;
+extern int lwip_setsockopt_impl_ext;
+extern int lwip_shutdown;
+extern int lwip_socket;
+extern int lwip_standard_chksum;
+extern int lwip_strnicmp;
+extern int lwip_write;
 extern int memcmp;
 extern int memcpy;
 extern int memmove;
@@ -1932,9 +2075,13 @@ extern int stat;
 extern int strchr;
 extern int strcmp;
 extern int strlen;
+extern int strncpy;
 extern int strrchr;
 extern int strstr;
 extern int time;
+extern int vQueueDelete;
+extern int vQueueDeleteWithCaps;
+extern int vQueueWaitForMessageRestricted;
 extern int vTaskDelay;
 extern int vTaskDelete;
 extern int vTaskDeleteWithCaps;
@@ -1955,6 +2102,26 @@ extern int vTaskSuspend;
 extern int vTaskSuspendAll;
 extern int vTaskSwitchContext;
 extern int vsnprintf;
+extern int xQueueCreateCountingSemaphore;
+extern int xQueueCreateCountingSemaphoreStatic;
+extern int xQueueCreateMutex;
+extern int xQueueCreateMutexStatic;
+extern int xQueueCreateWithCaps;
+extern int xQueueGenericCreate;
+extern int xQueueGenericCreateStatic;
+extern int xQueueGenericGetStaticBuffers;
+extern int xQueueGenericReset;
+extern int xQueueGenericSend;
+extern int xQueueGenericSendFromISR;
+extern int xQueueGetMutexHolder;
+extern int xQueueGiveFromISR;
+extern int xQueueGiveMutexRecursive;
+extern int xQueueIsQueueEmptyFromISR;
+extern int xQueueIsQueueFullFromISR;
+extern int xQueueReceive;
+extern int xQueueReceiveFromISR;
+extern int xQueueSemaphoreTake;
+extern int xQueueTakeMutexRecursive;
 extern int xTaskCheckForTimeOut;
 extern int xTaskCreatePinnedToCore;
 extern int xTaskCreatePinnedToCoreWithCaps;
@@ -1980,6 +2147,11 @@ extern int xTaskResumeAll;
 #pragma GCC diagnostic pop
 
 const struct esp_elfsym g_main_elfsyms[] = {
+    { "_Z13wsServerStartv", (void*)&_Z13wsServerStartv },
+    { "_Z16wsServerSendTextiPKcj", (void*)&_Z16wsServerSendTextiPKcj },
+    { "_Z18wsServerRegisterWsPKcPFiP9httpd_reqE", (void*)&_Z18wsServerRegisterWsPKcPFiP9httpd_reqE },
+    { "_Z18wsServerUnregisterPKc", (void*)&_Z18wsServerUnregisterPKc },
+    { "_Z19wsServerCloseClienti", (void*)&_Z19wsServerCloseClienti },
     { "_ZN10BleGamepad10autoScanCbEP13ble_gap_eventPv", (void*)&_ZN10BleGamepad10autoScanCbEP13ble_gap_eventPv },
     { "_ZN10BleGamepad10conectNextEm", (void*)&_ZN10BleGamepad10conectNextEm },
     { "_ZN10BleGamepad10conectNextEv", (void*)&_ZN10BleGamepad10conectNextEv },
@@ -2039,6 +2211,19 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN11AudioSample4loadEPKc", (void*)&_ZN11AudioSample4loadEPKc },
     { "_ZN11AudioSample4playEb", (void*)&_ZN11AudioSample4playEb },
     { "_ZN11AudioSample6unloadEv", (void*)&_ZN11AudioSample6unloadEv },
+    { "_ZN11HostManager11setHostMaskEPKh", (void*)&_ZN11HostManager11setHostMaskEPKh },
+    { "_ZN11HostManager13connectToHostEPKctS1_", (void*)&_ZN11HostManager13connectToHostEPKctS1_ },
+    { "_ZN11HostManager16disconnectClientEi", (void*)&_ZN11HostManager16disconnectClientEi },
+    { "_ZN11HostManager16notifySlotUpdateEv", (void*)&_ZN11HostManager16notifySlotUpdateEv },
+    { "_ZN11HostManager18disconnectFromHostEv", (void*)&_ZN11HostManager18disconnectFromHostEv },
+    { "_ZN11HostManager18onClientRegisteredEiPKcS1_i", (void*)&_ZN11HostManager18onClientRegisteredEiPKcS1_i },
+    { "_ZN11HostManager20onClientDisconnectedEi", (void*)&_ZN11HostManager20onClientDisconnectedEi },
+    { "_ZN11HostManager8instanceEv", (void*)&_ZN11HostManager8instanceEv },
+    { "_ZN11HostManager9swapSlotsEii", (void*)&_ZN11HostManager9swapSlotsEii },
+    { "_ZN11HostManagerC1Ev", (void*)&_ZN11HostManagerC1Ev },
+    { "_ZN11HostManagerC2Ev", (void*)&_ZN11HostManagerC2Ev },
+    { "_ZN11HostManagerD1Ev", (void*)&_ZN11HostManagerD1Ev },
+    { "_ZN11HostManagerD2Ev", (void*)&_ZN11HostManagerD2Ev },
     { "_ZN11TimeService11setAutoSyncEb", (void*)&_ZN11TimeService11setAutoSyncEb },
     { "_ZN11TimeService12onGotIpEventEPvPKclS0_", (void*)&_ZN11TimeService12onGotIpEventEPvPKclS0_ },
     { "_ZN11TimeService12onTimeSyncCbEP7timeval", (void*)&_ZN11TimeService12onTimeSyncCbEP7timeval },
@@ -2070,6 +2255,52 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN14BatteryManager7getIconEi", (void*)&_ZN14BatteryManager7getIconEi },
     { "_ZN14BatteryManager8getColorEi", (void*)&_ZN14BatteryManager8getColorEi },
     { "_ZN14BatteryManager8instanceEv", (void*)&_ZN14BatteryManager8instanceEv },
+    { "_ZN14BleSettingsApp10applyFocusEv", (void*)&_ZN14BleSettingsApp10applyFocusEv },
+    { "_ZN14BleSettingsApp10navListEndEv", (void*)&_ZN14BleSettingsApp10navListEndEv },
+    { "_ZN14BleSettingsApp10onAiSelectERK14AiSelectTarget", (void*)&_ZN14BleSettingsApp10onAiSelectERK14AiSelectTarget },
+    { "_ZN14BleSettingsApp10toggleScanEv", (void*)&_ZN14BleSettingsApp10toggleScanEv },
+    { "_ZN14BleSettingsApp11navListDownEv", (void*)&_ZN14BleSettingsApp11navListDownEv },
+    { "_ZN14BleSettingsApp11navListHomeEv", (void*)&_ZN14BleSettingsApp11navListHomeEv },
+    { "_ZN14BleSettingsApp11onBackBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp11onBackBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp11onMoveBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp11onMoveBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp11onSaveBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp11onSaveBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp11onScanBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp11onScanBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp12doDisconnectEh", (void*)&_ZN14BleSettingsApp12doDisconnectEh },
+    { "_ZN14BleSettingsApp12getAiContextB5cxx11Ev", (void*)&_ZN14BleSettingsApp12getAiContextB5cxx11Ev },
+    { "_ZN14BleSettingsApp12navSlotsLeftEv", (void*)&_ZN14BleSettingsApp12navSlotsLeftEv },
+    { "_ZN14BleSettingsApp12navTitleLeftEv", (void*)&_ZN14BleSettingsApp12navTitleLeftEv },
+    { "_ZN14BleSettingsApp12onAiActivateEv", (void*)&_ZN14BleSettingsApp12onAiActivateEv },
+    { "_ZN14BleSettingsApp12onBackgroundEv", (void*)&_ZN14BleSettingsApp12onBackgroundEv },
+    { "_ZN14BleSettingsApp12onForegroundEv", (void*)&_ZN14BleSettingsApp12onForegroundEv },
+    { "_ZN14BleSettingsApp13activateFocusEv", (void*)&_ZN14BleSettingsApp13activateFocusEv },
+    { "_ZN14BleSettingsApp13navSlotsRightEv", (void*)&_ZN14BleSettingsApp13navSlotsRightEv },
+    { "_ZN14BleSettingsApp13navTitleRightEv", (void*)&_ZN14BleSettingsApp13navTitleRightEv },
+    { "_ZN14BleSettingsApp13onDeleteBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp13onDeleteBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp14cancelMoveModeEv", (void*)&_ZN14BleSettingsApp14cancelMoveModeEv },
+    { "_ZN14BleSettingsApp14onConnectBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp14onConnectBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp14onGamepadInputEhhRK12GamepadState", (void*)&_ZN14BleSettingsApp14onGamepadInputEhhRK12GamepadState },
+    { "_ZN14BleSettingsApp14updateScanListEv", (void*)&_ZN14BleSettingsApp14updateScanListEv },
+    { "_ZN14BleSettingsApp15activityTimerCbEP11_lv_timer_t", (void*)&_ZN14BleSettingsApp15activityTimerCbEP11_lv_timer_t },
+    { "_ZN14BleSettingsApp17onDisconnectBtnCbEP11_lv_event_t", (void*)&_ZN14BleSettingsApp17onDisconnectBtnCbEP11_lv_event_t },
+    { "_ZN14BleSettingsApp18onGamepadConnectedEh", (void*)&_ZN14BleSettingsApp18onGamepadConnectedEh },
+    { "_ZN14BleSettingsApp19updateConnectedListEv", (void*)&_ZN14BleSettingsApp19updateConnectedListEv },
+    { "_ZN14BleSettingsApp21onGamepadDisconnectedEh", (void*)&_ZN14BleSettingsApp21onGamepadDisconnectedEh },
+    { "_ZN14BleSettingsApp25refreshActivityIndicatorsEv", (void*)&_ZN14BleSettingsApp25refreshActivityIndicatorsEv },
+    { "_ZN14BleSettingsApp4initEv", (void*)&_ZN14BleSettingsApp4initEv },
+    { "_ZN14BleSettingsApp6deinitEv", (void*)&_ZN14BleSettingsApp6deinitEv },
+    { "_ZN14BleSettingsApp6doMoveEhh", (void*)&_ZN14BleSettingsApp6doMoveEhh },
+    { "_ZN14BleSettingsApp6newAppEP7DisplayPK5cJSON", (void*)&_ZN14BleSettingsApp6newAppEP7DisplayPK5cJSON },
+    { "_ZN14BleSettingsApp7buildUiEv", (void*)&_ZN14BleSettingsApp7buildUiEv },
+    { "_ZN14BleSettingsApp7timerCbEP11_lv_timer_t", (void*)&_ZN14BleSettingsApp7timerCbEP11_lv_timer_t },
+    { "_ZN14BleSettingsApp8doDeleteEj", (void*)&_ZN14BleSettingsApp8doDeleteEj },
+    { "_ZN14BleSettingsApp9doConnectEj", (void*)&_ZN14BleSettingsApp9doConnectEj },
+    { "_ZN14BleSettingsApp9navListUpEv", (void*)&_ZN14BleSettingsApp9navListUpEv },
+    { "_ZN14BleSettingsApp9refreshUiEv", (void*)&_ZN14BleSettingsApp9refreshUiEv },
+    { "_ZN14BleSettingsAppC1EP7Display", (void*)&_ZN14BleSettingsAppC1EP7Display },
+    { "_ZN14BleSettingsAppC2EP7Display", (void*)&_ZN14BleSettingsAppC2EP7Display },
+    { "_ZN14BleSettingsAppD0Ev", (void*)&_ZN14BleSettingsAppD0Ev },
+    { "_ZN14BleSettingsAppD1Ev", (void*)&_ZN14BleSettingsAppD1Ev },
+    { "_ZN14BleSettingsAppD2Ev", (void*)&_ZN14BleSettingsAppD2Ev },
     { "_ZN14VirtualGamepad11resetPlayerEaa", (void*)&_ZN14VirtualGamepad11resetPlayerEaa },
     { "_ZN14VirtualGamepad11setAllMasksEPKh", (void*)&_ZN14VirtualGamepad11setAllMasksEPKh },
     { "_ZN14VirtualGamepad12dispatchTaskEPv", (void*)&_ZN14VirtualGamepad12dispatchTaskEPv },
@@ -2275,18 +2506,12 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc },
     { "_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_", (void*)&_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_ },
     { "_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_", (void*)&_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_ },
-    { "_ZNKSt8functionIFbPKhiEEclES1_i", (void*)&_ZNKSt8functionIFbPKhiEEclES1_i },
     { "_ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_", (void*)&_ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_ },
     { "_ZNKSt8functionIFvPKcjEEclES1_j", (void*)&_ZNKSt8functionIFvPKcjEEclES1_j },
-    { "_ZNKSt8functionIFvRK9GameStateEEclES2_", (void*)&_ZNKSt8functionIFvRK9GameStateEEclES2_ },
     { "_ZNKSt8functionIFvbEEclEb", (void*)&_ZNKSt8functionIFvbEEclEb },
     { "_ZNKSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEclEbS7_", (void*)&_ZNKSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEclEbS7_ },
     { "_ZNKSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEclEbS7_S7_", (void*)&_ZNKSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEclEbS7_S7_ },
     { "_ZNKSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEclEbS3_SB_", (void*)&_ZNKSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEclEbS3_SB_ },
-    { "_ZNKSt8functionIFviEEclEi", (void*)&_ZNKSt8functionIFviEEclEi },
-    { "_ZNKSt8functionIFviPKcbEEclEiS1_b", (void*)&_ZNKSt8functionIFviPKcbEEclEiS1_b },
-    { "_ZNKSt8functionIFviPKhiEEclEiS1_i", (void*)&_ZNKSt8functionIFviPKhiEEclEiS1_i },
-    { "_ZNKSt8functionIFviiEEclEii", (void*)&_ZNKSt8functionIFviiEEclEii },
     { "_ZNKSt8functionIFvvEEclEv", (void*)&_ZNKSt8functionIFvvEEclEv },
     { "_ZNKSt9bad_alloc4whatEv", (void*)&_ZNKSt9bad_alloc4whatEv },
     { "_ZNKSt9type_info14__is_pointer_pEv", (void*)&_ZNKSt9type_info14__is_pointer_pEv },
@@ -2564,10 +2789,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt8functionIFvPKcjEEC1EOS3_", (void*)&_ZNSt8functionIFvPKcjEEC1EOS3_ },
     { "_ZNSt8functionIFvPKcjEEC2EOS3_", (void*)&_ZNSt8functionIFvPKcjEEC2EOS3_ },
     { "_ZNSt8functionIFvPKcjEEaSEOS3_", (void*)&_ZNSt8functionIFvPKcjEEaSEOS3_ },
-    { "_ZNSt8functionIFvRK9GameStateEE4swapERS4_", (void*)&_ZNSt8functionIFvRK9GameStateEE4swapERS4_ },
-    { "_ZNSt8functionIFvRK9GameStateEEC1ERKS4_", (void*)&_ZNSt8functionIFvRK9GameStateEEC1ERKS4_ },
-    { "_ZNSt8functionIFvRK9GameStateEEC2ERKS4_", (void*)&_ZNSt8functionIFvRK9GameStateEEC2ERKS4_ },
-    { "_ZNSt8functionIFvRK9GameStateEEaSERKS4_", (void*)&_ZNSt8functionIFvRK9GameStateEEaSERKS4_ },
     { "_ZNSt8functionIFvbEE4swapERS1_", (void*)&_ZNSt8functionIFvbEE4swapERS1_ },
     { "_ZNSt8functionIFvbEEC1EOS1_", (void*)&_ZNSt8functionIFvbEEC1EOS1_ },
     { "_ZNSt8functionIFvbEEC2EOS1_", (void*)&_ZNSt8functionIFvbEEC2EOS1_ },
@@ -2578,29 +2799,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEC2EOS9_", (void*)&_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEC2EOS9_ },
     { "_ZNSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC1EOSD_", (void*)&_ZNSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC1EOSD_ },
     { "_ZNSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2EOSD_", (void*)&_ZNSt8functionIFvbSt6vectorI12MarketScriptSaIS1_EERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2EOSD_ },
-    { "_ZNSt8functionIFviEE4swapERS1_", (void*)&_ZNSt8functionIFviEE4swapERS1_ },
-    { "_ZNSt8functionIFviEEC1ERKS1_", (void*)&_ZNSt8functionIFviEEC1ERKS1_ },
-    { "_ZNSt8functionIFviEEC2ERKS1_", (void*)&_ZNSt8functionIFviEEC2ERKS1_ },
-    { "_ZNSt8functionIFviEEaSERKS1_", (void*)&_ZNSt8functionIFviEEaSERKS1_ },
-    { "_ZNSt8functionIFviPKcbEE4swapERS3_", (void*)&_ZNSt8functionIFviPKcbEE4swapERS3_ },
-    { "_ZNSt8functionIFviPKcbEEC1ERKS3_", (void*)&_ZNSt8functionIFviPKcbEEC1ERKS3_ },
-    { "_ZNSt8functionIFviPKcbEEC2ERKS3_", (void*)&_ZNSt8functionIFviPKcbEEC2ERKS3_ },
-    { "_ZNSt8functionIFviPKcbEEaSERKS3_", (void*)&_ZNSt8functionIFviPKcbEEaSERKS3_ },
-    { "_ZNSt8functionIFviPKhiEE4swapERS3_", (void*)&_ZNSt8functionIFviPKhiEE4swapERS3_ },
-    { "_ZNSt8functionIFviPKhiEEC1ERKS3_", (void*)&_ZNSt8functionIFviPKhiEEC1ERKS3_ },
-    { "_ZNSt8functionIFviPKhiEEC2ERKS3_", (void*)&_ZNSt8functionIFviPKhiEEC2ERKS3_ },
-    { "_ZNSt8functionIFviPKhiEEaSERKS3_", (void*)&_ZNSt8functionIFviPKhiEEaSERKS3_ },
-    { "_ZNSt8functionIFviiEE4swapERS1_", (void*)&_ZNSt8functionIFviiEE4swapERS1_ },
-    { "_ZNSt8functionIFviiEEC1ERKS1_", (void*)&_ZNSt8functionIFviiEEC1ERKS1_ },
-    { "_ZNSt8functionIFviiEEC2ERKS1_", (void*)&_ZNSt8functionIFviiEEC2ERKS1_ },
-    { "_ZNSt8functionIFviiEEaSERKS1_", (void*)&_ZNSt8functionIFviiEEaSERKS1_ },
     { "_ZNSt8functionIFvvEE4swapERS1_", (void*)&_ZNSt8functionIFvvEE4swapERS1_ },
     { "_ZNSt8functionIFvvEEC1EOS1_", (void*)&_ZNSt8functionIFvvEEC1EOS1_ },
-    { "_ZNSt8functionIFvvEEC1ERKS1_", (void*)&_ZNSt8functionIFvvEEC1ERKS1_ },
     { "_ZNSt8functionIFvvEEC2EOS1_", (void*)&_ZNSt8functionIFvvEEC2EOS1_ },
-    { "_ZNSt8functionIFvvEEC2ERKS1_", (void*)&_ZNSt8functionIFvvEEC2ERKS1_ },
     { "_ZNSt8functionIFvvEEaSEOS1_", (void*)&_ZNSt8functionIFvvEEaSEOS1_ },
-    { "_ZNSt8functionIFvvEEaSERKS1_", (void*)&_ZNSt8functionIFvvEEaSERKS1_ },
     { "_ZNSt9bad_allocD0Ev", (void*)&_ZNSt9bad_allocD0Ev },
     { "_ZNSt9bad_allocD1Ev", (void*)&_ZNSt9bad_allocD1Ev },
     { "_ZNSt9bad_allocD2Ev", (void*)&_ZNSt9bad_allocD2Ev },
@@ -2718,6 +2920,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "__divdi3", (void*)&__divdi3 },
     { "__divsc3", (void*)&__divsc3 },
     { "__divsi3", (void*)&__divsi3 },
+    { "__dso_handle", (void*)&__dso_handle },
+    { "__errno", (void*)&__errno },
     { "__extenddftf2", (void*)&__extenddftf2 },
     { "__extendsfdf2", (void*)&__extendsfdf2 },
     { "__fixdfdi", (void*)&__fixdfdi },
@@ -2858,6 +3062,15 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "esp_timer_start_once", (void*)&esp_timer_start_once },
     { "esp_timer_start_periodic", (void*)&esp_timer_start_periodic },
     { "esp_timer_stop", (void*)&esp_timer_stop },
+    { "esp_websocket_client_destroy", (void*)&esp_websocket_client_destroy },
+    { "esp_websocket_client_init", (void*)&esp_websocket_client_init },
+    { "esp_websocket_client_is_connected", (void*)&esp_websocket_client_is_connected },
+    { "esp_websocket_client_send_text", (void*)&esp_websocket_client_send_text },
+    { "esp_websocket_client_send_with_opcode", (void*)&esp_websocket_client_send_with_opcode },
+    { "esp_websocket_client_set_uri", (void*)&esp_websocket_client_set_uri },
+    { "esp_websocket_client_start", (void*)&esp_websocket_client_start },
+    { "esp_websocket_client_stop", (void*)&esp_websocket_client_stop },
+    { "esp_websocket_register_events", (void*)&esp_websocket_register_events },
     { "fabs", (void*)&fabs },
     { "fabsf", (void*)&fabsf },
     { "fclose", (void*)&fclose },
@@ -2900,6 +3113,52 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "heap_caps_realloc", (void*)&heap_caps_realloc },
     { "heap_caps_realloc_base", (void*)&heap_caps_realloc_base },
     { "heap_caps_realloc_default", (void*)&heap_caps_realloc_default },
+    { "httpd_default_recv", (void*)&httpd_default_recv },
+    { "httpd_default_send", (void*)&httpd_default_send },
+    { "httpd_is_sess_available", (void*)&httpd_is_sess_available },
+    { "httpd_queue_work", (void*)&httpd_queue_work },
+    { "httpd_recv", (void*)&httpd_recv },
+    { "httpd_recv_with_opt", (void*)&httpd_recv_with_opt },
+    { "httpd_register_uri_handler", (void*)&httpd_register_uri_handler },
+    { "httpd_req_delete", (void*)&httpd_req_delete },
+    { "httpd_req_get_hdr_value_str", (void*)&httpd_req_get_hdr_value_str },
+    { "httpd_req_handle_err", (void*)&httpd_req_handle_err },
+    { "httpd_req_new", (void*)&httpd_req_new },
+    { "httpd_req_recv", (void*)&httpd_req_recv },
+    { "httpd_req_to_sockfd", (void*)&httpd_req_to_sockfd },
+    { "httpd_resp_send", (void*)&httpd_resp_send },
+    { "httpd_resp_send_err", (void*)&httpd_resp_send_err },
+    { "httpd_resp_set_status", (void*)&httpd_resp_set_status },
+    { "httpd_resp_set_type", (void*)&httpd_resp_set_type },
+    { "httpd_send", (void*)&httpd_send },
+    { "httpd_sess_clear_ctx", (void*)&httpd_sess_clear_ctx },
+    { "httpd_sess_close_all", (void*)&httpd_sess_close_all },
+    { "httpd_sess_close_lru", (void*)&httpd_sess_close_lru },
+    { "httpd_sess_delete", (void*)&httpd_sess_delete },
+    { "httpd_sess_delete_invalid", (void*)&httpd_sess_delete_invalid },
+    { "httpd_sess_enum", (void*)&httpd_sess_enum },
+    { "httpd_sess_free_ctx", (void*)&httpd_sess_free_ctx },
+    { "httpd_sess_get", (void*)&httpd_sess_get },
+    { "httpd_sess_get_free", (void*)&httpd_sess_get_free },
+    { "httpd_sess_init", (void*)&httpd_sess_init },
+    { "httpd_sess_new", (void*)&httpd_sess_new },
+    { "httpd_sess_pending", (void*)&httpd_sess_pending },
+    { "httpd_sess_process", (void*)&httpd_sess_process },
+    { "httpd_sess_set_descriptors", (void*)&httpd_sess_set_descriptors },
+    { "httpd_sess_trigger_close", (void*)&httpd_sess_trigger_close },
+    { "httpd_sess_trigger_close_", (void*)&httpd_sess_trigger_close_ },
+    { "httpd_start", (void*)&httpd_start },
+    { "httpd_unrecv", (void*)&httpd_unrecv },
+    { "httpd_unregister_all_uri_handlers", (void*)&httpd_unregister_all_uri_handlers },
+    { "httpd_unregister_uri_handler", (void*)&httpd_unregister_uri_handler },
+    { "httpd_uri", (void*)&httpd_uri },
+    { "httpd_ws_get_fd_info", (void*)&httpd_ws_get_fd_info },
+    { "httpd_ws_get_frame_type", (void*)&httpd_ws_get_frame_type },
+    { "httpd_ws_recv_frame", (void*)&httpd_ws_recv_frame },
+    { "httpd_ws_respond_server_handshake", (void*)&httpd_ws_respond_server_handshake },
+    { "httpd_ws_send_data_async", (void*)&httpd_ws_send_data_async },
+    { "httpd_ws_send_frame", (void*)&httpd_ws_send_frame },
+    { "httpd_ws_send_frame_async", (void*)&httpd_ws_send_frame_async },
     { "jpeg_acquire_codec_handle", (void*)&jpeg_acquire_codec_handle },
     { "jpeg_alloc_decoder_mem", (void*)&jpeg_alloc_decoder_mem },
     { "jpeg_calloc_align_inner", (void*)&jpeg_calloc_align_inner },
@@ -3884,6 +4143,57 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "lv_unlock", (void*)&lv_unlock },
     { "lv_utils_bsearch", (void*)&lv_utils_bsearch },
     { "lv_vsnprintf", (void*)&lv_vsnprintf },
+    { "lwip_accept", (void*)&lwip_accept },
+    { "lwip_bind", (void*)&lwip_bind },
+    { "lwip_close", (void*)&lwip_close },
+    { "lwip_connect", (void*)&lwip_connect },
+    { "lwip_fcntl", (void*)&lwip_fcntl },
+    { "lwip_freeaddrinfo", (void*)&lwip_freeaddrinfo },
+    { "lwip_getaddrinfo", (void*)&lwip_getaddrinfo },
+    { "lwip_getpeername", (void*)&lwip_getpeername },
+    { "lwip_getsockname", (void*)&lwip_getsockname },
+    { "lwip_getsockopt", (void*)&lwip_getsockopt },
+    { "lwip_getsockopt_impl_ext", (void*)&lwip_getsockopt_impl_ext },
+    { "lwip_hook_ip6_input", (void*)&lwip_hook_ip6_input },
+    { "lwip_hook_tcp_isn", (void*)&lwip_hook_tcp_isn },
+    { "lwip_htonl", (void*)&lwip_htonl },
+    { "lwip_htons", (void*)&lwip_htons },
+    { "lwip_inet_ntop", (void*)&lwip_inet_ntop },
+    { "lwip_inet_pton", (void*)&lwip_inet_pton },
+    { "lwip_init", (void*)&lwip_init },
+    { "lwip_init_tcp_isn", (void*)&lwip_init_tcp_isn },
+    { "lwip_ioctl", (void*)&lwip_ioctl },
+    { "lwip_listen", (void*)&lwip_listen },
+    { "lwip_netconn_do_accepted", (void*)&lwip_netconn_do_accepted },
+    { "lwip_netconn_do_bind", (void*)&lwip_netconn_do_bind },
+    { "lwip_netconn_do_close", (void*)&lwip_netconn_do_close },
+    { "lwip_netconn_do_connect", (void*)&lwip_netconn_do_connect },
+    { "lwip_netconn_do_delconn", (void*)&lwip_netconn_do_delconn },
+    { "lwip_netconn_do_disconnect", (void*)&lwip_netconn_do_disconnect },
+    { "lwip_netconn_do_getaddr", (void*)&lwip_netconn_do_getaddr },
+    { "lwip_netconn_do_gethostbyname", (void*)&lwip_netconn_do_gethostbyname },
+    { "lwip_netconn_do_join_leave_group", (void*)&lwip_netconn_do_join_leave_group },
+    { "lwip_netconn_do_join_leave_group_netif", (void*)&lwip_netconn_do_join_leave_group_netif },
+    { "lwip_netconn_do_listen", (void*)&lwip_netconn_do_listen },
+    { "lwip_netconn_do_newconn", (void*)&lwip_netconn_do_newconn },
+    { "lwip_netconn_do_recv", (void*)&lwip_netconn_do_recv },
+    { "lwip_netconn_do_send", (void*)&lwip_netconn_do_send },
+    { "lwip_netconn_do_write", (void*)&lwip_netconn_do_write },
+    { "lwip_netconn_is_deallocated_msg", (void*)&lwip_netconn_is_deallocated_msg },
+    { "lwip_netconn_is_err_msg", (void*)&lwip_netconn_is_err_msg },
+    { "lwip_read", (void*)&lwip_read },
+    { "lwip_recv", (void*)&lwip_recv },
+    { "lwip_recvfrom", (void*)&lwip_recvfrom },
+    { "lwip_select", (void*)&lwip_select },
+    { "lwip_send", (void*)&lwip_send },
+    { "lwip_sendto", (void*)&lwip_sendto },
+    { "lwip_setsockopt", (void*)&lwip_setsockopt },
+    { "lwip_setsockopt_impl_ext", (void*)&lwip_setsockopt_impl_ext },
+    { "lwip_shutdown", (void*)&lwip_shutdown },
+    { "lwip_socket", (void*)&lwip_socket },
+    { "lwip_standard_chksum", (void*)&lwip_standard_chksum },
+    { "lwip_strnicmp", (void*)&lwip_strnicmp },
+    { "lwip_write", (void*)&lwip_write },
     { "memcmp", (void*)&memcmp },
     { "memcpy", (void*)&memcpy },
     { "memmove", (void*)&memmove },
@@ -3906,9 +4216,13 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "strchr", (void*)&strchr },
     { "strcmp", (void*)&strcmp },
     { "strlen", (void*)&strlen },
+    { "strncpy", (void*)&strncpy },
     { "strrchr", (void*)&strrchr },
     { "strstr", (void*)&strstr },
     { "time", (void*)&time },
+    { "vQueueDelete", (void*)&vQueueDelete },
+    { "vQueueDeleteWithCaps", (void*)&vQueueDeleteWithCaps },
+    { "vQueueWaitForMessageRestricted", (void*)&vQueueWaitForMessageRestricted },
     { "vTaskDelay", (void*)&vTaskDelay },
     { "vTaskDelete", (void*)&vTaskDelete },
     { "vTaskDeleteWithCaps", (void*)&vTaskDeleteWithCaps },
@@ -3929,6 +4243,26 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "vTaskSuspendAll", (void*)&vTaskSuspendAll },
     { "vTaskSwitchContext", (void*)&vTaskSwitchContext },
     { "vsnprintf", (void*)&vsnprintf },
+    { "xQueueCreateCountingSemaphore", (void*)&xQueueCreateCountingSemaphore },
+    { "xQueueCreateCountingSemaphoreStatic", (void*)&xQueueCreateCountingSemaphoreStatic },
+    { "xQueueCreateMutex", (void*)&xQueueCreateMutex },
+    { "xQueueCreateMutexStatic", (void*)&xQueueCreateMutexStatic },
+    { "xQueueCreateWithCaps", (void*)&xQueueCreateWithCaps },
+    { "xQueueGenericCreate", (void*)&xQueueGenericCreate },
+    { "xQueueGenericCreateStatic", (void*)&xQueueGenericCreateStatic },
+    { "xQueueGenericGetStaticBuffers", (void*)&xQueueGenericGetStaticBuffers },
+    { "xQueueGenericReset", (void*)&xQueueGenericReset },
+    { "xQueueGenericSend", (void*)&xQueueGenericSend },
+    { "xQueueGenericSendFromISR", (void*)&xQueueGenericSendFromISR },
+    { "xQueueGetMutexHolder", (void*)&xQueueGetMutexHolder },
+    { "xQueueGiveFromISR", (void*)&xQueueGiveFromISR },
+    { "xQueueGiveMutexRecursive", (void*)&xQueueGiveMutexRecursive },
+    { "xQueueIsQueueEmptyFromISR", (void*)&xQueueIsQueueEmptyFromISR },
+    { "xQueueIsQueueFullFromISR", (void*)&xQueueIsQueueFullFromISR },
+    { "xQueueReceive", (void*)&xQueueReceive },
+    { "xQueueReceiveFromISR", (void*)&xQueueReceiveFromISR },
+    { "xQueueSemaphoreTake", (void*)&xQueueSemaphoreTake },
+    { "xQueueTakeMutexRecursive", (void*)&xQueueTakeMutexRecursive },
     { "xTaskCheckForTimeOut", (void*)&xTaskCheckForTimeOut },
     { "xTaskCreatePinnedToCore", (void*)&xTaskCreatePinnedToCore },
     { "xTaskCreatePinnedToCoreWithCaps", (void*)&xTaskCreatePinnedToCoreWithCaps },

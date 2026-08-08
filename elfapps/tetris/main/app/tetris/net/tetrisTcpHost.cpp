@@ -32,7 +32,7 @@ struct TcpClient {
 
 static constexpr int SNAP_PLAYERS = 3;
 
-static struct {
+struct S {
 	bool started = false;
 	int  listenSock = -1;
 	int  playerCount = 0;
@@ -45,7 +45,12 @@ static struct {
 	GameState snapStates[SNAP_PLAYERS]{};
 	int  snapPlayerCount = 0;
 	volatile bool snapPending = false;
-} s;
+};
+static S& getS()
+{
+    static S inst;
+    return inst;
+}
 
 } // anonymous namespace
 
@@ -84,7 +89,7 @@ static void tcpRecvTask(void* arg)
 						if (typeItem && cJSON_IsString(typeItem)) {
 							const char* tag = typeItem->valuestring;
 
-							if (strcmp(tag, "join") == 0 && s.cb.onJoin) {
+							if (strcmp(tag, "join") == 0 && getS().cb.onJoin) {
 								int target = 0;
 								cJSON* tgt = cJSON_GetObjectItem(root, "target");
 								if (tgt && cJSON_IsNumber(tgt)) target = tgt->valueint;
@@ -97,7 +102,7 @@ static void tcpRecvTask(void* arg)
 								cJSON_AddStringToObject(ack, "type", "join_ack");
 								cJSON_AddNumberToObject(ack, "player_id", target);
 								cJSON_AddNumberToObject(ack, "target", target);
-								cJSON_AddNumberToObject(ack, "player_count", s.playerCount);
+								cJSON_AddNumberToObject(ack, "player_count", getS().playerCount);
 								char* ackStr = cJSON_PrintUnformatted(ack);
 								if (ackStr) {
 									char sendBuf[1024];
@@ -107,15 +112,15 @@ static void tcpRecvTask(void* arg)
 								}
 								cJSON_Delete(ack);
 
-								s.cb.onJoin(target, 0);
+								getS().cb.onJoin(target, 0);
 							}
-							else if (strcmp(tag, "input") == 0 && s.cb.onInput) {
+							else if (strcmp(tag, "input") == 0 && getS().cb.onInput) {
 								cJSON* key  = cJSON_GetObjectItem(root, "key");
 								cJSON* down = cJSON_GetObjectItem(root, "down");
 								if (key && cJSON_IsString(key) && down && cJSON_IsBool(down)) {
 									ESP_LOGI(TAG, "input: target=%d key=%s down=%d",
 										client->target, key->valuestring, cJSON_IsTrue(down));
-									s.cb.onInput(client->target, key->valuestring, cJSON_IsTrue(down));
+									getS().cb.onInput(client->target, key->valuestring, cJSON_IsTrue(down));
 								}
 							}
 						}
@@ -208,18 +213,18 @@ static void sendSnapshotToClient(int sock, int playerIndex, const GameState& sta
 static void sendSnapshotsTo(int sock, int count)
 {
 	for (int pi = 0; pi < count; pi++) {
-		sendSnapshotToClient(sock, pi, s.snapStates[pi]);
+		sendSnapshotToClient(sock, pi, getS().snapStates[pi]);
 	}
 }
 
 static void sendAllSnapshots()
 {
-	int count = s.snapPlayerCount;
+	int count = getS().snapPlayerCount;
 	if (count <= 0) return;
 
 	for (int ci = 0; ci < MAX_TCP_CLIENTS; ci++) {
-		if (s.clients[ci].active)
-			sendSnapshotsTo(s.clients[ci].sock, count);
+		if (getS().clients[ci].active)
+			sendSnapshotsTo(getS().clients[ci].sock, count);
 	}
 }
 
@@ -227,9 +232,9 @@ static void sendTaskFn(void* arg)
 {
 	ESP_LOGI(TAG, "send task started (20fps)");
 
-	while (s.started && s.listenSock >= 0) {
-		if (s.snapPending) {
-			s.snapPending = false;
+	while (getS().started && getS().listenSock >= 0) {
+		if (getS().snapPending) {
+			getS().snapPending = false;
 			sendAllSnapshots();
 		}
 		vTaskDelay(pdMS_TO_TICKS(50));  // 20fps
@@ -248,13 +253,13 @@ static void acceptTask(void* arg)
 	ESP_LOGI(TAG, "TCP server listening on port %d", (int)(uintptr_t)arg);
 	int port = (int)(uintptr_t)arg;
 
-	while (s.started && s.listenSock >= 0) {
+	while (getS().started && getS().listenSock >= 0) {
 		struct sockaddr_in addr;
 		socklen_t addrLen = sizeof(addr);
-		int clientSock = accept(s.listenSock, (struct sockaddr*)&addr, &addrLen);
+		int clientSock = accept(getS().listenSock, (struct sockaddr*)&addr, &addrLen);
 
 		if (clientSock < 0) {
-			if (s.started) ESP_LOGW(TAG, "accept failed: errno=%d", errno);
+			if (getS().started) ESP_LOGW(TAG, "accept failed: errno=%d", errno);
 			vTaskDelay(pdMS_TO_TICKS(100));
 			continue;
 		}
@@ -262,7 +267,7 @@ static void acceptTask(void* arg)
 		// 找个空闲槽位
 		int slot = -1;
 		for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
-			if (!s.clients[i].active) { slot = i; break; }
+			if (!getS().clients[i].active) { slot = i; break; }
 		}
 
 		if (slot < 0) {
@@ -275,7 +280,7 @@ static void acceptTask(void* arg)
 		int flag = 1;
 		setsockopt(clientSock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-		auto& c = s.clients[slot];
+		auto& c = getS().clients[slot];
 		c = {};
 		c.sock = clientSock;
 		c.active = true;
@@ -299,48 +304,48 @@ static void acceptTask(void* arg)
 
 bool tetrisTcpHostStart(uint16_t port, const TetrisTcpHostCallbacks& cb)
 {
-	if (s.started) {
+	if (getS().started) {
 		ESP_LOGW(TAG, "already started");
 		return true;
 	}
 
-	s.cb = cb;
+	getS().cb = cb;
 
 	// 创建 listen socket
-	s.listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (s.listenSock < 0) {
+	getS().listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (getS().listenSock < 0) {
 		ESP_LOGE(TAG, "socket create failed: %d", errno);
 		return false;
 	}
 
 	int opt = 1;
-	setsockopt(s.listenSock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	setsockopt(getS().listenSock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
 	struct sockaddr_in addr = {};
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
 	addr.sin_addr.s_addr = INADDR_ANY;
 
-	if (bind(s.listenSock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+	if (bind(getS().listenSock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 		ESP_LOGE(TAG, "bind port %d failed: %d", port, errno);
-		close(s.listenSock);
-		s.listenSock = -1;
+		close(getS().listenSock);
+		getS().listenSock = -1;
 		return false;
 	}
 
-	if (listen(s.listenSock, 3) < 0) {
+	if (listen(getS().listenSock, 3) < 0) {
 		ESP_LOGE(TAG, "listen failed: %d", errno);
-		close(s.listenSock);
-		s.listenSock = -1;
+		close(getS().listenSock);
+		getS().listenSock = -1;
 		return false;
 	}
 
-	s.started = true;
+	getS().started = true;
 
 	xTaskCreate(acceptTask, "tcpGameAccept", 4096,
-		(void*)(uintptr_t)port, tskIDLE_PRIORITY + 2, &s.acceptTask);
+		(void*)(uintptr_t)port, tskIDLE_PRIORITY + 2, &getS().acceptTask);
 	xTaskCreate(sendTaskFn, "tcpGameSend", 8192,
-		nullptr, tskIDLE_PRIORITY + 2, &s.sendTask);
+		nullptr, tskIDLE_PRIORITY + 2, &getS().sendTask);
 
 	ESP_LOGI(TAG, "TCP game server started on port %d", port);
 	return true;
@@ -348,11 +353,11 @@ bool tetrisTcpHostStart(uint16_t port, const TetrisTcpHostCallbacks& cb)
 
 void tetrisTcpHostStop()
 {
-	s.started = false;
+	getS().started = false;
 
 	// 关闭所有客户端
 	for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
-		auto& c = s.clients[i];
+		auto& c = getS().clients[i];
 		if (c.active) {
 			c.active = false;
 			if (c.sock >= 0) {
@@ -364,27 +369,27 @@ void tetrisTcpHostStop()
 	}
 
 	// 关闭 listen
-	if (s.listenSock >= 0) {
-		close(s.listenSock);
-		s.listenSock = -1;
+	if (getS().listenSock >= 0) {
+		close(getS().listenSock);
+		getS().listenSock = -1;
 	}
 
 	// 等所有 task 退出
 	vTaskDelay(pdMS_TO_TICKS(150));
 
-	s.started = false;
+	getS().started = false;
 	ESP_LOGI(TAG, "TCP game server stopped");
 }
 
 void tetrisTcpHostSetPlayerCount(int count)
 {
-	s.playerCount = count;
+	getS().playerCount = count;
 	ESP_LOGI(TAG, "player count set to %d", count);
 }
 
 bool tetrisTcpHostHasClients()
 {
-	for (auto& c : s.clients) {
+	for (auto& c : getS().clients) {
 		if (c.active) return true;
 	}
 	return false;
@@ -394,9 +399,9 @@ void tetrisTcpHostPushSnapshots(const GameState* states, int playerCount)
 {
 	if (playerCount > SNAP_PLAYERS) playerCount = SNAP_PLAYERS;
 
-	memcpy(s.snapStates, states, playerCount * sizeof(GameState));
-	s.snapPlayerCount = playerCount;
-	s.snapPending = true;  // Send Task 会在下一 tick 拾取
+	memcpy(getS().snapStates, states, playerCount * sizeof(GameState));
+	getS().snapPlayerCount = playerCount;
+	getS().snapPending = true;  // Send Task 会在下一 tick 拾取
 }
 
 // ============================================================
@@ -425,10 +430,10 @@ int tetrisTcpHostConnectToClient(const char* ip, uint16_t port)
 	// 分配一个 TcpClient 槽位 + recv task（处理客户端发来的 join/input）
 	int slot = -1;
 	for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
-		if (!s.clients[i].active) { slot = i; break; }
+		if (!getS().clients[i].active) { slot = i; break; }
 	}
 	if (slot >= 0) {
-		auto& c = s.clients[slot];
+		auto& c = getS().clients[slot];
 		c = {};
 		c.sock = sock;
 		c.active = true;

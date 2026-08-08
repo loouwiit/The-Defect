@@ -32,7 +32,7 @@ private:
 
 	// ── 动态游戏卡片 ──
 	// 顺序：ELF 插件卡片（扫描插入最前）→ 内置游戏 → 系统卡片
-	enum class CardKind : uint8_t { Elf, Builtin, System };
+	enum class CardKind : uint8_t { Elf, System };   // 内置游戏已全部迁移 ELF（Builtin 已删）
 	struct GameCard {
 		CardKind kind;
 		char displayName[64];   // 显示名（中文）
@@ -45,7 +45,6 @@ private:
 	std::vector<GameCard> m_cards;      // 卡片数据表
 	std::vector<lv_obj_t*> m_cardObjs;  // 对应卡片对象（与 m_cards 同序）
 
-	static constexpr int BUILTIN_COUNT = 2;   // tetris/doudizhu（fruitNinja/chineseChess 已迁移 ELF）
 	static constexpr int SYSTEM_COUNT = 3;    // luaManager/market/testApp
 	static constexpr int MAX_ELF_CARDS = 8;
 

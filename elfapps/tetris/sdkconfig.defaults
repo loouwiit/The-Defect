@@ -1,0 +1,11 @@
+# 与主固件同芯片（ESP32-P4）
+CONFIG_IDF_TARGET="esp32p4"
+# .so 构建依赖 DYNAMIC_LOAD_SHARED_OBJECT
+CONFIG_ELF_LOADER=y
+CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT=y
+# ⚠ 必须与主固件一致（sdkconfig.defaults: FREERTOS_HZ=1000）。
+# .so 内 pdMS_TO_TICKS 按编译期 tick 率换算；若用默认 100 而主固件运行时 1000，
+# vTaskDelay 会快 10 倍（snake 曾因此游戏速度异常快）。
+CONFIG_FREERTOS_HZ=1000
+# tetris_net.cpp 用 httpd_ws_*（WS 服务器 API），须开 WS 支持（主固件已开）
+CONFIG_HTTPD_WS_SUPPORT=y
