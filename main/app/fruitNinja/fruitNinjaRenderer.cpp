@@ -1409,20 +1409,6 @@ void FruitNinjaRenderer::loadQiuyuanImage()
 	heap_caps_free(jpg);
 	jpeg_del_decoder_engine(eng);
 
-	// 诊断日志：确认原图尺寸/采样方式/解码输出尺寸是否与 processW×processH 一致。
-	// ⚠ sample_method 是 COLOR_TYPE_ID 编码的大数值（如 YUV420=50331650），须用枚举名打印
-	const char* sampleName = "?";
-	switch (info.sample_method)
-	{
-	case JPEG_DOWN_SAMPLING_YUV444: sampleName = "YUV444"; break;
-	case JPEG_DOWN_SAMPLING_YUV422: sampleName = "YUV422"; break;
-	case JPEG_DOWN_SAMPLING_YUV420: sampleName = "YUV420"; break;
-	case JPEG_DOWN_SAMPLING_GRAY:   sampleName = "GRAY";   break;
-	default: break;
-	}
-	ESP_LOGI(TAG, "qiuyuan 原图 %dx%d sample=%s outSize=%u proc=%dx%d",
-		info.width, info.height, sampleName, outSize, processW, processH);
-
 	// 统一重排为紧凑 RGB565（无行填充）并缩到最大边 ≤256（控制内存 + 加速每帧 blit）
 	constexpr int MAX_SIDE = 256;
 	float k = 1.0f;
@@ -1450,51 +1436,63 @@ void FruitNinjaRenderer::loadQiuyuanImage()
 	}
 	heap_caps_free(full);
 
-	// 白色/浅色背景抠图 → 逐像素 alpha（PSRAM 独立平面）
+	// ── 白色背景抠图（空间泛洪法）──
+	// 逐像素“离白色多远”判透明无法区分“白色背景”与“浅色主体”（角色脸/浅色衣服都接近白），
+	// 阈值怎么调都会误伤脸部。改为：从图像四边向内部泛洪，只把“与边框连通的白色区域”
+	// 当作背景抠掉；被人物轮廓（暗/饱和）封闭的内部浅色区域（脸/高光）一律保留不透明。
 	uint8_t* alpha = static_cast<uint8_t*>(heap_caps_malloc((size_t)sw * sh, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-	if (!alpha)
+	uint8_t* cand  = static_cast<uint8_t*>(heap_caps_malloc((size_t)sw * sh, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	uint32_t* stack = static_cast<uint32_t*>(heap_caps_malloc((size_t)sw * sh * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+	if (!alpha || !cand || !stack)
 	{
+		if (alpha) heap_caps_free(alpha);
+		if (cand) heap_caps_free(cand);
+		if (stack) heap_caps_free(stack);
 		heap_caps_free(compact);
-		ESP_LOGW(TAG, "qiuyuan alpha 分配失败，人物禁用");
+		ESP_LOGW(TAG, "qiuyuan 抠图缓冲分配失败，人物禁用");
 		return;
 	}
+	// 候选背景：亮且低饱和（灰白）。人物轮廓（暗/饱和）非候选 → 阻挡泛洪，内部浅色脸不会被误删。
 	for (int y = 0; y < sh; y++)
 	{
 		for (int x = 0; x < sw; x++)
 		{
 			uint16_t c = compact[(size_t)y * sw + x];
-			// RGB565 → 8bit 分量
 			int r = (c >> 11) & 0x1f; r = (r << 3) | (r >> 2);
 			int g = (c >> 5) & 0x3f;  g = (g << 2) | (g >> 6);
 			int b = c & 0x1f;         b = (b << 3) | (b >> 2);
-			// 白色背景抠图：按“到纯白的距离”判透明——只抠真正接近白色的背景，
-			// 保留浅色但带颜色的人物主体（肤色/浅色衣服）。旧版按最大通道亮度
-			// （bright≥200 即抠）会把浅色主体也抠掉 → 人物缺块（“被切掉一部分”）。
-			int dr = 255 - r, dg = 255 - g, db = 255 - b;
-			int dist2 = dr * dr + dg * dg + db * db;
-			int a;
-			if (dist2 <= 1200)      a = 0;                            // 近纯白 → 全透明（背景）
-			else if (dist2 < 3000)  a = (dist2 - 1200) * 255 / 1800;  // 过渡带渐隐（平滑边缘）
-			else                    a = 255;                          // 有颜色的主体 → 不透明
-			alpha[(size_t)y * sw + x] = (uint8_t)a;
+			int mx = (r > g) ? (r > b ? r : b) : (g > b ? g : b);
+			int mn = (r < g) ? (r < b ? r : b) : (g < b ? g : b);
+			cand[(size_t)y * sw + x] = (uint8_t)((mx >= 200 && (mx - mn) < 50) ? 1 : 0);
+			alpha[(size_t)y * sw + x] = 255;   // 默认不透明；泛洪判定为背景的像素再置 0
 		}
 	}
-
-	// 诊断：统计不透明像素包围盒，确认人物在 sprite 内的占比/位置（排查构图/抠图偏置）
+	// 泛洪：从四条边的候选像素开始，向 4 邻域扩散，覆盖“与边框连通的背景区域”
 	{
-		int minX = sw, minY = sh, maxX = -1, maxY = -1;
-		for (int y = 0; y < sh; y++)
-			for (int x = 0; x < sw; x++)
-				if (alpha[(size_t)y * sw + x] > 0)
-				{
-					if (x < minX) minX = x;
-					if (x > maxX) maxX = x;
-					if (y < minY) minY = y;
-					if (y > maxY) maxY = y;
-				}
-		if (maxX >= 0)
-			ESP_LOGI(TAG, "qiuyuan 不透明 bbox: (%d,%d)-(%d,%d) 占 %dx%d", minX, minY, maxX, maxY, sw, sh);
+		int sp = 0;
+		auto push = [&](int idx)
+		{
+			if (!(cand[idx] & 2))
+			{
+				cand[idx] |= 2;          // bit1=已入栈
+				stack[sp++] = (uint32_t)idx;
+			}
+		};
+		for (int x = 0; x < sw; x++) { push(x); push((sh - 1) * sw + x); }
+		for (int y = 0; y < sh; y++) { push(y * sw); push(y * sw + (sw - 1)); }
+		while (sp > 0)
+		{
+			int idx = (int)stack[--sp];
+			int x = idx % sw, y = idx / sw;
+			alpha[idx] = 0;              // 连通到边框 → 真背景 → 透明
+			if (x > 0     && (cand[idx - 1] & 1) && !(cand[idx - 1] & 2)) push(idx - 1);
+			if (x + 1 < sw && (cand[idx + 1] & 1) && !(cand[idx + 1] & 2)) push(idx + 1);
+			if (y > 0     && (cand[idx - sw] & 1) && !(cand[idx - sw] & 2)) push(idx - sw);
+			if (y + 1 < sh && (cand[idx + sw] & 1) && !(cand[idx + sw] & 2)) push(idx + sw);
+		}
 	}
+	heap_caps_free(cand);
+	heap_caps_free(stack);
 
 	m_qiuyuanImg.buf = reinterpret_cast<const uint16_t*>(compact);
 	m_qiuyuanImg.w = sw;
