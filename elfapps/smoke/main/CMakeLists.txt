@@ -5,6 +5,6 @@ idf_component_register(SRCS "smoke.cpp"
                        PRIV_INCLUDE_DIRS "."
                                          "../../../main"
                                          "../../../main/elfSdk"
-                       REQUIRES lvgl esp_lvgl_adapter)
+                       REQUIRES lvgl esp_lvgl_adapter esp_adc esp_driver_gpio)
 # .so 需要 PIC；关闭异常/RTTI 与主固件一致（插件不含这两者）
 target_compile_options(${COMPONENT_LIB} PRIVATE -fPIC -fno-exceptions -fno-rtti)

@@ -25,7 +25,7 @@ idf_component_register(SRCS "main.cpp"
 
                             "elfProbe.cpp"
 
-                            "elfSdk/elf_sdk.cpp" "elfSdk/elf_cpp_runtime.cpp" "elfSdk/elf_framework_syms.cpp" "elfSdk/elf_export_syms.c"
+                            "elfSdk/elf_sdk.cpp" "elfSdk/elf_symtab.c"
                             "elfManager/elfManager.cpp"
 
                             "app/app.cpp" "app/appStack.cpp" "app/appStackManager.cpp"

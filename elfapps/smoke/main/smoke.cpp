@@ -1,12 +1,15 @@
 /*
- * smoke 插件 — Phase 1 R1 最小探测
- * 验证：T0 加载链路（dlopen/version/dlsym）+ T3 最小渲染 + 单例直出 + 静态对象规则
+ * smoke 插件 — Phase 1 探测
+ * 验证：T0 加载链路（dlopen/version/dlsym）+ T3 最小渲染 + P7 单例直出 + 静态对象规则
+ * 符号面：tools/gen_elf_syms.py 白名单生成（elf_symtab.c），.so include 主固件头文件原生调用。
  * 构建：cd elfapps/smoke && idf.py -G 'Unix Makefiles' so
  * 上传：curl -X PUT --data-binary @build/smoke.so http://<host>/root/elf/smoke.so
- * 每个探测打 [ELF-TEST] Pn 串口行 + 屏幕汇总。
  */
 #include "elf_sdk.h"
 #include "app/app.hpp"
+#include "task/task.hpp"
+#include "battery/batteryManager.hpp"
+#include "gamepad/bleGamepad.hpp"
 #include <cstdio>
 #include <vector>
 #include <string>
@@ -38,6 +41,9 @@ public:
 
         // P1：C++ 运行时（std::vector/string 分配）
         m_stdlibOk = probeStdlib();
+
+        // P7：单例直出（Task::addTask/removeTask 静态 + BatteryManager/BleGamepad 单例）
+        probeFramework();
 
         // P2b：文件级非 POD static 探测
         m_fileStaticVal = g_fileStaticProbe.val;
@@ -100,8 +106,24 @@ private:
         return v.size() == 100 && s == "elf-smoke-100";
     }
 
-    // P7 单例直出：R1 暂不启用（VirtualGamepad/BleGamepad 符号待 check_elf_syms.sh
-    // 确认后于 R2 打开），R1 只验证 App 继承 + 渲染 + C++ 运行时。
+    // P7 单例直出：插件 include 主固件头文件，直接调单例/静态方法（原生风格）。
+    // 符号由 tools/gen_elf_syms.py 白名单生成（Task/BatteryManager/BleGamepad 类）。
+    void probeFramework()
+    {
+        // Task 静态方法（替代 elf_task_add/remove；探针立即清理，无泄漏）
+        m_taskOk = false;
+        if (auto* t = Task::addTask([](void*) -> TickType_t { return Task::infinityTime; },
+                                    "elf-probe", nullptr, 0, Task::Affinity::None))
+        {
+            m_taskOk = true;
+            Task::removeTask(t);
+        }
+        // BatteryManager / BleGamepad 单例直出
+        m_battPct = BatteryManager::instance().getPercent();
+        m_padCount = BleGamepad::instance().connectedCount();
+        m_padBatt = BleGamepad::instance().getBatteryLevel(0);
+    }
+
     void updateStatus()
     {
         if (!m_status) return;
@@ -112,12 +134,17 @@ private:
                      "SMOKE v%d\n"
                      "stdlib=%s fnLocal=%s\n"
                      "fileStatic=0x%X (%s)\n"
+                     "task=%s batt=%d%% pads=%u padBatt=%u\n"
                      "A:刷新 B:退出",
                      (int)ELF_SDK_VERSION,
                      m_stdlibOk ? "PASS" : "FAIL",
                      m_fnLocalOk ? "PASS" : "FAIL",
                      m_fileStaticVal,
-                     m_fileStaticVal == 0xDEAD ? "CTOR?" : "no-ctor(预期)");
+                     m_fileStaticVal == 0xDEAD ? "CTOR?" : "no-ctor(预期)",
+                     m_taskOk ? "PASS" : "FAIL",
+                     m_battPct,
+                     (unsigned)m_padCount,
+                     (unsigned)m_padBatt);
             lv_label_set_text(m_status, buf);
         }
     }
@@ -126,6 +153,10 @@ private:
     bool m_stdlibOk = false;
     bool m_fnLocalOk = false;
     int m_fileStaticVal = 0;
+    bool m_taskOk = false;
+    int m_battPct = -1;
+    unsigned m_padCount = 0;
+    unsigned m_padBatt = 255;
 };
 
 /* ── 唯一 C 入口（default 可见性） ── */

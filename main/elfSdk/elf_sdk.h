@@ -33,30 +33,12 @@ typedef struct elf_plugin_info {
     void  (*destroy_app)(void* app);           /* 可选；NULL 时主固件用 delete */
 } elf_plugin_info_t;
 
-/* ── SDK 服务（主固件导出，C 名稳定，.so 直接调用） ────────
- * 这类函数在 elf_sdk.cpp 以 extern "C" 实现并在 elf_sdk_init() 注册，
- * 供 .so 通过符号解析调用；规避 C++ mangling 的脆弱性。
- * 单例类方法（VirtualGamepad::instance 等）另行在 elf_framework_syms.cpp 直接注册。
+/* ── 初始化：注册符号表（main.cpp 启动早期调用一次，须在任意 dlopen 之前） ──
+ * 符号表 g_main_elfsyms 由 tools/gen_elf_syms.py 从主固件 .elf 生成（elf_symtab.c），
+ * 白名单过滤 C 函数 / C++ 类方法（单例直出）/ C++ 运行时。.so include 主固件头文件
+ * 直接调用（Xxx::instance().method() / Task::addTask 等原生风格）。
  */
-
-/* 初始化：注册全部符号表（main.cpp 启动早期调用一次，须在任意 dlopen 之前） */
 void elf_sdk_init(void);
-
-/* Task::addTask 的 C 镜像：fn 返回下次唤醒延迟 ms；~0 表示不再唤醒 */
-typedef unsigned int (*elf_task_fn_t)(void* param);
-void* elf_task_add(elf_task_fn_t fn, const char* name, void* param,
-                   unsigned int tick_ms, int affinity);
-void  elf_task_remove(void* task);
-
-/* BatteryManager 直读 */
-int  elf_battery_percent(void);
-int  elf_battery_voltage_mv(void);
-int  elf_battery_charging(void);
-
-/* BleGamepad 只读 */
-unsigned int elf_gamepad_connected_count(void);
-int          elf_gamepad_device_connected(unsigned int player);
-unsigned int elf_gamepad_battery(unsigned int player);
 
 #ifdef __cplusplus
 }

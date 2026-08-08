@@ -36,7 +36,7 @@
 - **AppStack 全权管理生命周期**：push/pop/init/deinit/onForeground/onBackground/onGamepadInput 全部虚分派进 .so（vtable 在 PSRAM）
 - 插件与原生 App 完全一致：自建事件循环/线程、onGamepadInput 直收输入、display->lockGuard() 直接调用
 
-## 3. 当前状态（2026-08-08：R1 全绿 ✅）
+## 3. 当前状态（2026-08-08：R1 + Phase 1 符号脚本化 全绿 ✅）
 
 **实测证据（串口日志）**：
 
@@ -76,16 +76,22 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 插件/主固件同编译 `elf_sdk.h` 的 `ELF_SDK_VERSION`，不匹配拒绝加载。
 **救场案例**：曾因"把 dlsym 函数指针当结构体解引用"读到假版本 1303（函数机器码）——版本校验拦下了必然的崩溃。
 
-## 5. 符号导出（4 张表，`elf_sdk_init()` 在 main.cpp 启动早期注册）
+## 5. 符号导出（单表脚本生成 + 白名单，`elf_sdk_init()` 在 main.cpp 启动早期注册）
 
-| 表 | 文件 | 内容 |
-|----|------|------|
-| C 库生成表 | `main/elfSdk/elf_export_syms.c` | `lv_*` / `esp_log_*` / math / cJSON / `snprintf`/`memcmp` 等 C 函数（name==symbol，可 `tools/gen_elf_syms.py` 全量生成） |
-| C++ 运行时表 | `main/elfSdk/elf_cpp_runtime.cpp` | operator new/delete（`_Znwj`/`_Znaj`/`_ZdlPv`/`_ZdaPv`/`_ZdlPvj`）、`__cxa_guard_*`、`__cxa_atexit`、`__cxa_pure_virtual`、throw 辅助（`__throw_bad_alloc`/`__throw_length_error`/`__throw_bad_array_new_length`/`__throw_logic_error`） |
-| C++ 框架表 | `main/elfSdk/elf_framework_syms.cpp` | App ctor/dtor/pushApp/popApp/replaceWith/setManager + 单例直出（VirtualGamepad/BleGamepad/BatteryManager 的 instance()+方法，asm 重命名取址） |
-| SDK C 包装 | `main/elfSdk/elf_sdk.cpp` | `elf_task_add`/`elf_task_remove`、`elf_battery_*`、`elf_gamepad_*`（稳定 C 名，规避 C++ mangling） |
+**单一符号表** `g_main_elfsyms`（`main/elfSdk/elf_symtab.c`），由 `tools/gen_elf_syms.py` 从主固件 `.elf` 生成：
 
-**单例直出设计**：`instance()` + 方法直接注册，.so 像原生代码一样 `BleGamepad::instance().connectedCount()`。已核实所有单例 `instance()` 定义在 .cpp（非内联、安全）。
+- **提取**：`riscv32-esp-elf-nm --defined-only -g`（含 WEAK 的 W/w 类型，覆盖 weak 的 operator new / `__cxa_*`；组件 `tool/symbols.py` 的 readelf 方案漏 WEAK，故自建）
+- **白名单过滤**（脚本顶部，可读）：
+  - C 函数：前缀（`lv_`/`esp_log_`/`cJSON_`/`esp_lv_adapter_`/`jpeg_`/`esp_jpeg_`）+ 精确名（`snprintf`/math/`rand`）
+  - C++ 类方法（`_Z*`）：`c++filt` 反解后匹配 `^Class::`（App/Task/Thread/GUI/FontLoader/Audio/单例…），**单例直出** = `Xxx::instance().method()`，.so 像原生代码
+  - C++ 运行时：精确 mangled 名（`_Znwj`/`__cxa_*`）+ demangled 前缀（`operator new/delete`、`__cxa_`）
+- **生成** `{ "name", (void*)&name }`：`&name` **链接期取址**（主固件重编自动更新）；C++ mangled 名是合法 C 标识符，`extern int` 声明仅取址（链接器按字符串名匹配）
+- **MUST_HAVE 校验**：核心符号缺失/未选中 → 脚本报错退出（防表缺关键符号致 .so 解析失败）
+- ⚠ **static inline 的 LVGL API 不在 .elf**（调用时内联）→ 不导出；.so include `lvgl.h` 自行内联（无需符号解析）
+
+**已删除的旧 4 张手写表**：`elf_export_syms.c` / `elf_cpp_runtime.cpp` / `elf_framework_syms.cpp` / `elf_sdk.cpp` 的 C 包装（`elf_task_*`/`elf_battery_*`/`elf_gamepad_*`）——统一由脚本生成的单表替代。
+
+**演进**：插件需要新符号 → 白名单加类名/前缀 → 重跑 `gen_elf_syms.py` → 重编主固件（不再手写任何符号表）。
 
 ## 6. 已核实的 ABI 名 / 坑（nm 结论，riscv32-esp-elf g++ 14.2.0 Itanium）
 
@@ -165,7 +171,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 ### R2（待办）
 
 - [ ] 热更新实测：改 smoke 文案 → 重编 → PUT → 重进见新，主固件未重烧
-- [ ] 单例直出启用：smoke 加回 VirtualGamepad/BleGamepad/BatteryManager 调用（符号已全 ✅）
+- [x] 单例直出启用：smoke P7 调 Task::addTask/removeTask + BatteryManager::getPercent + BleGamepad::connectedCount/getBatteryLevel（设备验证通过 ✅；符号表已脚本化，无需手写）
 - [ ] 卸载后 PSRAM 堆回落测量（`heap_caps_get_free_size(MALLOC_CAP_SPIRAM)`）
 - [ ] 多 App 共享 .so（refcount=2，最后一个退出才 dlclose）
 - [ ] 无 .so 时入口"未安装"不崩溃
@@ -184,11 +190,10 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 | 文件 | 说明 |
 |------|------|
-| `main/elfSdk/elf_sdk.h` | ABI 契约（`elf_plugin_info_t` + `ELF_SDK_VERSION` + SDK C 包装声明） |
-| `main/elfSdk/elf_sdk.cpp` | `elf_sdk_init()` 注册 4 张表 + SDK C 包装实现 |
-| `main/elfSdk/elf_cpp_runtime.cpp` | C++ 运行时符号表（operator new/delete 用包装函数规避语法坑） |
-| `main/elfSdk/elf_framework_syms.cpp` | C++ 框架/单例符号表（asm 重命名取址） |
-| `main/elfSdk/elf_export_syms.c` | C 库符号表（R1 手工最小集，可 gen_elf_syms.py 全量替换） |
+| `main/elfSdk/elf_sdk.h` | ABI 契约（`elf_plugin_info_t` + `ELF_SDK_VERSION` + `elf_sdk_init` 声明） |
+| `main/elfSdk/elf_sdk.cpp` | `elf_sdk_init()` 注册 `g_main_elfsyms`（单表） |
+| `main/elfSdk/elf_symtab.c` | **符号表（脚本生成）**：`g_main_elfsyms`，tools/gen_elf_syms.py 白名单生成 |
+| `tools/gen_elf_syms.py` | 符号表生成脚本（nm + c++filt + 白名单 + MUST_HAVE 校验） |
 | `main/elfManager/elfManager.hpp/.cpp` | 模块缓存/refcount/热更新/内部 RAM 加载 worker |
 | `main/app/app.hpp` | App 基类 + `setElfModule`/`m_elfModule` |
 | `main/app/appStack.cpp` | 两处删除点 `delete` 后调 `onAppDestroyed` |
@@ -199,3 +204,4 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 ## 16. 开发日志（时间线）
 
 - **2026-08-08**：设计确定（App* 工厂模型，替代容器）；R1 代码落地；依次解决：operator new 语法坑 → 5 个 App/单例 mangled 名（nm 核实）→ `size_t`=`j` → smoke .so 6 个 UND 符号 → **ElfManager::loadOne 把 dlsym 函数指针当结构体解引用**（假版本 1303）→ **R1 全绿 ✅**。
+- **2026-08-08（Phase 1 符号面脚本化）**：4 张手写符号表 → **单表 `g_main_elfsyms`（gen_elf_syms.py 从 .elf 白名单生成）**；删 7 个 C 包装；主固件 build 通过。**关键验证**：① `extern int _ZN...;` + `&_ZN...` 对 C++ mangled 符号链接通过（假设成立）；② static inline 的 LVGL API 不在 .elf（`lv_obj_clear_flag` 等取址 undefined）→ 修正为过渡表 include `lvgl.h` 取址生成本地副本；最终脚本 nm 天然排除 inline，.so 自行内联。smoke P7 打开单例直出（Task/BatteryManager/BleGamepad），待设备验证。
