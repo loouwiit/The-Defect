@@ -759,7 +759,7 @@ void ChineseChessApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Gam
 	bool lyDown = (state.ly > center + deadZone);
 
 	// 边沿检测（每玩家独立）
-	uint16_t newPress = state.buttons & ~m_prevButtons[MaxHosts][playerId];
+	uint16_t newPress = state.buttons & ~m_prevButtons[hostId][playerId];
 	m_prevButtons[hostId][playerId] = state.buttons;
 
 	auto gameState = m_logic.getState();
