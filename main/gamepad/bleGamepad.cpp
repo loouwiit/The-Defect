@@ -342,7 +342,7 @@ void BleGamepad::conectNext()
 		{
 			if (memcmp(pd.bda, bda.data(), 6) == 0)
 			{
-				strncpy(dev.name, pd.name, sizeof(dev.name) - 1);
+				snprintf(dev.name, sizeof(dev.name), "%s", pd.name);
 				break;
 			}
 		}
@@ -1099,7 +1099,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 				ctx.name[0] = '\0';
 				for (auto& sd : self.m_scanResults) {
 					if (memcmp(sd.bda, desc.peer_id_addr.val, 6) == 0) {
-						strncpy(ctx.name, sd.name, sizeof(ctx.name) - 1);
+						snprintf(ctx.name, sizeof(ctx.name), "%s", sd.name);
 						break;
 					}
 				}
@@ -1107,7 +1107,7 @@ int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)
 				if (ctx.name[0] == '\0') {
 					for (auto& pd : self.m_pairedDevices) {
 						if (memcmp(pd.bda, desc.peer_id_addr.val, 6) == 0) {
-							strncpy(ctx.name, pd.name, sizeof(ctx.name) - 1);
+							snprintf(ctx.name, sizeof(ctx.name), "%s", pd.name);
 							break;
 						}
 					}
