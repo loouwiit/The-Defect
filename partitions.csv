@@ -5,4 +5,5 @@ nvs,      data, nvs  ,         , 16k
 otadata,  data, ota  ,         ,  8k,
 phy_init, data, phy  ,         ,  4k,
 ota_0,    app , ota_0,         ,  6M
+ota_1,    app , ota_1,         ,  6M
 fat,      data, fat  ,      16M, 16M,

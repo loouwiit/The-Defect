@@ -190,6 +190,7 @@ ESP32-C6 (协处理器)
 - **WiFi AP** — 断开时自动切换到热点模式
 - **输入法** — 拼音/五笔/混合中文输入，自定义词库（Rime 提取、FAT 加载、五笔优先拼音兜底）、空格上屏候选
 - **时间同步** — SNTP 自动同步，默认开启 + NVS 持久化，WiFi 连接即同步、每小时自动校正
+- **OTA 空中升级** — 封壳后唯一升级途径：浏览器上传固件即自动升级，支持手动确认 / 手动分区切换 / 自动回滚安全网（详见下方「OTA 空中升级」）
 
 ---
 
@@ -277,6 +278,7 @@ ESP32-C6 (协处理器)
 | **ELF 插件层** | ElfManager / elfSdk / **elfapps（5 游戏 .so 插件）** | `main/elfManager/` `main/elfSdk/` `elfapps/*/` |
 | 应用 | 系统 App（桌面/设置/AI/脚本/市场/测试等） | `main/app/*/` |
 | 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS / Discovery | `main/wifi/` `main/server/` `main/wsServer/` `main/discovery/` |
+| **OTA** | **OtaManager**（双槽升级 + 回滚检测 + 手动切换/确认） | `main/ota/` |
 | 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
 | 外设 | BLE Gamepad / Battery / SystemMonitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
 | GUI | 色板 + 工厂方法 | `main/gui/` |
@@ -299,7 +301,7 @@ idf.py build
 
 ### 补丁
 
-项目依赖 4 个对 managed_components 的补丁：
+项目依赖 7 个对 managed_components 的补丁：
 
 ```bash
 bash patches/apply.sh
@@ -317,11 +319,12 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 | 分区 | 大小 | 用途 |
 |------|------|------|
-| nvs | 16KB | 配置持久化 |
-| otadata | 8KB | OTA 数据 |
+| nvs | 16KB | 配置持久化（含 OTA 回滚记录） |
+| otadata | 8KB | OTA 启动选择数据 |
 | phy_init | 4KB | 射频校准 |
-| ota_0 | 6MB | 应用固件 |
-| fat | 16MB | 数据分区 (/root/) |
+| ota_0 | 6MB | 应用固件槽 0 |
+| ota_1 | 6MB | 应用固件槽 1（双 OTA 交替升级） |
+| fat | 16MB | 数据分区 (/root/，偏移固定，OTA 不影响数据) |
 
 ### 资源上传
 
@@ -352,6 +355,52 @@ reserces/
 
 ---
 
+## OTA 空中升级
+
+完整板封壳后无 USB 调试口，**固件升级唯一途径是 OTA**（浏览器或 curl 上传固件镜像，设备自动重启切换到新槽）。分区表为 `ota_0` / `ota_1` 双 6MB 槽，升级写入非当前运行槽，校验通过后切换启动。
+
+### 升级
+
+1. 确保完整板已联网（STA 连 WiFi 或 AP 热点均可）
+2. 浏览器打开 `http://<主机名>.local/server/ota/index.html`
+3. 选择 `build/The-Defect.bin`（app 镜像）→ 上传 → 进度条 → 自动重启
+
+或命令行：
+
+```bash
+curl -X POST --data-binary @build/The-Defect.bin http://<主机名>.local/api/ota
+```
+
+### 手动确认（重要）
+
+启用 bootloader 回滚后，**OTA 升级的固件首次启动处于 `PENDING_VERIFY`（回滚窗口打开）**——任何重启都会自动回退旧版。用户验证新固件正常后，需在页面点击「确认此固件可用」（或 `POST /api/ota/confirm`）标记 VALID 关闭窗口。首次 USB 烧录的固件为 `UNDEFINED`，无需确认。
+
+### 手动分区切换 / 回退
+
+固件确认 VALID 后，运行中崩溃不会自动回退（只能重启回同一固件）。此时系统还能跑（能开 web 页面）的话，可在页面「分区管理」手动决定下次启动哪个分区：
+
+- **切换**：点击目标分区「切换到此分区」→ 设备重启到该分区（同样需确认）
+- **回退**：点击「标记当前无效并回退到另一槽」→ 当前分区标记 INVALID + 切换到另一槽
+- API：`POST /api/ota/setBoot`，body `{"slot":"ota_1","invalidate":false}`
+
+### 回滚安全网与可观测性
+
+- `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`：新固件首次启动未确认就崩溃/重启 → bootloader 自动回退旧版，防封壳变砖
+- `GET /api/otaInfo`：查询当前/目标槽版本、失败槽、上次回滚记录、各槽状态（页面顶部也会显示回滚红色警告条）
+- **版本防重烧**：上传与上次失败版本相同的镜像会被拒绝（400）
+
+### 查询状态
+
+```bash
+curl http://<主机名>.local/api/otaInfo
+```
+
+返回 JSON：`running`（当前槽+版本+状态）、`next`（目标槽）、`last_invalid`（失败槽）、`last_rollback`（NVS 回滚记录）、`slots`（各槽状态 valid/aborted/empty…）。
+
+> ⚠ 分区表/bootloader 变更无法通过 OTA 完成，需在封壳前一次性 USB 全量刷写。
+
+---
+
 ## 项目结构
 
 ```
@@ -377,6 +426,7 @@ reserces/
 │   ├── market/               ← 游戏市场 HTTP 客户端
 │   ├── monitor/              ← 系统监视器（CPU + 内存 + FPS）
 │   ├── mutex/                ← RAII 互斥锁
+│   ├── ota/                  ← OTA 空中升级（双槽 + 回滚检测 + 手动切换）
 │   ├── screenStream/         ← 屏幕串流
 │   ├── server/               ← HTTP 服务器
 │   ├── storage/              ← FAT / memFS / SD
@@ -389,7 +439,7 @@ reserces/
 ├── elfapps/                  ← 游戏 ELF 插件工程（snake/chineseChess/fruitNinja/tetris/douDiZhu）
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
 ├── The-Defect-Market/        ← 游戏市场服务器 + 社区游戏内容 (git submodule)
-├── patches/                  ← managed_components 补丁（6 个）
+├── patches/                  ← managed_components 补丁（7 个）
 ├── reserces/                 ← FAT 分区资源文件
 │   ├── lua/                  ← Lua 脚本
 │   ├── server/               ← HTTP 静态资源

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>OTA 固件升级</title>
+	<style>
+		body {
+			font-family: -apple-system, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+			background: #1a1a2e;
+			color: #fff;
+			margin: 0;
+			padding: 24px;
+			max-width: 640px;
+			margin: 0 auto;
+		}
+		h2 { margin-top: 8px; }
+		.card {
+			background: #2d2d3d;
+			border-radius: 12px;
+			padding: 20px;
+			margin-top: 16px;
+		}
+		.banner {
+			border-radius: 8px;
+			padding: 12px 16px;
+			margin-top: 12px;
+			font-size: 14px;
+			line-height: 1.5;
+		}
+		.banner.danger { background: #3a1f1f; border: 1px solid #ff3b30; color: #ff8a80; }
+		.banner.warn   { background: #3a2f1a; border: 1px solid #ffa800; color: #ffd180; }
+		#info { line-height: 1.6; }
+		#info b { color: #00c853; }
+		.row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+		input[type=file] { flex: 1; min-width: 200px; color: #ccc; }
+		button {
+			background: #0088ff;
+			color: #fff;
+			border: none;
+			border-radius: 8px;
+			padding: 10px 20px;
+			font-size: 15px;
+			cursor: pointer;
+		}
+		button:disabled { background: #555; cursor: not-allowed; }
+		button.small { padding: 6px 12px; font-size: 13px; margin-left: 8px; }
+		button.danger { background: #ff3b30; }
+		.progress { width: 100%; height: 14px; margin-top: 12px; }
+		#status { margin-top: 12px; font-size: 14px; line-height: 1.6; }
+		.ok { color: #00c853; }
+		.err { color: #ff8a80; }
+		.slot-row {
+			display: flex; align-items: center; gap: 10px;
+			padding: 10px 12px; margin-top: 8px;
+			background: #23233a; border-radius: 8px; flex-wrap: wrap;
+		}
+		.slot-tag {
+			font-family: monospace; font-weight: bold;
+			background: #1a1a2e; padding: 3px 10px; border-radius: 6px;
+		}
+		.slot-tag.current { background: #0088ff; }
+		.slot-badge { font-size: 12px; color: #888; }
+		.badge-running { color: #00c853; }
+		.badge-aborted, .badge-invalid { color: #ff8a80; }
+		h3 { margin: 0 0 4px 0; font-size: 16px; }
+	</style>
+</head>
+<body>
+	<h2>固件空中升级 (OTA)</h2>
+
+	<div class="card" id="info">正在读取设备信息...</div>
+	<div id="confirmBanner" class="banner warn" style="display:none"></div>
+	<div id="rollbackBanner" class="banner danger" style="display:none"></div>
+	<div id="invalidBanner" class="banner warn" style="display:none"></div>
+
+	<div class="card">
+		<div class="row">
+			<input type="file" id="fwFile" accept=".bin" />
+			<button id="uploadBtn" disabled>开始升级</button>
+		</div>
+		<progress id="progress" value="0" max="100" style="display:none"></progress>
+		<p id="status"></p>
+	</div>
+
+	<div class="card">
+		<h3>分区管理</h3>
+		<p style="margin:4px 0 0 0;font-size:12px;color:#888">当前固件异常（运行中崩溃等）时可手动切换下次启动分区，设备将重启。切换目标为“已回滚/无效”槽位时需注意其可能无法启动。</p>
+		<div id="slotManage">加载中...</div>
+	</div>
+</body>
+
+<script>
+	let fileInput = document.getElementById("fwFile");
+	let uploadBtn = document.getElementById("uploadBtn");
+	let progressEl = document.getElementById("progress");
+	let statusEl = document.getElementById("status");
+	let otaInfo = null;
+
+	// ── 读取设备 OTA 状态 ──
+	async function loadInfo() {
+		try {
+			const res = await fetch("/api/otaInfo");
+			const info = await res.json();
+			renderInfo(info);
+			uploadBtn.disabled = true; // 选了文件才可点
+		} catch (e) {
+			document.getElementById("info").textContent = "无法读取设备信息，请确认设备已连接网络";
+		}
+	}
+
+	function fmtSec(sec) {
+		sec = Number(sec) || 0;
+		if (sec < 60) return sec + " 秒前";
+		if (sec < 3600) return Math.floor(sec / 60) + " 分钟前";
+		return Math.floor(sec / 3600) + " 小时前";
+	}
+
+	function renderInfo(info) {
+		let run = info.running || {};
+		let next = info.next || {};
+		let html = "";
+		html += "<p>当前固件：<b>" + (run.label || "?") + "</b>（版本 " + (run.version || "未知") + "）</p>";
+		html += "<p>升级目标：<b>" + (next.label || "?") + "</b>" +
+			(next.version ? "（版本 " + next.version + "）" : "（尚未写入）") + "</p>";
+
+		// 新固件待确认（OTA 后首次启动，回滚窗口打开）→ 黄色警告 + 确认按钮
+		let cb = document.getElementById("confirmBanner");
+		if (run.state === "pending_verify") {
+			cb.style.display = "block";
+			cb.innerHTML = "⚠ 新固件（" + (run.label || "?") + "）尚未确认：任何重启将自动回退到上一版本。" +
+				"请验证固件正常后点击 <button class=\"small\" onclick=\"confirmFirmware()\">确认此固件可用</button>";
+		} else {
+			cb.style.display = "none";
+		}
+
+		// 槽位状态
+		if (info.slots) {
+			let slots = info.slots.map(function (s) {
+				let name = { valid: "正常", aborted: "已回滚", invalid: "无效", pending_verify: "待确认", new: "新", empty: "空" }[s.state] || s.state;
+				return s.label + ":" + name;
+			}).join("　");
+			html += "<p>槽位状态：<b>" + slots + "</b></p>";
+		}
+		document.getElementById("info").innerHTML = html;
+
+		// 上次升级回滚 → 红色警告
+		let rb = document.getElementById("rollbackBanner");
+		if (info.last_rollback) {
+			rb.style.display = "block";
+			rb.textContent = "⚠ 上次升级已回滚：" + info.last_rollback.slot + " 升级失败（" +
+				fmtSec(info.last_rollback.boot_sec) + "），已自动恢复旧版本。请检查新固件后再升级。";
+		}
+
+		// 历史失败记录（无回滚记录时）→ 黄色提示
+		let inv = document.getElementById("invalidBanner");
+		if (info.last_invalid && !info.last_rollback) {
+			inv.style.display = "block";
+			inv.textContent = "ℹ 存在历史失败记录：" + info.last_invalid.label +
+				"（版本 " + (info.last_invalid.version || "未知") + "）无法启动，上传该版本会被拒绝。";
+		}
+
+		otaInfo = info;
+		renderSlotManager(info);
+	}
+
+	// ── 分区管理 ──
+	function slotStateName(s) {
+		let name = { valid: "正常", aborted: "已回滚", invalid: "无效", pending_verify: "待确认", new: "新", empty: "空" }[s.state] || s.state;
+		return name;
+	}
+
+	function renderSlotManager(info) {
+		let el = document.getElementById("slotManage");
+		if (!info.slots || info.slots.length < 2) {
+			el.innerHTML = "<p>仅单 OTA 槽，无需切换。</p>";
+			return;
+		}
+		let run = info.running ? info.running.label : "";
+		let html = "";
+		info.slots.forEach(function (s) {
+			let isCurrent = s.label === run;
+			let badge = '<span class="slot-badge badge-' + (s.state === "aborted" || s.state === "invalid" ? "aborted" : "running") + '">' + slotStateName(s) + "</span>";
+			html += '<div class="slot-row">';
+			html += '<span class="slot-tag' + (isCurrent ? " current" : "") + '">' + s.label + "</span>";
+			html += badge;
+			if (isCurrent) html += '<span class="slot-badge badge-running">（当前）</span>';
+			else html += '<button class="small" data-slot="' + s.label + '" onclick="switchSlot(this)">切换到此分区</button>';
+			html += "</div>";
+		});
+		// 手动回退：标记当前无效并切到另一槽
+		let other = (info.slots || []).find(function (s) { return s.label !== run; });
+		html += '<div class="slot-row"><span style="color:#ff8a80;font-size:13px">⚠ 当前固件异常？</span>' +
+			'<button class="small danger" onclick="rollbackFirmware()">标记当前无效并回退到 ' + (other ? other.label : "另一槽") + "</button></div>";
+		el.innerHTML = html;
+	}
+
+	function setBoot(slot, invalidate, label) {
+		if (!confirm(label + "\n\n设备将立即重启，请确认。")) return;
+		fetch("/api/ota/setBoot", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ slot: slot, invalidate: invalidate })
+		}).then(function (r) {
+			if (r.ok) {
+				statusEl.className = "ok";
+				statusEl.textContent = "✅ 已切换，设备即将重启到 " + slot + "...";
+			} else {
+				return r.text().then(function (t) {
+					statusEl.className = "err";
+					statusEl.textContent = "❌ 切换失败：" + t;
+					loadInfo();
+				});
+			}
+		}).catch(function () {
+			statusEl.className = "ok";
+			statusEl.textContent = "设备连接已断开 —— 切换可能已生效，设备正在重启。";
+		});
+	}
+
+	function switchSlot(btn) {
+		setBoot(btn.dataset.slot, false, "切换下次启动分区到 " + btn.dataset.slot + " ？");
+	}
+
+	function rollbackFirmware() {
+		if (!otaInfo || !otaInfo.running) return;
+		let other = (otaInfo.slots || []).find(function (s) { return s.label !== otaInfo.running.label; });
+		if (!other) { alert("无其他分区可回退"); return; }
+		setBoot(other.label, true,
+			"手动回退：\n\n1. 当前分区 " + otaInfo.running.label + " 将被标记为无效（以后不再自动启动）\n" +
+			"2. 下次启动切换到 " + other.label + "（版本 " + (other.version || "未知") + "）\n\n" +
+			"设备将立即重启，请确认。");
+	}
+
+	// ── 确认当前固件（关闭回滚窗口）──
+	function confirmFirmware() {
+		if (!confirm("确认当前固件可用？\n\n确认后回滚窗口关闭，之后的重启将不再自动回退。")) return;
+		fetch("/api/ota/confirm", { method: "POST" })
+			.then(function (r) {
+				if (r.ok) {
+					statusEl.className = "ok";
+					statusEl.textContent = "✅ 已确认当前固件，回滚窗口关闭。";
+					loadInfo();
+				} else {
+					return r.text().then(function (t) {
+						statusEl.className = "err";
+						statusEl.textContent = "❌ 确认失败：" + t;
+					});
+				}
+			})
+			.catch(function () {
+				statusEl.className = "err";
+				statusEl.textContent = "❌ 确认请求失败";
+			});
+	}
+
+	// ── 上传升级 ──
+	function startUpload() {
+		let file = fileInput.files[0];
+		if (!file) { statusEl.textContent = "请先选择固件文件"; return; }
+
+		uploadBtn.disabled = true;
+		progressEl.style.display = "block";
+		progressEl.value = 0;
+		statusEl.className = "";
+		statusEl.textContent = "正在上传固件...";
+
+		let xhr = new XMLHttpRequest();
+		xhr.open("POST", "/api/ota");
+		xhr.setRequestHeader("Content-Type", "application/octet-stream");
+
+		xhr.upload.onprogress = function (e) {
+			if (e.lengthComputable) {
+				progressEl.value = (e.loaded / e.total) * 100;
+				statusEl.textContent = "正在上传 " + (e.loaded / 1048576).toFixed(1) +
+					" / " + (e.total / 1048576).toFixed(1) + " MB";
+			}
+		};
+
+		xhr.onload = function () {
+			if (xhr.status === 200) {
+				progressEl.value = 100;
+				statusEl.className = "ok";
+				statusEl.textContent = "✅ 升级成功，设备即将重启。约 30 秒后刷新页面确认新版本。";
+			} else {
+				statusEl.className = "err";
+				statusEl.textContent = "❌ 升级失败：" + (xhr.responseText || "未知错误") + "（当前固件未受影响）";
+				uploadBtn.disabled = false;
+				fileInput.value = "";
+			}
+		};
+
+		xhr.onerror = function () {
+			// 设备重启导致连接断开
+			progressEl.value = 100;
+			statusEl.className = "ok";
+			statusEl.textContent = "设备连接已断开 —— 升级可能已成功，设备正在重启。请稍后刷新页面确认版本。";
+		};
+
+		xhr.send(file);
+	}
+
+	uploadBtn.onclick = startUpload;
+	fileInput.onchange = function () { uploadBtn.disabled = !fileInput.files[0]; };
+	loadInfo();
+</script>
+</html>

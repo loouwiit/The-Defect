@@ -16,17 +16,20 @@ nvs,      data, nvs  ,         , 16k
 otadata,  data, ota  ,         ,  8k,
 phy_init, data, phy  ,         ,  4k,
 ota_0,    app , ota_0,         ,  6M
+ota_1,    app , ota_1,         ,  6M
 fat,      data, fat  ,      16M, 16M,
 ```
 
 分区说明：
 | 分区 | 大小 | 用途 |
 |------|------|------|
-| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名、时间自动同步开关等） |
+| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名、时间自动同步开关、**OTA 回滚记录**等） |
 | otadata | 8KB | OTA 启动选择数据 |
 | phy_init | 4KB | WiFi/BT 物理层校准数据 |
-| ota_0 | 6MB | 应用固件（单 OTA slot） |
-| fat | 16MB | FAT 数据分区，挂载到 `/root/` |
+| ota_0 / ota_1 | 6MB × 2 | 双 OTA 应用槽（交替升级，bootloader 自动回滚安全网） |
+| fat | 16MB | FAT 数据分区，挂载到 `/root/`（偏移固定 16M，OTA 不影响数据） |
+
+> ⚠ 完整板已封壳（无 USB 调试口），**唯一升级途径是 OTA**：浏览器 `http://<主机名>.local/server/ota/index.html` 或 `curl -X POST --data-binary @build/The-Defect.bin http://<主机名>.local/api/ota`。升级镜像 = `build/The-Defect.bin`（app 镜像，非 merge 整片）。分区表/bootloader 变更需在封壳前一次性 USB 全量刷写（OTA 无法改分区表）。
 
 ## Resources
 
@@ -106,6 +109,7 @@ reserces/
 | | elfSdk | `main/elfSdk/` | ABI 契约（`elf_plugin_info_t` v4 + `ELF_SDK_VERSION`）+ 符号表 `g_main_elfsyms`（脚本生成）+ 符号哈希解析 + 启动日志静默 |
 | | elfapps | `elfapps/<name>/` | 5 个游戏 .so 插件工程（snake / chineseChess / fruitNinja / tetris / douDiZhu） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
+| **OTA** | OtaManager | `main/ota/otaManager.hpp` | 双槽 OTA 空中升级：`POST /api/ota` 流式写入 + `GET /api/otaInfo` 状态查询 + bootloader 自动回滚检测（NVS 记录）+ 版本防重烧 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
 | | SocketStreamWindow | `main/wifi/socketStreamWindow.hpp` | 连接池管理器（HTTP 6 worker 线程） |
@@ -1418,6 +1422,84 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 - 基于 `SocketStreamWindow` 连接池，6 个工作者线程从池中取连接处理
 - 内置 HTML 文件服务（`buildinHtml/`）
 - 静态资源目录：`/root/`（FAT 分区）
+
+### OtaManager — 双槽 OTA 空中升级（封壳设备唯一升级途径）
+
+**模块路径**: `main/ota/otaManager.hpp` / `.cpp`
+
+系统级模块（C 风格函数 API），复用现有裸 socket HTTP 服务器实现 OTA 接收端：
+
+| API | 说明 |
+|-----|------|
+| `POST /api/ota` | **流式写入 OTA 分区**（浏览器/curl 上传 `build/The-Defect.bin`，成功后 1s 自动重启） |
+| `GET /api/otaInfo` | JSON 状态：running/next 槽位 + 版本、last_invalid（失败槽）、last_rollback（NVS 记录）、各槽状态 |
+| `otaInit()` | 启动早期（延迟 10s）比对 pending 槽 → 判定上次升级是否回滚（NVS 记录）。**不自动确认固件**——回滚确认全手动（见下） |
+| `POST /api/ota/confirm` | **手动确认当前固件**：OTA 升级后的固件处于 `PENDING_VERIFY`（回滚窗口打开），用户验证正常后调用 → `esp_ota_mark_app_valid_cancel_rollback()` 标记 VALID 关闭窗口（无需重启） |
+| `POST /api/ota/setBoot` | 手动切换下次启动分区（body `{"slot":"ota_1","invalidate":false}`；`invalidate=true` 同时标记当前分区无效=手动回退；成功 1s 后重启） |
+
+**流程**（`httpOta`，serverKernal.cpp）：
+```
+POST /api/ota（body 不缓冲，socket 流式读取）
+  → 并发标志（6 worker 互斥）→ 目标分区检查 → 大小预检
+  → 读镜像头（512B）→ otaPrecheckImage（magic + 版本防重烧）
+  → esp_ota_begin(OTA_WITH_SEQUENTIAL_WRITES) → 记录 pending 槽到 NVS
+  → 循环 readByte(4KB) → esp_ota_write
+  → esp_ota_end（镜像校验）→ esp_ota_set_boot_partition → 1s 后 esp_restart
+```
+
+**回滚可观测性（封壳设备无串口，靠自身暴露状态）**：
+- 升级前 `otaBegin()` 把目标槽写入 NVS `ota.pending_slot`；重启后 `otaInit()` 比对 running：
+  - `pending != running` → 目标槽没跑起来 → 回滚发生 → 记录 NVS `ota.last_rollback` + `ota.last_rb_sec`（boot 秒）
+  - `pending == running` → 升级成功，仅清除 pending
+- `esp_ota_get_last_invalid_partition()` 检测失败槽（`ABORTED`/`INVALID`），`esp_ota_get_state_partition` 读槽状态（valid/pending_verify/aborted/empty…）
+- **版本防重烧**：上传镜像版本与 last_invalid 相同 → 400 拒绝（防反复烧入坏固件）
+
+**回滚确认（全手动）**：`otaInit()` **不自动** `mark_app_valid_cancel_rollback`。
+- 首次 USB 烧录固件 = `UNDEFINED`（出厂信任，无需确认）；OTA 升级固件 = `PENDING_VERIFY`（回滚窗口打开）
+- 未确认时**任何重启**都会触发 bootloader 自动回退旧版（安全网保持最大效力）
+- 用户验证正常后：web 页面「确认此固件」→ `POST /api/ota/confirm` → VALID 关闭窗口
+- 手动切换 `setBoot` 的目标槽同样进入待确认状态，需再次确认
+
+**手动分区切换 / 回退（运行中崩溃兜底）**：
+- 10s 自动回滚只保护"启动早期崩溃"；固件 VALID 后运行中崩溃重启仍回同一固件
+- `POST /api/ota/setBoot`（body `{"slot":"ota_1","invalidate":false}`）：用户决定下次启动分区
+  - `invalidate=true` = 手动回退：当前分区标 INVALID（`esp_ota_mark_app_invalid_rollback`，失败仅警告）
+  - `esp_ota_set_boot_partition` 把目标槽重置为可启动（含之前 ABORTED/INVALID 的槽，官方"启动无效/中止应用"标准做法）
+  - 校验：目标槽存在 / 非当前运行 / 镜像有效（`esp_ota_get_partition_description`）
+
+**关键配置**：
+- 分区表：`ota_0` + `ota_1` 双 6M 槽（fat 偏移 16M 不变，数据零迁移）
+- `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`：未确认固件崩溃/重启 → bootloader 自动回退旧版，防封壳变砖
+- `main/CMakeLists.txt` PRIV_REQUIRES 含 `app_update esp_app_format esp_partition esp_timer bootloader_support`
+- 升级页面：FAT 静态资源 `reserces/server/ota/index.html`（`/server/ota/` 前缀映射），显示当前/目标版本 + 待确认警告条 + 回滚警告条 + 分区管理（切换/回退）+ 上传进度
+
+**⚠ P4 内部 RAM 三原则**（OTA 全链路实测踩坑，违反必崩）：
+1. **调用 OTA API 的任务栈必须在内部 RAM**：`esp_ota_*` 内部会 mmap flash /
+   `spi_flash_disable_interrupts_caches_and_other_cpu`（禁用 cache 期间栈在 PSRAM = assert 崩溃）。
+   server coWorker 栈 / `Task::addTask` daemon 栈均为 PSRAM → 必须经 `otaRunInInternalStack` 执行。
+2. **`esp_ota_write` 的源缓冲必须在内部 RAM**：写 flash 禁 cache 窗口内读 PSRAM = 非法访问
+   （PSRAM 依赖 cache）→ 栈溢出 + 堆损坏连锁崩溃。用 `otaGetWriteBuffer()`/`otaGetHeaderBuffer()`
+   提供的静态 `.bss` 缓冲（`MALLOC_CAP_SPIRAM` 或栈数组都踩过坑）。
+3. **内部任务用常驻 + 队列**（`otaRunInInternalStack` 实现）：懒创建常驻 `otaInt` 任务
+   （`xTaskCreateStatic` + 内部 RAM 静态栈 8192 words）+ `xQueue` 请求队列。
+   空闲时阻塞零 CPU；**不要**"临时创建 + `vTaskSuspend` + `vTaskDelete`"——cache 暂停期
+   交叉核访问已释放栈会踩内存（`Bad tail` / `multi_heap` 损坏）。静态栈/缓冲放 `.bss`
+   （普通 static，勿加 `EXT_RAM_BSS_ATTR`）；写缓冲已移出栈后实测 8192 words 余量充足。
+
+**⚠ HTTP body 非阻塞读取残留**（`readBodyFully`，serverKernal.cpp）：
+- `ISocketStream::read()/readByte()/getline()` 均非阻塞（IBuffer 仅 64B，`MSG_DONTWAIT`），
+  单次调用可能读不满 body → 残留字节被同一 TCP 连接的下一个请求误当请求行（诡异 POST，
+  如 `path=ota_1","invalidate":false}`）。**所有 body 读取必须循环读完**
+  （`readBodyFully()`：循环 `readByte` + `isGood` 断连检查 + `vTaskDelay(1)`）。
+- 已覆盖：`/api/floor`、`/api/wifiStart`、`/api/apStart`、`/api/formatFlash`、
+  `/api/aiConfig`、`/api/mdnsConfig`、`httpDelete`、`httpOtaSetBoot`、`httpOta`。
+- `/api/formatFlash` 原 VLA `char body[bodyLenght+1]`（栈上，恶意大 body 栈溢出）→ 已改堆分配。
+
+**⚠ 路由长度必须精确**（`stringCompare` 严格长度匹配）：
+- `stringCompare(uri, len, "/api/xxx", n)` 的 `n` 是**字符串精确长度**，手数极易错；
+  长度不符恒 false → handler 静默不执行（`/api/ota/setBoot` 曾传 15 实际 16，切换"没反应"）。
+- 新增路由建议用 `sizeof("/api/xxx") - 1`，或注释标注长度。
+
 
 ### WS Server — WebSocket 服务器
 

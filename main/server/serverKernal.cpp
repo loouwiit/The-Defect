@@ -1,6 +1,8 @@
 #include <time.h>
 
 #include <esp_task.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
 #include <lwip/sockets.h>
 
 #include "utility/stringCompare.hpp"
@@ -16,6 +18,7 @@
 #include "aiAgent/aiConfig.hpp"
 #include "aiAgent/aiClient.hpp"
 #include "aiAgent/aiParser.hpp"
+#include "ota/otaManager.hpp"
 
 #include "task/task.hpp"
 
@@ -57,6 +60,10 @@ void sendOk(OSocketStream& socketStream);
 void sendBadRequest(OSocketStream& socketStream);
 void httpGet(IOSocketStream& socketStream, HttpRequest& request);
 void httpPost(IOSocketStream& socketStream, HttpRequest& request);
+void httpOta(IOSocketStream& socketStream, HttpRequest& request);
+static void httpOtaInternal(void* p);
+void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request);
+void httpOtaConfirm(IOSocketStream& socketStream, HttpRequest& request);
 void httpPut(IOSocketStream& socketStream, HttpRequest& request);
 void httpDelete(IOSocketStream& socketStream, HttpRequest& request);
 void restart();
@@ -365,9 +372,52 @@ void sendBadRequest(OSocketStream& socketStream)
 	respond.send(socketStream);
 }
 
+// 循环读取完整 body。readByte 非阻塞（IBuffer 仅 64B），单次可能读不满；
+// 残留 body 会被同一连接的下一个请求误当请求行（曾出现 path=ota_1",... 诡异 POST）。
+// 成功返回 true，并在 buf[len] 写 '\0'（调用方需保证 buf 至少 len+1 字节）。
+static bool readBodyFully(IOSocketStream& socketStream, size_t len, char* buf)
+{
+	size_t got = 0;
+	while (got < len)
+	{
+		size_t n = socketStream.readByte(buf + got, len - got);
+		if (n == 0)
+		{
+			if (!socketStream.isGood()) return false;
+			vTaskDelay(1);
+			continue;
+		}
+		got += n;
+	}
+	buf[len] = '\0';
+	return true;
+}
+
 void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 {
 	const char* uri = (!(request.getPath()[0] == '/' && request.getPath()[1] == '\0')) ? (request.getPath()) : ("/index.html");
+
+	// ── API: OTA 状态（槽位/版本/上次回滚）──
+	if (stringCompare((char*)uri, strlen(uri), "/api/otaInfo", 12))
+	{
+		// otaGetInfoJson 内部 mmap flash（禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM →
+		// 经 otaRunInInternalStack 在内部 RAM 栈任务中执行（阻塞）。
+		char body[1024];
+		struct Ctx { char* buf; size_t size; };
+		Ctx ctx{ body, sizeof(body) };
+		otaRunInInternalStack([](void* p) {
+			auto* c = (Ctx*)p;
+			otaGetInfoJson(c->buf, c->size);
+		}, &ctx);
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+		respond.setBody(body);
+		respond.setBodyLenght(strlen(body));
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		return;
+	}
 
 	// ── API: 读取 AI 配置 ──
 	if (stringCompare((char*)uri, strlen(uri), "/api/aiConfig", 13))
@@ -499,7 +549,12 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		size_t pathSize = sizeof(PerfixRoot) + request.getBodyLenght();
 		char* path = new char[pathSize];
 		strcpy(path, PerfixRoot);
-		socketStream.read(path + sizeof(PerfixRoot) - 1, pathSize - sizeof(PerfixRoot) + 1);
+		if (!readBodyFully(socketStream, request.getBodyLenght(), path + sizeof(PerfixRoot) - 1))
+		{
+			delete[] path;
+			sendBadRequest(socketStream);
+			return;
+		}
 		apiFloor(socketStream, path);
 		delete[] path;
 	}
@@ -573,10 +628,21 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 
 		if (request.bodyLenght != 0)
 		{
-			char ssid[33];
-			char password[64];
-			socketStream.getline(ssid, sizeof(ssid));
-			socketStream.getline(password, sizeof(password));
+			// body 格式: ssid\npassword\n（循环读完，防残留）
+			char* body = new char[request.bodyLenght + 1];
+			if (!readBodyFully(socketStream, request.bodyLenght, body))
+			{
+				delete[] body;
+				sendBadRequest(socketStream);
+				return;
+			}
+			char* nl = strchr(body, '\n');
+			if (nl) *nl = '\0';
+			char ssid[33] = "";
+			char password[64] = "";
+			strncpy(ssid, body, sizeof(ssid) - 1);
+			strncpy(password, nl ? nl + 1 : "", sizeof(password) - 1);
+			delete[] body;
 			wifiConnect(ssid, password);
 			sendOk(socketStream);
 		}
@@ -597,10 +663,21 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 
 		if (request.bodyLenght != 0)
 		{
-			char ssid[33];
-			char password[64];
-			socketStream.getline(ssid, sizeof(ssid));
-			socketStream.getline(password, sizeof(password));
+			// body 格式: ssid\npassword\n（循环读完，防残留）
+			char* body = new char[request.bodyLenght + 1];
+			if (!readBodyFully(socketStream, request.bodyLenght, body))
+			{
+				delete[] body;
+				sendBadRequest(socketStream);
+				return;
+			}
+			char* nl = strchr(body, '\n');
+			if (nl) *nl = '\0';
+			char ssid[33] = "";
+			char password[64] = "";
+			strncpy(ssid, body, sizeof(ssid) - 1);
+			strncpy(password, nl ? nl + 1 : "", sizeof(password) - 1);
+			delete[] body;
 			wifiApSet(ssid, password);
 			sendOk(socketStream);
 		}
@@ -635,8 +712,15 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 		}
 
-		char body[request.bodyLenght + 1] = "";
-		size_t bodyLength = socketStream.read(body, request.bodyLenght + 1);
+		// 堆分配（原来 VLA char body[n] 在栈上，恶意大 body 会栈溢出）
+		char* body = new char[request.bodyLenght + 1];
+		if (!readBodyFully(socketStream, request.bodyLenght, body))
+		{
+			delete[] body;
+			sendBadRequest(socketStream);
+			return;
+		}
+		size_t bodyLength = request.bodyLenght;
 		printf("formating password input: %s\n", body);
 		if (stringCompare((char*)body, bodyLength, FormatingPassword, sizeof(FormatingPassword) - 1))
 		{
@@ -651,6 +735,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			respond.setBody((void*)"wrong password");
 			respond.setBodyLenght(14);
 		}
+		delete[] body;
 
 		respond.send(socketStream);
 	}
@@ -664,11 +749,15 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/aiConfig", 13))
 	{
-		// 读取 POST body（JSON）
+		// 读取 POST body（JSON，循环读完防残留）
 		size_t bodyLen = request.getBodyLenght();
 		char* body = new char[bodyLen + 1];
-		socketStream.read(body, bodyLen + 1);
-		body[bodyLen] = '\0';
+		if (!readBodyFully(socketStream, bodyLen, body))
+		{
+			delete[] body;
+			sendBadRequest(socketStream);
+			return;
+		}
 
 		cJSON* root = cJSON_Parse(body);
 		delete[] body;
@@ -730,11 +819,15 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/mdnsConfig", 15))
 	{
-		// 读取 POST body（JSON）
+		// 读取 POST body（JSON，循环读完防残留）
 		size_t bodyLen = request.getBodyLenght();
 		char* body = new char[bodyLen + 1];
-		socketStream.read(body, bodyLen + 1);
-		body[bodyLen] = '\0';
+		if (!readBodyFully(socketStream, bodyLen, body))
+		{
+			delete[] body;
+			sendBadRequest(socketStream);
+			return;
+		}
 
 		cJSON* root = cJSON_Parse(body);
 		delete[] body;
@@ -770,11 +863,300 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 
 		cJSON_Delete(root);
 	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/ota/setBoot", 16))
+	{
+		httpOtaSetBoot(socketStream, request);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/ota/confirm", 16))
+	{
+		httpOtaConfirm(socketStream, request);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/ota", 8))
+	{
+		httpOta(socketStream, request);
+	}
 	else
 	{
 		sendBadRequest(socketStream);
 		return;
 	}
+}
+void httpOta(IOSocketStream& socketStream, HttpRequest& request)
+{
+	// httpOta 内部大量调用 OTA API（esp_ota_begin/end、get_last_invalid 等）会 mmap flash
+	// （禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM → 经 otaRunInInternalStack 执行（阻塞）。
+	// ⚠ 写缓冲（4KB）+ 镜像头（512B）用 otaGetWriteBuffer/otaGetHeaderBuffer 提供的**内部 RAM
+	//   静态缓冲**（.bss）——写 flash 禁 cache 窗口内 PSRAM 不可访问；静态缓冲避免堆损坏与栈溢出。
+	//   （曾踩坑：栈上大数组→栈溢出；heap_caps_malloc 内部堆→堆相邻块被踩 Bad tail。）
+	struct OtaCtx { IOSocketStream* stream; HttpRequest* request; };
+	OtaCtx ctx{ &socketStream, &request };
+	otaRunInInternalStack([](void* p) { httpOtaInternal((OtaCtx*)p); }, &ctx);
+}
+
+static void httpOtaInternal(void* p)
+{
+	struct OtaCtx { IOSocketStream* stream; HttpRequest* request; };
+	auto* c = (OtaCtx*)p;
+	IOSocketStream& socketStream = *c->stream;
+	HttpRequest& request = *c->request;
+
+	auto sendError = [&](HttpStatus status, const char* msg) {
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+		respond.setStatus(status);
+		respond.setReason(status == HttpStatus::BadRequest ? HttpReason::BadRequest : HttpReason::InternalServerError);
+		respond.setBody((void*)msg);
+		respond.setBodyLenght(strlen(msg));
+		respond.send(socketStream);
+	};
+
+	// 内部 RAM 静态缓冲
+	uint8_t* header = otaGetHeaderBuffer();
+	uint8_t* buffer = otaGetWriteBuffer();
+
+	// 并发保护：同一时间只允许一个 OTA（6 个 worker 线程互斥）
+	if (otaIsUpdating())
+	{
+		sendError(HttpStatus::BadRequest, "OTA 已在升级中，请稍候重试");
+		return;
+	}
+	otaSetUpdating(true);
+	printf("otaInt: 并发标志已置位\n");
+
+	// 目标分区检查
+	if (otaGetNextUpdatePartition() == nullptr)
+	{
+		otaSetUpdating(false);
+		sendError(HttpStatus::BadRequest, "无可用 OTA 分区");
+		return;
+	}
+	printf("otaInt: 目标分区 OK\n");
+
+	// 大小预检
+	const size_t total = request.getBodyLenght();
+	if (total > otaGetUpdatePartitionSize())
+	{
+		otaSetUpdating(false);
+		sendError(HttpStatus::BadRequest, "固件过大，超过目标分区容量");
+		return;
+	}
+	printf("otaInt: 大小预检 OK (%u 字节)\n", (unsigned)total);
+
+	// 读镜像头（覆盖 app_desc）→ 预检（magic + 版本防重烧）
+	size_t headerGot = 0;
+	size_t left = total;
+	while (headerGot < OtaHeaderSize && left > 0)
+	{
+		size_t got = socketStream.readByte((char*)header + headerGot, OtaHeaderSize - headerGot);
+		if (got == 0)
+		{
+			if (!socketStream.isGood())
+			{
+				otaSetUpdating(false);
+				sendError(HttpStatus::InternalServerError, "连接中断");
+				return;
+			}
+			vTaskDelay(1);
+			continue;
+		}
+		headerGot += got;
+		left -= got;
+	}
+	printf("otaInt: 镜像头读取 OK (%u)\n", (unsigned)headerGot);
+
+	if (otaPrecheckImage(header, headerGot) != ESP_OK)
+	{
+		otaSetUpdating(false);
+		sendError(HttpStatus::BadRequest, "镜像无效，或版本与上次升级失败版本相同");
+		return;
+	}
+	printf("otaInt: 镜像预检 OK\n");
+
+	// 开始 OTA（记录 pending 目标槽，供重启后判定回滚）
+	void* otaHandle = nullptr;
+	if (otaBegin(&otaHandle) != ESP_OK)
+	{
+		otaSetUpdating(false);
+		sendError(HttpStatus::InternalServerError, "OTA 初始化失败");
+		return;
+	}
+	printf("otaInt: otaBegin OK\n");
+
+	// 写入已读的头部
+	if (headerGot > 0 && otaWrite(otaHandle, header, headerGot) != ESP_OK)
+	{
+		otaAbort(otaHandle);
+		otaSetUpdating(false);
+		sendError(HttpStatus::InternalServerError, "OTA 写入失败");
+		return;
+	}
+
+	// 流式写入剩余数据（socket 非阻塞，readByte 返回 0 时让出 CPU）
+	size_t chunk = 0;
+	while (left > 0)
+	{
+		size_t got = socketStream.readByte((char*)buffer, 4096);
+		if (got == 0)
+		{
+			if (!socketStream.isGood())
+			{
+				otaAbort(otaHandle);
+				otaSetUpdating(false);
+				sendError(HttpStatus::InternalServerError, "连接中断，OTA 中止");
+				return;
+			}
+			vTaskDelay(1);
+			continue;
+		}
+		if (otaWrite(otaHandle, buffer, got) != ESP_OK)
+		{
+			otaAbort(otaHandle);
+			otaSetUpdating(false);
+			sendError(HttpStatus::InternalServerError, "OTA 写入失败");
+			return;
+		}
+		left -= got;
+		if ((chunk++ & 0x1F) == 0)
+			printf("otaInt: 已写入 %u / %u\n", (unsigned)(total - left), (unsigned)total);
+		vTaskDelay(1);
+	}
+	printf("otaInt: 流式写入完成\n");
+
+	// 校验镜像 + 设置启动分区
+	if (otaFinish(otaHandle) != ESP_OK)
+	{
+		otaSetUpdating(false);
+		sendError(HttpStatus::BadRequest, "固件镜像校验失败，已保留当前版本");
+		return;
+	}
+
+	otaSetUpdating(false);
+
+	// 成功：应答后延迟重启
+	{
+		HttpRespond respond;
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		const char* okMsg = "OTA 升级成功，设备即将重启";
+		respond.setBody((void*)okMsg);
+		respond.setBodyLenght(strlen(okMsg));
+		respond.send(socketStream);
+	}
+	socketStream.sendNow();
+	printf("server: OTA 成功，1s 后重启\n");
+	vTaskDelay(1000);
+	esp_restart();
+}
+
+// ── POST /api/ota/setBoot — 手动切换下次启动分区（web「分区管理」）──
+// body: {"slot":"ota_1","invalidate":false}，成功默认 1s 后重启
+void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
+{
+	// 读 body（JSON）——循环读到完，防残留
+	size_t bodyLen = request.getBodyLenght();
+	char* body = new char[bodyLen + 1];
+	if (!readBodyFully(socketStream, bodyLen, body))
+	{
+		delete[] body;
+		sendBadRequest(socketStream);
+		return;
+	}
+
+	cJSON* root = cJSON_Parse(body);
+	delete[] body;
+
+	if (!root)
+	{
+		sendBadRequest(socketStream);
+		return;
+	}
+
+	char slot[16] = "";
+	bool invalidate = false;
+	if (cJSON* v = cJSON_GetObjectItem(root, "slot"))
+		if (cJSON_IsString(v) && v->valuestring)
+			strncpy(slot, v->valuestring, sizeof(slot) - 1);
+	if (cJSON* v = cJSON_GetObjectItem(root, "invalidate"))
+		invalidate = cJSON_IsTrue(v);
+	cJSON_Delete(root);
+
+	if (slot[0] == '\0')
+	{
+		sendBadRequest(socketStream);
+		return;
+	}
+
+	// 切换会 mmap flash（禁用 cache 要求内部 RAM 栈）→ 经 otaRunInInternalStack 执行。
+	// slot 在调用者栈（PSRAM）：worker 仅在 mmap 窗口外读取（strcmp 发生在库调用之前），安全。
+	struct Ctx { char slot[16]; bool invalidate; esp_err_t err; };
+	Ctx ctx{};
+	strncpy(ctx.slot, slot, sizeof(ctx.slot) - 1);
+	ctx.invalidate = invalidate;
+	ctx.err = ESP_FAIL;
+
+	otaRunInInternalStack([](void* p) {
+		auto* c = (Ctx*)p;
+		c->err = otaSwitchBootPartition(c->slot, c->invalidate);
+	}, &ctx);
+
+	if (ctx.err != ESP_OK)
+	{
+		const char* msg = "切换失败：分区不存在、无有效镜像或已是当前分区";
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+		respond.setStatus(HttpStatus::BadRequest);
+		respond.setReason(HttpReason::BadRequest);
+		respond.setBody((void*)msg);
+		respond.setBodyLenght(strlen(msg));
+		respond.send(socketStream);
+		return;
+	}
+
+	// 成功：应答后延迟重启
+	{
+		HttpRespond respond;
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		const char* okMsg = "切换成功，设备即将重启到目标分区";
+		respond.setBody((void*)okMsg);
+		respond.setBodyLenght(strlen(okMsg));
+		respond.send(socketStream);
+	}
+	socketStream.sendNow();
+	printf("server: 切换启动分区成功，1s 后重启\n");
+	vTaskDelay(1000);
+	esp_restart();
+}
+
+// ── POST /api/ota/confirm — 手动确认当前固件（关闭回滚窗口，无需重启）──
+void httpOtaConfirm(IOSocketStream& socketStream, HttpRequest& request)
+{
+	struct Ctx { esp_err_t err; };
+	Ctx ctx{ ESP_FAIL };
+	otaRunInInternalStack([](void* p) {
+		((Ctx*)p)->err = otaConfirmRunning();
+	}, &ctx);
+
+	if (ctx.err != ESP_OK)
+	{
+		const char* msg = "确认失败：当前固件状态异常";
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+		respond.setStatus(HttpStatus::BadRequest);
+		respond.setReason(HttpReason::BadRequest);
+		respond.setBody((void*)msg);
+		respond.setBodyLenght(strlen(msg));
+		respond.send(socketStream);
+		return;
+	}
+
+	const char* okMsg = "已确认当前固件，回滚窗口关闭";
+	HttpRespond respond;
+	respond.setStatus(HttpStatus::Ok);
+	respond.setReason(HttpReason::Ok);
+	respond.setBody((void*)okMsg);
+	respond.setBodyLenght(strlen(okMsg));
+	respond.send(socketStream);
 }
 
 void httpPut(IOSocketStream& socketStream, HttpRequest& request)
@@ -870,8 +1252,14 @@ void httpDelete(IOSocketStream& socketStream, HttpRequest& request)
 	char* path = new char[sizeof(PerfixRoot) + request.getBodyLenght()];
 	strcpy(path, PerfixRoot);
 	size_t pathLength = sizeof(PerfixRoot) - 1;
-	pathLength += socketStream.readByte(path + pathLength, request.getBodyLenght());
-	path[pathLength++] = '\0';
+	// 循环读到完（readByte 单次可能读不满，残留会被下个请求误当请求行）
+	if (!readBodyFully(socketStream, request.getBodyLenght(), path + pathLength))
+	{
+		delete[] path;
+		sendBadRequest(socketStream);
+		return;
+	}
+	pathLength += request.getBodyLenght();
 
 	if (path[pathLength - 1] == '/')
 	{

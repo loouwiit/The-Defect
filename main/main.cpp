@@ -46,6 +46,7 @@
 #include "battery/batteryMonitor.hpp"
 #include "time/timeService.hpp"
 #include "elfSdk/elf_sdk.h"
+#include "ota/otaManager.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -110,6 +111,16 @@ extern "C" void app_main(void)
 		ESP_LOGE(TAG, "Failed to initialize display");
 		return;
 	}
+
+	// OTA 管理：延迟 10s 检测上次升级是否回滚（NVS 记录）。不自动确认固件——
+	// 回滚确认改全手动：OTA 后固件处于 PENDING_VERIFY，用户在 web 页面
+	// 「确认此固件」（POST /api/ota/confirm）才关闭回滚窗口；未确认则任何重启自动回退。
+	// ⚠ otaInit 内部会 mmap flash（禁用 cache 期间要求栈在内部 RAM），而 Task daemon 栈在
+	//   PSRAM → 必须经 otaRunInInternalStack 在内部 RAM 栈任务中执行。
+	Task::addTask([](void*) -> TickType_t {
+		otaRunInInternalStack([](void*) { otaInit(); }, nullptr);
+		return Task::infinityTime;
+	}, "ota init", nullptr, 10000, Task::Affinity::None);
 
 	// 初始化ILI9881c
 	if (!ILI9881c::getInstance().init(horizontalResolution, verticalResolution, frameBufferCount))
