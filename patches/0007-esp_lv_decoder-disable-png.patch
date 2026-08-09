@@ -1,0 +1,187 @@
+--- a/src/lvgl9/esp_lv_decoder.c	2026-08-09 12:00:00.000000000 +0800
++++ b/src/lvgl9/esp_lv_decoder.c	2026-08-09 12:00:00.000000000 +0800
+@@ -28,7 +28,9 @@
+ #include "driver/jpeg_decode.h"
+ #include "esp_jpeg_common.h"
+ #endif
++#if ESP_LV_ENABLE_PNG
+ #include "png.h"
++#endif
+ #define QOI_IMPLEMENTATION
+ #include "qoi.h"
+ 
+@@ -42,7 +44,9 @@
+ #define PJPG_HEADER_SIZE 22
+ #endif
+ 
++#if ESP_LV_ENABLE_PNG
+ #define SP_TAG_SPNG        "_SPNG__"
++#endif
+ #define SP_TAG_SQOI        "_SQOI__"
+ #define SP_TAG_SJPG        "_SJPG__"
+ #define SP_TAG_LEN         7
+@@ -155,9 +159,11 @@
+ static void decoder_close(lv_image_decoder_t * decoder, lv_image_decoder_dsc_t * dsc);
+ static lv_result_t decoder_get_area(lv_image_decoder_t * decoder, lv_image_decoder_dsc_t * dsc, const lv_area_t * full_area, lv_area_t * decoded_area);
+ static lv_draw_buf_t * jpeg_decode_jpg(lv_image_decoder_dsc_t * dsc);
++static lv_draw_buf_t * qoi_decode_qoi(lv_image_decoder_dsc_t * dsc);
++#if ESP_LV_ENABLE_PNG
+ static lv_draw_buf_t * png_decode_rgba(lv_image_decoder_dsc_t * dsc);
+-static lv_draw_buf_t * qoi_decode_qoi(lv_image_decoder_dsc_t * dsc);
+ static bool png_dimensions_allowed(uint32_t width, uint32_t height);
++#endif
+ static void * decoder_malloc(size_t size);
+ static void * decoder_aligned_alloc(size_t alignment, size_t size);
+ static void * file_buffer_alloc(size_t size);
+@@ -193,6 +199,7 @@
+ static const char *TAG = "lv_decoder_v9";
+ static uint32_t s_jpeg_header_read_size = 1024;
+ 
++#if ESP_LV_ENABLE_PNG
+ static bool png_dimensions_allowed(uint32_t width, uint32_t height)
+ {
+     if (width == 0 || height == 0) {
+@@ -210,6 +217,7 @@
+ 
+     return true;
+ }
++#endif
+ 
+ /* Allocate buffer memory, prefer PSRAM for large buffers */
+ static void * decoder_malloc(size_t size)
+@@ -397,9 +405,11 @@
+             }
+         }
+ #endif
++#if ESP_LV_ENABLE_PNG
+         bool is_png = false;
++        uint8_t png_magic[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
++#endif
+         bool is_qoi = false;
+-        uint8_t png_magic[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+         uint8_t qoi_magic[4] = {0x71, 0x6F, 0x69, 0x66};
+         bool is_sp = false;
+         sp_image_type_t sp_type = SP_IMAGE_TYPE_PNG;
+@@ -457,6 +467,7 @@
+         }
+         if (src_type == LV_IMAGE_SRC_FILE) {
+             const char *ext = lv_fs_get_ext(dsc->src);
++#if ESP_LV_ENABLE_PNG
+             if (ext && lv_strcmp(ext, "png") == 0) {
+                 uint8_t hdr[8];
+                 uint32_t rn;
+@@ -467,6 +478,7 @@
+                     is_png = true;
+                 }
+             }
++#endif
+             if (ext && lv_strcmp(ext, "qoi") == 0) {
+                 uint8_t hdr[14];
+                 uint32_t rn;
+@@ -479,14 +491,17 @@
+             }
+         } else {
+             const lv_image_dsc_t *img_dsc = dsc->src;
++#if ESP_LV_ENABLE_PNG
+             if (img_dsc->data_size >= 8 && memcmp(img_dsc->data, png_magic, 8) == 0) {
+                 is_png = true;
+             }
++#endif
+             if (img_dsc->data_size >= 14 && memcmp(img_dsc->data, qoi_magic, 4) == 0) {
+                 is_qoi = true;
+             }
+         }
+ 
++#if ESP_LV_ENABLE_PNG
+         if (is_png) {
+             // Parse PNG IHDR directly to get width/height
+             uint8_t hdr[24];
+@@ -520,6 +535,7 @@
+ 
+             return LV_RESULT_OK;
+         }
++#endif
+ 
+         if (is_qoi) {
+             uint8_t hdr[14];
+@@ -763,6 +779,7 @@
+         }
+     }
+ 
++#if ESP_LV_ENABLE_PNG
+     {
+         bool try_png = false;
+         if (dsc->src_type == LV_IMAGE_SRC_FILE) {
+@@ -785,6 +802,7 @@
+             goto post_process;
+         }
+     }
++#endif
+ 
+     {
+         bool is_jpeg = false;
+@@ -997,6 +1015,7 @@
+         ESP_LOGD(TAG, "Allocated aligned slice_buf: %lu bytes (requested: %lu)",
+                  (unsigned long)alloc_size, (unsigned long)max_slice_bytes);
+     }
++#if ESP_LV_ENABLE_PNG
+     if (ctx->type == SP_IMAGE_TYPE_PNG) {
+         png_image im;
+         memset(&im, 0, sizeof(im));
+@@ -1024,7 +1043,9 @@
+             return LV_RESULT_INVALID;
+         }
+         png_image_free(&im);
+-    } else if (ctx->type == SP_IMAGE_TYPE_QOI) {
++    } else
++#endif
++    if (ctx->type == SP_IMAGE_TYPE_QOI) {
+         qoi_desc desc;
+         memset(&desc, 0, sizeof(desc));
+         unsigned char *pixels = qoi_decode(encoded, len_i, &desc, 4);
+@@ -1457,6 +1478,7 @@
+     return decoded;
+ }
+ 
++#if ESP_LV_ENABLE_PNG
+ static lv_draw_buf_t * png_decode_rgba(lv_image_decoder_dsc_t * dsc)
+ {
+     /* Decode a PNG from file or memory into ARGB8888 draw buffer. */
+@@ -1518,6 +1540,7 @@
+     }
+     return NULL;
+ }
++#endif
+ 
+ static lv_draw_buf_t * qoi_decode_qoi(lv_image_decoder_dsc_t * dsc)
+ {
+@@ -2027,12 +2050,14 @@
+ 
+ static inline bool sp_is_sp_tag(const uint8_t *hdr8, sp_image_type_t *type)
+ {
++#if ESP_LV_ENABLE_PNG
+     if (memcmp(hdr8, SP_TAG_SPNG, SP_TAG_LEN) == 0) {
+         if (type) {
+             *type = SP_IMAGE_TYPE_PNG;
+         }
+         return true;
+     }
++#endif
+     if (memcmp(hdr8, SP_TAG_SQOI, SP_TAG_LEN) == 0) {
+         if (type) {
+             *type = SP_IMAGE_TYPE_QOI;
+--- a/include/esp_lv_decoder_config.h	2026-08-09 12:00:00.000000000 +0800
++++ b/include/esp_lv_decoder_config.h	2026-08-09 12:00:00.000000000 +0800
+@@ -33,3 +33,12 @@
+ #define ESP_LV_PJPG_PREFER_ARGB8888 0
+ #endif
+ #endif
++
++/* PNG 支持开关（默认开）。
++ * 本项目仅使用 JPG（esp_lv_decoder + 硬件 JPEG），无 PNG 资源，故主固件通过
++ * main/CMakeLists.txt 注入 -DESP_LV_ENABLE_PNG=0 关闭 → libpng / zlib 不再被
++ * 引用 → 从镜像裁掉（libpng + zlib）。
++ * 若将来需要 PNG，去掉 main/CMakeLists.txt 的注入即可恢复。 */
++#ifndef ESP_LV_ENABLE_PNG
++#define ESP_LV_ENABLE_PNG 1
++#endif

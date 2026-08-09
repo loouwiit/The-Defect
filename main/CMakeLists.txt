@@ -60,6 +60,17 @@ if(TARGET ${lvgl_lib})
     target_compile_definitions(${lvgl_lib} PUBLIC LV_INV_BUF_SIZE=256)
 endif()
 
+# ── esp_lv_decoder 关闭 PNG 支持（libpng ~73KB + zlib ~18KB 瘦身） ──
+# esp_lv_decoder.c 的 PNG 分支用 #if ESP_LV_ENABLE_PNG 包裹（补丁 0007），默认开启。
+# 本项目仅用 JPG（硬件 JPEG 解码），无 PNG 资源，这里注入 0 关闭 → libpng/zlib
+# 无引用 → 链接器不拉入 → 从镜像裁掉。
+# ⚠ 组件 CMakeLists 用 add_library(lvgl_docoder_lib STATIC) 自定义目标 + INTERFACE
+#   链接到 COMPONENT_LIB，故须对 lvgl_docoder_lib 注入（COMPONENT_LIB 是接口库，
+#   PUBLIC 定义不会传播到其 INTERFACE 依赖的静态库）。
+if(TARGET lvgl_docoder_lib)
+    target_compile_definitions(lvgl_docoder_lib PRIVATE ESP_LV_ENABLE_PNG=0)
+endif()
+
 # ── ELF 插件符号保活：--undefined 强制保留 ──────────────────
 # 背景：符号表（elf_symtab.c）从主固件 .elf 提取，而 .elf 只含被引用的符号。
 #       插件（.so）引用但主固件未引用的符号会被 --gc-sections 回收 → .elf 没有

@@ -1873,6 +1873,7 @@ CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1  # PPA 要求 SW draw unit 为 1
 | `0004-esp_websocket_client-expose-transport.patch` | `esp_websocket_client` (2 文件) | 暴露 `esp_websocket_client_get_transport()` 供 `wsClient.cpp` 获取 socket fd 设置 TCP_NODELAY |
 | `0005-lvgl__lvgl-ime-pinyin-allow-iu-v-start.patch` | `lvgl` (`lv_ime_pinyin.c`) | 移除 IME 匹配的 i/u/v 开头过滤（五笔 i 水/u 立/v 女折 键区） |
 | `0006-lvgl__lvgl-ime-pinyin-fix-count-uint16.patch` | `lvgl` (`lv_ime_pinyin.c`) | `count` 类型 `uint8_t`→`uint16_t`，修复五笔大组（>255 条目）匹配截断 |
+| `0007-espressif__esp_lv_decoder-disable-png.patch` | `esp_lv_decoder` (2 文件) | PNG 支持 `#if ESP_LV_ENABLE_PNG` 化（config.h 默认 1），主固件注入 `-DESP_LV_ENABLE_PNG=0` 关闭 → libpng + zlib 零引用裁掉（~100KB）；SPNG 同步禁用。本项目仅 JPG（硬件 JPEG），恢复 PNG 只需去掉 `main/CMakeLists.txt` 的注入 |
 
 **使用**:
 ```bash
