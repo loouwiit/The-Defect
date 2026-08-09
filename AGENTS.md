@@ -83,10 +83,10 @@ reserces/
 | | luaTouch | `main/lua/bindings/luaTouch.cpp` | 多点触控轮询 API（is_down/x/y/is_just_pressed/is_just_released/all） |
 | | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt)，LVGL 对象池化渲染 |
 | | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口；市场游戏按游戏 ID 显示、禁用重命名、删除=递归删目录） |
-| **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
+| **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/内容/图片/manifest + POST 统计；条目含 type=lua\|elf） |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（ELF 插件在前 + 系统卡片），3 焦点组导航 |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
-| | MarketApp | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载/更新（运行走脚本管理） |
+| | MarketApp | `main/app/marketApp/` | 游戏市场：Lua+ELF 混合截图卡片网格 + 详情 + 下载/更新/卸载（ELF 装到 `/root/elf/`） |
 | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
@@ -1004,10 +1004,11 @@ static void on_click_cb(lv_event_t* e) {
 | 上一步 / 返回桌面 | B |
 | 切换焦点组 | ↑ ↓ |
 
-**动态卡片**（`startElfScan` 后台渐进式扫描）：
+**动态卡片**（`onForeground → rebuildElfCards` 全量重建，替代原 `startElfScan` 后台渐进式扫描；解析快，直接删旧重插，无需 diff）：
 - 先 `listElfApps`（扫子目录 + 读 manifest.json，**零 dlopen**）→ 一步建完整卡片（中文名/描述/图标即时可见）
 - 插件元数据（ABI v4）：`display_name`（中文名）/ `description` / `icon_path` / `name` 均已从 `elf_plugin_info_t` 移除（结构体仅剩 version/create_app/destroy_app），标识与元数据统一由插件包 `/root/elf/<name>/manifest.json` 提供（`build_elf.sh` 生成）
 - 无 .so 时入口优雅提示不崩
+- ⚠ `addElfCard` 防重检查须在锁内：`onForeground` 重建与历史后台扫描并发时检查在锁外会导致首启动重复卡片
 
 ### 游戏（ELF 插件）
 
@@ -1142,7 +1143,7 @@ class App {
 | App | 路径 | 说明 |
 |-----|------|------|
 | **LuaManagerApp** | `main/app/luaManagerApp/` | Lua 脚本管理器：浏览/运行/删除/重命名脚本，AI 生成入口；市场游戏按游戏 ID 显示、禁用重命名、删除=递归删目录 |
-| **MarketApp** | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载/更新（运行走脚本管理） |
+| **MarketApp** | `main/app/marketApp/` | 游戏市场：Lua+ELF 混合截图卡片网格（类型徽标）+ 详情 + 下载/更新/卸载（Lua 存 `/root/lua/market/`，ELF 装 `/root/elf/`） |
 | **TestApp** | `main/app/testApp/` | 测试用，开发调试 |
 
 ### Tetris 模块详情
@@ -1286,7 +1287,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 ### 桌面动态扫描 + AI 动态路由
 
-- **桌面**：`startElfScan` → `listElfApps`（扫 `/root/elf` 子目录 + 读 manifest.json，**零 dlopen**）→ 一步建卡（中文名/描述/图标即时可见）；图标 `F:elf/<name>/icon.jpg` 由 LVGL 直接解码
+- **桌面**：`onForeground → rebuildElfCards`（删全部 Elf 卡 → `listElfApps` 扫 `/root/elf` 子目录 + 读 manifest.json，**零 dlopen** → 逐个 `addElfCard` 锁内防重插入）；图标 `F:elf/<name>/icon.jpg` 由 LVGL 直接解码
 - **AI**：`AiAppTarget.elfPath` 字段，`open_app` 优先走 `ElfManager::createApp`；`getOpenableApps()`/`getAiContext()` 动态并入 ELF 插件（name=manifest.name）
 
 ### 插件工程（`elfapps/<name>/`）
@@ -1490,7 +1491,11 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 
 ## 游戏市场
 
-从网络市场服务器浏览并下载/更新社区 Lua 游戏脚本（市场只负责下载，运行统一走「脚本管理」LuaManagerApp）。服务端与游戏内容为独立仓库 `The-Defect-Market/`（git submodule）。
+从网络市场服务器浏览并下载/更新社区游戏，**支持两类内容**：
+- **Lua 脚本**（`type="lua"`）→ 存 `/root/lua/market/<作者>/<游戏>/`，运行统一走「脚本管理」LuaManagerApp
+- **ELF 原生插件**（`type="elf"`）→ 装 `/root/elf/<id>/` 插件包（manifest.json + .so + icon.jpg），返回桌面后 `onForeground` 全量重建自动出现游戏卡片，直接运行
+
+市场**只负责下载/更新/卸载，不自动运行**。服务端与游戏内容为独立仓库 `The-Defect-Market/`（git submodule）。
 
 **模块路径**: `main/market/`（客户端）+ `main/app/marketApp/`（UI）
 
@@ -1498,26 +1503,31 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 
 | 接口 | 说明 |
 |------|------|
-| `GET /api/scripts` | 脚本列表（JSON，含 name/author/version/desc/tags/rating/downloads/thumb/screenshot/download） |
-| `GET /games/<作者>/<游戏>/<file>` | 脚本 / 缩略图 / 大图（静态文件） |
+| `GET /api/scripts?type=lua\|elf` | 列表（JSON，含 name/author/version/desc/tags/rating/downloads/thumb/screenshot/download + type/main/manifest/icon） |
+| `GET /api/search?q=&type=` | 按名称/作者/标签/简介搜索（返回与列表同构完整条目） |
+| `GET /games/<作者>/<游戏>/<file>` | 脚本 / .so / 缩略图 / 大图 / manifest（静态文件） |
 | `POST /api/stats/download` | 下载量 +1（下载成功自动上报；`id` 传组合键 `作者/id`，同名游戏不串号） |
-| `GET /api/search?q=` | 按名称/作者/标签/简介搜索（服务端 SQLite） |
 
 - 服务器地址：`/root/system/market_config.json` 的 `server_url` 字段
-- `MarketClient`（`main/market/marketClient.hpp`，header-only）异步封装三个 GET + 一个 POST
+- `MarketClient`（`main/market/marketClient.hpp`，header-only）异步封装 GET/POST，`.so` 二进制与文本走同一 `downloadFile`
 - `MarketConfig`（`main/market/marketConfig.hpp`）从 FAT JSON 读服务器地址
+- **类型判定**：服务器扫描时目录含 `manifest.json` → `type="elf"`（否则 "lua"）；ELF 条目的 `main`（.so 文件名）/ `manifest`（URL）/ `icon`（URL）由服务端补全
+- **无版本校验**：`version` 字段仅详情页显示（info.json 提供）；「更新」永远 = 重新下载覆盖，不做版本比较
 
 ### MarketApp — 市场 UI
 
 | 特性 | 说明 |
 |------|------|
 | 入口 | 桌面「游戏市场」卡片；AI `open_app("market")` |
-| 一级界面 | 3 列截图卡片网格（缩略图懒加载串行队列，未加载显示 ★评分 占位） |
-| 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 简介/版本/更新时间/下载量/评分 + 下载/更新 |
-| 下载/更新 | 存储 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器两级结构，作者/游戏隔离，覆盖式更新）；`testFile()` 检测已装 → 按钮「更新」，未装 → 「下载」；卡片显示「已装」角标。**只下载不运行**，运行统一走「脚本管理」 |
+| 一级界面 | **3 列截图卡片网格，Lua/ELF 混合显示**；每卡左上角**类型徽标**（Lua=蓝 0x0066cc / ELF=紫 0x8a2be2）；右上角「已装」角标（`m_cardBadges` 动态刷新，下载/卸载即时更新）；缩略图懒加载串行队列，未加载显示 ★评分 占位 |
+| 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 类型/作者/版本/更新时间/下载量/评分 + 简介 |
+| 下载/更新 | 按 `s.type` 分流：Lua 存 `/root/lua/market/<作者>/<游戏>/`；ELF 走 `downloadElf()`（`newFloor("/root/elf/<id>")` → 依次下载 manifest.json → .so → icon.jpg(可选)）。`testFile()` 检测已装 → 按钮「更新」，未装 → 「下载」 |
+| 卸载 | 详情页已装时显示「卸载」按钮（焦点索引 2）：统一入口 `uninstall()` 分流——ELF=`ElfManager::unload` + `removeFloorRecursive(/root/elf/<id>)`；Lua=`removeFloorRecursive(/root/lua/market/<作者>/<游戏>)` + 清空作者目录 |
 | 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载或更新）；B 返回 |
 
-- **运行入口**：市场只负责下载/更新，不自动运行；在「脚本管理」（LuaManagerApp）中运行。市场游戏按游戏 ID 显示、禁用重命名、删除时递归清理整个 `<作者>/<游戏>/` 目录
+- **运行入口**：Lua 在「脚本管理」（LuaManagerApp）中运行；ELF 返回桌面自动建卡（`onForeground → rebuildElfCards` 全量重建）直接运行
+- **已装识别**：Lua=`testFile(本地脚本路径)`；ELF=`testFile(/root/elf/<id>/manifest.json)`（不读 .so，避免 dlopen）
+- **卸载后清理**：Lua 删除后清空空作者目录；ELF 删除后 `ElfManager::unload`（refcount=0）再递归删目录，返回桌面卡片消失
 
 ---
 
@@ -1761,7 +1771,7 @@ BLE 手柄使用独立的 ESP32-C6 固件项目，通过 Git Submodule 挂载在
 
 游戏市场服务器与社区游戏内容同样以 Git Submodule 挂载在根目录 `The-Defect-Market/`：
 
-> **[The-Defect-Market](https://codeberg.org/loouwiit/The-Defect-Market)** — 游戏市场服务器 + 社区 Lua 游戏仓库（静态内容走文件系统，动态数据走 SQLite）
+> **[The-Defect-Market](https://codeberg.org/loouwiit/The-Defect-Market)** — 游戏市场服务器 + 社区游戏仓库（**Lua 脚本 + ELF 原生插件**；静态内容走文件系统，动态数据走 SQLite；目录含 manifest.json 自动判定 type=elf）
 
 ```bash
 git clone --recurse-submodules https://<本仓库地址>

@@ -48,15 +48,13 @@ private:
 	static constexpr int SYSTEM_COUNT = 3;    // luaManager/market/testApp
 	static constexpr int MAX_ELF_CARDS = 8;
 
-	// ── ELF 扫描（后台：读 manifest.json，零 dlopen） ──
-	bool m_elfScanStarted = false;
-	volatile bool m_elfScanStopped = false;
+	// ── ELF 卡片（读 manifest.json，零 dlopen） ──
+	bool m_elfRebuilding = false;                  // 全量重建防重入
 
 	void buildBuiltinCards();                      // 填充内置+系统卡片（init 时）
 	lv_obj_t* createCardObject(int idx);           // 创建第 idx 张卡片对象（须持 LVGL 锁）
-	void startElfScan();                           // 启动后台扫描 Task
-	static TickType_t elfScanTask(void* param);    // 扫 /root/elf 子目录 + manifest → 一步建卡
 	void addElfCard(const ElfManager::ScanEntry& e);   // 由扫描结果直接插入完整卡片（最前）
+	void rebuildElfCards();                        // onForeground 全量重建（删全部 Elf 卡 → 重扫插入）
 
 	// ── 焦点导航组 ──
 	enum FocusGroup : int8_t {

@@ -5,6 +5,7 @@
 #include "storage/fat.hpp"
 #include "app/appStackManager.hpp"
 #include "market/marketConfig.hpp"
+#include "elfManager/elfManager.hpp"
 
 #include <esp_log.h>
 #include <cstring>
@@ -270,6 +271,7 @@ void MarketApp::rebuildList()
 	m_entryCards.clear();
 	m_cardImages.clear();
 	m_cardThPh.clear();
+	m_cardBadges.clear();
 
 	// 重置缩略图状态
 	m_thumbRequested.assign(m_list.size(), false);
@@ -345,8 +347,8 @@ void MarketApp::rebuildList()
 		lv_obj_set_style_text_font(ph, FontLoader::getDefault(FontLoader::FontSize::Medium), 0);
 		lv_obj_center(ph);
 
-		// 已下载角标（截图区右上角）
-		if (i < m_downloaded.size() && m_downloaded[i]) {
+		// 已下载角标（截图区右上角；默认隐藏，下载/卸载后由 updateBadge 动态刷新）
+		{
 			auto* badge = lv_label_create(imgArea);
 			lv_label_set_text(badge, LV_SYMBOL_OK "已装");
 			lv_obj_set_style_text_color(badge, GUI::Color::SUCCESS, 0);
@@ -356,6 +358,26 @@ void MarketApp::rebuildList()
 			lv_obj_set_style_pad_hor(badge, 4, 0);
 			lv_obj_set_style_radius(badge, 4, 0);
 			lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -2, 2);
+			lv_obj_add_flag(badge, LV_OBJ_FLAG_HIDDEN);
+			// 初始可见性按已下载状态（rebuildList 前 refreshDownloadedState 已更新 m_downloaded）
+			if (i < m_downloaded.size() && m_downloaded[i])
+				lv_obj_clear_flag(badge, LV_OBJ_FLAG_HIDDEN);
+			m_cardBadges.push_back(badge);
+		}
+
+		// 类型徽标（截图区左上角）：Lua=蓝，ELF=紫（原生插件）
+		{
+			bool isElf = (s.type == "elf");
+			auto* typeBadge = lv_label_create(imgArea);
+			lv_label_set_text(typeBadge, isElf ? "ELF" : "Lua");
+			lv_obj_set_style_text_color(typeBadge, lv_color_white(), 0);
+			lv_obj_set_style_text_font(typeBadge, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+			lv_obj_set_style_bg_color(typeBadge,
+				isElf ? lv_color_hex(0x8a2be2) : lv_color_hex(0x0066cc), 0);
+			lv_obj_set_style_bg_opa(typeBadge, LV_OPA_COVER, 0);
+			lv_obj_set_style_pad_hor(typeBadge, 4, 0);
+			lv_obj_set_style_radius(typeBadge, 4, 0);
+			lv_obj_align(typeBadge, LV_ALIGN_TOP_LEFT, 2, 2);
 		}
 
 		// 名称
@@ -527,6 +549,8 @@ void MarketApp::applyFocus()
 			lv_obj_add_state(m_detailBtnBack, LV_STATE_FOCUSED);
 		else if (m_focusDetailIdx == 1 && m_detailBtnRun)
 			lv_obj_add_state(m_detailBtnRun, LV_STATE_FOCUSED);
+		else if (m_focusDetailIdx == 2 && m_detailBtnUninstall)
+			lv_obj_add_state(m_detailBtnUninstall, LV_STATE_FOCUSED);
 		break;
 	}
 
@@ -602,7 +626,8 @@ void MarketApp::showDetail()
 	lv_obj_set_style_text_align(nameLabel, LV_TEXT_ALIGN_LEFT, 0);
 
 	char meta[200];
-	snprintf(meta, sizeof(meta), "作者: %s    版本: %s    评分: %.1f    下载: %d\n更新时间: %s",
+	snprintf(meta, sizeof(meta), "类型: %s    作者: %s    版本: %s    评分: %.1f    下载: %d\n更新时间: %s",
+		s.type == "elf" ? "原生 ELF" : "Lua 脚本",
 		s.author.empty() ? "-" : s.author.c_str(),
 		s.version.empty() ? "-" : s.version.c_str(),
 		s.rating, s.downloads,
@@ -645,6 +670,21 @@ void MarketApp::showDetail()
 		self->download();
 		}, LV_EVENT_CLICKED, this);
 
+	// 已装 → 显示卸载按钮（详情焦点索引 2，Lua/ELF 通用）
+	m_detailUninstallVisible = false;
+	if (m_selectedIdx < (int)m_downloaded.size() && m_downloaded[m_selectedIdx]) {
+		m_detailBtnUninstall = GUI::createButton(btnRow, LV_SYMBOL_TRASH " 卸载", 120, 40);
+		lv_obj_set_style_radius(m_detailBtnUninstall, 6, 0);
+		lv_obj_set_style_border_width(m_detailBtnUninstall, 2, LV_STATE_FOCUSED);
+		lv_obj_set_style_border_color(m_detailBtnUninstall, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_bg_color(m_detailBtnUninstall, LV_COLOR_MAKE(0x99, 0x33, 0x2b), 0);
+		lv_obj_add_event_cb(m_detailBtnUninstall, [](lv_event_t* e) {
+			auto* self = static_cast<MarketApp*>(lv_event_get_user_data(e));
+			self->uninstall();
+			}, LV_EVENT_CLICKED, this);
+		m_detailUninstallVisible = true;
+	}
+
 	applyFocus();
 
 	// 异步加载截图
@@ -669,6 +709,8 @@ void MarketApp::hideDetail()
 		m_detailDesc = nullptr;
 		m_detailBtnBack = nullptr;
 		m_detailBtnRun = nullptr;
+		m_detailBtnUninstall = nullptr;
+		m_detailUninstallVisible = false;
 		m_detailImageLoaded = false;
 	}
 	applyFocus();
@@ -727,6 +769,13 @@ void MarketApp::download()
 	if (m_list.empty() || m_selectedIdx < 0 || m_selectedIdx >= (int)m_list.size()) return;
 
 	const auto& s = m_list[m_selectedIdx];
+
+	// ELF 插件 → 插件包下载（manifest + .so + icon）
+	if (s.type == "elf") {
+		downloadElf();
+		return;
+	}
+
 	int selIdx = m_selectedIdx;
 	bool wasDownloaded = (selIdx < (int)m_downloaded.size() && m_downloaded[selIdx]);
 
@@ -782,8 +831,9 @@ void MarketApp::download()
 
 			ESP_LOGI(TAG, "下载完成: %s (%zu bytes)", path.c_str(), content.size());
 
-			// 标记已下载并同步按钮文案（下载 → 更新）
+			// 标记已下载并同步按钮文案（下载 → 更新）+ 刷新卡片角标
 			if (selIdx < (int)m_downloaded.size()) m_downloaded[selIdx] = true;
+			updateBadge(selIdx);
 
 			// 运行统一走「脚本管理」，市场不自动启动游戏
 			{
@@ -799,6 +849,180 @@ void MarketApp::download()
 			// 组合键 作者/id：服务端按组合键统计，防同名游戏串号
 			MarketClient::reportDownload(m_serverUrl, author.empty() ? id : author + "/" + id);
 		});
+}
+
+// ============================================================
+//  ELF 插件下载/卸载
+// ============================================================
+
+// 插件目录：/root/elf/<id>（桌面扫描 /root/elf 子目录 + manifest.json 建卡）
+std::string MarketApp::elfDirPath(const MarketScript& s)
+{
+	return "/root/elf/" + sanitizeSegment(s.id);
+}
+
+// 插件 .so 文件名：s.main 优先（服务器按 info.main || manifest.main 给出），缺省 <id>.so
+std::string MarketApp::elfMainName(const MarketScript& s)
+{
+	if (!s.main.empty())
+		return sanitizeSegment(s.main);
+	return sanitizeSegment(s.id) + ".so";
+}
+
+// 下载失败统一处理（复位忙标志 + 状态提示）
+void MarketApp::downloadFail(const std::string& msg)
+{
+	m_downloading = false;
+	auto g = display->lockGuard();
+	if (g) setStatus(("下载失败: " + msg).c_str(), GUI::Color::DANGER);
+}
+
+// ELF 下载成功收尾：标记已装 + 提示 + 上报统计
+// （无版本校验：更新 = 重新下载覆盖 manifest/.so/icon）
+void MarketApp::downloadElfDone(int selIdx, bool wasDownloaded, const std::string& id, const std::string& author)
+{
+	m_downloading = false;
+	if (selIdx < (int)m_downloaded.size()) m_downloaded[selIdx] = true;
+
+	{
+		auto g = display->lockGuard();
+		if (g) setStatus(wasDownloaded ? "更新完成，返回桌面即可游玩" : "已安装，返回桌面即可游玩",
+			GUI::Color::SUCCESS);
+	}
+	updateBadge(selIdx);       // 刷新卡片右上角"已装"角标
+	updateActionLabels();      // 自带锁
+
+	MarketClient::reportDownload(m_serverUrl, author.empty() ? id : author + "/" + id);
+}
+
+// 下载/更新 ELF 插件包：建目录 → manifest.json → .so → icon.jpg（可选）
+// 全部落盘到 /root/elf/<id>/，返回桌面后扫描自动建卡
+void MarketApp::downloadElf()
+{
+	const auto& s = m_list[m_selectedIdx];
+	int selIdx = m_selectedIdx;
+	bool wasDownloaded = (selIdx < (int)m_downloaded.size() && m_downloaded[selIdx]);
+
+	m_downloading = true;
+	{
+		auto guard = display->lockGuard();
+		if (guard) setStatus(wasDownloaded ? "更新中..." : "下载中...", GUI::Color::SUBTLE);
+	}
+
+	const std::string url = m_serverUrl;
+	const std::string dir = elfDirPath(s);
+	const std::string mainName = elfMainName(s);
+	// manifest URL：服务端条目 manifest 字段，缺省按目录约定拼
+	const std::string manifestRel = !s.manifest.empty()
+		? s.manifest : "/games/" + s.author + "/" + s.id + "/manifest.json";
+	const std::string soRel = s.download;   // 服务端条目 download 指向 .so
+	const std::string iconRel = s.icon;
+
+	// 逐级建目录（/root/elf → /root/elf/<id>）
+	newFloor("/root/elf");
+	newFloor(dir.c_str());
+
+	// 步骤 1/3：manifest.json
+	MarketClient::downloadFile(url, manifestRel, dir + "/manifest.json",
+		[this, selIdx, wasDownloaded, url, dir, mainName, soRel, iconRel, id = s.id, author = s.author]
+		(bool ok, const std::string& err) {
+			if (!running) return;
+			if (!ok) { downloadFail("manifest 下载失败: " + err); return; }
+
+			// 步骤 2/3：.so 插件本体
+			MarketClient::downloadFile(url, soRel, dir + "/" + mainName,
+				[this, selIdx, wasDownloaded, url, dir, iconRel, id, author]
+				(bool ok2, const std::string& err2) {
+					if (!running) return;
+					if (!ok2) { downloadFail("插件下载失败: " + err2); return; }
+
+					// 步骤 3/3：icon.jpg（可选，失败不阻断）
+					if (iconRel.empty()) {
+						downloadElfDone(selIdx, wasDownloaded, id, author);
+						return;
+					}
+					MarketClient::downloadFile(url, iconRel, dir + "/icon.jpg",
+						[this, selIdx, wasDownloaded, id, author]
+						(bool /*ok3*/, const std::string& /*err3*/) {
+							if (!running) return;
+							downloadElfDone(selIdx, wasDownloaded, id, author);
+						});
+				});
+		});
+}
+
+// 卸载 ELF 插件：先 unload 已加载模块（refcount=0 才成功），再递归删目录
+void MarketApp::uninstallElf()
+{
+	if (m_list.empty() || m_selectedIdx < 0 || m_selectedIdx >= (int)m_list.size()) return;
+	const auto& s = m_list[m_selectedIdx];
+	if (s.type != "elf") return;
+	int selIdx = m_selectedIdx;
+
+	std::string soPath = elfDirPath(s) + "/" + elfMainName(s);
+	ElfManager::instance().unload(soPath.c_str());   // 市场不运行游戏，refcount 应为 0
+
+	bool ok = removeFloorRecursive(elfDirPath(s).c_str());
+	ESP_LOGI(TAG, "卸载 ELF: %s → %s", soPath.c_str(), ok ? "成功" : "失败");
+
+	if (selIdx < (int)m_downloaded.size()) m_downloaded[selIdx] = false;
+	updateBadge(selIdx);   // 隐藏卡片右上角"已装"角标
+
+	// 详情页隐藏卸载按钮（焦点回落到下载/更新）
+	m_detailUninstallVisible = false;
+	m_focusDetailIdx = 1;
+	{
+		auto g = display->lockGuard();
+		if (g) setStatus(ok ? "已卸载" : "卸载失败", ok ? GUI::Color::SUCCESS : GUI::Color::DANGER);
+	}
+	updateActionLabels();
+	applyFocus();
+}
+
+// 卸载 Lua 市场游戏：递归删 /root/lua/market/<作者>/<游戏>/，再清理空作者目录
+// （Lua 无 dlopen，脚本运行中已整读进内存，直接删文件安全）
+void MarketApp::uninstallLua()
+{
+	if (m_list.empty() || m_selectedIdx < 0 || m_selectedIdx >= (int)m_list.size()) return;
+	const auto& s = m_list[m_selectedIdx];
+	int selIdx = m_selectedIdx;
+
+	// 本地脚本路径 → 游戏目录（/root/lua/market/<作者>/<游戏>/）
+	std::string path = localPathFor(s.author, s.id, s.download);
+	size_t lastSlash = path.rfind('/');
+	if (lastSlash == std::string::npos) return;
+	std::string gameDir = path.substr(0, lastSlash);
+	std::string authorDir = gameDir;
+	size_t gameSlash = gameDir.rfind('/');
+	if (gameSlash != std::string::npos) authorDir = gameDir.substr(0, gameSlash);
+
+	bool ok = removeFloorRecursive(gameDir.c_str());
+	if (ok) removeFloor(authorDir.c_str());   // 空作者目录清理（作者只剩此游戏时）
+
+	ESP_LOGI(TAG, "卸载 Lua: %s → %s", gameDir.c_str(), ok ? "成功" : "失败");
+
+	if (selIdx < (int)m_downloaded.size()) m_downloaded[selIdx] = false;
+	updateBadge(selIdx);   // 隐藏卡片右上角"已装"角标
+
+	// 详情页隐藏卸载按钮（焦点回落到下载/更新）
+	m_detailUninstallVisible = false;
+	m_focusDetailIdx = 1;
+	{
+		auto g = display->lockGuard();
+		if (g) setStatus(ok ? "已卸载" : "卸载失败", ok ? GUI::Color::SUCCESS : GUI::Color::DANGER);
+	}
+	updateActionLabels();
+	applyFocus();
+}
+
+// 卸载统一入口（按类型分流）：ELF = unload + 删目录；Lua = 删目录
+void MarketApp::uninstall()
+{
+	if (m_list.empty() || m_selectedIdx < 0 || m_selectedIdx >= (int)m_list.size()) return;
+	if (m_list[m_selectedIdx].type == "elf")
+		uninstallElf();
+	else
+		uninstallLua();
 }
 
 // ============================================================
@@ -884,17 +1108,21 @@ bool MarketApp::isDownloaded(int idx) const
 	return m_downloaded[idx];
 }
 
-// 重新扫描本地市场目录，更新已下载标记
+// 重新扫描本地市场目录，更新已下载标记（无版本校验，更新 = 重新下载覆盖）
+// Lua：/root/lua/market/<作者>/<游戏>/<文件>；ELF：/root/elf/<id>/manifest.json 存在
 void MarketApp::refreshDownloadedState()
 {
 	m_downloaded.assign(m_list.size(), false);
 	for (size_t i = 0; i < m_list.size(); i++) {
 		const auto& s = m_list[i];
-		m_downloaded[i] = testFile(localPathFor(s.author, s.id, s.download).c_str());
+		if (s.type == "elf")
+			m_downloaded[i] = testFile((elfDirPath(s) + "/manifest.json").c_str());
+		else
+			m_downloaded[i] = testFile(localPathFor(s.author, s.id, s.download).c_str());
 	}
 }
 
-// 同步"下载 / 更新"按钮文案（底部栏 + 详情）
+// 同步"下载 / 更新"按钮文案（底部栏 + 详情；更新 = 重新下载覆盖，无版本校验）
 void MarketApp::updateActionLabels()
 {
 	auto guard = display->lockGuard();
@@ -912,6 +1140,20 @@ void MarketApp::updateActionLabels()
 
 	setLabel(m_bottomBtns[2], dl ? LV_SYMBOL_LOOP " 更新" : LV_SYMBOL_DOWNLOAD " 下载");
 	setLabel(m_detailBtnRun, dl ? LV_SYMBOL_LOOP " 更新" : LV_SYMBOL_DOWNLOAD " 下载");
+}
+
+// 按 m_downloaded 显示/隐藏第 idx 张卡片右上角"已装"角标（下载/卸载后调用；内部持锁）
+void MarketApp::updateBadge(int idx)
+{
+	if (idx < 0 || idx >= (int)m_cardBadges.size()) return;
+	bool dl = (idx < (int)m_downloaded.size()) && m_downloaded[idx];
+
+	auto guard = display->lockGuard();
+	if (!guard) return;
+	if (dl)
+		lv_obj_clear_flag(m_cardBadges[idx], LV_OBJ_FLAG_HIDDEN);
+	else
+		lv_obj_add_flag(m_cardBadges[idx], LV_OBJ_FLAG_HIDDEN);
 }
 
 // ============================================================
@@ -1015,12 +1257,13 @@ void MarketApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 
 	case MODE_DETAIL:
 	{
+		int maxDetailIdx = m_detailUninstallVisible ? 2 : 1;   // 卸载按钮存在时焦点可到 2
 		if (hasMove && lxLeft && m_focusDetailIdx > 0) {
 			m_focusDetailIdx--;
 			auto guard = display->lockGuard();
 			if (guard) applyFocus();
 		}
-		else if (hasMove && lxRight && m_focusDetailIdx < 1) {
+		else if (hasMove && lxRight && m_focusDetailIdx < maxDetailIdx) {
 			m_focusDetailIdx++;
 			auto guard = display->lockGuard();
 			if (guard) applyFocus();
@@ -1029,6 +1272,8 @@ void MarketApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 			m_nextActionTime = now + ACTION_COOLDOWN;
 			if (m_focusDetailIdx == 1)
 				download();
+			else if (m_focusDetailIdx == 2)
+				uninstall();
 			else
 				hideDetail();
 		}
@@ -1049,9 +1294,9 @@ std::string MarketApp::getAiContext()
 {
 	std::string ctx = "当前在游戏市场。\n"
 		"可用焦点组（select 的 text 参数）：\n"
-		"- list(0-N)\t脚本列表\n"
+		"- list(0-N)\t脚本列表（条目含 Lua 脚本 / ELF 原生插件，看 type）\n"
 		"- actions(0-2)\t操作按钮（刷新/详情/下载或更新）\n"
-		"- detail(0-1)\t详情按钮（返回/下载或更新）\n\n";
+		"- detail(0-1)\t详情按钮（返回/下载或更新；已装时为 0-2，2=卸载）\n\n";
 
 	ctx += "服务器: " + m_serverUrl + "\n";
 
@@ -1062,7 +1307,8 @@ std::string MarketApp::getAiContext()
 		for (size_t i = 0; i < m_list.size(); i++) {
 			const auto& s = m_list[i];
 			ctx += "  " + std::to_string(i) + ": " + s.name
-				+ " (" + s.author + ", ★" + std::to_string((int)s.rating) + ")\n";
+				+ " (" + s.author + ", ★" + std::to_string((int)s.rating)
+				+ ", " + s.type + ")\n";
 		}
 	}
 
@@ -1092,7 +1338,8 @@ void MarketApp::onAiSelect(const AiSelectTarget& target)
 	else if (target.group == "detail") {
 		if (m_mode != MODE_DETAIL) showDetail();
 		m_focusGroup = FOCUS_DETAIL;
-		if (target.index == 0 || target.index == 1) {
+		int maxDetailIdx = m_detailUninstallVisible ? 2 : 1;
+		if (target.index >= 0 && target.index <= maxDetailIdx) {
 			m_focusDetailIdx = (int8_t)target.index;
 		}
 		applyFocus();
@@ -1115,6 +1362,8 @@ void MarketApp::onAiActivate()
 	case FOCUS_DETAIL:
 		if (m_focusDetailIdx == 1)
 			download();
+		else if (m_focusDetailIdx == 2)
+			uninstall();
 		else
 			hideDetail();
 		break;

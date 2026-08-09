@@ -37,7 +37,7 @@ void DesktopApp::buildBuiltinCards()
 		const char* icon;
 	} kSystem[] = {
 		{ "Lua 脚本管理", "浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏", "F:system/desktop/lua.jpg" },
-		{ "游戏市场", "浏览并下载社区 Lua 游戏脚本，扩展游戏库！", "F:system/desktop/gameMarket.jpg" },
+		{ "游戏市场", "浏览并下载社区 Lua 脚本与 ELF 原生游戏，扩展游戏库！", "F:system/desktop/gameMarket.jpg" },
 		{ "测试", "测试", "F:system/desktop/test.jpg" },
 	};
 	for (int i = 0; i < SYSTEM_COUNT; i++)
@@ -110,15 +110,14 @@ void DesktopApp::init()
 		}, 5000, this);
 	updateBatteryIcon();
 
-	// 后台渐进式扫描 /root/elf/*.so → 动态插入 ELF 游戏卡片
-	startElfScan();
+	// ELF 卡片由 onForeground 的 rebuildElfCards 全量扫描插入（桌面 push 后必调 onForeground）
+	// ⚠ 不再在此启动后台 startElfScan：与 rebuildElfCards 功能重复，并发会插出重复卡片
 
 	ESP_LOGI(TAG, "桌面初始化完成");
 }
 
 void DesktopApp::deinit()
 {
-	m_elfScanStopped = true;   // 终止后台扫描（任务在下一次更新前退出）
 	if (m_timeTimer)
 	{
 		lv_timer_del(m_timeTimer);
@@ -142,6 +141,10 @@ void DesktopApp::onForeground()
 
 	// 激活时间更新
 	lv_timer_ready(m_timeTimer);
+
+	// ELF 卡片全量重建：市场下载/卸载 ELF 后返回桌面时刷新卡片
+	// （listElfApps 读 manifest.json 毫秒级，直接删旧重插，无需 diff）
+	rebuildElfCards();
 
 	ESP_LOGI(TAG, "前台");
 }
@@ -409,39 +412,21 @@ lv_obj_t* DesktopApp::createCardObject(int idx)
 }
 
 // ════════════════════════════════════════════════════════════════
-// ELF 插件扫描（后台：扫 /root/elf 子目录 + manifest.json，零 dlopen → 一步建卡）
 // ════════════════════════════════════════════════════════════════
-
-void DesktopApp::startElfScan()
-{
-	if (m_elfScanStarted) return;
-	m_elfScanStarted = true;
-	m_elfScanStopped = false;
-	Task::addTask(elfScanTask, "elfScan", this, 0, Task::Affinity::None);
-}
-
-TickType_t DesktopApp::elfScanTask(void* param)
-{
-	auto* self = static_cast<DesktopApp*>(param);
-	auto& em = ElfManager::instance();
-
-	// 插件包 = /root/elf/<name>/{manifest.json, <name>.so, icon}；
-	// 元数据全在 manifest，无需 dlopen → 秒级全部显示
-	ElfManager::ScanEntry entries[MAX_ELF_CARDS];
-	size_t n = em.listElfApps(entries, MAX_ELF_CARDS);
-	for (size_t i = 0; i < n; i++)
-	{
-		if (self->m_elfScanStopped) return Task::infinityTime;
-		self->addElfCard(entries[i]);
-	}
-
-	self->m_elfScanStopped = true;
-	ESP_LOGI(TAG, "ELF 扫描完成: %u 个插件", (unsigned)n);
-	return Task::infinityTime;
-}
+// ELF 卡片插入（rebuildElfCards / 扫描结果逐个插入；锁内防重）
+// ════════════════════════════════════════════════════════════════
 
 void DesktopApp::addElfCard(const ElfManager::ScanEntry& e)
 {
+	auto guard = display->lockGuard();   // 数据 + LVGL 对象须在锁内
+
+	// 防重复：同 elfPath 卡片已存在 → 跳过
+	// ⚠ 检查必须在锁内：onForeground 的 rebuildElfCards 与 init 的后台 elfScanTask 并发时，
+	//   若检查在锁外，两个任务会先后通过检查再各自持锁插入 → 首启动出现重复卡片
+	for (const auto& c : m_cards)
+		if (c.kind == CardKind::Elf && strcmp(c.elfPath, e.path) == 0)
+			return;
+
 	GameCard c{};
 	c.kind = CardKind::Elf;
 	snprintf(c.displayName, sizeof(c.displayName), "%s", e.displayName);
@@ -455,7 +440,6 @@ void DesktopApp::addElfCard(const ElfManager::ScanEntry& e)
 	snprintf(c.elfPath, sizeof(c.elfPath), "%s", e.path);
 	c.index = -1;
 
-	auto guard = display->lockGuard();   // 数据 + LVGL 对象须在锁内
 	m_cards.insert(m_cards.begin(), c);
 	m_cardObjs.insert(m_cardObjs.begin(), nullptr);   // 同步插入（防覆盖旧卡片对象引用）
 	createCardObject(0);
@@ -465,6 +449,51 @@ void DesktopApp::addElfCard(const ElfManager::ScanEntry& e)
 		lv_obj_set_user_data(m_cardObjs[i], (void*)(uintptr_t)i);
 
 	ESP_LOGI(TAG, "ELF 卡片: %s → %s", e.path, c.displayName);
+}
+
+// ════════════════════════════════════════════════════════════════
+// ELF 卡片全量重建（onForeground 触发；市场下载/卸载后刷新）
+// 解析快（listElfApps 读 manifest.json 毫秒级），直接删旧 + 重插，无需 diff
+// ════════════════════════════════════════════════════════════════
+
+void DesktopApp::rebuildElfCards()
+{
+	if (m_elfRebuilding) return;
+	m_elfRebuilding = true;
+
+	{
+		auto guard = display->lockGuard();
+		if (!guard) {
+			m_elfRebuilding = false;
+			return;
+		}
+
+		// 从后往前删除全部 Elf 卡片（删过程中索引不漂移）
+		for (int i = (int)m_cards.size() - 1; i >= 0; i--) {
+			if (m_cards[i].kind == CardKind::Elf) {
+				if (m_cardObjs[i]) lv_obj_del(m_cardObjs[i]);
+				m_cards.erase(m_cards.begin() + i);
+				m_cardObjs.erase(m_cardObjs.begin() + i);
+			}
+		}
+		// 删除后所有剩余卡片索引变化，刷新 user_data
+		for (int i = 0; i < (int)m_cardObjs.size(); i++)
+			lv_obj_set_user_data(m_cardObjs[i], (void*)(uintptr_t)i);
+
+		// 焦点越界保护（全部删除后落到 0）
+		if (m_focusCardsIdx >= (int)m_cards.size())
+			m_focusCardsIdx = (int8_t)(m_cards.empty() ? 0 : (int)m_cards.size() - 1);
+	}
+
+	// 重新扫描 /root/elf 并逐个插入（addElfCard 自带防重复 + 锁，插到最前）
+	auto& em = ElfManager::instance();
+	ElfManager::ScanEntry entries[MAX_ELF_CARDS];
+	size_t n = em.listElfApps(entries, MAX_ELF_CARDS);
+	for (size_t i = 0; i < n; i++)
+		addElfCard(entries[i]);
+
+	m_elfRebuilding = false;
+	ESP_LOGI(TAG, "ELF 卡片重建完成: %u 个插件", (unsigned)n);
 }
 
 // ════════════════════════════════════════════════════════════════

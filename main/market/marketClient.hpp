@@ -16,13 +16,14 @@
  * @file marketClient.hpp
  * @brief 游戏市场 HTTP 客户端
  *
- * 异步（Task 中执行）访问市场服务器的三个只读接口：
- *   GET /api/scripts      — 脚本列表（JSON 数组）
- *   GET <download 相对路径> — 脚本内容（Lua 文本）
- *   GET <screenshot 相对路径> — 截图图片（写入文件）
+ * 异步（Task 中执行）访问市场服务器的只读接口：
+ *   GET /api/scripts          — 列表（JSON 数组，含 type=lua|elf 字段）
+ *   GET <download 相对路径>    — 内容：Lua 脚本文本 / ELF .so 二进制
+ *   GET <screenshot/thumb>    — 图片（写入文件）
+ *   GET <manifest>            — ELF 插件包 manifest.json
  *
  * 所有请求在后台 Task 中执行，通过回调通知结果，不阻塞 LVGL。
- * 与后端形态解耦：设备端只依赖上述 GET 协议。
+ * 与后端形态解耦：设备端只依赖 GET 协议。
  */
 
 // ============================================================
@@ -34,6 +35,7 @@ struct MarketScript {
     std::string name = "未命名";
     std::string author;
     std::string version;
+    std::string type = "lua";   // "lua" / "elf"（原生插件）
     int    sizeBytes{0};
     float  rating{0};
     int    downloads{0};
@@ -42,6 +44,9 @@ struct MarketScript {
     std::string thumb;       // 缩略图 URL（卡片小图，相对或绝对，可选）
     std::string screenshot;  // 大图 URL（详情，相对或绝对）
     std::string download;    // 下载 URL（相对或绝对），缺省 /scripts/<id>.lua
+    std::string manifest;    // ELF：插件包 manifest.json URL（相对或绝对，可选）
+    std::string main;        // ELF：插件 .so 文件名（下载落盘文件名）
+    std::string icon;        // ELF：桌面卡片图标 URL（相对或绝对，可选）
 };
 
 // ============================================================
@@ -300,6 +305,11 @@ private:
             getStr("thumb", s.thumb);
             getStr("screenshot", s.screenshot);
             getStr("download", s.download);
+            getStr("manifest", s.manifest);
+            getStr("main", s.main);
+            getStr("icon", s.icon);
+            getStr("type", s.type);
+            if (s.type != "lua" && s.type != "elf") s.type = "lua";
             double d = 0;
             getNum("size", d);    s.sizeBytes = (int)d;
             getNum("rating", d);  s.rating = (float)d;

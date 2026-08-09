@@ -72,16 +72,18 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 ③ 出错时 → 报错给 AI → 下次对话 AI 修复 → 重新生成
 ```
 
-### 🌐 游戏市场 — 社区 Lua 游戏下载
+### 🌐 游戏市场 — 社区游戏下载（Lua 脚本 + ELF 原生插件）
 
-集成网络市场，浏览并下载/更新其他作者发布的 Lua 游戏脚本（市场只负责下载，运行统一走「脚本管理」）：
+集成网络市场，浏览并下载/更新/卸载其他作者发布的游戏，**支持两类内容**（市场只负责下载，运行在各自入口）：
 
 - **独立 App**：桌面「游戏市场」卡片进入
-- **截图卡片网格**：一级界面显示横屏截图缩略图 + 名称 + 作者 + 版本，缩略图懒加载
-- **详情页**：大图 / 简介 / 版本 / 更新时间 / 下载量 / 评分 + 下载/更新
-- **两级存储**：下载存 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器结构，作者/游戏隔离），已下载按钮显示「更新」覆盖式升级，卡片带「已装」角标；运行/删除/重命名在「脚本管理」中完成（市场游戏按游戏 ID 显示、禁用重命名、删除递归清理目录）
+- **截图卡片网格**：一级界面显示横屏截图缩略图 + 名称 + 作者 + 版本，**Lua/ELF 混合显示**，卡片左上角类型徽标（Lua=蓝 / ELF=紫），右上角「已装」角标，缩略图懒加载
+- **详情页**：大图 / 类型 / 简介 / 版本 / 更新时间 / 下载量 / 评分 + 下载/更新 + 卸载（已装时）
+- **Lua 脚本** → 存 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器结构，作者/游戏隔离），运行/删除/重命名在「脚本管理」中完成
+- **ELF 原生插件** → 装 `/root/elf/<id>/` 插件包（manifest + .so + icon），返回桌面自动建卡直接游玩；卸载 = `ElfManager::unload` + 递归删目录
+- **无版本校验**：`version` 仅详情显示（info.json 提供），「更新」永远 = 重新下载覆盖
 - **下载量上报**：自动上报服务端（组合键 `作者/id`，同名游戏不串号）
-- **服务端独立仓库**：`The-Defect-Market`（git submodule），静态内容走 `market/<作者>/<游戏>/` 文件系统（作者 PR 即上架），动态数据（评分/下载量/搜索）走 SQLite（主键 `作者/id`），提供 `/api/search` 搜索接口
+- **服务端独立仓库**：`The-Defect-Market`（git submodule），静态内容走 `market/<作者>/<游戏>/` 文件系统（目录含 manifest.json 自动判定 type=elf，作者 PR 即上架），动态数据（评分/下载量/搜索）走 SQLite（主键 `作者/id`），提供 `/api/search?type=` 搜索接口
 
 ### �🌐 多主机跨局域联结机
 
@@ -169,7 +171,7 @@ ESP32-C6 (协处理器)
 所有界面均支持多指触摸输入与蓝牙手柄输入
 
 ### 设置
-- **游戏市场** — 浏览并下载/更新社区 Lua 游戏（截图网格 + 详情 + 下载/更新，运行走脚本管理），桌面「游戏市场」卡片进入
+- **游戏市场** — 浏览并下载/更新/卸载社区游戏（Lua 脚本 + ELF 原生插件混合，类型徽标区分），桌面「游戏市场」卡片进入
 - **Lua 脚本管理** — 浏览/运行/删除/重命名 Lua 脚本，AI 生成新游戏入口
 - **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
 - **WiFi 配置** — AP 扫描、密码输入、连接状态
@@ -360,7 +362,7 @@ reserces/
 │   │   ├── aiAgentApp/       ← AI 助手 + PinyinDict 输入法词库
 │   │   ├── luaGameApp/       ← Lua 游戏运行器
 │   │   ├── luaManagerApp/    ← Lua 脚本管理器
-│   │   └── marketApp/        ← 游戏市场
+│   │   └── marketApp/        ← 游戏市场（Lua+ELF 混合）
 │   ├── elfManager/           ← ELF 插件管理器（dlopen/热更新/refcount）
 │   ├── elfSdk/               ← ELF ABI 契约 + 符号表 g_main_elfsyms
 │   ├── audio/                ← ES8311 + Audio 管理器
@@ -403,7 +405,7 @@ reserces/
 | 项目 | 仓库 | 路径 | 说明 |
 |------|------|------|------|
 | **esp32c6HidJoystick** | [codeberg.org/loouwiit/esp32c6HidJoystick](https://codeberg.org/loouwiit/esp32c6HidJoystick) | `gamepad/` (submodule) | ESP32-C6 BLE HID 无线手柄固件，与本机通过 NimBLE 配对通信 |
-| **The-Defect-Market** | [codeberg.org/loouwiit/The-Defect-Market](https://codeberg.org/loouwiit/The-Defect-Market) | `The-Defect-Market/` (submodule) | 游戏市场服务器 + 社区 Lua 游戏内容仓库（文件系统存静态、SQLite 存动态），作者 PR 游戏即上架 |
+| **The-Defect-Market** | [codeberg.org/loouwiit/The-Defect-Market](https://codeberg.org/loouwiit/The-Defect-Market) | `The-Defect-Market/` (submodule) | 游戏市场服务器 + 社区游戏内容仓库（Lua 脚本 + ELF 原生插件；文件系统存静态、SQLite 存动态），作者 PR 游戏即上架 |
 
 ### 克隆完整项目
 
