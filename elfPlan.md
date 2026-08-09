@@ -24,7 +24,9 @@
 主固件（C++ monolith）                        .so 插件工程（elfapps/<name>/，C++）
 ├─ elfSdk 层                                  ├─ 唯一 C 入口 elf_plugin_entry()
 │   ├─ elf_symtab.c    — 符号表（脚本生成）   │   └─ 返回 elf_plugin_info_t
-│   ├─ elf_sdk.cpp     — 注册 g_main_elfsyms  │       { version, name, create_app, destroy_app }
+│   ├─ elf_sdk.cpp     — 注册符号表 + 启动    │       { version, create_app, destroy_app }
+│   │                   优化（日志静默 +      │         （标识/元数据统一走插件包
+│   │                   符号哈希 resolver）    │         manifest.json）
 │   └─ gen_elf_syms.py — 白名单生成工具       ├─ XxxElfApp : public App（.so 内 new）
 │                                            ├─ 自建事件循环/线程（原生灵活性）
 ├─ ElfManager                                  └─ 调用主固件符号（lockGuard/Task/单例…）
@@ -38,7 +40,15 @@
 - **AppStack 全权管理生命周期**：push/pop/init/deinit/onForeground/onBackground/onGamepadInput 全部虚分派进 .so（vtable 在 PSRAM）
 - 插件与原生 App 完全一致：自建事件循环/线程、onGamepadInput 直收输入、display->lockGuard() 直接调用
 
-## 3. 当前状态（2026-08-09：R1 + Phase 1 + Phase 2 + **Phase 3 全部完成** + Phase 4 桌面动态扫描 ✅）
+## 3. 当前状态（2026-08-09：R1 + Phase 1~4 + **启动优化 + 插件包 + ABI v4 全部完成，设备全链路验证通过**）
+
+**启动优化 + 插件包 + ABI v4（2026-08-09，✅ 已验证）**：
+
+- **日志静默**：`elf_sdk_init()` 里 `esp_log_level_set("ELF"/"DLMOD", WARN)` —— esp_elf_loader 组件逐符号 INFO（启动 ~850 行）全部消失，错误级保留，零组件 patch
+- **符号解析哈希化**：`elf_sdk_init()` 构建 FNV-1a 2048 桶哈希索引（PSRAM ~26KB，name/sym 指针零拷贝直指符号表内）+ `elf_set_symbol_resolver(elfSdkResolve)` —— 每次 dlopen 重定位的符号查找从线性 strcmp（~1000+ 次）→ O(1)，未命中兜底 `elf_find_sym_default`（extern C 声明，不 include private 头）
+- **插件包格式（替代平铺 .so）**：`/root/elf/<name>/{manifest.json, <name>.so, icon.jpg}` —— 元数据全部外置 manifest（name/display_name/description/main/icon，build_elf.sh 由 `plugin_meta.json` 生成），桌面扫描**零 dlopen**（`listElfApps` + `readManifest`，FAT + cJSON）→ 5 个图标秒级全显示
+- **ABI v4**：`elf_plugin_info_t` 只剩 `version`/`create_app`/`destroy_app`（v3 去 display_name/description/icon_path，v4 再删 name）—— 标识与元数据统一 manifest 单一来源，ABI 不再因元数据变更升级
+- **实测**：启动无 ELF/DLMOD INFO 日志；游戏 dlopen 加载 46ms（哈希化前 ~600ms+）；桌面卡片即时全显；退出 refcount=0 → dlclose 干净
 
 **Phase 3 联机游戏全部迁移完成（tetris / douDiZhu，设备全链路验证通过）**：
 
@@ -51,7 +61,7 @@
 
 **Phase 2 单机游戏全部迁移完成（snake / chineseChess / fruitNinja，设备全链路验证通过）**：
 
-- 桌面动态卡片自动出现（ABI v2 元数据：中文名/描述/图标）；退出 `refcount=0` → `dlclose` 干净卸载
+- 桌面动态卡片自动出现（ABI v4 起标识与元数据改走插件包 manifest.json，`elf_plugin_info_t` 只保留运行契约 version/create_app/destroy_app）；退出 `refcount=0` → `dlclose` 干净卸载
 - **符号保活机制（本项目核心经验）**：插件符号缺失分两类——
   1. **白名单漏选**（.elf 有但脚本过滤掉，如 `sqrt`/`fseek`/`__clzsi2`）→ `gen_elf_syms.py` 补 `C_EXACT`/`LIBGCC_PREFIXES`（libgcc 辅助族含 `__clz/__ctz/__popcount`）
   2. **主固件没引用**（.elf 没有）→ `main/CMakeLists.txt` `target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--undefined=<sym>")`——**必须 INTERFACE**（main 是静态库，PRIVATE 静默失效）；`used,retain` 数组在 ESP-IDF 链接脚本下**无效**（节被 GC）

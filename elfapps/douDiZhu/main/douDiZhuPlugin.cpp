@@ -29,10 +29,6 @@ extern "C" const elf_plugin_info_t* elf_plugin_entry(void)
 {
     static const elf_plugin_info_t info = {
         ELF_SDK_VERSION,
-        "doudizhu",
-        "斗地主",
-        "三人斗地主，比拼牌技！支持多人联机",
-        "F:system/desktop/douDiZhu.jpg",
         doudizhu_create_app,
         doudizhu_destroy_app,
     };

@@ -6,7 +6,9 @@
 #include "elfSdk/elf_sdk.h"
 #include "esp_dlfcn.h"
 #include "esp_timer.h"
+#include "cJSON.h"
 #include "app/app.hpp"
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -107,65 +109,12 @@ void ElfManager::loadOne(LoadReq* req)
         return;
     }
 
-    ESP_LOGI(TAG, "dlopen OK: name=%s version=%u create_app=%p",
-             info->name ? info->name : "?", info->version, (void*)info->create_app);
+    ESP_LOGI(TAG, "dlopen OK: version=%u create_app=%p",
+             info->version, (void*)info->create_app);
 
     req->ok = true;
     req->handle = handle;
     req->info = info;
-}
-
-void ElfManager::inspectOne(LoadReq* req)
-{
-    // 元数据扫描：dlopen→读 info→dlclose（不增 refcount，不留 handle）
-    char rel[64];
-    relativePath(req->path, rel, sizeof(rel));
-
-    void* handle = dlopen(rel, RTLD_NOW);
-    if (!handle)
-    {
-        ESP_LOGW(TAG, "inspect dlopen failed: %s", dlerror());
-        return;
-    }
-
-    void* sym = dlsym(handle, "elf_plugin_entry");
-    if (!sym)
-    {
-        ESP_LOGW(TAG, "inspect dlsym failed: %s", dlerror());
-        dlclose(handle);
-        return;
-    }
-
-    typedef const elf_plugin_info_t* (*elf_entry_fn_t)(void);
-    auto* entry = (elf_entry_fn_t)sym;
-    const elf_plugin_info_t* info = entry();
-    if (!info || info->version != ELF_SDK_VERSION)
-    {
-        ESP_LOGW(TAG, "inspect 版本不匹配/空信息: %s", req->path);
-        dlclose(handle);
-        return;
-    }
-
-    // 拷贝元数据（info 指向 .so 内，dlclose 后失效 → 必须拷出）
-    ScanEntry e = {};
-    snprintf(e.path, sizeof(e.path), "%s", req->path);
-    if (info->name)
-        snprintf(e.name, sizeof(e.name), "%s", info->name);
-    if (info->display_name && info->display_name[0])
-        snprintf(e.displayName, sizeof(e.displayName), "%s", info->display_name);
-    else
-        snprintf(e.displayName, sizeof(e.displayName), "%s", info->name ? info->name : "?");
-    if (info->description)
-        snprintf(e.desc, sizeof(e.desc), "%s", info->description);
-    if (info->icon_path)
-        snprintf(e.iconPath, sizeof(e.iconPath), "%s", info->icon_path);
-    statFile(req->path, &e.size, &e.mtime);
-
-    dlclose(handle);
-
-    ESP_LOGI(TAG, "inspect OK: %s → %s (size=%u)", e.path, e.displayName, (unsigned)e.size);
-    req->scan = e;   // 拷回请求结果（dlclose 后 ScanEntry 独立有效）
-    req->ok = true;
 }
 
 void ElfManager::loadWorker(void* param)
@@ -182,10 +131,7 @@ void ElfManager::loadWorker(void* param)
         req->info = nullptr;
 
         uint32_t t0 = esp_timer_get_time() / 1000;
-        if (req->op == LoadReq::Op::Load)
-            loadOne(req);
-        else
-            inspectOne(req);
+        loadOne(req);
         req->loadTimeMs = (uint32_t)(esp_timer_get_time() / 1000 - t0);
 
         self->m_reqDone = true;
@@ -325,55 +271,124 @@ bool ElfManager::unload(const char* fullPath)
     return true;
 }
 
-/* ── 元数据扫描（桌面动态卡片） ───────────────────────── */
+/* ── 元数据扫描（桌面动态卡片；插件包 = /root/elf/<name>/{manifest.json, <name>.so, icon}） ── */
 
-size_t ElfManager::listElfFiles(char paths[][64], size_t max)
+bool ElfManager::readManifest(const char* dirPath, ScanEntry* out)
 {
-    size_t count = 0;
+    if (!dirPath || !*dirPath || !out)
+        return false;
+
+    // 读 /root/elf/<name>/manifest.json（FAT 小文件）
+    char path[96];
+    snprintf(path, sizeof(path), "%s/manifest.json", dirPath);
+
+    FILE* f = fopen(path, "r");
+    if (!f)
+        return false;
+
+    // 文件 ≤4KB，直接整读
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    if (n == 0)
+        return false;
+    buf[n] = '\0';
+
+    cJSON* root = cJSON_Parse(buf);
+    if (!root)
+        return false;
+
+    ScanEntry e = {};
+    const char* mainName = nullptr;
+
+    const cJSON* j;
+    j = cJSON_GetObjectItem(root, "name");
+    if (cJSON_IsString(j) && j->valuestring[0])
+        snprintf(e.name, sizeof(e.name), "%s", j->valuestring);
+    j = cJSON_GetObjectItem(root, "display_name");
+    if (cJSON_IsString(j) && j->valuestring[0])
+        snprintf(e.displayName, sizeof(e.displayName), "%s", j->valuestring);
+    j = cJSON_GetObjectItem(root, "description");
+    if (cJSON_IsString(j) && j->valuestring[0])
+        snprintf(e.desc, sizeof(e.desc), "%s", j->valuestring);
+    j = cJSON_GetObjectItem(root, "icon");
+    if (cJSON_IsString(j) && j->valuestring[0])
+        snprintf(e.iconPath, sizeof(e.iconPath), "%s", j->valuestring);
+    j = cJSON_GetObjectItem(root, "main");
+    if (cJSON_IsString(j) && j->valuestring[0])
+        mainName = j->valuestring;
+
+    cJSON_Delete(root);
+
+    if (!e.name[0])
+        return false;   // 缺 name → 视为无效包
+
+    // display_name 回退 name
+    if (!e.displayName[0])
+        snprintf(e.displayName, sizeof(e.displayName), "%s", e.name);
+
+    // .so 完整路径：/root/elf/<name>/<main>；main 缺省回退 "<目录名>.so"
+    if (!mainName || !*mainName)
+    {
+        const char* base = strrchr(dirPath, '/');
+        base = base ? base + 1 : dirPath;
+        snprintf(e.path, sizeof(e.path), "%s/%s.so", dirPath, base);
+    }
+    else
+    {
+        snprintf(e.path, sizeof(e.path), "%s/%s", dirPath, mainName);
+    }
+
+    *out = e;
+    return true;
+}
+
+size_t ElfManager::listElfApps(ScanEntry* entries, size_t max)
+{
+    if (!entries || max == 0)
+        return 0;
+
     DIR* dir = opendir("/root/elf");
     if (!dir)
         return 0;
 
+    size_t count = 0;
     struct dirent* ent;
     while ((ent = readdir(dir)) != nullptr && count < max)
     {
-        const char* n = ent->d_name;
-        size_t len = strlen(n);
-        if (len <= 3 || strcmp(n + len - 3, ".so") != 0)
+        // 只收子目录（插件包目录）；跳过 . ..
+        if (ent->d_type != DT_DIR)
             continue;
-        // 手动拼接（GCC -Wformat-truncation 不识别运行时长度检查）
+        const char* n = ent->d_name;
+        if (n[0] == '.')
+            continue;
+
+        char dirPath[96];
+        // 手动拼接（GCC -Wformat-truncation 对 dirent 名最长 255 字节的推断会误报）
         static const char kPrefix[] = "/root/elf/";   // 10 字节（不含 null）
         constexpr size_t kPrefixLen = sizeof(kPrefix) - 1;
-        char* dst = paths[count];
-        memcpy(dst, kPrefix, kPrefixLen);
-        size_t copyLen = len < 64 - kPrefixLen - 1 ? len : 64 - kPrefixLen - 1;
-        memcpy(dst + kPrefixLen, n, copyLen);
-        dst[kPrefixLen + copyLen] = '\0';
-        count++;
+        size_t nameLen = strlen(n);
+        size_t copyLen = nameLen < sizeof(dirPath) - kPrefixLen - 1
+                             ? nameLen : sizeof(dirPath) - kPrefixLen - 1;
+        memcpy(dirPath, kPrefix, kPrefixLen);
+        memcpy(dirPath + kPrefixLen, n, copyLen);
+        dirPath[kPrefixLen + copyLen] = '\0';
+        if (readManifest(dirPath, &entries[count]))
+            count++;
     }
     closedir(dir);
+
+    // 排序（目录读序不定，按 .so 路径排序保证桌面顺序稳定）
+    for (size_t i = 0; i < count; i++)
+        for (size_t j = i + 1; j < count; j++)
+            if (strcmp(entries[j].path, entries[i].path) < 0)
+            {
+                ScanEntry t = entries[i];
+                entries[i] = entries[j];
+                entries[j] = t;
+            }
+
     return count;
-}
-
-bool ElfManager::inspectModule(const char* fullPath, ScanEntry* out)
-{
-    if (!fullPath || !*fullPath || !out)
-        return false;
-
-    ensureWorker();
-
-    Lock lock(m_mutex);
-    m_req.op = LoadReq::Op::Inspect;
-    snprintf(m_req.path, sizeof(m_req.path), "%s", fullPath);
-    m_reqDone = false;
-    xSemaphoreGive(m_reqSem);
-    while (!m_reqDone)
-        vTaskDelay(pdMS_TO_TICKS(1));
-
-    if (!m_req.ok)
-        return false;
-    *out = m_req.scan;
-    return true;
 }
 
 /* ── 状态查询 ─────────────────────────────────────────── */
@@ -384,17 +399,6 @@ bool ElfManager::isLoaded(const char* fullPath) const
         return false;
     Lock lock(m_mutex);
     return m_modules.find(fullPath) != m_modules.end();
-}
-
-const char* ElfManager::name(const char* fullPath) const
-{
-    if (!fullPath || !*fullPath)
-        return "";
-    Lock lock(m_mutex);
-    auto it = m_modules.find(fullPath);
-    if (it == m_modules.end() || !it->second.info || !it->second.info->name)
-        return "";
-    return it->second.info->name;
 }
 
 uint32_t ElfManager::version(const char* fullPath) const

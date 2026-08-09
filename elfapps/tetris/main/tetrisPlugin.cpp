@@ -29,10 +29,6 @@ extern "C" const elf_plugin_info_t* elf_plugin_entry(void)
 {
     static const elf_plugin_info_t info = {
         ELF_SDK_VERSION,
-        "tetris",
-        "俄罗斯方块",
-        "经典俄罗斯方块，消除行数得分！支持多人对战",
-        "F:system/desktop/tetris.jpg",
         tetris_create_app,
         tetris_destroy_app,
     };

@@ -409,7 +409,7 @@ lv_obj_t* DesktopApp::createCardObject(int idx)
 }
 
 // ════════════════════════════════════════════════════════════════
-// ELF 插件扫描（后台渐进式：占位卡片 → 逐个 inspect → 元数据就绪）
+// ELF 插件扫描（后台：扫 /root/elf 子目录 + manifest.json，零 dlopen → 一步建卡）
 // ════════════════════════════════════════════════════════════════
 
 void DesktopApp::startElfScan()
@@ -425,23 +425,14 @@ TickType_t DesktopApp::elfScanTask(void* param)
 	auto* self = static_cast<DesktopApp*>(param);
 	auto& em = ElfManager::instance();
 
-	// 1. 快速：列出 /root/elf/*.so → 全部先插占位卡片（立即可见，无阻塞）
-	char paths[MAX_ELF_CARDS][64];
-	size_t n = em.listElfFiles(paths, MAX_ELF_CARDS);
+	// 插件包 = /root/elf/<name>/{manifest.json, <name>.so, icon}；
+	// 元数据全在 manifest，无需 dlopen → 秒级全部显示
+	ElfManager::ScanEntry entries[MAX_ELF_CARDS];
+	size_t n = em.listElfApps(entries, MAX_ELF_CARDS);
 	for (size_t i = 0; i < n; i++)
 	{
 		if (self->m_elfScanStopped) return Task::infinityTime;
-		self->addElfCardPlaceholder(paths[i]);
-	}
-
-	// 2. 渐进：逐个 inspect（dlopen→读元数据→dlclose，~600ms/个，无 LVGL 锁）
-	//    完成后持锁更新对应卡片（名称/描述/图标，按 path 定位——插入顺序与文件顺序相反）
-	for (size_t i = 0; i < n; i++)
-	{
-		if (self->m_elfScanStopped) return Task::infinityTime;
-		ElfManager::ScanEntry e;
-		if (em.inspectModule(paths[i], &e))
-			self->updateElfCard(paths[i], e);
+		self->addElfCard(entries[i]);
 	}
 
 	self->m_elfScanStopped = true;
@@ -449,22 +440,19 @@ TickType_t DesktopApp::elfScanTask(void* param)
 	return Task::infinityTime;
 }
 
-void DesktopApp::addElfCardPlaceholder(const char* fullPath)
+void DesktopApp::addElfCard(const ElfManager::ScanEntry& e)
 {
-	// 占位名：文件 basename 去 .so 扩展名
-	const char* base = strrchr(fullPath, '/');
-	base = base ? base + 1 : fullPath;
-	char name[32];
-	snprintf(name, sizeof(name), "%s", base);
-	size_t len = strlen(name);
-	if (len > 3) name[len - 3] = '\0';   // 去 ".so"
-
 	GameCard c{};
 	c.kind = CardKind::Elf;
-	snprintf(c.displayName, sizeof(c.displayName), "%s", name);
-	snprintf(c.pluginName, sizeof(c.pluginName), "%s", name);
-	snprintf(c.desc, sizeof(c.desc), "加载中...");
-	snprintf(c.elfPath, sizeof(c.elfPath), "%s", fullPath);
+	snprintf(c.displayName, sizeof(c.displayName), "%s", e.displayName);
+	snprintf(c.pluginName, sizeof(c.pluginName), "%s", e.name);
+	if (e.desc[0])
+		snprintf(c.desc, sizeof(c.desc), "%s", e.desc);
+	else
+		snprintf(c.desc, sizeof(c.desc), "ELF 游戏插件");
+	if (e.iconPath[0])
+		snprintf(c.icon, sizeof(c.icon), "%s", e.iconPath);
+	snprintf(c.elfPath, sizeof(c.elfPath), "%s", e.path);
 	c.index = -1;
 
 	auto guard = display->lockGuard();   // 数据 + LVGL 对象须在锁内
@@ -476,47 +464,7 @@ void DesktopApp::addElfCardPlaceholder(const char* fullPath)
 	for (int i = 0; i < (int)m_cardObjs.size(); i++)
 		lv_obj_set_user_data(m_cardObjs[i], (void*)(uintptr_t)i);
 
-	ESP_LOGI(TAG, "ELF 占位卡片: %s", fullPath);
-}
-
-void DesktopApp::updateElfCard(const char* elfPath, const ElfManager::ScanEntry& e)
-{
-	auto guard = display->lockGuard();
-
-	// 按路径定位卡片（ELF 卡片 insert(begin)，与 listElfFiles 顺序相反）
-	int elfIdx = -1;
-	for (int i = 0; i < (int)m_cards.size(); i++)
-	{
-		if (m_cards[i].kind == CardKind::Elf && strcmp(m_cards[i].elfPath, elfPath) == 0)
-		{
-			elfIdx = i;
-			break;
-		}
-	}
-	if (elfIdx < 0)
-		return;
-
-	GameCard& c = m_cards[elfIdx];
-	if (e.displayName[0])
-		snprintf(c.displayName, sizeof(c.displayName), "%s", e.displayName);
-	if (e.name[0])
-		snprintf(c.pluginName, sizeof(c.pluginName), "%s", e.name);
-	if (e.desc[0])
-		snprintf(c.desc, sizeof(c.desc), "%s", e.desc);
-	else
-		snprintf(c.desc, sizeof(c.desc), "ELF 游戏插件");
-	if (e.iconPath[0])
-		snprintf(c.icon, sizeof(c.icon), "%s", e.iconPath);
-
-	// 刷新卡片图标（图片是 card 的第一个子对象）
-	if (elfIdx < (int)m_cardObjs.size() && m_cardObjs[elfIdx])
-	{
-		auto img = lv_obj_get_child(m_cardObjs[elfIdx], 0);
-		if (img) lv_image_set_src(img, c.icon);
-	}
-	if (elfIdx == m_focusCardsIdx)
-		updateSelectionLabels();
-	ESP_LOGI(TAG, "ELF 元数据就绪: %s → %s", e.path, c.displayName);
+	ESP_LOGI(TAG, "ELF 卡片: %s → %s", e.path, c.displayName);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -791,7 +739,7 @@ std::vector<AiAppTarget> DesktopApp::getOpenableApps()
 	};
 
 	// 动态并入 ELF 插件：AiAppTarget {name, desc, create=nullptr, elfPath}
-	//  name=info->name（ASCII，AI open_app 键）；指针指向 m_cards 内，桌面存活期有效
+	//  name=manifest.name（ASCII，AI open_app 键）；指针指向 m_cards 内，桌面存活期有效
 	for (const auto& c : m_cards)
 	{
 		if (c.kind == CardKind::Elf)

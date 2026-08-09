@@ -103,7 +103,7 @@ reserces/
 | | **TetrisRemoteClient** | `elfapps/tetris/main/app/tetris/net/tetrisRemoteClient.hpp` | Tetris 远程客户端，listen 端口 8084 等待主机连接，recv Task 解析 snapshot |
 | | **TetrisRemoteApp** | `elfapps/tetris/main/app/tetris/tetrisRemoteApp.hpp` | Tetris 远程游戏 App，全屏渲染远程主机画面，多玩家动态分屏 |
 | **ELF 插件层** | ElfManager | `main/elfManager/` | 插件模块管理（path→Module map，refcount + size/mtime 热更新，内部 RAM 栈 dlopen） |
-| | elfSdk | `main/elfSdk/` | ABI 契约（`elf_plugin_info_t` v2 + `ELF_SDK_VERSION`）+ 符号表 `g_main_elfsyms`（脚本生成） |
+| | elfSdk | `main/elfSdk/` | ABI 契约（`elf_plugin_info_t` v4 + `ELF_SDK_VERSION`）+ 符号表 `g_main_elfsyms`（脚本生成）+ 符号哈希解析 + 启动日志静默 |
 | | elfapps | `elfapps/<name>/` | 5 个游戏 .so 插件工程（snake / chineseChess / fruitNinja / tetris / douDiZhu） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
@@ -994,7 +994,7 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **DesktopApp** | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（后台扫描 `/root/elf/*.so` 生成 ELF 插件卡片 + 系统卡片），3 焦点组（卡片/底部按钮/状态栏），手柄 4 方向导航 |
+| **DesktopApp** | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（扫 `/root/elf/<name>/` 插件包 + manifest.json 生成 ELF 插件卡片 + 系统卡片），3 焦点组（卡片/底部按钮/状态栏），手柄 4 方向导航 |
 
 按钮映射：
 | 操作 | 按键 |
@@ -1005,8 +1005,8 @@ static void on_click_cb(lv_event_t* e) {
 | 切换焦点组 | ↑ ↓ |
 
 **动态卡片**（`startElfScan` 后台渐进式扫描）：
-- 先 `listElfFiles`（快，占位卡）→ 逐个 `inspectModule`（dlopen→读元数据→dlclose，不增 refcount）→ 按 path 定位更新卡片
-- 插件元数据（ABI v2）：`display_name`（中文名）/ `description` / `icon_path`（可 NULL），来自 `elf_plugin_info_t`
+- 先 `listElfApps`（扫子目录 + 读 manifest.json，**零 dlopen**）→ 一步建完整卡片（中文名/描述/图标即时可见）
+- 插件元数据（ABI v4）：`display_name`（中文名）/ `description` / `icon_path` / `name` 均已从 `elf_plugin_info_t` 移除（结构体仅剩 version/create_app/destroy_app），标识与元数据统一由插件包 `/root/elf/<name>/manifest.json` 提供（`build_elf.sh` 生成）
 - 无 .so 时入口优雅提示不崩
 
 ### 游戏（ELF 插件）
@@ -1240,12 +1240,13 @@ class App {
 主固件（C++ monolith）                        .so 插件工程（elfapps/<name>/，C++）
 ├─ elfSdk 层                                  ├─ 唯一 C 入口 elf_plugin_entry()
 │   ├─ elf_symtab.c    — 符号表（脚本生成）   │   └─ 返回 elf_plugin_info_t
-│   ├─ elf_sdk.cpp     — 注册 g_main_elfsyms  │       { version, name, display_name,
-│   └─ gen_elf_syms.py — 白名单生成工具       │         description, icon_path,
-│                                            │         create_app, destroy_app }
-├─ ElfManager                                  ├─ XxxElfApp : public App（.so 内 new）
-│   ├─ 内部 RAM 栈任务 dlopen + version 校验   ├─ 自建事件循环/线程（原生灵活性）
-│   ├─ refcount + size/mtime 热更新检测        └─ 调用主固件符号（lockGuard/Task/单例…）
+│   ├─ elf_sdk.cpp     — 注册符号表 + 启动    │       { version, create_app, destroy_app }
+│   │                   优化（日志静默 +      │         （标识与元数据统一走
+│   │                   符号哈希 resolver）    │         插件包 manifest.json）
+│   └─ gen_elf_syms.py — 白名单生成工具       ├─ XxxElfApp : public App（.so 内 new）
+├─ ElfManager                                  ├─ 自建事件循环/线程（原生灵活性）
+│   ├─ 内部 RAM 栈任务 dlopen + version 校验   └─ 调用主固件符号（lockGuard/Task/单例…）
+│   ├─ refcount + size/mtime 热更新检测
 │   └─ AppStack delete 后 → dlclose
 └─ AppStack（对 ELF App 与原生 App 一视同仁）
 ```
@@ -1254,8 +1255,11 @@ class App {
 
 **模块路径**: `main/elfSdk/`
 
-- `elf_sdk.h`：`elf_plugin_info_t`（ABI v2：`name`/`display_name`/`description`/`icon_path`，后三者可 NULL）+ `ELF_SDK_VERSION` 守卫（插件/主固件同编译头文件，版本不匹配拒绝加载）
+- `elf_sdk.h`：`elf_plugin_info_t`（ABI v4：`version`/`create_app`/`destroy_app`；标识与展示元数据统一走插件包 manifest.json）+ `ELF_SDK_VERSION` 守卫（插件/主固件同编译头文件，版本不匹配拒绝加载）
 - `elf_symtab.c`：**单一符号表** `g_main_elfsyms`（2133 符号，`tools/gen_elf_syms.py` 从主固件 `.elf` 白名单生成，`elf_sdk_init()` 在 main.cpp 早期注册）
+- **启动优化**（`elf_sdk_init()` 内）：
+  - **日志静默**：`esp_log_level_set("ELF"/"DLMOD", WARN)` 过滤 esp_elf_loader 组件逐符号 INFO（启动 ~850 行→0），错误级保留
+  - **符号解析哈希化**：FNV-1a 2048 桶哈希索引（PSRAM，name/sym 指针零拷贝直指符号表内）+ `elf_set_symbol_resolver(elfSdkResolve)`——每次 dlopen 重定位的符号查找从线性 strcmp（~1000+ 次）→ O(1)，未命中兜底 `elf_find_sym_default`；零组件 patch
 - **白名单过滤**（脚本顶部）：C 函数前缀（`lv_`/`esp_log_`/`cJSON_`/`lwip_`/`httpd_`/`esp_websocket_`/`xQueue`）+ C++ 类方法（`^Class::` 反解匹配）+ `std::`/`__cxa_`/`operator new` 运行时 + `DATA_EXACT`（`__dso_handle` 等数据符号）+ `CPP_FN_PREFIXES`（无类名的 C++ 文件级函数）
 - ⚠ static inline 的 LVGL API 不在 `.elf` → 不导出，.so include `lvgl.h` 自行内联
 - **符号保活**：主固件没引用的符号（被 GC）→ `main/CMakeLists.txt` `target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--undefined=<sym>")`（**必须 INTERFACE**，main 是静态库，PRIVATE 静默失效）
@@ -1268,12 +1272,12 @@ class App {
 - `ensureLoaded`：持久**内部 RAM 栈**任务 dlopen + dlsym + 版本校验；检测 size/mtime 变化 → refcount==0 时重载（热更新）
 - `createApp(path, display, params)`：refcount++ → `info->create_app` → `App::setElfModule(path)`
 - `onAppDestroyed`：AppStack 在 `delete app` **之后**调用 → refcount-- → 0 时 `dlclose`（不能在 deinit 时 dlclose——析构还在跑 .so 代码会崩）
-- `listElfFiles` / `inspectModule`：桌面扫描（inspect 只 dlopen→读元数据→dlclose，不增 refcount）
+- **插件包格式**：`/root/elf/<name>/{manifest.json, <name>.so, icon.jpg}`（`build_elf.sh` 产出 `build/pkg/`）。元数据全部外置 manifest（name/display_name/description/main/icon），桌面扫描**零 dlopen**：`listElfApps()`（扫子目录）→ `readManifest()`（FAT + cJSON）一步建卡，秒级全显示
 
 ### 生命周期
 
 ```
-push(ElfManager::createApp("/root/elf/snake.so", ...))
+push(ElfManager::createApp("/root/elf/snake/snake.so", ...))
   └─ refcount++ → so->create_app() → new XxxElfApp（继承 App，虚分派进 .so）
 AppStack: init/onForeground/onGamepadInput/onBackground … 全部走 .so vtable
 pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内跑）
@@ -1282,14 +1286,14 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 ### 桌面动态扫描 + AI 动态路由
 
-- **桌面**：`startElfScan` 后台渐进式——`listElfFiles`（占位卡）→ 逐个 `inspectModule` → 按 path 定位更新卡片（ABI v2 元数据：中文名/描述/图标）
-- **AI**：`AiAppTarget.elfPath` 字段，`open_app` 优先走 `ElfManager::createApp`；`getOpenableApps()`/`getAiContext()` 动态并入 ELF 插件
+- **桌面**：`startElfScan` → `listElfApps`（扫 `/root/elf` 子目录 + 读 manifest.json，**零 dlopen**）→ 一步建卡（中文名/描述/图标即时可见）；图标 `F:elf/<name>/icon.jpg` 由 LVGL 直接解码
+- **AI**：`AiAppTarget.elfPath` 字段，`open_app` 优先走 `ElfManager::createApp`；`getOpenableApps()`/`getAiContext()` 动态并入 ELF 插件（name=manifest.name）
 
 ### 插件工程（`elfapps/<name>/`）
 
-- 模板：唯一 C 入口 `elf_plugin_entry()` + `XxxElfApp : public App` + `dsoHandle.c`（`void* __dso_handle`，`.so` `-nostdlib` 链接对 shared 目标做硬检查）+ sdkconfig.defaults（**`CONFIG_FREERTOS_HZ=1000` 必须与主固件同步**，否则 `pdMS_TO_TICKS` 时序差 10 倍；WS 插件另加 `CONFIG_HTTPD_WS_SUPPORT=y`）
+- 模板：唯一 C 入口 `elf_plugin_entry()` + `XxxElfApp : public App` + `dsoHandle.c`（`void* __dso_handle`，`.so` `-nostdlib` 链接对 shared 目标做硬检查）+ sdkconfig.defaults（**`CONFIG_FREERTOS_HZ=1000` 必须与主固件同步**，否则 `pdMS_TO_TICKS` 时序差 10 倍；WS 插件另加 `CONFIG_HTTPD_WS_SUPPORT=y`）+ `plugin_meta.json`（name/display_name/description 元数据单一来源）+ `icon.jpg`（桌面卡片图标，开发者自备）
 - 编译：`-fPIC -fno-exceptions -fno-rtti -fvisibility=hidden`，`--whole-archive` 链接 `libmain.a` 成 `.so`；与主固件**同头文件 + 同 sdkconfig**（防类布局漂移）
-- 构建：`tools/build_elf.sh <name>`（**必须 Ninja** 生成器；自动跑 `check_elf_syms.sh` 检查 UND 符号对照 `.elf`，含弱符号，缺失即拦截；构建后按 sdkconfig 优化级别自动 `--strip-debug`——DEBUG/NONE 保留调试信息，SIZE/PERF 剥离，`.dynsym` 不受影响 dlsym 安全）
+- 构建：`tools/build_elf.sh <name>`（**必须 Ninja** 生成器；自动跑 `check_elf_syms.sh` 检查 UND 符号对照 `.elf`，含弱符号，缺失即拦截；构建后按 sdkconfig 优化级别自动 `--strip-debug`——DEBUG/NONE 保留调试信息，SIZE/PERF 剥离，`.dynsym` 不受影响 dlsym 安全；最后产出**插件包** `build/pkg/`：`<name>.so` + `manifest.json`（由 plugin_meta.json 生成，main/icon 按目录名补全）+ `icon.jpg`，并打印 curl PUT 上传命令）
 - 音频：插件用 `Audio` → `EXTRA_COMPONENT_DIRS` 复用主工程 managed_components 的 6 个音频组件（仅头文件，.so 不链接音频代码）
 
 ### 插件编写规则（ABI 坑）
@@ -1313,10 +1317,10 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 ```
 1. git mv 游戏源码 → elfapps/<name>/main/（目录对齐主固件 include 路径）
-2. 插件工程：CMakeLists + plugin.cpp + dsoHandle.c + sdkconfig.defaults
+2. 插件工程：CMakeLists + plugin.cpp + dsoHandle.c + sdkconfig.defaults + plugin_meta.json + icon.jpg
 3. 主固件：删游戏源 + desktopApp 卡片/AI 路由改 ElfManager::createApp
 4. 重生成符号表：gen_elf_syms.py（移除独占 inline 符号被 GC 的"鸡生蛋"坑）
-5. build_elf.sh <name> → PUT 上传 → 桌面自动出现/更新
+5. build_elf.sh <name> → 上传 build/pkg/ 下 3 个文件（建目录 + .so + manifest + icon）→ 桌面自动出现
 ```
 
 ---

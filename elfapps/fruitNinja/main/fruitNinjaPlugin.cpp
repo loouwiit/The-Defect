@@ -28,10 +28,6 @@ extern "C" const elf_plugin_info_t* elf_plugin_entry(void)
 {
     static const elf_plugin_info_t info = {
         ELF_SDK_VERSION,
-        "fruitNinja",
-        "水果忍者",
-        "快速切水果，享受爽快连击！",
-        "F:system/desktop/fruitNinja.jpg",
         fruitNinja_create_app,
         fruitNinja_destroy_app,
     };

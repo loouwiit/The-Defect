@@ -28,10 +28,6 @@ extern "C" const elf_plugin_info_t* elf_plugin_entry(void)
 {
     static const elf_plugin_info_t info = {
         ELF_SDK_VERSION,
-        "chineseChess",
-        "中国象棋",
-        "中国象棋，楚河汉界对弈！",
-        "F:system/desktop/chess.jpg",
         chineseChess_create_app,
         chineseChess_destroy_app,
     };

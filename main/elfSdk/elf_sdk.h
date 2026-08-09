@@ -20,18 +20,18 @@ extern "C" {
  * 主固件与插件必须编译同一份 elf_sdk.h（ELF_SDK_VERSION 一致）。
  * 任何影响布局的框架头文件（app.hpp/display.hpp/gamepadState.hpp 等）变更时 +1，
  * 旧 .so 会被 ElfManager 拒绝加载而非静默错位。
+ * v4：移除 name（插件标识统一由插件包目录名 + manifest.json 的 name 字段提供，
+ *     elf_plugin_info_t 只保留最小运行契约：版本 + 工厂）。
  */
-#define ELF_SDK_VERSION 2
+#define ELF_SDK_VERSION 4
 
 /* ── 插件信息 ─────────────────────────────────────────────
  * 由 .so 的 elf_plugin_entry() 返回。
+ * 仅承载【运行契约】：插件标识与桌面展示元数据（显示名/描述/图标）统一走插件包
+ * /root/elf/<name>/manifest.json（build_elf.sh 生成），此处不重复。
  */
 typedef struct elf_plugin_info {
     uint32_t version;                          /* 必须 == ELF_SDK_VERSION */
-    const char* name;                          /* 插件名（如 "smoke"，ASCII，作文件/路由键） */
-    const char* display_name;                  /* 显示名（中文，桌面卡片标题；可 NULL 回退 name） */
-    const char* description;                   /* 一句话描述（桌面卡片副标题；可 NULL） */
-    const char* icon_path;                     /* 图标文件路径（如 "F:system/desktop/snake.jpg"；可 NULL 用默认） */
     void* (*create_app)(void* display, const void* cjson_params);  /* 返回 App*（C++ 层 cast） */
     void  (*destroy_app)(void* app);           /* 可选；NULL 时主固件用 delete */
 } elf_plugin_info_t;

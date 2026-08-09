@@ -155,7 +155,7 @@ ESP32-C6 (协处理器)
 ## 功能
 
 ### 游戏
-所有游戏均为 **ELF 插件**（.so 放 FAT 分区 `/root/elf/`），桌面动态扫描自动出现卡片；改一个游戏只重编译该游戏上传即可，**无需重烧主固件**。
+所有游戏均为 **ELF 插件包**（`/root/elf/<name>/{manifest.json, <name>.so, icon.jpg}`），桌面扫描 manifest **零 dlopen、秒级显示全部卡片**；改一个游戏只重编译该游戏（`tools/build_elf.sh` 产出 `build/pkg/`）上传即可，**无需重烧主固件**。启动经符号哈希解析加速，加载耗时大幅下降。
 
 | 游戏 | 联机 | 说明 |
 |------|------|------|
@@ -201,7 +201,7 @@ ESP32-C6 (协处理器)
 │  LuaManager │ Market │ testApp                            │
 ├──────────────────────────────────────────────────────────┤
 │                 ELF 插件层（游戏）                        │
-│  elfSdk（符号表+ABI v2）│ ElfManager（dlopen/热更新）      │
+│  elfSdk（符号表+ABI v4+哈希解析）│ ElfManager（dlopen/热更新/manifest 扫描） │
 │  elfapps/*.so（snake/chineseChess/fruitNinja/tetris/     │
 │                    douDiZhu）                            │
 ├───────────┬─────────────────────────┬───────────────────────────────┤

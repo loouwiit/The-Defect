@@ -39,7 +39,7 @@ private:
 		char desc[128];         // 描述
 		char icon[64];          // 图标路径
 		char elfPath[64];       // kind==Elf：.so 完整路径
-		char pluginName[32];    // kind==Elf：info->name（ASCII，AI open_app 键）
+		char pluginName[32];    // kind==Elf：manifest.name（ASCII，AI open_app 键）
 		int8_t index;           // kind==Builtin/System：分发 switch 索引
 	};
 	std::vector<GameCard> m_cards;      // 卡片数据表
@@ -48,16 +48,15 @@ private:
 	static constexpr int SYSTEM_COUNT = 3;    // luaManager/market/testApp
 	static constexpr int MAX_ELF_CARDS = 8;
 
-	// ── ELF 扫描（后台渐进式） ──
+	// ── ELF 扫描（后台：读 manifest.json，零 dlopen） ──
 	bool m_elfScanStarted = false;
 	volatile bool m_elfScanStopped = false;
 
 	void buildBuiltinCards();                      // 填充内置+系统卡片（init 时）
 	lv_obj_t* createCardObject(int idx);           // 创建第 idx 张卡片对象（须持 LVGL 锁）
 	void startElfScan();                           // 启动后台扫描 Task
-	static TickType_t elfScanTask(void* param);    // 渐进式：占位 → 逐个 inspect → 更新
-	void addElfCardPlaceholder(const char* fullPath);  // 快速占位卡片（插入最前）
-	void updateElfCard(const char* elfPath, const ElfManager::ScanEntry& e); // 元数据就绪刷新（按 path 定位）
+	static TickType_t elfScanTask(void* param);    // 扫 /root/elf 子目录 + manifest → 一步建卡
+	void addElfCard(const ElfManager::ScanEntry& e);   // 由扫描结果直接插入完整卡片（最前）
 
 	// ── 焦点导航组 ──
 	enum FocusGroup : int8_t {
