@@ -1305,7 +1305,12 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
   ```
 - **`__dso_handle` 插件自足**：`dsoHandle.c` 提供（勿在主固件自定义——ESP-IDF cxx 组件已定义会重定义）
 - 单例/框架方法跨边界走**单符号表**；std::string 跨边界返回同工具链可行
-- 32 位目标 ABI：`size_t`=unsigned int → `_Znwj`（非 `_Znwm`）；不要手推 mangled 名，一律 `nm` / `gen_elf_syms.py --search` 核实
+- 32 位目标 ABI：`size_t`=unsigned int → `_Znwj`（非 `_Znwm`）；C++14 sized delete `_ZdlPvj`（.so 会引用，需导出）；成员函数参数 `App*` → 替换符 `S_`（`_ZN3App7pushAppEPS_`）；const 成员 `K` 紧跟 `_ZN`（`_ZNK...`）
+- ⚠ 不要手推 mangled 名，一律 `nm` / `gen_elf_syms.py --search` 核实
+- loader 内置 libc 表**没有** `snprintf`/`memcmp` → 需自导出；`ESP_LOGI` 宏引用 `esp_log`/`esp_log_timestamp`（App 内联虚函数里也有，插件继承编译带出）→ 需导出
+- 已核实正确（无需改）：`_ZN3AppC1/C2EP7Display`、`_ZN3AppD1/D2Ev`、`_ZN14VirtualGamepad8instanceEv`、`_ZN10BleGamepad8instanceEv`、`_ZNK10BleGamepad14connectedCountEv`、`_ZN14BatteryManager{10getPercent,12getVoltageMv,10isCharging}Ev`
+- ⚠ **check_elf_syms.sh 拦不住白名单漏类**：脚本对照主固件 `.elf`（有定义→绿），但运行时解析用符号表 `g_main_elfsyms`（白名单过滤）——两个不同集合。白名单漏类只能运行时炸 `Can't find common`（tetris 漏 `HostManager`/`BleSettingsApp` 实测）。**新增/迁移插件后应跑 "UND vs 符号表" 预检**（`nm -u <so>` 对照 `g_main_elfsyms` 而非 .elf）
+- ⚠ **.so 体积根因**：IDF 全局注入 `-ggdb -gdwarf-4`（`tools/cmake/build.cmake` 硬编码），**无任何 sdkconfig 选项能关**；.so 文件本身就是产物 → 调试信息占 50-70%（douDiZhu 877KB→strip 后 97KB）。改优化级别只动代码段，打不掉大头。**调试方法**：release 插件无源码级调试（崩溃只剩裸地址、addr2line 不可用）→ 把插件 sdkconfig 优化级别改为 DEBUG 重编（自动保留调试信息），或重建时临时改回
 
 ### P4 关键坑
 
@@ -1322,6 +1327,12 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 4. 重生成符号表：gen_elf_syms.py（移除独占 inline 符号被 GC 的"鸡生蛋"坑）
 5. build_elf.sh <name> → 上传 build/pkg/ 下 3 个文件（建目录 + .so + manifest + icon）→ 桌面自动出现
 ```
+
+### 回归验证清单（插件改动后）
+
+- **R1 基础链路**：dlopen/dlsym/版本校验/失败路径 ✅ std::vector/string + new/delete→PSRAM ✅ 文件级 vs 函数局部 static（fileStatic=0x0，loader 不执行 .init_array）✅ 虚分派生命周期 ✅ 退出→refcount=0→dlclose 干净 ✅
+- **R2 运维**：热更新（改→编→PUT→重进见新，主固件不重烧）✅ 单例直出 ✅ PSRAM 无泄漏（多轮开关无异常增长，`heap_caps_get_free_size(MALLOC_CAP_SPIRAM)` 测量）✅ 无 .so 兜底不崩 ✅
+- **Phase 2/3 游戏**：游戏表现与原生一致（FREERTOS_HZ=1000 同步后）✅ AI open_app 动态路由 ✅ 网络符号（tetris WS/TCP 8083、douDiZhu TCP 8086 双板联机）✅
 
 ---
 
