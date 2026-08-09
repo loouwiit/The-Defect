@@ -124,7 +124,7 @@ reserces/
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
 | | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → `lv_layer_sys` 弹窗 + 循环提示音，弹窗显示时屏蔽底层 App 输入 |
-| | CPU Monitor | `main/monitor/` | FreeRTOS 任务利用率差分采样，串口输出 |
+| | **SystemMonitor** | `main/monitor/` | 系统监视器：CPU 利用率 + 内存（内部 RAM/PSRAM 已用）+ 显示 FPS，串口输出 |
 | **GUI** | GUI | `main/gui/` | 色板（8 色）+ 14 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) |
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
@@ -277,11 +277,11 @@ public:
 ```cpp
 Task::init(2);  // 2 个 daemon 线程
 
-Task::addTask([](void* param)->TickType_t {
-    auto& display = *static_cast<Display*>(param);
-    ESP_LOGI(TAG, "FPS: %u", display.getFps());
+// 注册一个每秒执行的任务（示例：周期性采样可参考 SystemMonitor）
+Task::addTask([](void*)->TickType_t {
+    ESP_LOGI(TAG, "tick");
     return 1000;
-}, "fpsMonitor", &display, 1000, Task::Affinity::None);
+}, "demo", nullptr, 1000, Task::Affinity::None);
 ```
 
 ### Mutex — RAII 互斥锁
@@ -1721,21 +1721,29 @@ class BatteryManager {
 
 **状态机（每源）**：`low`（当前低于阈值，主机还需非充电）+ `alerted`（已提醒）+ `dismissed`（用户已关闭）+ `confirmTicks`。`tick()` 每周期读电量 → 更新状态机 → 汇总「低电 && 已触发 && 未关闭」设备 → 更新弹窗；`newlyAlerted`（新设备触发）时播放提示音。
 
-### CPU Monitor — CPU 利用率监视器
+### SystemMonitor — 系统监视器（CPU + 内存 + FPS）
 
 **模块路径**: `main/monitor/`
 
 ```cpp
-class CpuMonitor {
-    static CpuMonitor& instance();
-    void start();
+class SystemMonitor {
+    static SystemMonitor& instance();
+    void start(Display* display);
     void stop();
     void setBrief(bool);     // 简略模式（仅输出总结行）
 };
 ```
 
-- 通过 FreeRTOS `uxTaskGetSystemState()` 差分采样
-- 每秒输出各任务 CPU 占用率到串口
+- **整合原 CpuMonitor（CPU 差分采样）与 fpsMonitor（独立 Task）**，并新增内存统计，单 Task 每秒输出
+- **CPU**：通过 FreeRTOS `uxTaskGetSystemState()` 差分采样（简略模式走 IDLE 计数器轻量路径）
+- **内存**：内部 RAM 与 PSRAM 的**已用/总量(已用%)**（`heap_caps_get_free/total_size` 差值，显示 used 与现代系统一致）
+- **FPS**：`Display::getFps()`（display 未初始化时自动跳过，`lv_disp` 判空保护）
+- **输出示例**（brief 模式，每秒两行）：
+  ```
+  [SysMon] CPU: 23%, C0: 21%, C1: 25%
+  [SysMon] RAM:248KB/415KB(59%) PSRAM:7.3MB/28.1MB(26%) FPS:60
+  ```
+- **内存无泄漏验证**：ELF 插件 dlopen/运行/退出（refcount=0→dlclose）前后 PSRAM 已用无增长
 - 双缓冲持久分配（`m_prevSnapshot` / `m_currSnapshot`），避免每轮 malloc/free
 
 ---
@@ -1907,7 +1915,8 @@ bash patches/apply.sh --revert # 还原所有
 Task::init(2)                           ← 协程调度器
 srand(esp_random())                     ← 随机种子（60s 周期）
 
-CpuMonitor::instance().start()          ← CPU 利用率监视器
+SystemMonitor::instance().setBrief(true) ← 系统监视器（CPU + 内存 + FPS）
+SystemMonitor::instance().start(&display)
 esp_event_loop_create_default()         ← 默认事件循环
 
 // ── 存储 ──

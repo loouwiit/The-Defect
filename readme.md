@@ -230,7 +230,7 @@ ESP32-C6 (协处理器)
 ├──────────┴─────────────────────────┴─────────────────────┤
 │                   基础设施层                               │
 │  Task(协程) │ Mutex(RAII) │ GPIO │ IIC │ GUI(色板+工厂)  │
-│  CPU Monitor │ Battery(ADC) │ Audio(ES8311+AudioHandle) │
+│  SystemMonitor │ Battery(ADC) │ Audio(ES8311+AudioHandle) │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -266,7 +266,7 @@ ESP32-C6 (协处理器)
 | 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
 | 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS / Discovery | `main/wifi/` `main/server/` `main/wsServer/` `main/discovery/` |
 | 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
-| 外设 | BLE Gamepad / Battery / CPU Monitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
+| 外设 | BLE Gamepad / Battery / SystemMonitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
 | GUI | 色板 + 工厂方法 | `main/gui/` |
 | 存储 | FAT / memFS / SD | `main/storage/` |
 
@@ -360,7 +360,7 @@ reserces/
 │   ├── iic/                  ← I²C 总线
 │   ├── lua/                  ← Lua 5.5 引擎（沙箱）+ 绑定模块
 │   ├── market/               ← 游戏市场 HTTP 客户端
-│   ├── monitor/              ← CPU 监视器
+│   ├── monitor/              ← 系统监视器（CPU + 内存 + FPS）
 │   ├── mutex/                ← RAII 互斥锁
 │   ├── screenStream/         ← 屏幕串流
 │   ├── server/               ← HTTP 服务器

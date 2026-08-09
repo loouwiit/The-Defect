@@ -41,7 +41,7 @@
 
 #include "gamepad/bleGamepad.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
-#include "monitor/cpuMonitor.hpp"
+#include "monitor/systemMonitor.hpp"
 #include "battery/batteryManager.hpp"
 #include "battery/batteryMonitor.hpp"
 #include "time/timeService.hpp"
@@ -63,9 +63,9 @@ extern "C" void app_main(void)
 
 	Task::addTask([](void*)->TickType_t { setenv("TZ", "CST-8", 1); tzset();return Task::infinityTime;}, "setting time zone", nullptr, 0, Task::Affinity::None);
 
-	// CPU 利用率监视器（串口输出，每 1 秒采样一次）
-	CpuMonitor::instance().setBrief(true);
-	CpuMonitor::instance().start();
+	// 系统监视器（串口输出，每 1 秒采样一次）：CPU 利用率 + 内存（内部 RAM/PSRAM）+ 显示 FPS
+	SystemMonitor::instance().setBrief(true);
+	SystemMonitor::instance().start(&display);
 
 	Task::addTask([](void*)->TickType_t
 		{
@@ -143,13 +143,6 @@ extern "C" void app_main(void)
 		return;
 	}
 	display.setFpsStatisticsEnabled();
-
-	Task::addTask([](void* param)->TickType_t
-		{
-			auto& display = *static_cast<Display*>(param);
-			ESP_LOGI(TAG, "FPS: %u", display.getFps());
-			return 1000;
-		}, "fpsMonitor", &display, 1000, Task::Affinity::None);
 
 	// 启动屏幕流模块（使用 ESP32-P4 硬件 JPEG 编码器）
 	ScreenStream::instance().start(&display, horizontalResolution, verticalResolution);

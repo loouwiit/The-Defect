@@ -1,7 +1,9 @@
-#include "cpuMonitor.hpp"
+#include "systemMonitor.hpp"
+#include "display/display.hpp"
 #include "task/task.hpp"
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <esp_heap_caps.h>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -10,11 +12,21 @@
 // 额外缓冲区，防止任务数在两次采样间变化导致数组不够
 static constexpr UBaseType_t ARRAY_SIZE_OFFSET = 5;
 
-void CpuMonitor::start()
+// ── 字节数格式化（KB / MB） ──
+static void formatSize(char* out, size_t cap, uint32_t bytes)
+{
+	if (bytes >= 1024 * 1024)
+		snprintf(out, cap, "%.1fMB", bytes / (1024.0f * 1024.0f));
+	else
+		snprintf(out, cap, "%" PRIu32 "KB", bytes / 1024);
+}
+
+void SystemMonitor::start(Display* display)
 {
 	if (m_running)
 		return;
 	m_running = true;
+	m_display = display;
 
 	if (m_brief)
 	{
@@ -43,11 +55,11 @@ void CpuMonitor::start()
 		}
 	}
 
-	Task::addTask(pollTask, "cpuMonitor", this, pdMS_TO_TICKS(1000), Task::Affinity::None);
-	ESP_LOGI(TAG, "CPU 监视器已启动%s", m_brief ? "（简略模式）" : "");
+	Task::addTask(pollTask, "sysMonitor", this, pdMS_TO_TICKS(1000), Task::Affinity::None);
+	ESP_LOGI(TAG, "系统监视器已启动%s", m_brief ? "（简略模式）" : "");
 }
 
-void CpuMonitor::stop()
+void SystemMonitor::stop()
 {
 	m_running = false;
 	free(m_prevSnapshot);
@@ -60,7 +72,7 @@ void CpuMonitor::stop()
 	m_prevCount = 0;
 }
 
-bool CpuMonitor::ensureCapacity(UBaseType_t needed)
+bool SystemMonitor::ensureCapacity(UBaseType_t needed)
 {
 	if (needed <= m_capacity)
 		return true;
@@ -88,9 +100,38 @@ bool CpuMonitor::ensureCapacity(UBaseType_t needed)
 	return true;
 }
 
-TickType_t CpuMonitor::pollTask(void* param)
+void SystemMonitor::logMemoryAndFps()
 {
-	auto* self = static_cast<CpuMonitor*>(param);
+	// 内部 RAM（SRAM）与 PSRAM 的已用/总量（与现代系统一致，显示 used 而非 free）
+	uint32_t ramFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+	uint32_t ramTotal = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+	uint32_t psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+	uint32_t psramTotal = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+
+	uint32_t ramUsed = ramTotal - ramFree;
+	uint32_t psramUsed = psramTotal - psramFree;
+
+	char ramUsedS[16], ramTotalS[16], psramUsedS[16], psramTotalS[16];
+	formatSize(ramUsedS, sizeof(ramUsedS), ramUsed);
+	formatSize(ramTotalS, sizeof(ramTotalS), ramTotal);
+	formatSize(psramUsedS, sizeof(psramUsedS), psramUsed);
+	formatSize(psramTotalS, sizeof(psramTotalS), psramTotal);
+
+	uint32_t ramUsedPct = (ramTotal > 0) ? ramUsed * 100ULL / ramTotal : 0;
+	uint32_t psramUsedPct = (psramTotal > 0) ? psramUsed * 100ULL / psramTotal : 0;
+
+	// FPS：display 未初始化（lv_disp 为空）时跳过，避免 esp_lv_adapter 报错
+	uint32_t fps = 0;
+	if (m_display && m_display->getLvglDisplay())
+		fps = m_display->getFps();
+
+	ESP_LOGI(TAG, "RAM:%s/%s(%" PRIu32 "%%) PSRAM:%s/%s(%" PRIu32 "%%) FPS:%" PRIu32,
+		ramUsedS, ramTotalS, ramUsedPct, psramUsedS, psramTotalS, psramUsedPct, fps);
+}
+
+TickType_t SystemMonitor::pollTask(void* param)
+{
+	auto* self = static_cast<SystemMonitor*>(param);
 	if (!self->m_running)
 		return Task::infinityTime;
 
@@ -127,6 +168,7 @@ TickType_t CpuMonitor::pollTask(void* param)
 
 		ESP_LOGI(TAG, "CPU:%3" PRIu32 "%%, C0:%3" PRIu32 "%%, C1:%3" PRIu32 "%%",
 			totalBusy, coreBusy[0], coreBusy[1]);
+		self->logMemoryAndFps();
 
 		return pdMS_TO_TICKS(1000);
 	}
@@ -212,6 +254,7 @@ TickType_t CpuMonitor::pollTask(void* param)
 
 	ESP_LOGI(TAG, "CPU:%3" PRIu32 "%%, C0:%3" PRIu32 "%%, C1:%3" PRIu32 "%%",
 		totalBusy, coreBusy[0], coreBusy[1]);
+	self->logMemoryAndFps();
 
 	// ── 交换缓冲区（prev ← curr），仅 swap 指针，零分配 ──
 	std::swap(self->m_prevSnapshot, self->m_currSnapshot);
