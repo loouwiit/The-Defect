@@ -84,11 +84,7 @@ reserces/
 | | LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，C++ 驱动 60fps 循环调用 Lua loop(dt)，LVGL 对象池化渲染 |
 | | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口；市场游戏按游戏 ID 显示、禁用重命名、删除=递归删目录） |
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/脚本/图片 + POST 统计） |
-| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**7** 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
-| | TetrisApp | `main/app/tetris/` | 俄罗斯方块（Host-authoritative，3P，WebSocket 网络对战） |
-| | FruitNinjaApp | `main/app/fruitNinja/` | 水果忍者（含房间系统，多玩家；canvas 化渲染器） |
-| | Snake | `main/app/snake/` | 贪吃蛇（snakeGame + snakeRoom） |
-| | ChineseChess | `main/app/chineseChess/` | 中国象棋（含 AI 引擎） |
+| **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（ELF 插件在前 + 系统卡片），3 焦点组导航 |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
 | | MarketApp | `main/app/marketApp/` | 游戏市场：截图卡片网格 + 详情 + 下载/更新（运行走脚本管理） |
 | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
@@ -103,9 +99,12 @@ reserces/
 | | udpInput | `main/host/udpInput.cpp` | UDP 端口 8082 监听 + 发送（P4→P4 低延迟输入转发） |
 | | WsClient | `main/websocket/wsClient.hpp` | 通用 WebSocket 客户端封装，`sendText` / `sendBinary` |
 | | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理 UI（BLE 配对风格，4 槽位 + mask 控制 + 交换） |
-| | **tetrisTcpHost** | `main/app/tetris/net/tetrisTcpHost.hpp` | Tetris TCP 游戏服务器（端口 8083），异步 send Task 20fps，主机→从机 snapshot |
-| | **TetrisRemoteClient** | `main/app/tetris/net/tetrisRemoteClient.hpp` | Tetris 远程客户端，listen 端口 8084 等待主机连接，recv Task 解析 snapshot |
-| | **TetrisRemoteApp** | `main/app/tetris/tetrisRemoteApp.hpp` | Tetris 远程游戏 App，全屏渲染远程主机画面，多玩家动态分屏 |
+| | **tetrisTcpHost** | `elfapps/tetris/main/app/tetris/net/tetrisTcpHost.hpp` | Tetris TCP 游戏服务器（端口 8083），异步 send Task 20fps，主机→从机 snapshot |
+| | **TetrisRemoteClient** | `elfapps/tetris/main/app/tetris/net/tetrisRemoteClient.hpp` | Tetris 远程客户端，listen 端口 8084 等待主机连接，recv Task 解析 snapshot |
+| | **TetrisRemoteApp** | `elfapps/tetris/main/app/tetris/tetrisRemoteApp.hpp` | Tetris 远程游戏 App，全屏渲染远程主机画面，多玩家动态分屏 |
+| **ELF 插件层** | ElfManager | `main/elfManager/` | 插件模块管理（path→Module map，refcount + size/mtime 热更新，内部 RAM 栈 dlopen） |
+| | elfSdk | `main/elfSdk/` | ABI 契约（`elf_plugin_info_t` v2 + `ELF_SDK_VERSION`）+ 符号表 `g_main_elfsyms`（脚本生成） |
+| | elfapps | `elfapps/<name>/` | 5 个游戏 .so 插件工程（snake / chineseChess / fruitNinja / tetris / douDiZhu） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
@@ -129,7 +128,7 @@ reserces/
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
-| **补丁** | Patches | `patches/` | 6 个 patch：帧回调 / PPA 队列 / SRM bypass / WS transport / LVGL IME iuv 过滤 / count uint16 |
+| **补丁** | Patches | `patches/` | 7 个 patch：帧回调 / PPA 队列 / SRM bypass / WS transport / LVGL IME iuv 过滤 / count uint16 / PNG 禁用 |
 
 ---
 
@@ -989,13 +988,13 @@ static void on_click_cb(lv_event_t* e) {
 
 ## 应用层
 
-所有 App 继承自 `App` 基类，位于 `main/app/` 下。
+所有 App 继承自 `App` 基类。系统 App 位于 `main/app/`，**游戏 App 已全部迁移为 ELF 插件**（`elfapps/<name>/`，详见 [ELF 插件化](#elf-插件化) 章节）。
 
 ### 桌面
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **DesktopApp** | `main/app/desktopApp/` | 桌面启动器，7 游戏卡片网格，3 焦点组（卡片/底部按钮/状态栏），手柄 4 方向导航 |
+| **DesktopApp** | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（后台扫描 `/root/elf/*.so` 生成 ELF 插件卡片 + 系统卡片），3 焦点组（卡片/底部按钮/状态栏），手柄 4 方向导航 |
 
 按钮映射：
 | 操作 | 按键 |
@@ -1005,14 +1004,20 @@ static void on_click_cb(lv_event_t* e) {
 | 上一步 / 返回桌面 | B |
 | 切换焦点组 | ↑ ↓ |
 
-### 游戏
+**动态卡片**（`startElfScan` 后台渐进式扫描）：
+- 先 `listElfFiles`（快，占位卡）→ 逐个 `inspectModule`（dlopen→读元数据→dlclose，不增 refcount）→ 按 path 定位更新卡片
+- 插件元数据（ABI v2）：`display_name`（中文名）/ `description` / `icon_path`（可 NULL），来自 `elf_plugin_info_t`
+- 无 .so 时入口优雅提示不崩
 
-| App | 路径 | 说明 |
-|-----|------|------|
-| **TetrisApp** | `main/app/tetris/` | 俄罗斯方块。Host-authoritative，3 玩家（内置 P0 + 2 WebSocket 远程），共享 PieceQueue 7-bag |
-| **FruitNinjaApp** | `main/app/fruitNinja/` | 水果忍者。含房间系统（FruitNinjaRoom），多玩家。渲染 canvas 化（单 lv_canvas + 脏区失效，见模块详情） |
-| **Snake** | `main/app/snake/snakeGame/` | 贪吃蛇。snakeGame 逻辑 + snakeRoom 房间配对 |
-| **ChineseChess** | `main/app/chineseChess/` | 中国象棋。含 AI 引擎 (`chessAI.cpp`)，双人对战 |
+### 游戏（ELF 插件）
+
+| 插件 | 路径 | 说明 |
+|------|------|------|
+| **snake** | `elfapps/snake/` | 贪吃蛇。snakeGame 逻辑 + snakeRoom 房间配对 |
+| **chineseChess** | `elfapps/chineseChess/` | 中国象棋。含 AI 引擎 (`chessAI.cpp`)，双人对战 |
+| **fruitNinja** | `elfapps/fruitNinja/` | 水果忍者。含房间系统（FruitNinjaRoom），多玩家。渲染 canvas 化（单 lv_canvas + 脏区失效，见模块详情） |
+| **tetris** | `elfapps/tetris/` | 俄罗斯方块。Host-authoritative，3 玩家（内置 P0 + 2 WebSocket 远程），共享 PieceQueue 7-bag |
+| **douDiZhu** | `elfapps/douDiZhu/` | 斗地主。单机 AI + 跨主机联机（纯 TCP） |
 
 ### AI Agent
 
@@ -1142,7 +1147,7 @@ class App {
 
 ### Tetris 模块详情
 
-**路径**: `main/app/tetris/`
+**路径**: `elfapps/tetris/main/app/tetris/`
 
 | 目录 | 内容 |
 |------|------|
@@ -1159,7 +1164,7 @@ class App {
 - 棋盘/预览**不使用逐格 LVGL 对象**：原 220（棋盘）+ 64（预览）个 cell 对象在锁块消行时批量样式更新，会使 LVGL 失效缓冲溢出（早期 `LV_INV_BUF_SIZE=32`）→ **整屏软件重绘** → 卡顿。现 `LV_INV_BUF_SIZE=256` 由 CMake 编译宏注入（见 [Patches](#patches) 段末「LVGL 构建选项覆盖」）。
 - 现改为：棋盘 = 1 个 `lv_canvas`（PSRAM RGB565 缓冲），预览 = 4 个 `lv_canvas`；方块/ghost 直接画进棋盘缓冲（`paintBoardCell`，ghost 用 `blend565` 30%/50% 混合）；`syncState` 用 `lv_obj_invalidate_area` 只失效变化区域（锁块时 5~8 条失效 < 32），日常移动仍是局部绘制 + 局部失效。
 - **⚠ 坑**：`lv_obj_invalidate_area(obj, area)` 的 `area` 是**屏幕坐标**（非对象本地坐标），需先用 `lv_obj_get_coords` 换算（见 `invalidateBoardLocal`）；`lv_obj_invalidate(obj)` 整对象失效自动用正确 coords。
-- 完整实现见 `main/app/tetris/renderer/tetris_renderer.hpp/.cpp`。
+- 完整实现见 `elfapps/tetris/main/app/tetris/renderer/tetris_renderer.hpp/.cpp`。
 
 **消息协议** (JSON 文本帧, `ws://{host}:8080/ws/tetris` 或 TCP `host:8083` / `client:8084`):
 | type | 方向 | 说明 |
@@ -1185,7 +1190,7 @@ class App {
 
 ### FruitNinja 模块详情
 
-**路径**: `main/app/fruitNinja/`
+**路径**: `elfapps/fruitNinja/main/app/fruitNinja/`
 
 | 文件 | 内容 |
 |------|------|
@@ -1223,7 +1228,96 @@ class App {
 - **性能实测**：游戏线程 CPU 47%→~7%（5a：提示标签进 canvas + 去 expandRedraw O(n²) + fill 优化 + 收缩锁范围），
   普通 FPS ~31（目标 30 达标）、CPU ~35%；极端情况（大量粒子+刀光）FPS ~10，剩余瓶颈 = `paint` 写大脏区（fruitNinja 49%），
   可选项：粒子/刀光数量上限、Phase 5b 双缓冲并行（把 paint 也挪出锁）
-- 完整实现见 `main/app/fruitNinja/fruitNinjaRenderer.hpp/.cpp`
+- 完整实现见 `elfapps/fruitNinja/main/app/fruitNinja/fruitNinjaRenderer.hpp/.cpp`
+
+---
+
+## ELF 插件化
+
+**系统架构核心机制**：游戏编译为 **ELF 插件 (.so)** 放 FAT 分区 `/root/elf/`，运行时 `dlopen` 动态加载。系统固件（桌面 + 基础库 + 系统 App）常驻，主固件 ~4.79MB。改一个游戏只重编译该游戏（`tools/build_elf.sh`），HTTP PUT 上传即生效，**无需重烧主固件**。
+
+```
+主固件（C++ monolith）                        .so 插件工程（elfapps/<name>/，C++）
+├─ elfSdk 层                                  ├─ 唯一 C 入口 elf_plugin_entry()
+│   ├─ elf_symtab.c    — 符号表（脚本生成）   │   └─ 返回 elf_plugin_info_t
+│   ├─ elf_sdk.cpp     — 注册 g_main_elfsyms  │       { version, name, display_name,
+│   └─ gen_elf_syms.py — 白名单生成工具       │         description, icon_path,
+│                                            │         create_app, destroy_app }
+├─ ElfManager                                  ├─ XxxElfApp : public App（.so 内 new）
+│   ├─ 内部 RAM 栈任务 dlopen + version 校验   ├─ 自建事件循环/线程（原生灵活性）
+│   ├─ refcount + size/mtime 热更新检测        └─ 调用主固件符号（lockGuard/Task/单例…）
+│   └─ AppStack delete 后 → dlclose
+└─ AppStack（对 ELF App 与原生 App 一视同仁）
+```
+
+### elfSdk — ABI 契约 + 符号表
+
+**模块路径**: `main/elfSdk/`
+
+- `elf_sdk.h`：`elf_plugin_info_t`（ABI v2：`name`/`display_name`/`description`/`icon_path`，后三者可 NULL）+ `ELF_SDK_VERSION` 守卫（插件/主固件同编译头文件，版本不匹配拒绝加载）
+- `elf_symtab.c`：**单一符号表** `g_main_elfsyms`（2133 符号，`tools/gen_elf_syms.py` 从主固件 `.elf` 白名单生成，`elf_sdk_init()` 在 main.cpp 早期注册）
+- **白名单过滤**（脚本顶部）：C 函数前缀（`lv_`/`esp_log_`/`cJSON_`/`lwip_`/`httpd_`/`esp_websocket_`/`xQueue`）+ C++ 类方法（`^Class::` 反解匹配）+ `std::`/`__cxa_`/`operator new` 运行时 + `DATA_EXACT`（`__dso_handle` 等数据符号）+ `CPP_FN_PREFIXES`（无类名的 C++ 文件级函数）
+- ⚠ static inline 的 LVGL API 不在 `.elf` → 不导出，.so include `lvgl.h` 自行内联
+- **符号保活**：主固件没引用的符号（被 GC）→ `main/CMakeLists.txt` `target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--undefined=<sym>")`（**必须 INTERFACE**，main 是静态库，PRIVATE 静默失效）
+
+### ElfManager — 插件模块管理
+
+**模块路径**: `main/elfManager/`
+
+- 缓存：`std::map<std::string, Module>`（path→{ handle, info, refcount, size, mtime }）
+- `ensureLoaded`：持久**内部 RAM 栈**任务 dlopen + dlsym + 版本校验；检测 size/mtime 变化 → refcount==0 时重载（热更新）
+- `createApp(path, display, params)`：refcount++ → `info->create_app` → `App::setElfModule(path)`
+- `onAppDestroyed`：AppStack 在 `delete app` **之后**调用 → refcount-- → 0 时 `dlclose`（不能在 deinit 时 dlclose——析构还在跑 .so 代码会崩）
+- `listElfFiles` / `inspectModule`：桌面扫描（inspect 只 dlopen→读元数据→dlclose，不增 refcount）
+
+### 生命周期
+
+```
+push(ElfManager::createApp("/root/elf/snake.so", ...))
+  └─ refcount++ → so->create_app() → new XxxElfApp（继承 App，虚分派进 .so）
+AppStack: init/onForeground/onGamepadInput/onBackground … 全部走 .so vtable
+pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内跑）
+  └─ delete 后 → onAppDestroyed → refcount-- → 0 时 dlclose
+```
+
+### 桌面动态扫描 + AI 动态路由
+
+- **桌面**：`startElfScan` 后台渐进式——`listElfFiles`（占位卡）→ 逐个 `inspectModule` → 按 path 定位更新卡片（ABI v2 元数据：中文名/描述/图标）
+- **AI**：`AiAppTarget.elfPath` 字段，`open_app` 优先走 `ElfManager::createApp`；`getOpenableApps()`/`getAiContext()` 动态并入 ELF 插件
+
+### 插件工程（`elfapps/<name>/`）
+
+- 模板：唯一 C 入口 `elf_plugin_entry()` + `XxxElfApp : public App` + `dsoHandle.c`（`void* __dso_handle`，`.so` `-nostdlib` 链接对 shared 目标做硬检查）+ sdkconfig.defaults（**`CONFIG_FREERTOS_HZ=1000` 必须与主固件同步**，否则 `pdMS_TO_TICKS` 时序差 10 倍；WS 插件另加 `CONFIG_HTTPD_WS_SUPPORT=y`）
+- 编译：`-fPIC -fno-exceptions -fno-rtti -fvisibility=hidden`，`--whole-archive` 链接 `libmain.a` 成 `.so`；与主固件**同头文件 + 同 sdkconfig**（防类布局漂移）
+- 构建：`tools/build_elf.sh <name>`（**必须 Ninja** 生成器；自动跑 `check_elf_syms.sh` 检查 UND 符号对照 `.elf`，含弱符号，缺失即拦截；构建后按 sdkconfig 优化级别自动 `--strip-debug`——DEBUG/NONE 保留调试信息，SIZE/PERF 剥离，`.dynsym` 不受影响 dlsym 安全）
+- 音频：插件用 `Audio` → `EXTRA_COMPONENT_DIRS` 复用主工程 managed_components 的 6 个音频组件（仅头文件，.so 不链接音频代码）
+
+### 插件编写规则（ABI 坑）
+
+- **禁止文件级非 POD static**：loader **不执行 `.init_array`** → 文件级对象不被构造（=UB），默认成员初始化器也不生效（BSS 零初始化 → 运行时 bug）。规范改法：
+  ```cpp
+  struct S { int nextPlayerId = 1; std::function<void()> cb; };
+  static S& getS() { static S inst; return inst; }   // 函数局部 static，首次调用真构造
+  ```
+- **`__dso_handle` 插件自足**：`dsoHandle.c` 提供（勿在主固件自定义——ESP-IDF cxx 组件已定义会重定义）
+- 单例/框架方法跨边界走**单符号表**；std::string 跨边界返回同工具链可行
+- 32 位目标 ABI：`size_t`=unsigned int → `_Znwj`（非 `_Znwm`）；不要手推 mangled 名，一律 `nm` / `gen_elf_syms.py --search` 核实
+
+### P4 关键坑
+
+1. **PMP 使 PSRAM heap 不可执行**：`CONFIG_ESP_SYSTEM_PMP_IDRAM_SPLIT=y` → ELF 代码取指 `Instruction access fault`。**必须关闭**
+2. **加载任务栈须在内部 RAM**：`esp_elf_arch_flush` 调 `spi_flash_disable_interrupts_caches_and_other_cpu`（assert 栈在内部 RAM）→ ElfManager 用 `xTaskCreateStatic` + 内部 RAM 静态栈；⚠ **dlclose 无 arch_flush**，普通 PSRAM 栈可跑
+3. **组件管理**：独立 .so 工程必须用 `EXTRA_COMPONENT_DIRS` 复用主工程 managed_components
+
+### 构建流程（新增/更新游戏）
+
+```
+1. git mv 游戏源码 → elfapps/<name>/main/（目录对齐主固件 include 路径）
+2. 插件工程：CMakeLists + plugin.cpp + dsoHandle.c + sdkconfig.defaults
+3. 主固件：删游戏源 + desktopApp 卡片/AI 路由改 ElfManager::createApp
+4. 重生成符号表：gen_elf_syms.py（移除独占 inline 符号被 GC 的"鸡生蛋"坑）
+5. build_elf.sh <name> → PUT 上传 → 桌面自动出现/更新
+```
 
 ---
 
@@ -1402,7 +1496,7 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 
 | 特性 | 说明 |
 |------|------|
-| 入口 | 桌面第 7 张卡片「游戏市场」；AI `open_app("market")` |
+| 入口 | 桌面「游戏市场」卡片；AI `open_app("market")` |
 | 一级界面 | 3 列截图卡片网格（缩略图懒加载串行队列，未加载显示 ★评分 占位） |
 | 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 简介/版本/更新时间/下载量/评分 + 下载/更新 |
 | 下载/更新 | 存储 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器两级结构，作者/游戏隔离，覆盖式更新）；`testFile()` 检测已装 → 按钮「更新」，未装 → 「下载」；卡片显示「已装」角标。**只下载不运行**，运行统一走「脚本管理」 |
@@ -1924,6 +2018,9 @@ mountFlash()                            ← FAT 分区 → /root/
 mountMem()                              ← 内存文件系统 → /root/mem
 mountSd()                               ← SD 卡 → /root/sd
 nvsInit()                               ← NVS 初始化
+
+// ── ELF 插件 SDK ──
+elf_sdk_init()                          ← 注册符号表 g_main_elfsyms（任何 dlopen 之前）
 
 // ── C6 协处理器（与显示初始化并行） ──
 Slave::instance().start()               ← 后台 Task SDIO 复位 (~1.5s)

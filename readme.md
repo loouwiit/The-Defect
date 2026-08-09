@@ -60,7 +60,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 - **手柄输入**：Lua 通过 `input.is_pressed()` / `input.joystick()` 轮询读取手柄状态
 - **错误回传**：运行时错误自动记录，用户下次对话时注入 AI 上下文，促成 AI 自我修复
 - **读取已生成代码**：AI 可通过 `read` 动作读取当前游戏脚本内容，了解状态后精准迭代
-- **Lua 脚本管理器**：`LuaManagerApp` 独立 App，桌面第六张卡片进入。支持脚本列表浏览(按目录分组)、运行、删除(含确认弹框)、重命名(LVGL 键盘)、AI 生成新游戏入口
+- **Lua 脚本管理器**：`LuaManagerApp` 独立 App，桌面「Lua 脚本管理」卡片进入。支持脚本列表浏览(按目录分组)、运行、删除(含确认弹框)、重命名(LVGL 键盘)、AI 生成新游戏入口
 
 ```
 用户说"写一个贪吃蛇游戏"
@@ -76,7 +76,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 
 集成网络市场，浏览并下载/更新其他作者发布的 Lua 游戏脚本（市场只负责下载，运行统一走「脚本管理」）：
 
-- **独立 App**：桌面第七张卡片「游戏市场」进入
+- **独立 App**：桌面「游戏市场」卡片进入
 - **截图卡片网格**：一级界面显示横屏截图缩略图 + 名称 + 作者 + 版本，缩略图懒加载
 - **详情页**：大图 / 简介 / 版本 / 更新时间 / 下载量 / 评分 + 下载/更新
 - **两级存储**：下载存 `/root/lua/market/<作者>/<游戏>/<原文件名>.lua`（镜像服务器结构，作者/游戏隔离），已下载按钮显示「更新」覆盖式升级，卡片带「已装」角标；运行/删除/重命名在「脚本管理」中完成（市场游戏按游戏 ID 显示、禁用重命名、删除递归清理目录）
@@ -155,18 +155,21 @@ ESP32-C6 (协处理器)
 ## 功能
 
 ### 游戏
+所有游戏均为 **ELF 插件**（.so 放 FAT 分区 `/root/elf/`），桌面动态扫描自动出现卡片；改一个游戏只重编译该游戏上传即可，**无需重烧主固件**。
+
 | 游戏 | 联机 | 说明 |
-|------|------|------|------|
+|------|------|------|
 | 🧱 **俄罗斯方块** | ✅ 3 人对战 | 现代俄罗斯方块，7-bag，SRS |
+| 🃏 **斗地主** | ✅ 联机 | 单机 AI + 跨主机联机（纯 TCP） |
 | 🍉 **水果忍者** | ✅ 2 人对战 | 多人同屏切水果（canvas 化渲染 + 硬件 JPEG 图片，30fps 流畅） |
 | 🐍 **贪吃蛇** | ✅ 4 人对战 | 经典蛇对战 |
 | ♟️ **中国象棋** | ✅ 双人 + AI | 本地双人 / 内置 AI 引擎 |
-| 🎮 **桌面启动器** | — | 7 游戏卡片（含 Lua 脚本管理 + 游戏市场），3 焦点组导航 |
+| 🎮 **桌面启动器** | — | 动态卡片（ELF 插件在前 + 系统卡片），3 焦点组导航 |
 
 所有界面均支持多指触摸输入与蓝牙手柄输入
 
 ### 设置
-- **游戏市场** — 浏览并下载/更新社区 Lua 游戏（截图网格 + 详情 + 下载/更新，运行走脚本管理），桌面第七张卡片进入
+- **游戏市场** — 浏览并下载/更新社区 Lua 游戏（截图网格 + 详情 + 下载/更新，运行走脚本管理），桌面「游戏市场」卡片进入
 - **Lua 脚本管理** — 浏览/运行/删除/重命名 Lua 脚本，AI 生成新游戏入口
 - **BLE 手柄管理** — 扫描、配对、断开、NVS 持久化
 - **WiFi 配置** — AP 扫描、密码输入、连接状态
@@ -178,7 +181,7 @@ ESP32-C6 (协处理器)
 - **屏幕串流** — MJPEG HTTP 实时投屏（硬件 JPEG 编码，零拷贝）
 - **Web 触控注入** — 通过浏览器远程触摸操作
 - **音频播放** — 多流混音，MP3/AAC/FLAC/WAV 解码
-- **CPU 监控** — 串口实时任务利用率采样
+- **系统监控** — 串口实时输出 CPU 利用率 + 内存（内部 RAM/PSRAM 已用）+ 显示 FPS（`SystemMonitor`）
 - **mDNS** — `esp32p4.local` 自动发现，支持自定义主机名（NVS 持久化，运行时热重启）
 - **设备发现** — 通过 `_p4console._tcp` 服务类型枚举局域网内其他游戏主机
 - **低电量提醒** — 主机 + 蓝牙手柄低电量检测（主机 <20%、手柄 <20%），系统级弹窗 + 循环提示音，弹窗期间屏蔽底层输入，按设备仅提醒一次
@@ -193,9 +196,14 @@ ESP32-C6 (协处理器)
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                     App 层                                │
-│  DesktopApp │ Tetris │ FruitNinja │ Snake │ ChineseChess  │
-│  BleSettings │ WifiSettings │ TimeSettings │ PowerMgmt   |
-│  ConsoleManagerApp   │   AiAgent     |  testApp           |
+│  DesktopApp（动态卡片） │ BleSettings │ WifiSettings     │
+│  TimeSettings │ PowerMgmt │ ConsoleManager │ AiAgent      │
+│  LuaManager │ Market │ testApp                            │
+├──────────────────────────────────────────────────────────┤
+│                 ELF 插件层（游戏）                        │
+│  elfSdk（符号表+ABI v2）│ ElfManager（dlopen/热更新）      │
+│  elfapps/*.so（snake/chineseChess/fruitNinja/tetris/     │
+│                    douDiZhu）                            │
 ├───────────┬─────────────────────────┬───────────────────────────────┤
 │  AppStackManager     │  VirtualGamepad                  │
 │  ├─ Stack 0 (桌面)    │  ├─ inject (BLE/远程/WS/UDP)     │
@@ -251,6 +259,7 @@ ESP32-C6 (协处理器)
 | esp_audio_render | 多流混音音频渲染 |
 | PPA | 2D 硬件加速（fill/blend/SRM） |
 | 硬件 JPEG | ESP32-P4 内置 JPEG 编码器 |
+| elf_loader | ESP32-P4 运行时动态加载 .so 插件（游戏） |
 
 ### 模块一览
 
@@ -260,10 +269,11 @@ ESP32-C6 (协处理器)
 |------|------|------|
 | AI Agent | AiClient / AiParser / AiExecutor | `main/aiAgent/` |
 | 基础设施 | Task / Mutex / GPIO / IIC / VirtualGamepad | `main/task/` `main/mutex/` `main/gpio/` `main/iic/` `main/gamepad/` |
-| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient / ConsoleManagerApp / **tetrisTcpHost** / **TetrisRemoteClient** / **TetrisRemoteApp** | `main/host/` `main/websocket/` `main/app/consoleManager/` `main/app/tetris/net/` `main/app/tetris/` |
+| 跨主机联机 | HostManager / wsConsoleHandler / wsInputHandler / udpInput / WsClient / ConsoleManagerApp / **tetrisTcpHost** / **TetrisRemoteClient** / **TetrisRemoteApp** | `main/host/` `main/websocket/` `main/app/consoleManager/` `elfapps/tetris/main/app/tetris/net/` `elfapps/tetris/main/app/tetris/` |
 | 显示/输入 | Display / ILI9881c / FontLoader / Touch / **GT911Indev** / VirtualIndev | `main/display/` `main/touch/` `main/virtualIndev/` |
 | 导航 | App / AppStack / AppStackManager | `main/app/app*.hpp` |
-| 应用 | 12 个 App（+AI 助手） | `main/app/*/` |
+| **ELF 插件层** | ElfManager / elfSdk / **elfapps（5 游戏 .so 插件）** | `main/elfManager/` `main/elfSdk/` `elfapps/*/` |
+| 应用 | 系统 App（桌面/设置/AI/脚本/市场/测试等） | `main/app/*/` |
 | 网络 | WiFi / C6 Slave / SocketStream / HTTP Server / WS Server / mDNS / Discovery | `main/wifi/` `main/server/` `main/wsServer/` `main/discovery/` |
 | 媒体 | ScreenStream / ES8311 / Audio | `main/screenStream/` `main/audio/` |
 | 外设 | BLE Gamepad / Battery / SystemMonitor | `main/bleGamepad/` `main/battery/` `main/monitor/` |
@@ -345,11 +355,14 @@ reserces/
 ```
 ├── main/
 │   ├── main.cpp              ← 启动入口
-│   ├── app/                  ← 应用层 (15 Apps)
+│   ├── app/                  ← 应用层（系统 App：桌面/设置/AI/脚本/市场/测试）
+│   │   ├── desktopApp/       ← 桌面启动器（动态卡片）
 │   │   ├── aiAgentApp/       ← AI 助手 + PinyinDict 输入法词库
 │   │   ├── luaGameApp/       ← Lua 游戏运行器
 │   │   ├── luaManagerApp/    ← Lua 脚本管理器
 │   │   └── marketApp/        ← 游戏市场
+│   ├── elfManager/           ← ELF 插件管理器（dlopen/热更新/refcount）
+│   ├── elfSdk/               ← ELF ABI 契约 + 符号表 g_main_elfsyms
 │   ├── audio/                ← ES8311 + Audio 管理器
 │   ├── battery/              ← 电池管理
 │   ├── bleGamepad/           ← BLE 手柄 (NimBLE + esp_hosted)
@@ -371,6 +384,7 @@ reserces/
 │   ├── websocket/            ← WsClient 通用 WebSocket 客户端
 │   ├── wifi/                 ← WiFi / mDNS / TCP Socket
 │   └── wsServer/             ← WebSocket 服务器
+├── elfapps/                  ← 游戏 ELF 插件工程（snake/chineseChess/fruitNinja/tetris/douDiZhu）
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
 ├── The-Defect-Market/        ← 游戏市场服务器 + 社区游戏内容 (git submodule)
 ├── patches/                  ← managed_components 补丁（6 个）
@@ -378,7 +392,7 @@ reserces/
 │   ├── lua/                  ← Lua 脚本
 │   ├── server/               ← HTTP 静态资源
 │   └── system/               ← 系统文件（字体 + 输入法词库）
-├── tools/                    ← 词库生成脚本（gen_pinyin_dict.py / gen_wubi_dict.py / gen_wubi_pinyin_dict.py）
+├── tools/                    ← 词库生成 + ELF 插件构建脚本（gen_pinyin_dict.py / gen_wubi_dict.py / gen_wubi_pinyin_dict.py / build_elf.sh / check_elf_syms.sh / gen_elf_syms.py）
 ├── AGENTS.md                 ← 完整架构文档 (AI Agent 指南)
 └── partitions.csv            ← 分区表
 
