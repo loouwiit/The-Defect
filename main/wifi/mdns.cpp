@@ -106,7 +106,7 @@ void mdnsDeinit()
  */
 static void mdns_restart_services()
 {
-	char instanceName[128];
+	char instanceName[129];
 
 	for (int i = 0; i < s_serviceCount; i++)
 	{
