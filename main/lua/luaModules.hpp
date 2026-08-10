@@ -11,3 +11,6 @@ extern "C" {
  * 同时初始化 math.randomseed
  */
 void luaRegisterModules(lua_State* L);
+
+/** @brief 停止 Lua 音频模块发起的循环音乐（LuaGameApp::deinit 调用，防退出后 BGM 残留） */
+void luaAudioShutdown();

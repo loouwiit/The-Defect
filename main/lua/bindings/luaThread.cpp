@@ -17,6 +17,9 @@ static constexpr char TAG[] = "LuaThread";
 static int l_thread_sleep(lua_State* L)
 {
     int ms = (int)luaL_checkinteger(L, 1);
+    // ⚠ 上限保护：sleep 在 LVGL 锁内执行（gameLoop 持锁调 loop(dt)），
+    //   无限/超长 sleep 会冻结 UI。钳制到 500ms。
+    if (ms > 500) ms = 500;
     if (ms > 0) {
         vTaskDelay(pdMS_TO_TICKS(ms));
     }

@@ -77,6 +77,7 @@ private:
     TickType_t m_lastWakeTime{};
     int m_frameCount{};
     uint32_t m_fpsTick{};
+    uint32_t m_lastFrameTime{0};   // 上帧时间戳（成员而非 static：static 跨实例共享，restart 后 dt 污染）
 
     // ── 输入快照（hostId=0 本地玩家） ──
     GamepadState m_inputs[MaxPlayers]{};

@@ -1,4 +1,5 @@
 #include "app/luaGameApp/luaGameApp.hpp"
+#include "lua/luaModules.hpp"
 #include "gui/gui.hpp"
 #include "display/font.hpp"
 #include "task/task.hpp"
@@ -9,6 +10,15 @@
 #include <esp_log.h>
 #include <cstring>
 #include <cstdio>
+
+// ============================================================
+//  防死循环看门狗（前向声明：init() 在 gameLoop() 之前调用）
+// ============================================================
+// 单次 loop(dt) 执行的 Lua 指令上限。正常游戏帧远低于此值；
+// 恶意脚本（如 while true do end）会持续消耗指令计数，触发 hook 中断。
+static constexpr int kMaxInstructionsPerFrame = 10000000;  // 1000 万条指令/帧
+
+static void luaWatchdogHook(lua_State* L, lua_Debug* ar);
 
 // ============================================================
 //  构造 / 析构
@@ -147,6 +157,10 @@ void LuaGameApp::init()
     registerBindings();
 
     // 5. 加载脚本
+    // ⚠ 顶层代码同样需要看门狗：恶意脚本顶层 `while true do end` 会永久占住
+    //    daemon 线程（loadScript 的 lua_pcall 执行顶层代码）。预算放宽到帧预算 50 倍。
+    lua_State* L = m_lua.state();
+    if (L) lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame * 50);
     bool loaded = false;
     if (m_useCode) {
         loaded = m_lua.loadString(m_scriptCode);
@@ -154,6 +168,7 @@ void LuaGameApp::init()
     else {
         loaded = m_lua.loadScript(m_scriptPath.c_str());
     }
+    if (L) lua_sethook(L, nullptr, 0, 0);   // 移除看门狗（pcall 已返回）
 
     if (!loaded) {
         ESP_LOGE(TAG, "脚本加载失败");
@@ -163,9 +178,11 @@ void LuaGameApp::init()
 
     m_luaReady = true;
 
-    // 6. 调用 setup()（可选）
+    // 6. 调用 setup()（可选）——同样装看门狗
     if (m_lua.hasFunction("setup")) {
+        if (L) lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame);
         m_lua.callFunction("setup", 0, 0);
+        if (L) lua_sethook(L, nullptr, 0, 0);
     }
 
     // 7. 更新状态显示
@@ -190,6 +207,9 @@ void LuaGameApp::deinit()
     // 停止游戏循环
     m_loopRunning = false;
     m_luaReady = false;
+
+    // 停止本 VM 发起的循环音乐（BGM），防止游戏退出后残留播放
+    luaAudioShutdown();
 
     // 等待 Task 退出
     while (m_thread.isRunning())
@@ -266,9 +286,7 @@ void LuaGameApp::loopTaskFunc(void* param)
 // ============================================================
 //  防死循环看门狗
 // ============================================================
-// 单次 loop(dt) 执行的 Lua 指令上限。正常游戏帧远低于此值；
-// 恶意脚本（如 while true do end）会持续消耗指令计数，触发 hook 中断。
-static constexpr int kMaxInstructionsPerFrame = 10000000;  // 1000 万条指令/帧
+// 常量 kMaxInstructionsPerFrame 与声明见文件顶部（init() 在其定义之前调用）
 
 static void luaWatchdogHook(lua_State* L, lua_Debug* ar)
 {
@@ -298,10 +316,10 @@ void LuaGameApp::gameLoop()
     }
 
     // 计算 dt（距上帧毫秒数）
-    static uint32_t s_lastFrameTime = now;
-    float dt = (float)(now - s_lastFrameTime);
-    s_lastFrameTime = now;
-    if (dt < 0.1f) dt = 16.0f;     // 初始值
+    uint32_t last = m_lastFrameTime;
+    m_lastFrameTime = now;
+    float dt = (float)(now - last);
+    if (last == 0 || dt < 0.1f) dt = 16.0f;     // 初始值
     if (dt > 100.0f) dt = 16.0f;   // 防止跳帧
 
     // 更新输入上下文（备份上一帧）

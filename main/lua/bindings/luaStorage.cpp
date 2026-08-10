@@ -50,6 +50,13 @@ static int luaStorage_save(lua_State* L)
     size_t len = 0;
     const char* text = luaL_checklstring(L, 2, &len);
 
+    // ⚠ 写侧同样限大小（读侧已有 256KB 上限，写侧缺则脚本可填满整个 FAT 分区）
+    if (len > (size_t)MAX_FILE_SIZE) {
+        ESP_LOGW(TAG, "存档过大: %zu 字节（上限 %ld）", len, MAX_FILE_SIZE);
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
     char safeName[96];
     if (!sanitizeName(name, safeName, sizeof(safeName))) {
         lua_pushboolean(L, 0);

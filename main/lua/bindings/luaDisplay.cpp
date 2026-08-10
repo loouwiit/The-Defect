@@ -17,17 +17,19 @@ static constexpr T clamp_val(T val, T min, T max) {
 
 static lv_color_t parseColor(lua_State* L, int index)
 {
-    if (lua_isstring(L, index)) {
+    // ⚠ 必须先判整数：lua_isstring 对数字也返回 true（数字可隐式转字符串），
+    // 若先走字符串分支，0xff0000 会被 tostring 成 "16711680" 再按 16 进制解析 → 颜色错误
+    if (lua_isinteger(L, index)) {
+        return lv_color_hex((uint32_t)lua_tointeger(L, index));
+    }
+
+    if (lua_type(L, index) == LUA_TSTRING) {
         const char* s = lua_tostring(L, index);
-        if (s[0] == '#') {
+        if (s && s[0] == '#') {
             return lv_color_hex(strtol(s + 1, nullptr, 16));
         }
         // 尝试解析无 # 前缀的十六进制
-        return lv_color_hex(strtol(s, nullptr, 16));
-    }
-
-    if (lua_isinteger(L, index)) {
-        return lv_color_hex((uint32_t)lua_tointeger(L, index));
+        return lv_color_hex(strtol(s ? s : "", nullptr, 16));
     }
 
     if (lua_istable(L, index)) {
@@ -72,8 +74,11 @@ static LuaDisplayContext::Slot* slotAcquire(LuaDisplayContext* ctx, uint8_t kind
     int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color, const char* text)
 {
     int i = ctx->slotIndex;
+    if (i >= LuaDisplayContext::MaxSlots) {
+        ctx->slotIndex = LuaDisplayContext::MaxSlots;  // 钳制上限，防止回收循环越界
+        return nullptr;   // 溢出兜底（罕见）
+    }
     ctx->slotIndex++;
-    if (i >= LuaDisplayContext::MaxSlots) return nullptr;   // 溢出兜底（罕见）
 
     auto& s = ctx->slots[i];
     bool same = s.obj && s.kind == kind && s.x == x && s.y == y
@@ -324,7 +329,8 @@ void luaDisplayBeginFrame(LuaDisplayContext* ctx)
 {
     if (!ctx) return;
     // 清理上一帧多出的槽位（本帧绘制数减少时残留的对象）
-    for (int i = ctx->slotIndex; i < ctx->prevSlotCount; i++)
+    // 双重保护：slotAcquire 已钳制 slotIndex ≤ MaxSlots，此处再兜底防越界
+    for (int i = ctx->slotIndex; i < ctx->prevSlotCount && i < LuaDisplayContext::MaxSlots; i++)
     {
         if (ctx->slots[i].obj)
         {

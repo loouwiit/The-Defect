@@ -145,7 +145,9 @@ z
 适合点按/拖拽/双指类游戏（如切水果、戳气球）。
 
 **audio 模块**:
-- audio.play_sfx(path) — 播放音效（不阻塞）
+- audio.play(path) — 播放音效（不阻塞）
+- audio.play_bgm(path) — 播放背景音乐（循环）
+- audio.stop_bgm() — 停止背景音乐（循环播放用完后务必调用，防止残留）
 - audio.set_volume(0-100) — 设置音量
 
 **thread 模块**:
