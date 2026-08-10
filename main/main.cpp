@@ -233,7 +233,7 @@ extern "C" void app_main(void)
 		// 关闭wifi启动AP
 		wifiStationStop();
 		auto ap = wifiApGetInfo();
-		ESP_LOGI(TAG, "load ap ssid: %s, password: %s", sta.ssid, sta.password);
+		ESP_LOGI(TAG, "load ap ssid: %.*s, password: %s", ap.ssid_len, ap.ssid, ap.password);
 		if (ap.ssid_len == 0)
 			wifiApSet("esp32p4", "12345678");
 		wifiApStart();
