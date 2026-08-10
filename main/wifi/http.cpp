@@ -117,7 +117,7 @@ size_t atos(char* buffer)
 
 	size_t i = 0;
 	while (i < bufferSize && buffer[i] == ' ')
-		; // 跳过空字符
+		i++; // 跳过空字符
 	while (i < bufferSize && '0' <= buffer[i] && buffer[i] <= '9')
 	{
 		ret *= 10;
@@ -134,11 +134,12 @@ size_t atos(char* buffer, size_t bufferSize)
 
 	size_t i = 0;
 	while (i < bufferSize && buffer[i] == ' ')
-		; // 跳过空字符
+		i++; // 跳过空字符
 	while (i < bufferSize && '0' <= buffer[i] && buffer[i] <= '9')
 	{
-		ret += buffer[i] - '0';
 		ret *= 10;
+		ret += buffer[i] - '0';
+		i++;
 	}
 
 	return ret;
@@ -149,11 +150,10 @@ size_t atos(char* buffer, size_t bufferSize)
 
 HttpStringPair::HttpStringPair(const char* name, const char* value)
 {
-	size_t lenght;
-	lenght = strlen(name) + 1;
 	delete[] this->name;
 	if (name != nullptr)
 	{
+		size_t lenght = strlen(name) + 1;
 		this->name = new char[lenght];
 		memcpy(this->name, name, lenght);
 	}
@@ -162,10 +162,10 @@ HttpStringPair::HttpStringPair(const char* name, const char* value)
 		this->name = nullptr;
 	}
 
-	lenght = strlen(value) + 1;
 	delete[] this->value;
 	if (value != nullptr)
 	{
+		size_t lenght = strlen(value) + 1;
 		this->value = new char[lenght];
 		memcpy(this->value, value, lenght);
 	}
@@ -939,9 +939,14 @@ void HttpRequest::send(OSocketStream& socketStream)
 		size_t i = bodyLenght;
 		while (i > 0)
 		{
-			//printf("[debug] HttpRequest: sending file, byte left = %u\n", i);
-			i -= file.read(buffer, HttpBodySendingBufferLenght);
-			socketStream.write(buffer, HttpBodySendingBufferLenght);
+			// 按实际读到的字节数发送（file.read 可能读不满 1024B——文件末块/短读）。
+			// ⚠ 不能固定写满 buffer：残留栈数据会超发到 keepalive 连接上，
+			//   被下一请求误当请求行解析（协议污染）。
+			size_t want = (i < HttpBodySendingBufferLenght) ? i : (size_t)HttpBodySendingBufferLenght;
+			size_t got = file.read(buffer, want);
+			if (got == 0) break;   // 读取失败/文件被截断 → 停止发送，防止无限循环
+			i -= got;
+			socketStream.write(buffer, got);
 			vTaskDelay(1);
 		}
 	}
@@ -1169,7 +1174,7 @@ void HttpRespond::receive(ISocketStream& socketStream)
 		size_t lenght = socketStream.getline(buffer, sizeof(buffer), '\n') + 1;
 		delete[] reason;
 		reason = new char[lenght];
-		memcpy(buffer, reason, lenght);
+		memcpy(reason, buffer, lenght);
 	}
 
 	//head
@@ -1231,9 +1236,12 @@ void HttpRespond::send(OSocketStream& socketStream)
 		size_t i = bodyLenght;
 		while (i > 0)
 		{
-			//printf("[debug] HttpRespond: sending file, byte left = %u\n", i);
-			i -= file.read(buffer, HttpBodySendingBufferLenght);
-			socketStream.write(buffer, HttpBodySendingBufferLenght);
+			// 按实际读到的字节数发送（见 HttpRequest::send 注释：固定写满会超发残留）
+			size_t want = (i < HttpBodySendingBufferLenght) ? i : (size_t)HttpBodySendingBufferLenght;
+			size_t got = file.read(buffer, want);
+			if (got == 0) break;   // 读取失败/文件被截断 → 停止发送，防止无限循环
+			i -= got;
+			socketStream.write(buffer, got);
 			vTaskDelay(1);
 		}
 	}

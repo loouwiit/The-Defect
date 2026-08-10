@@ -190,8 +190,11 @@ bool wifiStationSetConfig(const char* ssid, const char* password)
 	wifi_config_t config;
 	memset(&config, 0, sizeof(config));
 
-	sprintf((char*)config.sta.ssid, "%s", ssid);
-	sprintf((char*)config.sta.password, "%s", password);
+	// ⚠ 限长复制：ssid 可能恰满 32 字节且无 '\0'（esp_wifi_get_config 读出），sprintf 会越界读
+	strncpy((char*)config.sta.ssid, ssid, sizeof(config.sta.ssid) - 1);
+	config.sta.ssid[sizeof(config.sta.ssid) - 1] = '\0';
+	strncpy((char*)config.sta.password, password, sizeof(config.sta.password) - 1);
+	config.sta.password[sizeof(config.sta.password) - 1] = '\0';
 	memcpy(config.sta.bssid, apInfo.bssid, sizeof(apInfo.bssid));
 	config.sta.channel = apInfo.primary;
 	config.sta.scan_method = wifi_scan_method_t::WIFI_FAST_SCAN;
@@ -440,9 +443,13 @@ void wifiApSet(const char* ssid, const char* password, wifi_auth_mode_t authMode
 	wifi_config_t config;
 	memset(&config, 0, sizeof(config));
 
-	strcpy((char*)config.ap.ssid, ssid);
+	// ⚠ 限长复制：ssid 可能来自 esp_wifi_get_config（满 32 字节无 '\0'），strcpy 会越界读
+	strncpy((char*)config.ap.ssid, ssid, sizeof(config.ap.ssid) - 1);
+	config.ap.ssid[sizeof(config.ap.ssid) - 1] = '\0';
+	strncpy((char*)config.ap.password, password, sizeof(config.ap.password) - 1);
+	config.ap.password[sizeof(config.ap.password) - 1] = '\0';
+	config.ap.ssid_len = strlen((const char*)config.ap.ssid);
 	// config.ap.channel = 0;
-	strcpy((char*)config.ap.password, password);
 	config.ap.max_connection = 4;
 	config.ap.authmode = authMode;
 	// OPEN 认证下 PMF 必选无效（ESP-IDF 校验会报错），仅加密模式要求 PMF
@@ -541,9 +548,9 @@ void wifiNatStart()
 
 void wifiNatStop()
 {
-	if (wifiNatStarted)
+	if (!wifiNatStarted)
 	{
-		ESP_LOGW(TAG, "nat has started, don't need stop");
+		ESP_LOGW(TAG, "nat hasn't started, don't need stop");
 		return;
 	}
 

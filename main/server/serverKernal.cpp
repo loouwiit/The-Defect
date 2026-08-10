@@ -193,6 +193,9 @@ void server(void*)
 
 		printf("server: socket accepted ip address: %s\n", addr_str);
 
+		// accept 成功 → 重置重启计数（否则多次失败累计 3 次永久停服）
+		autoRestartTimes = 0;
+
 		size_t index = 0;
 		while (!socketStreamWindows[index].setSocket(sock))
 		{
@@ -260,7 +263,7 @@ void serverCoworker(void* coworkerIndex)
 				if (socketStreamWindows[index].check())
 				{
 					//移交扫描权
-					scanPosition = index + 1 % SocketStreamWindowNumber;
+					scanPosition = (index + 1) % SocketStreamWindowNumber;
 					scanMutex.unlock();
 
 					//处理数据
@@ -429,6 +432,8 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 			cfg.apiUrl.c_str(), cfg.model.c_str(),
 			cfg.timeoutMs, cfg.maxTokens,
 			cfg.valid ? "true" : "false");
+		// ⚠ snprintf 返回值可能 ≥ sizeof(body)（配置超长时），必须截断防越界读
+		if (n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
 		respond.setBody(body);
@@ -591,14 +596,16 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		// 扫描
 		wifi_ap_record_t* wifi = new wifi_ap_record_t[WifiApRecordSize]; // 96 bytes per record
 		size_t count = wifiStationScan(wifi, WifiApRecordSize);
+		// ⚠ esp_wifi_scan_get_ap_records 的返回数是实际 AP 数（可能 > 传入上限），
+		//   写入缓冲的记录数 ≤ WifiApRecordSize —— 必须截断，否则下方循环越界读
+		if (count > WifiApRecordSize) count = WifiApRecordSize;
 
 		// 统计长度
-		// unsigned char wifiRssiLenght[wifiApRecordSize] = {0};
-		// rssi假定为3位，“-85”
+		// rssi 可为 "-100"（4 位含负号），每行按 strlen(ssid) + 6 估算（rssi 4位 + ':' + '\n'）
 		size_t bodyLenght = 0;
 		for (size_t i = 0;i < count;i++)
 		{
-			bodyLenght += strlen((char*)wifi[i].ssid) + 5;//rssi的3位，':'的1位，'\n'的1位
+			bodyLenght += strlen((char*)wifi[i].ssid) + 6;//rssi的4位，':'的1位，'\n'的1位
 		}
 
 		// 构建body
@@ -642,6 +649,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			char password[64] = "";
 			strncpy(ssid, body, sizeof(ssid) - 1);
 			strncpy(password, nl ? nl + 1 : "", sizeof(password) - 1);
+			ssid[sizeof(ssid) - 1] = '\0';          // ⚠ strncpy 不保证 null 终止（超长 body 越界读）
+			password[sizeof(password) - 1] = '\0';
 			delete[] body;
 			wifiConnect(ssid, password);
 			sendOk(socketStream);
@@ -677,6 +686,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			char password[64] = "";
 			strncpy(ssid, body, sizeof(ssid) - 1);
 			strncpy(password, nl ? nl + 1 : "", sizeof(password) - 1);
+			ssid[sizeof(ssid) - 1] = '\0';          // ⚠ strncpy 不保证 null 终止（超长 body 越界读）
+			password[sizeof(password) - 1] = '\0';
 			delete[] body;
 			wifiApSet(ssid, password);
 			sendOk(socketStream);
@@ -800,6 +811,9 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 				apiUrl[0] ? apiUrl : "https://api.openai.com",
 				model[0]  ? model  : "gpt-4o-mini",
 				timeoutMs, maxTokens);
+			// ⚠ snprintf 返回"本应写入"的长度，api_url/model 超长时可能 > 缓冲 →
+			// 写入长度必须截断到缓冲内，否则 file.write 越界读
+			if (n >= (int)sizeof(jsonBuf)) n = (int)sizeof(jsonBuf) - 1;
 
 			OFile file;
 			if (file.open("/root/system/ai_config.json")) {
@@ -1131,6 +1145,19 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 // ── POST /api/ota/confirm — 手动确认当前固件（关闭回滚窗口，无需重启）──
 void httpOtaConfirm(IOSocketStream& socketStream, HttpRequest& request)
 {
+	// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
+	if (request.getBodyLenght() > 0)
+	{
+		char* tmp = new char[request.getBodyLenght()];
+		if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
+		{
+			delete[] tmp;
+			sendBadRequest(socketStream);
+			return;
+		}
+		delete[] tmp;
+	}
+
 	struct Ctx { esp_err_t err; };
 	Ctx ctx{ ESP_FAIL };
 	otaRunInInternalStack([](void* p) {
@@ -1170,6 +1197,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 		//floor
 		newFloor(path);
 		// tree(PerfixRoot); //[debug]
+		delete[] path;
 		sendOk(socketStream);
 	}
 	else
@@ -1232,6 +1260,22 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 		while (left > 0)
 		{
 			readCount = socketStream.readByte(buffer, PutBufferSize);
+			if (readCount == 0)
+			{
+				// readByte 非阻塞：无数据或连接断开均返回 0。
+				// 断连时若不退出，worker 会被永久占住（6 个 worker 占满即服务器瘫痪）。
+				if (!socketStream.isGood())
+				{
+					printf("server: put connection lost, abort\n");
+					file.close();
+					removeFile(path);
+					sendBadRequest(socketStream);
+					delete[] path;
+					return;
+				}
+				vTaskDelay(1);
+				continue;
+			}
 			file.write(buffer, readCount);
 			left -= readCount;
 			vTaskDelay(1);
@@ -1243,6 +1287,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 		printf("coworker:httpPut(): stack high water = %u\n", uxTaskGetStackHighWaterMark(nullptr));
 #endif
 
+		delete[] path;   // ⚠ 成功路径释放（此前泄漏，反复上传累积）
 		sendOk(socketStream);
 	}
 }
@@ -1272,6 +1317,7 @@ void httpDelete(IOSocketStream& socketStream, HttpRequest& request)
 		removeFile(path);
 	}
 	// tree(PerfixRoot); //[debug]
+	delete[] path;   // ⚠ 成功路径释放（此前泄漏）
 	sendOk(socketStream);
 }
 
@@ -1311,10 +1357,19 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 	char* body = nullptr; //new later
 	size_t bodyOffset = 0;
 
-	//统计总字符数
+	//统计总字符数（⚠ 计数阶段与写入阶段同样判空——6 worker 并发 PUT/DELETE
+	// 改目录内容时 readdir 耗尽返回 nullptr，strlen(nullptr) 直接崩溃）
 	for (size_t i = 0; i < contentCount[0]; i++)
 	{
 		buffer = floor.read(Floor::Type::Floor);
+		if (buffer == nullptr)
+		{
+			printf("server: apiFloor: read null in floor %s", path);
+			contentCount[0] = 0;
+			contentCount[1] = 0;
+			totolSize = 0;
+			break;
+		}
 		totolSize += strlen(buffer) + 2; // one for '/' and another for '\n'
 	}
 
@@ -1322,6 +1377,14 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 	for (size_t i = 0; i < contentCount[1]; i++)
 	{
 		buffer = floor.read(Floor::Type::File);
+		if (buffer == nullptr)
+		{
+			printf("server: apiFloor: read null in floor %s", path);
+			contentCount[0] = 0;
+			contentCount[1] = 0;
+			totolSize = 0;
+			break;
+		}
 		totolSize += strlen(buffer) + 1; // just one for '\n'
 	}
 
