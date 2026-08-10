@@ -7,6 +7,7 @@
 #include "gamepad/gamepadState.hpp"
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
+#include "mutex/mutex.hpp"
 
 /**
  * @brief 低电量检测提醒（主机 + 蓝牙手柄）
@@ -89,6 +90,7 @@ private:
 	// ── 弹窗状态 ──
 	bool        m_alertShown{};
 	std::string m_bodyText;        // 当前弹窗设备列表文本（用于去重 set_text）
+	Mutex       m_alertMutex;      // ⚠ 保护 alertAudio 与状态机（monitor task ↔ LVGL task 并发）
 	AudioHandle alertAudio{};
 
 	// ── LVGL 对象（建在 lv_layer_sys() 上） ──

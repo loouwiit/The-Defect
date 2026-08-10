@@ -180,12 +180,18 @@ void BatteryMonitor::hideAlert(bool userDismiss)
 	if (userDismiss)
 	{
 		// 用户关闭：仅标记当前待提醒设备为“已关闭”（按设备限制，其他设备后续掉电仍可提醒）
+		Lock lock{ m_alertMutex };
 		if (m_host.alerted && m_host.low) m_host.dismissed = true;
 		for (int i = 0; i < MaxPlayers; i++)
 			if (m_pad[i].alerted && m_pad[i].low) m_pad[i].dismissed = true;
-	}
 
-	alertAudio = {};
+		alertAudio = {};
+	}
+	else
+	{
+		Lock lock{ m_alertMutex };
+		alertAudio = {};
+	}
 	m_alertShown = false;
 	lv_obj_add_flag(m_scrim, LV_OBJ_FLAG_HIDDEN);
 	lv_obj_add_flag(m_card, LV_OBJ_FLAG_HIDDEN);
@@ -345,6 +351,9 @@ void BatteryMonitor::dismissTimerCb(lv_timer_t* t)
 
 void BatteryMonitor::playAlertSound()
 {
+	// ⚠ monitor task 与 LVGL task（hideAlert 停止提示音）并发操作 alertAudio，
+	// 须加锁（移动赋值是 swap 两个 shared_ptr，并发 = 双重释放）
+	Lock lock{ m_alertMutex };
 	// Audio::play() 对文件缺失等失败路径返回空句柄，detach() 自动为 no-op
 	alertAudio = Audio::play(kAlertSoundPath).setLoop(true);
 	alertAudio.play();
