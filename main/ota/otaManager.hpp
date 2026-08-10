@@ -27,6 +27,12 @@
 // ── 启动早期（display.init 成功后延迟 ~10s 调用一次）──
 void otaInit();
 
+// 内部 RAM 栈常驻任务初始化（创建请求队列 + 任务）。
+// ⚠ 须在启动早期单线程阶段调用一次（main.cpp serverStart 之前），消除惰性初始化
+//   竞态：两个 HTTP worker 并发首次 otaRunInInternalStack 会重复 xTaskCreateStatic
+//   复用同一静态 TCB/栈 → 任务表损坏。otaRunInInternalStack 内部仍有防御性双重检查。
+void otaInternalStackInit();
+
 // 手动确认当前固件（web「确认此固件」按钮）：
 // esp_ota_mark_app_valid_cancel_rollback()，标记 VALID 关闭回滚窗口。无需重启，立即持久化。
 // ⚠ 内部会 mmap flash → 调用方须经 otaRunInInternalStack 执行。

@@ -77,8 +77,18 @@ static void otaInternalStackWorker(void* p)
 	}
 }
 
-void otaRunInInternalStack(void (*fn)(void*), void* arg)
+// 初始化互斥量：防止多个 HTTP worker 并发首次调用时重复 xTaskCreateStatic
+// （复用同一静态 TCB/栈 = 任务表损坏）。互斥量本身为静态懒创建——
+// 极端并发下可能创建两次（一次泄漏，仅几十字节，无功能影响），
+// 但 xTaskCreateStatic 的竞态被完全串行化。
+static SemaphoreHandle_t s_otaInitMutex = NULL;
+
+void otaInternalStackInit()
 {
+	if (s_otaIntQueue != nullptr) return;   // 快路径（已初始化）
+	if (s_otaInitMutex == NULL)
+		s_otaInitMutex = xSemaphoreCreateMutex();
+	xSemaphoreTake(s_otaInitMutex, portMAX_DELAY);
 	if (s_otaIntQueue == nullptr)
 	{
 		s_otaIntQueue = xQueueCreate(1, sizeof(OtaInternalStackCtx));
@@ -86,6 +96,13 @@ void otaRunInInternalStack(void (*fn)(void*), void* arg)
 			sizeof(s_otaIntStack) / sizeof(StackType_t), nullptr,
 			tskIDLE_PRIORITY + 5, s_otaIntStack, &s_otaIntTcb);
 	}
+	xSemaphoreGive(s_otaInitMutex);
+}
+
+void otaRunInInternalStack(void (*fn)(void*), void* arg)
+{
+	if (s_otaIntQueue == nullptr)
+		otaInternalStackInit();   // 防御性兜底（正常路径已由启动早期显式初始化）
 
 	// 请求上下文在调用者栈上（PSRAM）：worker 仅在 fn 之前（cache 使能期间）读取，安全
 	OtaInternalStackCtx ctx{ fn, arg, xSemaphoreCreateBinary() };

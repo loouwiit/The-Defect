@@ -263,6 +263,10 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "mdnsInit done");
 
 	// 服务器
+	// ⚠ OTA 内部 RAM 栈常驻任务须在 HTTP 服务器启动前（单线程阶段）显式初始化：
+	//   否则首个 /api/otaInfo 请求与 10s 延迟的 otaInit 并发懒创建会重复
+	//   xTaskCreateStatic 复用同一静态 TCB/栈 → 任务表损坏。
+	otaInternalStackInit();
 	ESP_LOGI(TAG, "serverStart");
 	serverStart();
 	ESP_LOGI(TAG, "serverStart done");
