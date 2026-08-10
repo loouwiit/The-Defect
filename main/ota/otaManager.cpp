@@ -30,45 +30,39 @@ static constexpr size_t AppDescOffset = sizeof(esp_image_header_t) + sizeof(esp_
 // 预检需要读到的镜像头大小（覆盖整个 app_desc）
 static constexpr size_t HeaderReadSize = AppDescOffset + sizeof(esp_app_desc_t);
 
-static const esp_partition_t* s_updatePartition = nullptr;
-static bool s_otaUpdating = false;
-
-// ── 内部 RAM 栈执行（P4 flash mmap 硬性要求，见头文件说明）──
+// ── 单例：Meyers' Singleton（C++11 magic static，线程安全构造）──
+// 首次调用即构造：创建内部 RAM 常驻任务 + 请求队列。构造完成后所有方法可用，
+// 不再需要显式 init / 互斥量防重复创建（语言保证仅构造一次）。
+OtaManager& OtaManager::instance()
+{
+	static OtaManager inst;   // 函数局部 static → .bss（内部 RAM，栈数组要求）→ 常驻不析构
+	return inst;
+}
 
 // ══ 内部 RAM 常驻任务 + 请求队列（P4 硬性要求，见头文件说明）══
-// 普通 static 数组在 .bss（内部 RAM），勿加 EXT_RAM_BSS_ATTR。
-// 用静态资源而非每次 heap_caps_malloc：
+// 静态资源而非每次 heap_caps_malloc：
 //   1) 任务栈从堆分配 → 若溢出会踩坏堆相邻块（Bad tail/multi_heap 损坏）
 //   2) 静态缓冲在内部 RAM，写 flash 禁 cache 窗口内访问安全
 // 架构：常驻任务（ElfManager 同款已验证模式）等请求队列，避免"临时任务 + vTaskSuspend +
 //       vTaskDelete"在 cache 暂停期交叉核访问已释放栈的竞态。
-static StackType_t s_otaIntStack[8192];
-static StaticTask_t s_otaIntTcb;
-static TaskHandle_t s_otaIntHandle = nullptr;
-static QueueHandle_t s_otaIntQueue = nullptr;
-
-struct OtaInternalStackCtx
+// 在构造函数中创建（instance() 首次调用，magic static 保证仅一次且线程安全）。
+OtaManager::OtaManager()
 {
-	void (*fn)(void*);
-	void* arg;
-	SemaphoreHandle_t done;
-};
+	// 先建队列再建任务（worker 阻塞等队列，任务创建后立即安全）
+	m_otaIntQueue = xQueueCreate(1, sizeof(InternalStackCtx));
+	m_otaIntHandle = xTaskCreateStatic(internalStackWorker, "otaInt",
+		sizeof(m_otaIntStack) / sizeof(StackType_t), this,
+		tskIDLE_PRIORITY + 5, m_otaIntStack, &m_otaIntTcb);
+	ESP_LOGI(TAG, "内部 RAM 栈任务已创建（otaInt）");
+}
 
-/* 内部 RAM 静态写缓冲 + 镜像头缓冲（httpOta 经 otaGetXxxBuffer 取用）：
-   esp_ota_write 写 flash 期间禁用 cache，源缓冲必须在内部 RAM（PSRAM 依赖 cache = 崩）；
-   放静态 .bss 而非堆/栈，彻底避免堆损坏与栈溢出。 */
-static uint8_t s_otaWriteBuf[4096] __attribute__((aligned(4)));
-static uint8_t s_otaHeaderBuf[OtaHeaderSize] __attribute__((aligned(4)));
-
-uint8_t* otaGetWriteBuffer() { return s_otaWriteBuf; }
-uint8_t* otaGetHeaderBuffer() { return s_otaHeaderBuf; }
-
-static void otaInternalStackWorker(void* p)
+void OtaManager::internalStackWorker(void* p)
 {
-	OtaInternalStackCtx req;
+	auto* self = static_cast<OtaManager*>(p);
+	InternalStackCtx req;
 	while (true)
 	{
-		if (xQueueReceive(s_otaIntQueue, &req, portMAX_DELAY) != pdTRUE)
+		if (xQueueReceive(self->m_otaIntQueue, &req, portMAX_DELAY) != pdTRUE)
 			continue;
 		ESP_LOGI(TAG, "otaInt: 开始执行 fn");
 		req.fn(req.arg);
@@ -77,39 +71,23 @@ static void otaInternalStackWorker(void* p)
 	}
 }
 
-// 初始化互斥量：防止多个 HTTP worker 并发首次调用时重复 xTaskCreateStatic
-// （复用同一静态 TCB/栈 = 任务表损坏）。互斥量本身为静态懒创建——
-// 极端并发下可能创建两次（一次泄漏，仅几十字节，无功能影响），
-// 但 xTaskCreateStatic 的竞态被完全串行化。
-static SemaphoreHandle_t s_otaInitMutex = NULL;
-
-void otaInternalStackInit()
+void OtaManager::runInInternalStack(void (*fn)(void*), void* arg)
 {
-	if (s_otaIntQueue != nullptr) return;   // 快路径（已初始化）
-	if (s_otaInitMutex == NULL)
-		s_otaInitMutex = xSemaphoreCreateMutex();
-	xSemaphoreTake(s_otaInitMutex, portMAX_DELAY);
-	if (s_otaIntQueue == nullptr)
-	{
-		s_otaIntQueue = xQueueCreate(1, sizeof(OtaInternalStackCtx));
-		s_otaIntHandle = xTaskCreateStatic(otaInternalStackWorker, "otaInt",
-			sizeof(s_otaIntStack) / sizeof(StackType_t), nullptr,
-			tskIDLE_PRIORITY + 5, s_otaIntStack, &s_otaIntTcb);
-	}
-	xSemaphoreGive(s_otaInitMutex);
-}
-
-void otaRunInInternalStack(void (*fn)(void*), void* arg)
-{
-	if (s_otaIntQueue == nullptr)
-		otaInternalStackInit();   // 防御性兜底（正常路径已由启动早期显式初始化）
-
 	// 请求上下文在调用者栈上（PSRAM）：worker 仅在 fn 之前（cache 使能期间）读取，安全
-	OtaInternalStackCtx ctx{ fn, arg, xSemaphoreCreateBinary() };
-	xQueueSend(s_otaIntQueue, &ctx, portMAX_DELAY);
+	InternalStackCtx ctx{ fn, arg, xSemaphoreCreateBinary() };
+	xQueueSend(m_otaIntQueue, &ctx, portMAX_DELAY);
 	xSemaphoreTake(ctx.done, portMAX_DELAY);
 	vSemaphoreDelete(ctx.done);
 }
+
+/* 内部 RAM 静态写缓冲 + 镜像头缓冲（httpOta 经 getWriteBuffer/getHeaderBuffer 取用）：
+   esp_ota_write 写 flash 期间禁用 cache，源缓冲必须在内部 RAM（PSRAM 依赖 cache = 崩）；
+   放静态 .bss 而非堆/栈，彻底避免堆损坏与栈溢出。 */
+static uint8_t s_otaWriteBuf[4096] __attribute__((aligned(4)));
+static uint8_t s_otaHeaderBuf[OtaManager::HeaderSize] __attribute__((aligned(4)));
+
+uint8_t* OtaManager::getWriteBuffer() { return s_otaWriteBuf; }
+uint8_t* OtaManager::getHeaderBuffer() { return s_otaHeaderBuf; }
 
 // ── 内部：NVS 辅助 ──
 
@@ -190,7 +168,7 @@ static void otaSlotVersion(const esp_partition_t* part, char* out, size_t size)
 
 // ── 启动早期 ──
 
-void otaInit()
+void OtaManager::checkRollback()
 {
 	const esp_partition_t* running = esp_ota_get_running_partition();
 
@@ -230,7 +208,7 @@ void otaInit()
 
 // ── 手动确认当前固件（关闭回滚窗口）──
 
-esp_err_t otaConfirmRunning()
+esp_err_t OtaManager::confirmRunning()
 {
 	esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
 	if (err != ESP_OK)
@@ -242,30 +220,30 @@ esp_err_t otaConfirmRunning()
 
 // ── OTA 并发标志 ──
 
-bool otaIsUpdating()
+bool OtaManager::isUpdating()
 {
-	return s_otaUpdating;
+	return m_otaUpdating;
 }
 
-void otaSetUpdating(bool updating)
+void OtaManager::setUpdating(bool updating)
 {
-	s_otaUpdating = updating;
+	m_otaUpdating = updating;
 }
 
 // ── 升级流程 ──
 
-const void* otaGetNextUpdatePartition()
+const void* OtaManager::getNextUpdatePartition()
 {
 	return esp_ota_get_next_update_partition(nullptr);
 }
 
-size_t otaGetUpdatePartitionSize()
+size_t OtaManager::getUpdatePartitionSize()
 {
 	const esp_partition_t* part = esp_ota_get_next_update_partition(nullptr);
 	return part ? part->size : 0;
 }
 
-esp_err_t otaPrecheckImage(const uint8_t* header, size_t headerLen)
+esp_err_t OtaManager::precheckImage(const uint8_t* header, size_t headerLen)
 {
 	// 头不够覆盖 app_desc → 无法预检，拒绝
 	if (header == nullptr || headerLen < AppDescOffset + 8)
@@ -299,15 +277,15 @@ esp_err_t otaPrecheckImage(const uint8_t* header, size_t headerLen)
 	return ESP_OK;
 }
 
-esp_err_t otaBegin(void** outHandle)
+esp_err_t OtaManager::begin(void** outHandle)
 {
 	if (outHandle == nullptr)
 		return ESP_ERR_INVALID_ARG;
 
-	if (s_updatePartition == nullptr)
+	if (m_updatePartition == nullptr)
 	{
-		s_updatePartition = esp_ota_get_next_update_partition(nullptr);
-		if (s_updatePartition == nullptr)
+		m_updatePartition = esp_ota_get_next_update_partition(nullptr);
+		if (m_updatePartition == nullptr)
 		{
 			ESP_LOGE(TAG, "无可用 OTA 分区");
 			return ESP_ERR_NOT_FOUND;
@@ -315,7 +293,7 @@ esp_err_t otaBegin(void** outHandle)
 	}
 
 	esp_ota_handle_t handle = 0;
-	esp_err_t err = esp_ota_begin(s_updatePartition, OTA_WITH_SEQUENTIAL_WRITES, &handle);
+	esp_err_t err = esp_ota_begin(m_updatePartition, OTA_WITH_SEQUENTIAL_WRITES, &handle);
 	if (err != ESP_OK)
 	{
 		ESP_LOGE(TAG, "esp_ota_begin 失败: %s", esp_err_to_name(err));
@@ -323,26 +301,26 @@ esp_err_t otaBegin(void** outHandle)
 	}
 
 	// 记录目标槽 pending（重启后用于判定是否回滚）
-	otaNvsSaveString(NvsKeyPendingSlot, s_updatePartition->label);
-	ESP_LOGI(TAG, "OTA 开始写入 %s (size %u)", s_updatePartition->label, (unsigned)s_updatePartition->size);
+	otaNvsSaveString(NvsKeyPendingSlot, m_updatePartition->label);
+	ESP_LOGI(TAG, "OTA 开始写入 %s (size %u)", m_updatePartition->label, (unsigned)m_updatePartition->size);
 
 	*outHandle = (void*)(uintptr_t)handle;
 	return ESP_OK;
 }
 
-esp_err_t otaWrite(void* handle, const uint8_t* data, size_t len)
+esp_err_t OtaManager::write(void* handle, const uint8_t* data, size_t len)
 {
 	return esp_ota_write((esp_ota_handle_t)(uintptr_t)handle, data, len);
 }
 
-void otaAbort(void* handle)
+void OtaManager::abort(void* handle)
 {
 	esp_ota_abort((esp_ota_handle_t)(uintptr_t)handle);
 	otaNvsEraseKey(NvsKeyPendingSlot);
 	ESP_LOGW(TAG, "OTA 已中止");
 }
 
-esp_err_t otaFinish(void* handle)
+esp_err_t OtaManager::finish(void* handle)
 {
 	// esp_ota_end 校验整镜像（SHA256）
 	esp_err_t err = esp_ota_end((esp_ota_handle_t)(uintptr_t)handle);
@@ -353,17 +331,17 @@ esp_err_t otaFinish(void* handle)
 	}
 
 	// 设置下次启动分区
-	err = esp_ota_set_boot_partition(s_updatePartition);
+	err = esp_ota_set_boot_partition(m_updatePartition);
 	if (err != ESP_OK)
 		ESP_LOGE(TAG, "esp_ota_set_boot_partition 失败: %s", esp_err_to_name(err));
 	else
-		ESP_LOGI(TAG, "OTA 完成, 下次启动 %s", s_updatePartition->label);
+		ESP_LOGI(TAG, "OTA 完成, 下次启动 %s", m_updatePartition->label);
 	return err;
 }
 
 // ── 手动分区切换 / 回退 ──
 
-esp_err_t otaSwitchBootPartition(const char* slotLabel, bool invalidateCurrent)
+esp_err_t OtaManager::switchBootPartition(const char* slotLabel, bool invalidateCurrent)
 {
 	// 目标槽校验（仅允许 ota_0..ota_15，按 label 匹配）
 	const esp_partition_t* target = nullptr;
@@ -423,7 +401,7 @@ esp_err_t otaSwitchBootPartition(const char* slotLabel, bool invalidateCurrent)
 
 // ── /api/otaInfo JSON ──
 
-void otaGetInfoJson(char* buffer, size_t size)
+void OtaManager::getInfoJson(char* buffer, size_t size)
 {
 	if (buffer == nullptr || size == 0) return;
 	size_t n = 0;

@@ -403,14 +403,14 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 	// ── API: OTA 状态（槽位/版本/上次回滚）──
 	if (stringCompare((char*)uri, strlen(uri), "/api/otaInfo", 12))
 	{
-		// otaGetInfoJson 内部 mmap flash（禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM →
-		// 经 otaRunInInternalStack 在内部 RAM 栈任务中执行（阻塞）。
+		// getInfoJson 内部 mmap flash（禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM →
+		// 经 runInInternalStack 在内部 RAM 栈任务中执行（阻塞）。
 		char body[1024];
 		struct Ctx { char* buf; size_t size; };
 		Ctx ctx{ body, sizeof(body) };
-		otaRunInInternalStack([](void* p) {
+		OtaManager::instance().runInInternalStack([](void* p) {
 			auto* c = (Ctx*)p;
-			otaGetInfoJson(c->buf, c->size);
+			OtaManager::instance().getInfoJson(c->buf, c->size);
 		}, &ctx);
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
@@ -898,13 +898,13 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 void httpOta(IOSocketStream& socketStream, HttpRequest& request)
 {
 	// httpOta 内部大量调用 OTA API（esp_ota_begin/end、get_last_invalid 等）会 mmap flash
-	// （禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM → 经 otaRunInInternalStack 执行（阻塞）。
-	// ⚠ 写缓冲（4KB）+ 镜像头（512B）用 otaGetWriteBuffer/otaGetHeaderBuffer 提供的**内部 RAM
+	// （禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM → 经 runInInternalStack 执行（阻塞）。
+	// ⚠ 写缓冲（4KB）+ 镜像头（512B）用 getWriteBuffer/getHeaderBuffer 提供的**内部 RAM
 	//   静态缓冲**（.bss）——写 flash 禁 cache 窗口内 PSRAM 不可访问；静态缓冲避免堆损坏与栈溢出。
 	//   （曾踩坑：栈上大数组→栈溢出；heap_caps_malloc 内部堆→堆相邻块被踩 Bad tail。）
 	struct OtaCtx { IOSocketStream* stream; HttpRequest* request; };
 	OtaCtx ctx{ &socketStream, &request };
-	otaRunInInternalStack([](void* p) { httpOtaInternal((OtaCtx*)p); }, &ctx);
+	OtaManager::instance().runInInternalStack([](void* p) { httpOtaInternal((OtaCtx*)p); }, &ctx);
 }
 
 static void httpOtaInternal(void* p)
@@ -913,6 +913,8 @@ static void httpOtaInternal(void* p)
 	auto* c = (OtaCtx*)p;
 	IOSocketStream& socketStream = *c->stream;
 	HttpRequest& request = *c->request;
+
+	OtaManager& ota = OtaManager::instance();
 
 	auto sendError = [&](HttpStatus status, const char* msg) {
 		HttpRespond respond;
@@ -925,22 +927,22 @@ static void httpOtaInternal(void* p)
 	};
 
 	// 内部 RAM 静态缓冲
-	uint8_t* header = otaGetHeaderBuffer();
-	uint8_t* buffer = otaGetWriteBuffer();
+	uint8_t* header = ota.getHeaderBuffer();
+	uint8_t* buffer = ota.getWriteBuffer();
 
 	// 并发保护：同一时间只允许一个 OTA（6 个 worker 线程互斥）
-	if (otaIsUpdating())
+	if (ota.isUpdating())
 	{
 		sendError(HttpStatus::BadRequest, "OTA 已在升级中，请稍候重试");
 		return;
 	}
-	otaSetUpdating(true);
+	ota.setUpdating(true);
 	printf("otaInt: 并发标志已置位\n");
 
 	// 目标分区检查
-	if (otaGetNextUpdatePartition() == nullptr)
+	if (ota.getNextUpdatePartition() == nullptr)
 	{
-		otaSetUpdating(false);
+		ota.setUpdating(false);
 		sendError(HttpStatus::BadRequest, "无可用 OTA 分区");
 		return;
 	}
@@ -948,9 +950,9 @@ static void httpOtaInternal(void* p)
 
 	// 大小预检
 	const size_t total = request.getBodyLenght();
-	if (total > otaGetUpdatePartitionSize())
+	if (total > ota.getUpdatePartitionSize())
 	{
-		otaSetUpdating(false);
+		ota.setUpdating(false);
 		sendError(HttpStatus::BadRequest, "固件过大，超过目标分区容量");
 		return;
 	}
@@ -959,14 +961,14 @@ static void httpOtaInternal(void* p)
 	// 读镜像头（覆盖 app_desc）→ 预检（magic + 版本防重烧）
 	size_t headerGot = 0;
 	size_t left = total;
-	while (headerGot < OtaHeaderSize && left > 0)
+	while (headerGot < OtaManager::HeaderSize && left > 0)
 	{
-		size_t got = socketStream.readByte((char*)header + headerGot, OtaHeaderSize - headerGot);
+		size_t got = socketStream.readByte((char*)header + headerGot, OtaManager::HeaderSize - headerGot);
 		if (got == 0)
 		{
 			if (!socketStream.isGood())
 			{
-				otaSetUpdating(false);
+				ota.setUpdating(false);
 				sendError(HttpStatus::InternalServerError, "连接中断");
 				return;
 			}
@@ -978,9 +980,9 @@ static void httpOtaInternal(void* p)
 	}
 	printf("otaInt: 镜像头读取 OK (%u)\n", (unsigned)headerGot);
 
-	if (otaPrecheckImage(header, headerGot) != ESP_OK)
+	if (ota.precheckImage(header, headerGot) != ESP_OK)
 	{
-		otaSetUpdating(false);
+		ota.setUpdating(false);
 		sendError(HttpStatus::BadRequest, "镜像无效，或版本与上次升级失败版本相同");
 		return;
 	}
@@ -988,19 +990,19 @@ static void httpOtaInternal(void* p)
 
 	// 开始 OTA（记录 pending 目标槽，供重启后判定回滚）
 	void* otaHandle = nullptr;
-	if (otaBegin(&otaHandle) != ESP_OK)
+	if (ota.begin(&otaHandle) != ESP_OK)
 	{
-		otaSetUpdating(false);
+		ota.setUpdating(false);
 		sendError(HttpStatus::InternalServerError, "OTA 初始化失败");
 		return;
 	}
 	printf("otaInt: otaBegin OK\n");
 
 	// 写入已读的头部
-	if (headerGot > 0 && otaWrite(otaHandle, header, headerGot) != ESP_OK)
+	if (headerGot > 0 && ota.write(otaHandle, header, headerGot) != ESP_OK)
 	{
-		otaAbort(otaHandle);
-		otaSetUpdating(false);
+		ota.abort(otaHandle);
+		ota.setUpdating(false);
 		sendError(HttpStatus::InternalServerError, "OTA 写入失败");
 		return;
 	}
@@ -1014,18 +1016,18 @@ static void httpOtaInternal(void* p)
 		{
 			if (!socketStream.isGood())
 			{
-				otaAbort(otaHandle);
-				otaSetUpdating(false);
+				ota.abort(otaHandle);
+				ota.setUpdating(false);
 				sendError(HttpStatus::InternalServerError, "连接中断，OTA 中止");
 				return;
 			}
 			vTaskDelay(1);
 			continue;
 		}
-		if (otaWrite(otaHandle, buffer, got) != ESP_OK)
+		if (ota.write(otaHandle, buffer, got) != ESP_OK)
 		{
-			otaAbort(otaHandle);
-			otaSetUpdating(false);
+			ota.abort(otaHandle);
+			ota.setUpdating(false);
 			sendError(HttpStatus::InternalServerError, "OTA 写入失败");
 			return;
 		}
@@ -1037,14 +1039,14 @@ static void httpOtaInternal(void* p)
 	printf("otaInt: 流式写入完成\n");
 
 	// 校验镜像 + 设置启动分区
-	if (otaFinish(otaHandle) != ESP_OK)
+	if (ota.finish(otaHandle) != ESP_OK)
 	{
-		otaSetUpdating(false);
+		ota.setUpdating(false);
 		sendError(HttpStatus::BadRequest, "固件镜像校验失败，已保留当前版本");
 		return;
 	}
 
-	otaSetUpdating(false);
+	ota.setUpdating(false);
 
 	// 成功：应答后延迟重启
 	{
@@ -1100,7 +1102,7 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 		return;
 	}
 
-	// 切换会 mmap flash（禁用 cache 要求内部 RAM 栈）→ 经 otaRunInInternalStack 执行。
+	// 切换会 mmap flash（禁用 cache 要求内部 RAM 栈）→ 经 runInInternalStack 执行。
 	// slot 在调用者栈（PSRAM）：worker 仅在 mmap 窗口外读取（strcmp 发生在库调用之前），安全。
 	struct Ctx { char slot[16]; bool invalidate; esp_err_t err; };
 	Ctx ctx{};
@@ -1108,9 +1110,9 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 	ctx.invalidate = invalidate;
 	ctx.err = ESP_FAIL;
 
-	otaRunInInternalStack([](void* p) {
+	OtaManager::instance().runInInternalStack([](void* p) {
 		auto* c = (Ctx*)p;
-		c->err = otaSwitchBootPartition(c->slot, c->invalidate);
+		c->err = OtaManager::instance().switchBootPartition(c->slot, c->invalidate);
 	}, &ctx);
 
 	if (ctx.err != ESP_OK)
@@ -1160,8 +1162,8 @@ void httpOtaConfirm(IOSocketStream& socketStream, HttpRequest& request)
 
 	struct Ctx { esp_err_t err; };
 	Ctx ctx{ ESP_FAIL };
-	otaRunInInternalStack([](void* p) {
-		((Ctx*)p)->err = otaConfirmRunning();
+	OtaManager::instance().runInInternalStack([](void* p) {
+		((Ctx*)p)->err = OtaManager::instance().confirmRunning();
 	}, &ctx);
 
 	if (ctx.err != ESP_OK)

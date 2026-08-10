@@ -109,7 +109,7 @@ reserces/
 | | elfSdk | `main/elfSdk/` | ABI 契约（`elf_plugin_info_t` v4 + `ELF_SDK_VERSION`）+ 符号表 `g_main_elfsyms`（脚本生成）+ 符号哈希解析 + 启动日志静默 |
 | | elfapps | `elfapps/<name>/` | 5 个游戏 .so 插件工程（snake / chineseChess / fruitNinja / tetris / douDiZhu） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
-| **OTA** | OtaManager | `main/ota/otaManager.hpp` | 双槽 OTA 空中升级：`POST /api/ota` 流式写入 + `GET /api/otaInfo` 状态查询 + bootloader 自动回滚检测（NVS 记录）+ 版本防重烧 |
+| **OTA** | OtaManager | `main/ota/otaManager.hpp` | 双槽 OTA 空中升级（**单例类**）：`POST /api/ota` 流式写入 + `GET /api/otaInfo` 状态查询 + bootloader 自动回滚检测（NVS 记录）+ 版本防重烧 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
 | | SocketStreamWindow | `main/wifi/socketStreamWindow.hpp` | 连接池管理器（HTTP 6 worker 线程） |
@@ -1427,34 +1427,44 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 
 **模块路径**: `main/ota/otaManager.hpp` / `.cpp`
 
-系统级模块（C 风格函数 API），复用现有裸 socket HTTP 服务器实现 OTA 接收端：
+单例类（Meyers' Singleton，`OtaManager::instance()`），复用现有裸 socket HTTP 服务器实现 OTA 接收端：
 
 | API | 说明 |
 |-----|------|
 | `POST /api/ota` | **流式写入 OTA 分区**（浏览器/curl 上传 `build/The-Defect.bin`，成功后 1s 自动重启） |
 | `GET /api/otaInfo` | JSON 状态：running/next 槽位 + 版本、last_invalid（失败槽）、last_rollback（NVS 记录）、各槽状态 |
-| `otaInit()` | 启动早期（延迟 10s）比对 pending 槽 → 判定上次升级是否回滚（NVS 记录）。**不自动确认固件**——回滚确认全手动（见下） |
+| `checkRollback()` | 启动早期（延迟 10s）比对 pending 槽 → 判定上次升级是否回滚（NVS 记录）。**不自动确认固件**——回滚确认全手动（见下） |
 | `POST /api/ota/confirm` | **手动确认当前固件**：OTA 升级后的固件处于 `PENDING_VERIFY`（回滚窗口打开），用户验证正常后调用 → `esp_ota_mark_app_valid_cancel_rollback()` 标记 VALID 关闭窗口（无需重启） |
 | `POST /api/ota/setBoot` | 手动切换下次启动分区（body `{"slot":"ota_1","invalidate":false}`；`invalidate=true` 同时标记当前分区无效=手动回退；成功 1s 后重启） |
+
+**单例化**：
+- `instance()` 用 C++11 magic static（函数局部 static），**语言保证**首次构造仅一次 + 线程安全（并发调用者阻塞等待）
+- 构造函数内创建内部 RAM 常驻任务（`xTaskCreateStatic` + 静态栈 8192 words）+ `xQueue` 请求队列；
+  原 C 风格的 `otaInternalStackInit()` / 懒初始化互斥量 `s_otaInitMutex` 全部删除（竞争从"手动纪律"变为"语言保证"）
+- `internalStackWorker` 经 `xTaskCreateStatic` 参数传 `this` 访问成员队列；实例为函数局部 static → `.bss` 内部 RAM
+- 全部 API 改为成员方法：`begin/write/abort/finish/precheckImage/switchBootPartition/confirmRunning/getInfoJson`
+  等；镜像头常量 `OtaHeaderSize` → `OtaManager::HeaderSize`（512）
+- `main.cpp`：`serverStart()` 前单线程阶段显式 `OtaManager::instance()` 触发构造；延迟 10s 任务注册点
+  也移到启动流程末尾（`serverStart` 前），执行时刻 ≈ serverStart + 10s（比原 display.init 后稳定）
 
 **流程**（`httpOta`，serverKernal.cpp）：
 ```
 POST /api/ota（body 不缓冲，socket 流式读取）
   → 并发标志（6 worker 互斥）→ 目标分区检查 → 大小预检
-  → 读镜像头（512B）→ otaPrecheckImage（magic + 版本防重烧）
+  → 读镜像头（512B）→ precheckImage（magic + 版本防重烧）
   → esp_ota_begin(OTA_WITH_SEQUENTIAL_WRITES) → 记录 pending 槽到 NVS
   → 循环 readByte(4KB) → esp_ota_write
   → esp_ota_end（镜像校验）→ esp_ota_set_boot_partition → 1s 后 esp_restart
 ```
 
 **回滚可观测性（封壳设备无串口，靠自身暴露状态）**：
-- 升级前 `otaBegin()` 把目标槽写入 NVS `ota.pending_slot`；重启后 `otaInit()` 比对 running：
+- 升级前 `begin()` 把目标槽写入 NVS `ota.pending_slot`；重启后 `checkRollback()` 比对 running：
   - `pending != running` → 目标槽没跑起来 → 回滚发生 → 记录 NVS `ota.last_rollback` + `ota.last_rb_sec`（boot 秒）
   - `pending == running` → 升级成功，仅清除 pending
 - `esp_ota_get_last_invalid_partition()` 检测失败槽（`ABORTED`/`INVALID`），`esp_ota_get_state_partition` 读槽状态（valid/pending_verify/aborted/empty…）
 - **版本防重烧**：上传镜像版本与 last_invalid 相同 → 400 拒绝（防反复烧入坏固件）
 
-**回滚确认（全手动）**：`otaInit()` **不自动** `mark_app_valid_cancel_rollback`。
+**回滚确认（全手动）**：`checkRollback()` **不自动** `mark_app_valid_cancel_rollback`。
 - 首次 USB 烧录固件 = `UNDEFINED`（出厂信任，无需确认）；OTA 升级固件 = `PENDING_VERIFY`（回滚窗口打开）
 - 未确认时**任何重启**都会触发 bootloader 自动回退旧版（安全网保持最大效力）
 - 用户验证正常后：web 页面「确认此固件」→ `POST /api/ota/confirm` → VALID 关闭窗口
@@ -1476,11 +1486,11 @@ POST /api/ota（body 不缓冲，socket 流式读取）
 **⚠ P4 内部 RAM 三原则**（OTA 全链路实测踩坑，违反必崩）：
 1. **调用 OTA API 的任务栈必须在内部 RAM**：`esp_ota_*` 内部会 mmap flash /
    `spi_flash_disable_interrupts_caches_and_other_cpu`（禁用 cache 期间栈在 PSRAM = assert 崩溃）。
-   server coWorker 栈 / `Task::addTask` daemon 栈均为 PSRAM → 必须经 `otaRunInInternalStack` 执行。
+   server coWorker 栈 / `Task::addTask` daemon 栈均为 PSRAM → 必须经 `runInInternalStack` 执行。
 2. **`esp_ota_write` 的源缓冲必须在内部 RAM**：写 flash 禁 cache 窗口内读 PSRAM = 非法访问
-   （PSRAM 依赖 cache）→ 栈溢出 + 堆损坏连锁崩溃。用 `otaGetWriteBuffer()`/`otaGetHeaderBuffer()`
+   （PSRAM 依赖 cache）→ 栈溢出 + 堆损坏连锁崩溃。用 `getWriteBuffer()`/`getHeaderBuffer()`
    提供的静态 `.bss` 缓冲（`MALLOC_CAP_SPIRAM` 或栈数组都踩过坑）。
-3. **内部任务用常驻 + 队列**（`otaRunInInternalStack` 实现）：懒创建常驻 `otaInt` 任务
+3. **内部任务用常驻 + 队列**（`runInInternalStack` 实现）：单例构造时创建常驻 `otaInt` 任务
    （`xTaskCreateStatic` + 内部 RAM 静态栈 8192 words）+ `xQueue` 请求队列。
    空闲时阻塞零 CPU；**不要**"临时创建 + `vTaskSuspend` + `vTaskDelete`"——cache 暂停期
    交叉核访问已释放栈会踩内存（`Bad tail` / `multi_heap` 损坏）。静态栈/缓冲放 `.bss`
@@ -2187,6 +2197,8 @@ mdnsServiceAdd("_ws", 8080)
 mdnsServiceAdd("_p4console", 80)       ← 设备发现专用服务
 
 // ── 服务器 ──
+OtaManager::instance()                  ← 单例构造：内部 RAM 栈任务 + 队列（单线程阶段，HTTP 并发前）
+Task::addTask(延迟 10s → checkRollback) ← OTA 启动检查：回滚判定 + 状态日志（注册点在启动流程末尾）
 serverStart()                           ← HTTP 端口 80
 wsServerStart()                         ← WebSocket 端口 8080
 udpInputStart()                         ← UDP 端口 8082（P4→P4 手柄透传）
