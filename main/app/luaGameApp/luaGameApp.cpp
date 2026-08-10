@@ -160,9 +160,10 @@ void LuaGameApp::init()
 
     // 5. 加载脚本
     // ⚠ 顶层代码同样需要看门狗：恶意脚本顶层 `while true do end` 会永久占住
-    //    daemon 线程（loadScript 的 lua_pcall 执行顶层代码）。预算放宽到帧预算 50 倍。
+    //    daemon 线程（loadScript 的 lua_pcall 执行顶层代码）。预算放宽到帧预算 20 倍
+    //    （2 亿条，正常顶层定义数十行；恶意死循环 ~2s 内被中断）。
     lua_State* L = m_lua.state();
-    if (L) lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame * 50);
+    if (L) lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame * 20);
     bool loaded = false;
     if (m_useCode) {
         loaded = m_lua.loadString(m_scriptCode);
@@ -182,9 +183,14 @@ void LuaGameApp::init()
 
     // 6. 调用 setup()（可选）——同样装看门狗
     if (m_lua.hasFunction("setup")) {
-        if (L) lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame);
-        m_lua.callFunction("setup", 0, 0);
-        if (L) lua_sethook(L, nullptr, 0, 0);
+		if (L) {
+			// 清零 sleep 预算（setup 内 sleep 独立于每帧预算）
+			lua_pushinteger(L, 0);
+			lua_setfield(L, LUA_REGISTRYINDEX, "LUA_THREAD_SLEEP_BUDGET");
+			lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame);
+		}
+		m_lua.callFunction("setup", 0, 0);
+		if (L) lua_sethook(L, nullptr, 0, 0);
     }
 
     // 7. 更新状态显示

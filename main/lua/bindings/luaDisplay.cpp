@@ -11,6 +11,25 @@ static constexpr T clamp_val(T val, T min, T max) {
     return val < min ? min : (val > max ? max : val);
 }
 
+// ⚠ 绘制参数安全化（防恶意/错误 Lua 脚本）：
+//   1. (int16_t) 截断：两个不同坐标可能映射到同一值 → 静态跳过误判 → 画面残留
+//   2. 负/超大尺寸：LVGL 面积运算溢出（x+w 回绕）或调试版 assert
+//   3. draw_line 的 dx*dx+dy*dy 在坐标差 >46340 时 int 溢出 → NaN
+// 钳制到屏幕坐标（旋转后 1280×720）±4096 的安全区间：任意两个不同值截断后仍不同，
+// 且坐标差 < 10000，平方远小于 INT_MAX。
+static void sanitizeCoord(int& x, int& y)
+{
+    x = clamp_val(x, -4096, 1280 + 4096);
+    y = clamp_val(y, -4096, 720 + 4096);
+}
+static void sanitizeSize(int& w, int& h)
+{
+    if (w < 0) w = 0;
+    if (h < 0) h = 0;
+    if (w > 4096) w = 4096;
+    if (h > 4096) h = 4096;
+}
+
 // ============================================================
 //  颜色解析
 // ============================================================
@@ -140,6 +159,9 @@ static int l_display_fill_rect(lua_State* L)
     int h = (int)luaL_checkinteger(L, 4);
     lv_color_t color = parseColor(L, 5);
 
+    sanitizeCoord(x, y);
+    sanitizeSize(w, h);
+
     auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
     if (!s) return 0;   // 静态跳过
     lv_obj_t* o = s->obj;
@@ -167,6 +189,9 @@ static int l_display_draw_rect(lua_State* L)
     int w = (int)luaL_checkinteger(L, 3);
     int h = (int)luaL_checkinteger(L, 4);
     lv_color_t color = parseColor(L, 5);
+
+    sanitizeCoord(x, y);
+    sanitizeSize(w, h);
 
     auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
     if (!s) return 0;
@@ -196,6 +221,8 @@ static int l_display_draw_text(lua_State* L)
     const char* text = luaL_checkstring(L, 3);
     int size = (int)luaL_optinteger(L, 4, (int)FontLoader::FontSize::Default);
     lv_color_t color = parseColor(L, 5);
+
+    sanitizeCoord(x, y);
 
     // 选择字体尺寸
     const lv_font_t* font = nullptr;
@@ -229,6 +256,9 @@ static int l_display_draw_line(lua_State* L)
     int x1 = (int)luaL_checkinteger(L, 3);
     int y1 = (int)luaL_checkinteger(L, 4);
     lv_color_t color = parseColor(L, 5);
+
+    sanitizeCoord(x0, y0);
+    sanitizeCoord(x1, y1);
 
     // 槽位用包围盒（静态线跳过，不触发重绘）
     int bx = std::min(x0, x1), by = std::min(y0, y1);
@@ -266,6 +296,10 @@ static int l_display_draw_circle(lua_State* L)
     int cy = (int)luaL_checkinteger(L, 2);
     int r  = (int)luaL_checkinteger(L, 3);
     lv_color_t color = parseColor(L, 4);
+
+    sanitizeCoord(cx, cy);
+    if (r < 0) r = 0;
+    if (r > 2048) r = 2048;   // ⚠ r*2 超 int16 会截断碰撞；2048 上限足够覆盖画布
 
     auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)(cx - r), (int16_t)(cy - r),
                           (int16_t)(r * 2), (int16_t)(r * 2), to565(color), nullptr);
