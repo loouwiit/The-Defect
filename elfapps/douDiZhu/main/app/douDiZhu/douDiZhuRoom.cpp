@@ -216,6 +216,7 @@ void DouDizhuRoom::buildUi()
 	lv_obj_set_flex_flow(slotsRow, LV_FLEX_FLOW_ROW);
 	lv_obj_set_flex_align(slotsRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	lv_obj_set_style_pad_column(slotsRow, 12, 0);
+	lv_obj_remove_flag(slotsRow, LV_OBJ_FLAG_SCROLLABLE);
 
 	for (int i = 0; i < 2; i++) {
 		auto card = lv_obj_create(slotsRow);
@@ -224,6 +225,7 @@ void DouDizhuRoom::buildUi()
 		lv_obj_set_style_bg_color(card, lv_color_hex(CARD), 0);
 		lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
 		lv_obj_set_style_border_width(card, 0, 0);
+		lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 		lv_obj_set_layout(card, LV_LAYOUT_FLEX);
 		lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
 		lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -243,6 +245,8 @@ void DouDizhuRoom::buildUi()
 		lv_obj_set_layout(statusRow, LV_LAYOUT_FLEX);
 		lv_obj_set_flex_flow(statusRow, LV_FLEX_FLOW_ROW);
 		lv_obj_set_flex_align(statusRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+		// 纯布局容器：禁用滚动，防止状态文字溢出时出现滚动条
+		lv_obj_remove_flag(statusRow, LV_OBJ_FLAG_SCROLLABLE);
 
 		m_slotActivity[i] = lv_obj_create(statusRow);
 		lv_obj_set_size(m_slotActivity[i], 10, 10);

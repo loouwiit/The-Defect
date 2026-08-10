@@ -132,6 +132,7 @@ void FruitNinjaRoom::createMenu(lv_obj_t* parent)
 	lv_obj_set_size(playerRow, 300, 60);
 	lv_obj_set_style_border_width(playerRow, 0, 0);
 	lv_obj_set_style_bg_opa(playerRow, LV_OPA_TRANSP, 0);
+	lv_obj_remove_flag(playerRow, LV_OBJ_FLAG_SCROLLABLE);
 	lv_obj_set_flex_flow(playerRow, LV_FLEX_FLOW_ROW);
 	lv_obj_set_style_pad_column(playerRow, 16, 0);
 	lv_obj_set_flex_align(playerRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);

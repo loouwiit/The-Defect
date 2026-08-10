@@ -309,6 +309,8 @@ void PowerManagementApp::buildUi()
 	lv_obj_set_style_border_width(btn_section, 0, 0);
 	lv_obj_set_style_bg_opa(btn_section, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_pad_column(btn_section, 16, 0);
+	// 两个 lv_pct(50) 按钮 + 列间距必然超出内容区 → 关闭滚动，避免出现横向滚动条
+	lv_obj_remove_flag(btn_section, LV_OBJ_FLAG_SCROLLABLE);
 
 	// 关机按钮
 	m_shutdownBtn = GUI::createButton(btn_section, "", lv_pct(50), 52);

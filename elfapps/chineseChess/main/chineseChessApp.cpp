@@ -226,6 +226,7 @@ void ChineseChessApp::createPieces(lv_obj_t* parent)
 			lv_obj_set_style_shadow_color(m_pieceBg[x][y], lv_color_hex(0x000000), 0);
 			lv_obj_set_style_shadow_opa(m_pieceBg[x][y], LV_OPA_50, 0);
 			lv_obj_remove_flag(m_pieceBg[x][y], LV_OBJ_FLAG_CLICKABLE);
+			lv_obj_remove_flag(m_pieceBg[x][y], LV_OBJ_FLAG_SCROLLABLE);
 			lv_obj_add_flag(m_pieceBg[x][y], LV_OBJ_FLAG_HIDDEN);
 
 			// 棋子文字（作为圆形背景的子对象，自动居中）
