@@ -2064,6 +2064,10 @@ class LogService {
     size_t getFileSize() const;
     void setGlobalLevel(int level);   // 0-5（NONE..VERBOSE），NVS 持久化
     int  getGlobalLevel() const;      // NVS，未设置返回 -1
+    void setFileLevel(int level);     // 落盘阈值（0-5，默认 3=INFO）：仅级别号 ≤ 阈值写入文件
+    int  getFileLevel() const;        // 当前生效落盘阈值
+    void setWsLevel(int level);       // WS 推送阈值（0-5，默认 3=INFO）：仅级别号 ≤ 阈值推送
+    int  getWsLevel() const;          // 当前生效 WS 阈值
     void detectCrash();               // 启动早期：复位原因 + coredump 存在 → NVS 记录
     uint32_t getPanicCount() const;
     time_t getLastCrashTime() const;
@@ -2071,7 +2075,7 @@ class LogService {
     bool hasCoredump() const;
     void addWsClient(httpd_handle_t hd, int fd);   // /ws/log 订阅
     void removeWsClient(int fd);
-    void enqueue(const char* line, size_t len);    // vprintf 回调入队
+    void enqueue(const char* line, size_t len, int level);  // vprintf 回调入队（带级别）
 };
 esp_err_t logWsHandler(httpd_req_t* req);          // /ws/log handler（main.cpp 注册）
 ```
@@ -2080,16 +2084,22 @@ esp_err_t logWsHandler(httpd_req_t* req);          // /ws/log handler（main.cpp
 
 ```
 ESP_LOGx → esp_log_set_vprintf(logVprintf)
-  ├─ vsnprintf → 行缓冲 → xQueueSend 入队（64×256B，满则丢弃，绝不阻塞调用方）
+  ├─ vsnprintf → 行缓冲 → 解析级别（fmt 首字符）→ xQueueSend 入队（64×260B，满则丢弃）
   ├─ 链式调用旧 handler（保留 UART 输出，开发板仍可看串口）
   └─ FAT 挂载前：写 PSRAM 早期缓冲（16KB），start() 后 LogTask 落盘
 
-LogTask（独立低优先级任务）：
+LogTask（独立低优先级任务，内部 RAM 静态栈）：
   ├─ dump 早期缓冲 → app.log
-  ├─ 出队 → fwrite 追加 /root/system/log/app.log（攒批 4KB / 200ms flush）
+  ├─ 出队 LogItem{line, level} → 分级分流：
+  │    level ≤ file_level → fwrite 追加 app.log（攒批 4KB / 200ms flush + fsync）
+  │    level ≤ ws_level   → 推送 /ws/log 订阅客户端（断连自动移除）
   ├─ 文件 >512KB → 滚动（app.log → app.log.prev）
-  └─ 每行同步推送 /ws/log 订阅客户端（断连自动移除，`httpd_ws_get_fd_info` 检测）
+  └─ 每 10s status 自检：lines/bytes/err/drop/file/queue/fileLvl/wsLvl
 ```
+
+**分级语义**：级别号越小越严重（NONE=0, ERROR=1, WARN=2, INFO=3, DEBUG=4, VERBOSE=5），
+“保留”条件 = `level ≤ 阈值`。例：`file_level=1` + `ws_level=3` → **仅 ERROR 落盘、WS 显示 INFO+**。
+级别从格式串首字符解析（`parseLogLevel`，跳过 ANSI 颜色转义；解析失败按 0=全保留）。
 
 **关键设计**：
 - **vprintf 回调零阻塞**：只做 vsnprintf + 入队（xQueueSend 0 超时）；文件 IO / WS 推送全部在 LogTask
@@ -2097,16 +2107,16 @@ LogTask（独立低优先级任务）：
 - **链式 UART**：`esp_log_set_vprintf` 返回旧 handler，开发阶段串口日志不丢失
 - **队列满丢弃新行**：日志风暴时保系统稳定（丢日志 < 拖垮调用方）
 - **崩溃记录**（NVS namespace `"log"`）：`detectCrash()` 在 nvsInit 后调用，`esp_reset_reason()` 判定 panic/看门狗/欠压 → `panic_count`++ + `last_crash` 时间戳；coredump 存在性读分区首字（0xFFFFFFFF=空）
-- **日志级别**：`esp_log_level_set("*", level)` + NVS 持久化，`start()` 时恢复；`POST /api/logLevel` 远程调整（DEBUG 排查用）
+- **日志级别（三级独立）**：全局 `esp_log_level_set`（决定“产生”什么）+ `file_level`（落盘阈值）+ `ws_level`（WS 阈值），均 NVS 持久化，`start()` 恢复；`POST /api/logLevel` 远程调整（DEBUG 排查用）。级别解析：ESP_LOGx 宏展开后 fmt 首字符即级别字母（E/W/I/D/V）
 - **/ws/log 订阅**：`wsServerRegisterWs` 注册，`max_uri_handlers=8` 已用 5 个（touch/stream/input/console/log），上限内
 
 ### HTTP 诊断 API（serverKernal.cpp）
 
 | 接口 | 说明 |
 |------|------|
-| `GET /api/log?tail=N` | 日志文件尾部 N 行（默认 200，≤2000），text/plain |
-| `POST /api/logLevel` | body `{"level":4}` 设置全局日志级别（0-5），NVS 持久化 |
-| `GET /api/resetInfo` | JSON：`reset_reason`/`reset_reason_name`/`panic_count`/`last_crash`/`has_coredump`/`log_level` |
+| `GET /api/log?tail=N` | 日志文件尾部 N 行（默认 200，≤2000），text/plain + `no-store` |
+| `POST /api/logLevel` | body `{"level":4,"file_level":1,"ws_level":3}` 设置全局/落盘/WS 级别（0-5，缺省不改动），NVS 持久化 |
+| `GET /api/resetInfo` | JSON：`reset_reason`/`reset_reason_name`/`panic_count`/`last_crash`/`has_coredump`/`log_level`/`file_level`/`ws_level` |
 | `POST /api/resetInfo/clear` | 清零崩溃统计（panic_count/last_crash） |
 | `GET /api/coredump` | 下载 coredump 分区原始数据（ELF，octet-stream） |
 | `POST /api/coredump/clear` | 清除 coredump（`esp_core_dump_image_erase`） |

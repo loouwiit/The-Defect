@@ -90,7 +90,7 @@
 	<div class="card">
 		<h3>📊 日志级别</h3>
 		<div class="row lv-ctrl">
-			<span style="font-size:14px;color:#aaa">全局日志级别（重启保持）:</span>
+			<span style="font-size:14px;color:#aaa">全局（决定产生什么日志）:</span>
 			<select id="logLevel">
 				<option value="0">NONE</option>
 				<option value="1">ERROR</option>
@@ -99,7 +99,28 @@
 				<option value="4">DEBUG</option>
 				<option value="5">VERBOSE</option>
 			</select>
-			<button id="applyLevelBtn">应用</button>
+		</div>
+		<div class="row lv-ctrl">
+			<span style="font-size:14px;color:#aaa">落盘（仅更严重级别写入文件）:</span>
+			<select id="fileLevel">
+				<option value="0">NONE（不落盘）</option>
+				<option value="1">ERROR 起</option>
+				<option value="2">WARN 起</option>
+				<option value="3" selected>INFO 起</option>
+			</select>
+		</div>
+		<div class="row lv-ctrl">
+			<span style="font-size:14px;color:#aaa">WS 实时（仅更严重级别推送）:</span>
+			<select id="wsLevel">
+				<option value="0">NONE（不推送）</option>
+				<option value="1">ERROR 起</option>
+				<option value="2">WARN 起</option>
+				<option value="3" selected>INFO 起</option>
+			</select>
+		</div>
+		<div class="row lv-ctrl" style="margin-top:12px">
+			<button id="applyLevelBtn">应用（重启保持）</button>
+			<span style="font-size:12px;color:#666">级别号越小越严重；例：落盘=ERROR、WS=INFO → 文件只留错误，WS 看全量</span>
 		</div>
 	</div>
 
@@ -195,17 +216,25 @@
 				const info = await r.json();
 				if (typeof info.log_level === "number")
 					document.getElementById("logLevel").value = String(info.log_level);
+				if (typeof info.file_level === "number")
+					document.getElementById("fileLevel").value = String(info.file_level);
+				if (typeof info.ws_level === "number")
+					document.getElementById("wsLevel").value = String(info.ws_level);
 			} catch (e) {}
 		}
 		document.getElementById("applyLevelBtn").onclick = async function () {
-			const lv = parseInt(document.getElementById("logLevel").value, 10);
+			const names = ["NONE","ERROR","WARN","INFO","DEBUG","VERBOSE"];
+			const lv  = parseInt(document.getElementById("logLevel").value, 10);
+			const fl  = parseInt(document.getElementById("fileLevel").value, 10);
+			const wl  = parseInt(document.getElementById("wsLevel").value, 10);
 			try {
 				const r = await fetch("/api/logLevel", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ level: lv })
+					body: JSON.stringify({ level: lv, file_level: fl, ws_level: wl })
 				});
-				if (r.ok) toast("日志级别已设为 " + ["NONE","ERROR","WARN","INFO","DEBUG","VERBOSE"][lv] + "（重启保持）");
+				if (r.ok)
+					toast("全局=" + names[lv] + " / 落盘=" + names[fl] + " / WS=" + names[wl] + "（重启保持）");
 				else toast("设置失败: HTTP " + r.status);
 			} catch (e) { toast("设置失败: " + e); }
 		};

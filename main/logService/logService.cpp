@@ -63,8 +63,15 @@ static constexpr int      kMaxWsClients  = 4;            // /ws/log 订阅上限
 
 static constexpr char     kNvsNamespace[] = "log";
 static constexpr char     kNvsKeyLevel[]  = "global_level";
+static constexpr char     kNvsKeyFileLevel[] = "file_level";   // 落盘阈值
+static constexpr char     kNvsKeyWsLevel[]   = "ws_level";     // WS 推送阈值
 static constexpr char     kNvsKeyPanic[]  = "panic_count";
 static constexpr char     kNvsKeyCrash[]  = "last_crash";
+
+/* 默认阈值：INFO(3)。与旧行为一致（全部消费级别 ≤3 的日志：E/W/I）。
+ * 语义沿用 esp_log：级别号越小越严重（NONE=0, ERROR=1, WARN=2, INFO=3, DEBUG=4, VERBOSE=5），
+ * “保留”条件 = level ≤ 阈值。例如 file_level=1 → 仅 ERROR 落盘；ws_level=3 → WS 显示 INFO+。 */
+static constexpr int      kDefaultLevel    = 3;
 
 /* ============================================================
  *  全局状态
@@ -101,6 +108,18 @@ EXT_RAM_BSS_ATTR static volatile uint32_t s_writeCount   = 0;  // 成功写入�
 EXT_RAM_BSS_ATTR static volatile uint32_t s_writeBytes   = 0;  // 成功写入字节
 EXT_RAM_BSS_ATTR static volatile uint32_t s_errCount     = 0;  // 文件/fsync 错误次数
 EXT_RAM_BSS_ATTR static volatile uint32_t s_dropCount    = 0;  // 队列满丢弃行数
+
+/* 生效的分级阈值（setter 更新 + NVS 持久化；LogTask 读取做分流） */
+EXT_RAM_BSS_ATTR static volatile int s_fileLevel = kDefaultLevel;
+EXT_RAM_BSS_ATTR static volatile int s_wsLevel   = kDefaultLevel;
+
+/* 队列项：行内容 + 级别（0-5，用于落盘/WS 分级过滤） */
+struct LogItem {
+    char    line[kLineMax];
+    uint8_t level;
+};
+
+static int nvsReadLevel(const char* key);   // 定义在下方（start() 早于定义，需前置声明）
 
 /* ============================================================
  *  文件操作（LogTask 内调用）
@@ -285,21 +304,26 @@ static void logTask(void* arg)
     ESP_LOGI(TAG, "log task started (internal RAM stack)");
     dumpEarlyToFile();
 
-    char line[kLineMax];
     TickType_t lastFlush = xTaskGetTickCount();
     TickType_t lastStatus = xTaskGetTickCount();
     size_t pendingBytes = 0;
 
     while (s_running)
     {
-        if (xQueueReceive(s_queue, line, pdMS_TO_TICKS(100)) == pdTRUE)
+        LogItem item;
+        if (xQueueReceive(s_queue, &item, pdMS_TO_TICKS(100)) == pdTRUE)
         {
-            size_t len = strlen(line);
-            appendToFile(line, len);
-            pendingBytes += len;
-            pushToWsClients(line, len);
+            size_t len = strlen(item.line);
+            /* 分级分流：级别号 ≤ 阈值才保留（数值小=更严重）
+             * 落盘与 WS 独立过滤 → 可“仅 error 落盘、WS 显示 info” */
+            if (item.level <= (uint8_t)s_fileLevel)
+            {
+                appendToFile(item.line, len);
+                pendingBytes += len;
+            }
+            if (item.level <= (uint8_t)s_wsLevel)
+                pushToWsClients(item.line, len);
         }
-
         /* 攒批 flush：4KB 或 200ms（仅在有新写入时，避免空闲期空 fsync 磨损 FAT） */
         TickType_t now = xTaskGetTickCount();
         if (pendingBytes >= kFlushBytes ||
@@ -315,12 +339,13 @@ static void logTask(void* arg)
         if ((now - lastStatus) >= pdMS_TO_TICKS(10000))
         {
             lastStatus = now;
-            ESP_LOGI(TAG, "status: lines=%u bytes=%u err=%u drop=%u file=%u queue=%u free=%u",
+            ESP_LOGI(TAG, "status: lines=%u bytes=%u err=%u drop=%u file=%u queue=%u free=%u fileLvl=%d wsLvl=%d",
                      (unsigned)s_writeCount, (unsigned)s_writeBytes,
                      (unsigned)s_errCount, (unsigned)s_dropCount,
                      (unsigned)fileSizeOf(kLogPath),
                      (unsigned)uxQueueMessagesWaiting(s_queue),
-                     (unsigned)(kQueueDepth - uxQueueMessagesWaiting(s_queue)));
+                     (unsigned)(kQueueDepth - uxQueueMessagesWaiting(s_queue)),
+                     (int)s_fileLevel, (int)s_wsLevel);
         }
     }
 
@@ -334,6 +359,29 @@ static void logTask(void* arg)
 /* ============================================================
  *  vprintf 回调（可重入，多任务并发调用）
  * ============================================================ */
+
+/* 从格式串解析日志级别：ESP_LOGx 宏展开后 fmt 以级别字母开头
+ * （CONFIG_LOG_COLORS 开启时前面有 \x1b[..m ANSI 转义，需跳过）。
+ * 返回 0-5；解析失败返回 0（=全部保留，避免误过滤）。 */
+static int parseLogLevel(const char* fmt)
+{
+    const char* p = fmt;
+    if (p && p[0] == '\x1b')
+    {
+        while (*p && *p != 'm') p++;
+        if (*p == 'm') p++;
+    }
+    switch (*p)
+    {
+        case 'N': return 0;   // NONE
+        case 'E': return 1;   // ERROR
+        case 'W': return 2;   // WARN
+        case 'I': return 3;   // INFO
+        case 'D': return 4;   // DEBUG
+        case 'V': return 5;   // VERBOSE
+        default:  return 0;   // 未知 → 全保留
+    }
+}
 
 static int logVprintf(const char* fmt, va_list args)
 {
@@ -349,7 +397,7 @@ static int logVprintf(const char* fmt, va_list args)
     {
         if (len > (int)sizeof(buf) - 1)
             len = (int)sizeof(buf) - 1;
-        LogService::instance().enqueue(buf, (size_t)len);
+        LogService::instance().enqueue(buf, (size_t)len, parseLogLevel(fmt));
     }
 
     /* 链式调用旧 handler（保留 UART 输出） */
@@ -373,7 +421,7 @@ void LogService::start()
     if (s_running) return;
 
     /* 先建队列再注册 vprintf：注册后日志走队列，早期缓冲不再写入 */
-    s_queue = xQueueCreate(kQueueDepth, kLineMax);
+    s_queue = xQueueCreate(kQueueDepth, sizeof(LogItem));
     if (!s_queue)
     {
         ESP_LOGE(TAG, "xQueueCreate failed");
@@ -381,6 +429,17 @@ void LogService::start()
     }
     for (int i = 0; i < kMaxWsClients; i++)
         s_wsFds[i] = -1;
+
+    /* 恢复持久化的全局 + 分级阈值（在注册 vprintf 前，LogTask 启动即生效） */
+    {
+        int level = getGlobalLevel();
+        if (level >= 0 && level <= 5)
+            esp_log_level_set("*", (esp_log_level_t)level);
+        int fl = nvsReadLevel(kNvsKeyFileLevel);
+        if (fl >= 0 && fl <= 5) s_fileLevel = fl;
+        int wl = nvsReadLevel(kNvsKeyWsLevel);
+        if (wl >= 0 && wl <= 5) s_wsLevel = wl;
+    }
 
     s_oldVprintf = esp_log_set_vprintf(logVprintf);
     s_running = true;
@@ -396,11 +455,6 @@ void LogService::start()
         s_running = false;
         ESP_LOGE(TAG, "xTaskCreateStatic failed");
     }
-
-    /* 恢复持久化的全局日志级别 */
-    int level = getGlobalLevel();
-    if (level >= 0 && level <= 5)
-        esp_log_level_set("*", (esp_log_level_t)level);
 }
 
 void LogService::stop()
@@ -408,16 +462,17 @@ void LogService::stop()
     s_running = false;
 }
 
-void LogService::enqueue(const char* line, size_t len)
+void LogService::enqueue(const char* line, size_t len, int level)
 {
     if (s_queue)
     {
         /* 队列满 → 丢弃新行（绝不阻塞调用方） */
-        char item[kLineMax];
+        LogItem item;
+        item.level = (uint8_t)(level < 0 ? 0 : (level > 5 ? 5 : level));
         if (len >= kLineMax) len = kLineMax - 1;
-        memcpy(item, line, len);
-        item[len] = '\0';
-        if (xQueueSend(s_queue, item, 0) != pdTRUE)
+        memcpy(item.line, line, len);
+        item.line[len] = '\0';
+        if (xQueueSend(s_queue, &item, 0) != pdTRUE)
             s_dropCount++;   // 日志风暴时保系统稳定
     }
     else
@@ -513,30 +568,65 @@ size_t LogService::getFileSize() const
  *  日志级别（NVS 持久化）
  * ============================================================ */
 
-void LogService::setGlobalLevel(int level)
+static int nvsReadLevel(const char* key)
 {
-    if (level < 0 || level > 5) return;
-    esp_log_level_set("*", (esp_log_level_t)level);
+    nvs_handle_t h;
+    int32_t v = -1;
+    if (nvs_open(kNvsNamespace, NVS_READONLY, &h) == ESP_OK)
+    {
+        nvs_get_i32(h, key, &v);
+        nvs_close(h);
+    }
+    return (int)v;
+}
 
+static void nvsWriteLevel(const char* key, int level)
+{
     nvs_handle_t h;
     if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) == ESP_OK)
     {
-        nvs_set_i32(h, kNvsKeyLevel, level);
+        nvs_set_i32(h, key, level);
         nvs_commit(h);
         nvs_close(h);
     }
 }
 
+void LogService::setGlobalLevel(int level)
+{
+    if (level < 0 || level > 5) return;
+    esp_log_level_set("*", (esp_log_level_t)level);
+    nvsWriteLevel(kNvsKeyLevel, level);
+}
+
 int LogService::getGlobalLevel() const
 {
-    nvs_handle_t h;
-    int32_t level = -1;
-    if (nvs_open(kNvsNamespace, NVS_READONLY, &h) == ESP_OK)
-    {
-        nvs_get_i32(h, kNvsKeyLevel, &level);
-        nvs_close(h);
-    }
-    return (int)level;
+    return nvsReadLevel(kNvsKeyLevel);
+}
+
+void LogService::setFileLevel(int level)
+{
+    if (level < 0 || level > 5) return;
+    s_fileLevel = level;          // 立即生效（LogTask 读该变量分流）
+    nvsWriteLevel(kNvsKeyFileLevel, level);
+    ESP_LOGI(TAG, "file_level=%d (仅更严重日志落盘)", level);
+}
+
+int LogService::getFileLevel() const
+{
+    return (int)s_fileLevel;
+}
+
+void LogService::setWsLevel(int level)
+{
+    if (level < 0 || level > 5) return;
+    s_wsLevel = level;
+    nvsWriteLevel(kNvsKeyWsLevel, level);
+    ESP_LOGI(TAG, "ws_level=%d (仅更严重日志推送 WS)", level);
+}
+
+int LogService::getWsLevel() const
+{
+    return (int)s_wsLevel;
 }
 
 /* ============================================================

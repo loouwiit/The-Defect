@@ -52,6 +52,17 @@ public:
     /** @brief 读取全局日志级别（NVS，未设置返回 -1） */
     int getGlobalLevel() const;
 
+    /** @brief 设置落盘阈值（0-5，默认 3=INFO）：仅级别号 ≤ 阈值的日志写入文件
+     *  （数值小=更严重，如 1=仅 ERROR 落盘；2=ERROR+WARN；3=+INFO）持久化到 NVS */
+    void setFileLevel(int level);
+    /** @brief 当前生效的落盘阈值 */
+    int getFileLevel() const;
+
+    /** @brief 设置 WS 推送阈值（0-5，默认 3=INFO）：仅级别号 ≤ 阈值的日志推送 /ws/log */
+    void setWsLevel(int level);
+    /** @brief 当前生效的 WS 推送阈值 */
+    int getWsLevel() const;
+
     // ── 崩溃检测记录（NVS）──
 
     /**
@@ -75,8 +86,9 @@ public:
 
     // ── vprintf 回调内部使用 ──
 
-    /** @brief 入队一行日志（线程安全，队列满丢弃） */
-    void enqueue(const char* line, size_t len);
+    /** @brief 入队一行日志（线程安全，队列满丢弃）
+     *  @param level 日志级别 0-5（NONE..VERBOSE），供落盘/WS 分级过滤 */
+    void enqueue(const char* line, size_t len, int level);
 
 private:
     LogService() = default;
