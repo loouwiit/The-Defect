@@ -48,6 +48,10 @@
 		button.danger { background: #ff3b30; }
 		.progress { width: 100%; height: 14px; margin-top: 12px; }
 		#status { margin-top: 12px; font-size: 14px; line-height: 1.6; }
+		#fwInfo { margin-top: 12px; font-size: 14px; line-height: 1.8; }
+		#fwInfo .ver { color: #00c853; font-weight: bold; }
+		#fwInfo .warn { color: #ffd180; }
+		#fwInfo .bad { color: #ff8a80; }
 		.ok { color: #00c853; }
 		.err { color: #ff8a80; }
 		.slot-row {
@@ -79,6 +83,7 @@
 			<input type="file" id="fwFile" accept=".bin" />
 			<button id="uploadBtn" disabled>开始升级</button>
 		</div>
+		<p id="fwInfo"></p>
 		<progress id="progress" value="0" max="100" style="display:none"></progress>
 		<p id="status"></p>
 	</div>
@@ -114,6 +119,52 @@
 		if (sec < 60) return sec + " 秒前";
 		if (sec < 3600) return Math.floor(sec / 60) + " 分钟前";
 		return Math.floor(sec / 3600) + " 小时前";
+	}
+
+	// ── 解析选中固件的版本信息（纯前端，读取镜像头固定偏移）──
+	// esp_app_desc_t 位于 app 镜像偏移 0x20（esp_image_header_t 24B + segment header 8B，
+	// 与设备端 OtaManager::precheckImage 同款偏移），bin 内绝对偏移：
+	//   0x20 magic_word(0xABCD5432)  0x30 version[32]  0x50 project_name[32]
+	//   0x70 time[16]  0x80 date[16]  0x90 idf_ver[32]
+	function readCString(view, offset, maxLen) {
+		let end = offset;
+		const limit = offset + maxLen;
+		while (end < limit && view.getUint8(end) !== 0) end++;
+		let s = "";
+		for (let i = offset; i < end; i++) s += String.fromCharCode(view.getUint8(i));
+		return s;
+	}
+
+	async function parseFwFile(file) {
+		const buf = await file.slice(0, 512).arrayBuffer();
+		const view = new DataView(buf);
+		// 镜像头 magic（0xE9）在偏移 0；至少覆盖到 idf_ver 末尾（0xB0）
+		if (view.byteLength < 0xB0 || view.getUint8(0) !== 0xE9)
+			throw new Error("无法识别为有效 ESP 固件镜像");
+		if (view.getUint32(0x20, true) !== 0xABCD5432)
+			throw new Error("镜像中未找到应用描述（可能是 bootloader/分区表等非 app 镜像）");
+		return {
+			version: readCString(view, 0x30, 32),
+			project_name: readCString(view, 0x50, 32),
+			time: readCString(view, 0x70, 16),
+			date: readCString(view, 0x80, 16),
+			idf_ver: readCString(view, 0x90, 32)
+		};
+	}
+
+	function showFwInfo(info) {
+		let el = document.getElementById("fwInfo");
+		let html = "已选择固件：<span class=\"ver\">" + info.project_name + " " + info.version + "</span>" +
+			(info.date ? "（编译于 " + info.date + " " + info.time + "）" : "") +
+			(info.idf_ver ? " · IDF " + info.idf_ver : "");
+		// 版本比对（复用已加载的 otaInfo）
+		if (otaInfo && otaInfo.next && otaInfo.next.version && otaInfo.next.version === info.version) {
+			html += "<br><span class=\"warn\">⚠ 与目标槽位（" + otaInfo.next.label + "）现有版本相同，重复升级无变化</span>";
+		}
+		if (otaInfo && otaInfo.last_invalid && otaInfo.last_invalid.version && otaInfo.last_invalid.version === info.version) {
+			html += "<br><span class=\"bad\">⛔ 该版本上次升级失败（" + otaInfo.last_invalid.label + "），设备会拒绝上传</span>";
+		}
+		el.innerHTML = html;
 	}
 
 	function renderInfo(info) {
@@ -301,7 +352,15 @@
 	}
 
 	uploadBtn.onclick = startUpload;
-	fileInput.onchange = function () { uploadBtn.disabled = !fileInput.files[0]; };
+	fileInput.onchange = function () {
+		uploadBtn.disabled = !fileInput.files[0];
+		let fwInfoEl = document.getElementById("fwInfo");
+		let f = fileInput.files[0];
+		if (!f) { fwInfoEl.textContent = ""; return; }
+		parseFwFile(f).then(showFwInfo).catch(function (e) {
+			fwInfoEl.innerHTML = "<span class=\"bad\">" + e.message + "</span>";
+		});
+	};
 	loadInfo();
 </script>
 </html>
