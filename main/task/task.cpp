@@ -1,4 +1,5 @@
 #include "task.hpp"
+#include "mutex/mutex.hpp"
 #include <esp_log.h>
 
 Task Task::head{};
@@ -6,6 +7,11 @@ Task Task::head{};
 EXT_RAM_BSS_ATTR static Thread* deamonThread{};
 EXT_RAM_BSS_ATTR static size_t deamonThreadCount{};
 EXT_RAM_BSS_ATTR static bool deamonRunning = false;
+
+// ⚠ 任务链表全局互斥锁：保护侵入式双向链表的遍历/插入/摘除。
+//   daemon 遍历与 addTask（BLE task/UI task 任意线程）并发会导致
+//   读已释放节点（UAF）/链表损坏。锁序约定：task->mutex → s_listMutex（无逆序，无死锁）。
+static Mutex s_listMutex;
 
 void Task::init(size_t deamonThreadCount)
 {
@@ -38,8 +44,11 @@ void Task::init(size_t deamonThreadCount)
 const char* const* Task::dumpTask()
 {
 	auto count = 0;
-	for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
-		count++;
+	{
+		Lock lock{ s_listMutex };
+		for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
+			count++;
+	}
 
 	char** ret = new char* [count + 2]; // for nowTime and \0
 
@@ -47,11 +56,14 @@ const char* const* Task::dumpTask()
 	sprintf(ret[0], "now time = %lu", xTaskGetTickCount());
 
 	auto i = 1;
-	for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
 	{
-		ret[i] = new char[64];
-		sprintf(ret[i], "[%lu]: task %s(%p)", nowTask->nextCallTick, nowTask->name, nowTask->param);
-		i++;
+		Lock lock{ s_listMutex };
+		for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
+		{
+			ret[i] = new char[64];
+			sprintf(ret[i], "[%lu]: task %s(%p)", nowTask->nextCallTick, nowTask->name, nowTask->param);
+			i++;
+		}
 	}
 	ret[i] = new char[1] {'\0'};
 
@@ -79,28 +91,52 @@ void Task::daemonMain(void* param)
 	{
 		TickType_t closestTime = infinityTime;
 		TickType_t nowTime = xTaskGetTickCount();
-		for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
-		{
-			if (nowTask->nextCallTick < nowTime &&
-				(nowTask->affinityId == deamonThreadId || nowTask->affinityId >= deamonThreadCount)
-				&& nowTask->mutex.try_lock())
-			{
-				if (nowTask->affinityId == Affinity::NotAssigned) [[unlikely]]
-					nowTask->affinityId = deamonThreadId;
 
-				TickType_t intervalTick = nowTask->function(nowTask->param);
-				if (intervalTick == infinityTime)
+		// 持锁遍历：找下一个到期且未被其他 daemon 占用的任务（try_lock 非阻塞）
+		Task* toRun = nullptr;
+		{
+			Lock lock{ s_listMutex };
+			for (Task* nowTask = head.next; nowTask != &head; nowTask = nowTask->next)
+			{
+				if (nowTask->nextCallTick < nowTime &&
+					(nowTask->affinityId == deamonThreadId || nowTask->affinityId >= deamonThreadCount))
 				{
-					nowTask->nextCallTick = infinityTime;
-					nowTask->mutex.unlock();
-					removeTask(nowTask);
-					continue;
+					if (nowTask->mutex.try_lock())
+					{
+						if (nowTask->affinityId == Affinity::NotAssigned) [[unlikely]]
+							nowTask->affinityId = deamonThreadId;
+						toRun = nowTask;
+						break;
+					}
+					// 已被其他 daemon 占用 → 跳过
 				}
-				nowTask->nextCallTick = nowTime + intervalTick;
-				nowTask->mutex.unlock();
+				if (nowTask->nextCallTick < closestTime)
+					closestTime = nowTask->nextCallTick;
 			}
-			if (nowTask->nextCallTick < closestTime)
-				closestTime = nowTask->nextCallTick;
+		}
+
+		if (toRun)
+		{
+			// 锁外执行任务函数（不持链表锁：函数内可安全 addTask/removeTask 其他任务）
+			TickType_t intervalTick = toRun->function(toRun->param);
+
+			if (intervalTick == infinityTime)
+			{
+				// 任务自灭：先解锁再移除（移除后不可再访问 toRun）
+				toRun->mutex.unlock();
+				removeTask(toRun);
+				continue;
+			}
+
+			// 持锁更新下次调用时间。⚠ 此时仍持有 toRun->mutex，外部 removeTask 会
+			// 阻塞等锁 → toRun 必然仍在链表中，安全更新。
+			{
+				Lock lock{ s_listMutex };
+				toRun->nextCallTick = nowTime + intervalTick;
+				if (toRun->nextCallTick < closestTime)
+					closestTime = toRun->nextCallTick;
+			}
+			toRun->mutex.unlock();
 		}
 
 		nowTime = xTaskGetTickCount(); // 函数调用可能导致时间流逝，在此处重新获取
@@ -120,6 +156,7 @@ Task* Task::addTask(Function_t function, const char* name, void* param, TickType
 	Task* task = new Task{};
 
 	Lock lock{ task->mutex };
+	Lock listLock{ s_listMutex };   // 尾部插入持链表锁，防与 daemon 遍历并发
 
 	task->function = function;
 	task->param = param;
@@ -139,9 +176,11 @@ Task* Task::addTask(Function_t function, const char* name, void* param, TickType
 void Task::removeTask(Task* task)
 {
 	task->mutex.lock();
-	task->nextCallTick = infinityTime;
-	task->last->next = task->next;
-	task->next->last = task->last;
+	{
+		Lock listLock{ s_listMutex };   // 摘除持链表锁，防与 daemon 遍历并发
+		task->last->next = task->next;
+		task->next->last = task->last;
+	}
 	task->mutex.unlock();
 
 	delete task;
