@@ -73,9 +73,16 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 		int n = snprintf(regMsg, sizeof(regMsg),
 			R"({"type":"register","hostname":"%s","gamepad_count":4})",
 			myHostname);
-		// ⚠ 回调在 WS task 上下文：这里直接用 this->m_consoleClient 有并发 delete 风险，
-		//   但清理路径 delete 前必先 disconnect()（stop 等 WS task 退出）→ 回调完成前不会被删。
-		if (m_consoleClient) m_consoleClient->sendText(regMsg, n);
+		// ⚠ 回调在 WS task 上下文，this->m_consoleClient 可能被 cleanupConnection 并发销毁
+		//   （UAF）。锁内取快照：清理路径 delete 前必先置空 m_consoleClient 并等 WS task 退出
+		//   → 回调执行期间 delete 不会完成，快照指针在发送时仍有效。
+		WsClient* aliveClient = nullptr;
+		{
+			Lock lock{ m_mutex };
+			if (m_consoleClient && !m_consoleDisconnected)
+				aliveClient = m_consoleClient;
+		}
+		if (aliveClient) aliveClient->sendText(regMsg, n);
 		});
 
 	// ⚠ 断开回调绝不在 WS task 上下文直接 delete/清理：
@@ -234,10 +241,14 @@ void HostManager::cleanupConnection()
 		e.uri[0] = '\0';
 	}
 
+	// ⚠ 不能持锁 delete m_consoleClient：~WsClient → disconnect → esp_websocket_client_stop
+	//   等待 WS task 退出，期间 DISCONNECTED 回调（内部 Lock m_mutex）阻塞 → 死锁。
+	//   锁内仅取指针并清空，解锁后再销毁。
+	WsClient* consoleToDelete = nullptr;
 	m_mutex.lock();
 	if (m_consoleClient)
 	{
-		delete m_consoleClient;
+		consoleToDelete = m_consoleClient;
 		m_consoleClient = nullptr;
 	}
 	m_consoleDisconnected = false;
@@ -258,6 +269,9 @@ void HostManager::cleanupConnection()
 	for (int i = 1; i < 4; i++)
 		m_slots[i] = {i, "", "", 0, false};
 	m_mutex.unlock();
+
+	if (consoleToDelete)
+		delete consoleToDelete;   // 解锁后销毁（stop 等 WS task 退出，可能触发回调持锁）
 
 	// 解锁后通知（回调可能反向调用本管理器）
 	notifySlotUpdate();
