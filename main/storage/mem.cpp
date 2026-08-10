@@ -1,6 +1,7 @@
 #include <algorithm>
 
 #include <esp_vfs.h>
+#include <esp_log.h>
 
 #include <fcntl.h>
 
@@ -9,6 +10,8 @@
 #include "utility/nonCopyAble.hpp"
 #include "mem.hpp"
 #include "fat.hpp"
+
+static constexpr char TAG[] = "mem";
 
 using std::min;
 using std::max;
@@ -437,7 +440,7 @@ MemFloorHead* MemFloorHead::findFloor(const char* path, size_t pathLenght)
 
 	if (pathLenght == (size_t)-1) // '/'
 	{
-		printf("%s:%d I just want to figure out whether it matter, now it seem count\n", __FILE__, __LINE__);
+		ESP_LOGD(TAG, "%s:%d I just want to figure out whether it matter, now it seem count", __FILE__, __LINE__);
 		return this;
 	}
 
@@ -478,7 +481,7 @@ MemFloorHead* MemFloorHead::findFloor(const char* path, size_t pathLenght)
 		//    begin    Lenght
 	}
 
-	printf("???How I get Here???\n\tpath=%s\n\tpathLenght=%u\n", path, pathLenght);
+	ESP_LOGW(TAG, "???How I get Here???\n\tpath=%s\n\tpathLenght=%u", path, pathLenght);
 	//throw "???How I get Here???"
 	return nullptr;
 }
@@ -847,7 +850,7 @@ bool mountMem()
 
 	if (!testFloor(PerfixMem))
 	{
-		ESP_LOGW("mem", "%s is not exsit, can't mount mem", PerfixMem);
+		ESP_LOGW(TAG, "%s is not exsit, can't mount mem", PerfixMem);
 		return false;
 	}
 	ESP_ERROR_CHECK(esp_vfs_register(PerfixMem, &memFs, NULL));

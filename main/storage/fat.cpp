@@ -4,13 +4,16 @@
 #include <fcntl.h>
 
 #include <cstring> //strlen()
+#include "esp_log.h"
 #include "fat.hpp"
+
+static constexpr char TAG[] = "fat";
 
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
 bool mountFlash()
 {
-	printf("fat: mounting flash\n");
+	ESP_LOGI(TAG, "mounting flash");
 	esp_vfs_fat_mount_config_t mount_config{};
 
 	mount_config.format_if_mount_failed = false;
@@ -23,34 +26,34 @@ bool mountFlash()
 
 	if (err == ESP_OK)
 	{
-		printf("fat: flash mount success\n");
+		ESP_LOGI(TAG, "flash mount success");
 		return true;
 	}
 	else
 	{
-		printf("fat: Failed to mount flash (%s)\n", esp_err_to_name(err));
+		ESP_LOGE(TAG, "Failed to mount flash (%s)", esp_err_to_name(err));
 		return false;
 	}
 }
 
 void unmountFlash()
 {
-	printf("unmounting flash\n");
+	ESP_LOGI(TAG, "unmounting flash");
 	ESP_ERROR_CHECK(esp_vfs_fat_spiflash_unmount_rw_wl(PerfixFlash, s_wl_handle));
-	printf("flash unmounted\n");
+	ESP_LOGI(TAG, "flash unmounted");
 }
 
 void formatFlash()
 {
-	printf("fat: formating flash\n");
+	ESP_LOGW(TAG, "formating flash");
 	esp_err_t ret = esp_vfs_fat_spiflash_format_rw_wl(PerfixFlash, FlashPartitionLabel);
 	if (ret == ESP_OK)
 	{
-		printf("fat: format success\n");
+		ESP_LOGI(TAG, "format success");
 	}
 	else
 	{
-		printf("fat:format failed: %s\n", esp_err_to_name(ret));
+		ESP_LOGE(TAG, "format failed: %s", esp_err_to_name(ret));
 	}
 }
 
@@ -79,13 +82,13 @@ bool tree(const char* path, unsigned char maxOffset, unsigned char offset)
 {
 	if (offset >= maxOffset)
 	{
-		printf("tree offset %d, which is touched the max, in %s\n", offset, path);
+		ESP_LOGW(TAG, "tree offset %d, which is touched the max, in %s", offset, path);
 		return true;
 	}
 
 	if (offset == 0)
 	{
-		printf("tree at %s:\n", path);
+		ESP_LOGI(TAG, "tree at %s:", path);
 	}
 	//printf("[debug]tree at %s:\n", path);
 
@@ -97,7 +100,7 @@ bool tree(const char* path, unsigned char maxOffset, unsigned char offset)
 		{
 			putchar('|');
 		}
-		printf("-tree: fail in open %s\n", path);
+		ESP_LOGW(TAG, "-tree: fail in open %s", path);
 		// printf("-tree: formating flash\n");
 		// unmountFlash();
 		// formatFlash();
@@ -120,9 +123,7 @@ bool tree(const char* path, unsigned char maxOffset, unsigned char offset)
 		{
 			putchar('|');
 		}
-		printf("-dir: ");
-		printf(sub);
-		printf("\n");
+		ESP_LOGI(TAG, "-dir: %s", sub);
 
 		buffer = new char[subLenght + floor.getPathLenght() + 2];memcpy(buffer, floor.getPath(), floor.getPathLenght());
 		buffer[floor.getPathLenght()] = '/';
@@ -145,9 +146,7 @@ bool tree(const char* path, unsigned char maxOffset, unsigned char offset)
 		{
 			putchar('|');
 		}
-		printf("-file:");
-		printf(sub);
-		printf("\n");
+		ESP_LOGI(TAG, "-file: %s", sub);
 	}
 
 	return true;
@@ -521,7 +520,7 @@ void Floor::reCount()
 			count[1]++;
 			break;
 		default:
-			printf("Fat: Floor::reCount: error in %s 's %s", path, buffer->d_name);
+			ESP_LOGE(TAG, "Floor::reCount: error in %s 's %s", path, buffer->d_name);
 			break;
 		}
 	}

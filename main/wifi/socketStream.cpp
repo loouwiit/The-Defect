@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <errno.h>
+#include <esp_log.h>
 #include <lwip/sockets.h>
+
+static constexpr char TAG[] = "socketStream";
 
 // SocketStreamBase
 
@@ -218,7 +221,7 @@ bool ISocketStream::checkIBuffer()
 				// 错误
 				socketGood = false;
 				IBufferLenght = 0;
-				printf("ISocketStream: socket error %d\n", errno);
+				ESP_LOGE(TAG, "ISocketStream: socket error %d", errno);
 			}
 			return false; // 仍无缓冲区可用
 		}
@@ -283,7 +286,7 @@ bool OSocketStream::sendNow()
 		{
 			// 错误
 			socketGood = false;
-			printf("OSocketStream: socket error %d\n", errno);
+			ESP_LOGE(TAG, "OSocketStream: socket error %d", errno);
 		}
 		return false; // 发送失败，未达成全部发送的目标
 	}
@@ -353,7 +356,7 @@ size_t OSocketStream::write(const char* buffer, size_t bufferSize)
 		{
 			// 错误
 			socketGood = false;
-			printf("OSocketStream: socket error %d\n", errno);
+			ESP_LOGE(TAG, "OSocketStream: socket error %d", errno);
 			return 0;
 		}
 		return ret;

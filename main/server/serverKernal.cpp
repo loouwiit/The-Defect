@@ -5,6 +5,7 @@
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
 #include <esp_core_dump.h>
+#include <esp_log.h>
 #include <lwip/sockets.h>
 
 #include <cstdlib>
@@ -140,7 +141,7 @@ void server(void*)
 	serverListenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	if (serverListenSocket < 0)
 	{
-		printf("server:socket creat failed: error %d\n", serverListenSocket);
+		ESP_LOGE(TAG, "socket creat failed: error %d", serverListenSocket);
 		serverRunning = false;
 		vTaskDelete(nullptr);
 	}
@@ -148,7 +149,7 @@ void server(void*)
 	int opt = 1;
 	setsockopt(serverListenSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-	printf("socket created\n");
+	ESP_LOGI(TAG, "socket created");
 
 	sockaddr_storage addr = {};
 	{
@@ -162,30 +163,30 @@ void server(void*)
 	err = bind(serverListenSocket, (struct sockaddr*)&addr, sizeof(addr));
 	if (err != 0)
 	{
-		printf("server: socket bind failed: errno %d\n", errno);
+		ESP_LOGE(TAG, "socket bind failed: errno %d", errno);
 		serverRunning = false;
 		vTaskDelete(nullptr);
 	}
-	printf("server:socket bound, port 80\n");
+	ESP_LOGI(TAG, "socket bound, port 80");
 
 	err = listen(serverListenSocket, 1);
 	if (err != 0)
 	{
-		printf("server: socket listen failed: errno %d\n", errno);
+		ESP_LOGE(TAG, "socket listen failed: errno %d", errno);
 		serverRunning = false;
 		vTaskDelete(nullptr);
 	}
 
 	while (serverRunning)
 	{
-		printf("server: socket listening\n");
+		ESP_LOGD(TAG, "socket listening");
 
 		struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
 		socklen_t addr_len = sizeof(source_addr);
 		int sock = accept(serverListenSocket, (struct sockaddr*)&source_addr, &addr_len);
 		if (sock < 0)
 		{
-			printf("server: Unable to accept connection: errno %d\n", errno);
+			ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
 			restart();
 			break;
 		}
@@ -207,7 +208,7 @@ void server(void*)
 			inet_ntoa_r(((sockaddr_in*)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
 		}
 
-		printf("server: socket accepted ip address: %s\n", addr_str);
+		ESP_LOGD(TAG, "socket accepted ip address: %s", addr_str);
 
 		// accept 成功 → 重置重启计数（否则多次失败累计 3 次永久停服）
 		autoRestartTimes = 0;
@@ -219,11 +220,11 @@ void server(void*)
 			if (index >= SocketStreamWindowNumber)
 			{
 				index = 0;
-				printf("server: all window was occupyed\n");
+				ESP_LOGW(TAG, "all window was occupied");
 				vTaskDelay(100 / portTICK_PERIOD_MS);
 			}
 		}
-		printf("SocketStreamWindow state: %d / %d\n", SocketStreamWindow::getEnabledCount(), SocketStreamWindowNumber);
+		ESP_LOGD(TAG, "SocketStreamWindow state: %d / %d", SocketStreamWindow::getEnabledCount(), SocketStreamWindowNumber);
 		vTaskDelay(1);
 	}
 
@@ -254,7 +255,7 @@ void serverCoworker(void* coworkerIndex)
 	bool scanning = false;
 	size_t index = 0;
 
-	printf("Coworker %d started\n", (int)coworkerIndex);
+	ESP_LOGI(TAG, "Coworker %d started", (int)coworkerIndex);
 	while (serverRunning)
 	{
 		//尝试获取扫描权
@@ -310,7 +311,7 @@ void serverCoworker(void* coworkerIndex)
 		}
 		// scanning == false，无需移交扫描权
 	}
-	printf("Coworker %d ended\n", (int)coworkerIndex);
+	ESP_LOGI(TAG, "Coworker %d ended", (int)coworkerIndex);
 	coWorkerHandle[(int)coworkerIndex] = nullptr;
 	vTaskDelete(NULL);
 }
@@ -322,25 +323,24 @@ void recieve(IOSocketStream& socketStream)
 
 	// print request infomation
 	{
-		printf("server::recieve: method = %s\n", getMethodNameFromMethod(request.getMethod()));
-		printf("server::recieve: path = %s\n", request.getPath());
+		ESP_LOGD(TAG, "recieve: method = %s", getMethodNameFromMethod(request.getMethod()));
+		ESP_LOGD(TAG, "recieve: path = %s", request.getPath());
 
 		HttpStringPairSize_t headNumber = request.heads.getNumber();
 		for (HttpStringPairSize_t i = 0; i < headNumber; i++)
 		{
 			const char* name = request.heads[i].getName();
 			const char* value = request.heads[i].getValue();
-			printf("server::recieve: head[%d] is %s : %s\n", i, name, value);
+			ESP_LOGD(TAG, "recieve: head[%d] is %s : %s", i, name, value);
 		}
 
 		HttpStringPairSize_t cookieNumber = request.cookies.getNumber();
 		for (HttpStringPairSize_t i = 0; i < cookieNumber; i++)
 		{
-			printf("server::recieve: cookie[%d] is %s = %s\n", i, request.cookies[i].getName(), request.cookies[i].getValue());
+			ESP_LOGD(TAG, "recieve: cookie[%d] is %s = %s", i, request.cookies[i].getName(), request.cookies[i].getValue());
 		}
 
-		printf("server::recieve: body lenght = %u\n", request.getBodyLenght());
-		printf("\n");
+		ESP_LOGD(TAG, "recieve: body lenght = %u", request.getBodyLenght());
 	}
 
 	switch (request.getMethod())
@@ -362,7 +362,7 @@ void recieve(IOSocketStream& socketStream)
 	socketStream.sendNow();
 
 	if (!socketStream.isGood())
-		printf("server::recieve: socketStream error\n");
+		ESP_LOGW(TAG, "recieve: socketStream error");
 }
 
 void sendOk(OSocketStream& socketStream)
@@ -964,17 +964,17 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			return;
 		}
 		size_t bodyLength = request.bodyLenght;
-		printf("formating password input: %s\n", body);
+		ESP_LOGI(TAG, "formating password input: %s", body);
 		if (stringCompare((char*)body, bodyLength, FormatingPassword, sizeof(FormatingPassword) - 1))
 		{
-			printf("formating flash\n");
+			ESP_LOGW(TAG, "formating flash");
 			formatFlash();
 			respond.setBody((void*)"format successfully");
 			respond.setBodyLenght(19);
 		}
 		else
 		{
-			printf("formating password wrong\n");
+			ESP_LOGW(TAG, "formating password wrong");
 			respond.setBody((void*)"wrong password");
 			respond.setBodyLenght(14);
 		}
@@ -986,7 +986,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	{
 		sendOk(socketStream);
 		socketStream.sendNow();
-		printf("system restart at 1s\n");
+		ESP_LOGW(TAG, "system restart at 1s");
 		vTaskDelay(1000);
 		esp_restart();
 	}
@@ -1265,7 +1265,7 @@ static void httpOtaInternal(void* p)
 		return;
 	}
 	ota.setUpdating(true);
-	printf("otaInt: 并发标志已置位\n");
+	ESP_LOGI(TAG, "otaInt: 并发标志已置位");
 
 	// 目标分区检查
 	if (ota.getNextUpdatePartition() == nullptr)
@@ -1274,7 +1274,7 @@ static void httpOtaInternal(void* p)
 		sendError(HttpStatus::BadRequest, "无可用 OTA 分区");
 		return;
 	}
-	printf("otaInt: 目标分区 OK\n");
+	ESP_LOGI(TAG, "otaInt: 目标分区 OK");
 
 	// 大小预检
 	const size_t total = request.getBodyLenght();
@@ -1284,7 +1284,7 @@ static void httpOtaInternal(void* p)
 		sendError(HttpStatus::BadRequest, "固件过大，超过目标分区容量");
 		return;
 	}
-	printf("otaInt: 大小预检 OK (%u 字节)\n", (unsigned)total);
+	ESP_LOGI(TAG, "otaInt: 大小预检 OK (%u 字节)", (unsigned)total);
 
 	// 读镜像头（覆盖 app_desc）→ 预检（magic + 版本防重烧）
 	size_t headerGot = 0;
@@ -1306,7 +1306,7 @@ static void httpOtaInternal(void* p)
 		headerGot += got;
 		left -= got;
 	}
-	printf("otaInt: 镜像头读取 OK (%u)\n", (unsigned)headerGot);
+	ESP_LOGI(TAG, "otaInt: 镜像头读取 OK (%u)", (unsigned)headerGot);
 
 	if (ota.precheckImage(header, headerGot) != ESP_OK)
 	{
@@ -1314,7 +1314,7 @@ static void httpOtaInternal(void* p)
 		sendError(HttpStatus::BadRequest, "镜像无效，或版本与上次升级失败版本相同");
 		return;
 	}
-	printf("otaInt: 镜像预检 OK\n");
+	ESP_LOGI(TAG, "otaInt: 镜像预检 OK");
 
 	// 开始 OTA（记录 pending 目标槽，供重启后判定回滚）
 	void* otaHandle = nullptr;
@@ -1324,7 +1324,7 @@ static void httpOtaInternal(void* p)
 		sendError(HttpStatus::InternalServerError, "OTA 初始化失败");
 		return;
 	}
-	printf("otaInt: otaBegin OK\n");
+	ESP_LOGI(TAG, "otaInt: otaBegin OK");
 
 	// 写入已读的头部
 	if (headerGot > 0 && ota.write(otaHandle, header, headerGot) != ESP_OK)
@@ -1361,10 +1361,10 @@ static void httpOtaInternal(void* p)
 		}
 		left -= got;
 		if ((chunk++ & 0x1F) == 0)
-			printf("otaInt: 已写入 %u / %u\n", (unsigned)(total - left), (unsigned)total);
+			ESP_LOGI(TAG, "otaInt: 已写入 %u / %u", (unsigned)(total - left), (unsigned)total);
 		vTaskDelay(1);
 	}
-	printf("otaInt: 流式写入完成\n");
+	ESP_LOGI(TAG, "otaInt: 流式写入完成");
 
 	// 校验镜像 + 设置启动分区
 	if (ota.finish(otaHandle) != ESP_OK)
@@ -1387,7 +1387,7 @@ static void httpOtaInternal(void* p)
 		respond.send(socketStream);
 	}
 	socketStream.sendNow();
-	printf("server: OTA 成功，1s 后重启\n");
+	ESP_LOGI(TAG, "OTA 成功，1s 后重启");
 	vTaskDelay(1000);
 	esp_restart();
 }
@@ -1467,7 +1467,7 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 		respond.send(socketStream);
 	}
 	socketStream.sendNow();
-	printf("server: 切换启动分区成功，1s 后重启\n");
+	ESP_LOGI(TAG, "切换启动分区成功，1s 后重启");
 	vTaskDelay(1000);
 	esp_restart();
 }
@@ -1570,7 +1570,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 
 		if (tooLarge)
 		{
-			printf("server: put file is too large\n");
+			ESP_LOGW(TAG, "put file is too large");
 
 			HttpRespond respond;
 			respond.setBody((void*)"file too large");
@@ -1590,7 +1590,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 		file.open(path);
 		if (!file.isOpen())
 		{
-			printf("server: error in put file %s\n", path);
+			ESP_LOGE(TAG, "error in put file %s", path);
 
 			HttpRespond respond;
 			respond.setBody((void*)HttpReason::InternalServerError);
@@ -1617,7 +1617,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 				// 断连时若不退出，worker 会被永久占住（6 个 worker 占满即服务器瘫痪）。
 				if (!socketStream.isGood())
 				{
-					printf("server: put connection lost, abort\n");
+					ESP_LOGW(TAG, "put connection lost, abort");
 					file.close();
 					removeFile(path);
 					sendBadRequest(socketStream);
@@ -1685,14 +1685,14 @@ void restart()
 	if (autoRestartTimes < maxRestartTimes)
 	{
 		Task::addTask([](void*) -> TickType_t {
-			printf("server: restart at %d times\n", autoRestartTimes);
+			ESP_LOGW(TAG, "restart at %d times", autoRestartTimes);
 			serverHandle = xTaskCreateStatic(server, "server", 4096, nullptr, Task::Priority::Deamon, serverStack, &serverTask);
 			return Task::infinityTime;
 			}, "server restart", nullptr, 1000);
 	}
 	else
 	{
-		printf("restart %u times, which is the max times\n", autoRestartTimes);
+		ESP_LOGE(TAG, "restart %u times, which is the max times", autoRestartTimes);
 		serverRunning = false;
 	}
 }
@@ -1721,7 +1721,7 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 		buffer = floor.read(Floor::Type::Floor);
 		if (buffer == nullptr)
 		{
-			printf("server: apiFloor: read null in floor %s", path);
+			ESP_LOGW(TAG, "apiFloor: read null in floor %s", path);
 			contentCount[0] = 0;
 			contentCount[1] = 0;
 			totolSize = 0;
@@ -1736,7 +1736,7 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 		buffer = floor.read(Floor::Type::File);
 		if (buffer == nullptr)
 		{
-			printf("server: apiFloor: read null in floor %s", path);
+			ESP_LOGW(TAG, "apiFloor: read null in floor %s", path);
 			contentCount[0] = 0;
 			contentCount[1] = 0;
 			totolSize = 0;
@@ -1753,7 +1753,7 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 		buffer = floor.read(Floor::Type::Floor);
 		if (buffer == nullptr)
 		{
-			printf("server: apiFloor: read null in floor %s", path);
+			ESP_LOGW(TAG, "apiFloor: read null in floor %s", path);
 			totolSize = 0;
 			contentCount[0] = 0;
 			contentCount[1] = 0;
@@ -1779,7 +1779,7 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 		buffer = floor.read(Floor::Type::File);
 		if (buffer == nullptr)
 		{
-			printf("server: apiFloor: read null in floor %s", path);
+			ESP_LOGW(TAG, "apiFloor: read null in floor %s", path);
 			totolSize = 0;
 			contentCount[0] = 0;
 			contentCount[1] = 0;
