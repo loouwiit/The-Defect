@@ -156,7 +156,7 @@ reserces/
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
-| **补丁** | Patches | `patches/` | 10 个 patch：帧回调 / PPA 队列 / SRM bypass / WS transport / LVGL IME iuv 过滤 / count uint16 / PNG 禁用 / IME 候选选中重置 / IME 选中高亮修复 / IME 翻页焦点保持 |
+| **补丁** | Patches | `patches/` | 3 个 patch（帧回调 / IME 修复合集 / PNG 禁用）+ PPA 官方补丁引导 NOTES，跨平台 `apply.py` 管理 |
 
 ---
 
@@ -864,6 +864,8 @@ class PinyinDict {
   - `gen_wubi_pinyin_dict.py` → 混合（五笔优先 + 拼音兜底去重）
 
 ### LVGL 必要 patch
+
+集中在 `patches/0002-lvgl__lvgl-ime-pinyin-fixes.patch`（原 `0005`–`0010` 六个补丁的**合并版**，改同一文件 `lv_ime_pinyin.c`）：
 
 - `0005`：移除 `pinyin_search_matching` 的 `i/u/v` 开头过滤（五笔 i 水 / u 立 / v 女折 键区）
 - `0006`：`count` 从 `uint8_t`→`uint16_t`（五笔每组上千条目，uint8_t 截断 255 导致后段编码匹配失败）
@@ -2286,17 +2288,15 @@ ESP32-P4 的 PPA 硬件加速 2D 渲染 (fill/blend/SRM)。当前配置与注意
 ### sdkconfig
 
 ```
-CONFIG_LV_USE_PPA=y                # 启用 PPA
+CONFIG_LV_USE_PPA=y                # 启用 PPA（fill/blend/SRM）
 CONFIG_LV_USE_PPA_IMG=y            # PPA 加速图片渲染
-CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1  # PPA 要求 SW draw unit 为 1
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2
 ```
 
 ### 关键约束
 
 | 参数 | 值 | 说明 |
 |------|----|------|
-| `LV_DRAW_SW_DRAW_UNIT_CNT` | 须为 1 | >1 多线程渲染时会出现不可预知的渲染错误（黑线、白线、混叠） |
-| PPA fill/blend `max_pending_trans_num` | *在多线程渲染时* 需 ≥2 | 默认值太低会导致崩溃: `exceed maximum pending transactions` |
 | `CONFIG_LV_CACHE_DEF_SIZE` | 建议 ≥1MB | 图片缓存大小，避免每帧重复解码 JPEG |
 
 > PPA fill/blend 与 SRM (Scale-Rotate-Mirror) 共享同一硬件引擎，大量 blend 操作会阻塞 SRM 旋转，导致帧率下降。实测中 PPA 加速 5 张卡片渲染时，blend 排队 + SRM 等待 → `ppa_do_scale_rotate_mirror` 耗时从 ~0.7ms 飙升至 ~15ms。
@@ -2315,27 +2315,27 @@ CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1  # PPA 要求 SW draw unit 为 1
 
 **路径**: `patches/`
 
-| Patch | 文件 | 说明 |
-|-------|------|------|
-| `0001-esp_lvgl_adapter-frame-ready-callback.patch` | `esp_lvgl_adapter` (4 文件) | Bridge 帧完成回调 → ScreenStream 零拷贝采集 |
-| `0002-esp_lvgl_adapter-ppa-max-pending-trans.patch` | `lvgl_ppa_accel_v9.c` | PPA fill/blend `max_pending_trans_num = 8`，防止队列溢出崩溃 |
-| `0003-esp_driver_ppa-sr_macro_bk_ro_bypass.patch` | `esp_driver_ppa` | PPA SRM (Scale-Rotate-Mirror) macro 旁路，修复旋转时的硬件 bug |
-| `0004-esp_websocket_client-expose-transport.patch` | `esp_websocket_client` (2 文件) | 暴露 `esp_websocket_client_get_transport()` 供 `wsClient.cpp` 获取 socket fd 设置 TCP_NODELAY |
-| `0005-lvgl__lvgl-ime-pinyin-allow-iu-v-start.patch` | `lvgl` (`lv_ime_pinyin.c`) | 移除 IME 匹配的 i/u/v 开头过滤（五笔 i 水/u 立/v 女折 键区） |
-| `0006-lvgl__lvgl-ime-pinyin-fix-count-uint16.patch` | `lvgl` (`lv_ime_pinyin.c`) | `count` 类型 `uint8_t`→`uint16_t`，修复五笔大组（>255 条目）匹配截断 |
-| `0007-espressif__esp_lv_decoder-disable-png.patch` | `esp_lv_decoder` (2 文件) | PNG 支持 `#if ESP_LV_ENABLE_PNG` 化（config.h 默认 1），主固件注入 `-DESP_LV_ENABLE_PNG=0` 关闭 → libpng + zlib 零引用裁掉（~100KB）；SPNG 同步禁用。本项目仅 JPG（硬件 JPEG），恢复 PNG 只需去掉 `main/CMakeLists.txt` 的注入 |
-| `0008-lvgl__lvgl-ime-pinyin-reset-selection-hide-empty-slots.patch` | `lvgl` (`lv_ime_pinyin.c`) | 候选选中状态管理：空槽设 `CTRL_HIDDEN`（占位保留、方向键/触摸跳过）、新拼音输入/提交后选中回第一候选、翻页保留原位仅空槽回退、清除触摸 CHECKED 残留；无匹配/空词条不显示空面板。配套 `aiAgentOverlay::kbExtraBtnCb` 空格分支顺延找非空候选兜底 |
-| `0009-lvgl__lvgl-ime-pinyin-selection-highlight-fix.patch` | `lvgl` (`lv_ime_pinyin.c`) | 候选选中高亮修复：事件参数路由翻页（不移动选中到 `<`/`>`）、无效翻页恢复选中、有效翻页选中不回落到翻页键/空槽、清除键盘式 ENTER 残留 `LV_STATE_PRESSED`（keypad 释放事件丢失）。配套 overlay 候选面板加 `LV_STATE_FOCUSED` 蓝色样式实现持久选中高亮 |
-| `0010-lvgl__lvgl-ime-pinyin-keep-focus-after-page-turn.patch` | `lvgl` (`lv_ime_pinyin.c`) | 翻页后焦点保持：翻页键 `<`/`>`（id 0/7）原样保留（A 点 `>` 后可连续翻页），仅选中在候选槽且超出当前页有效数（新页候选变少）才回退第一候选；无效翻页恢复翻页前选中（含翻页键） |
+| Patch | 组件 | 文件 | 说明 |
+|-------|------|------|------|
+| `0001-esp_lvgl_adapter-frame-ready-callback.patch` | `espressif__esp_lvgl_adapter` | `display_bridge.h` / `lvgl_bridge_v9.c` / `display_manager.h/.c` | Bridge 帧完成回调 `on_frame_ready` → `display_manager_set_frame_ready_callback()`，供 ScreenStream 零拷贝采集 |
+| `0002-lvgl__lvgl-ime-pinyin-fixes.patch` | `lvgl__lvgl` | `src/widgets/ime/lv_ime_pinyin.c` | **IME 修复合集**（原 `0005`–`0010` 合并）：i/u/v 过滤移除 / `count` uint16 / 空槽 HIDDEN + 选中重置 / 翻页焦点保持 / 残留 PRESSED·CHECKED 清除，见「LVGL 必要 patch」节 |
+| `0003-esp_lv_decoder-disable-png.patch` | `espressif__esp_lv_decoder` | `esp_lv_decoder.c` / `esp_lv_decoder_config.h` | PNG 支持 `#if ESP_LV_ENABLE_PNG` 化（config.h 默认 1），主固件注入 `-DESP_LV_ENABLE_PNG=0` 关闭 → libpng + zlib 零引用裁掉（~100KB）；SPNG 同步禁用。本项目仅 JPG（硬件 JPEG），恢复 PNG 只需去掉 `main/CMakeLists.txt` 的注入 |
 
-**使用**:
+> 说明：PPA 卡死修复为 `esp_lvgl_adapter` 组件随包附带的官方补丁（非本目录补丁），见组件 README。
+
+**使用**（跨平台 Python + `git apply`，无需 `patch` / `IDF_PATH`）:
 ```bash
-bash patches/apply.sh          # 打所有补丁
-bash patches/apply.sh --revert # 还原所有
+python patches/apply.py          # 打所有补丁
+python patches/apply.py --check  # 干跑报告（APPLICABLE / ALREADY-APPLIED / CONFLICT）
+python patches/apply.py --revert # 还原所有
 ```
 ⚠ `idf.py reconfigure` 后需重新打补丁。
-⚠ `apply.sh` 需要 `IDF_PATH` 环境变量；组件目录自动识别 `espressif__<组件>`，非 espressif 发布组件（如 `lvgl__lvgl`）直接用原名。
-⚠ **不要对已应用的 patch 重跑全量 `apply.sh`**（`--forward` 对行号偏移的 hunk 可能重复应用 → 重复定义编译错误）；新 patch 应单独 `patch -d <组件目录> -p1 < xxx.patch`。
+⚠ `git apply` **无 fuzz**：组件版本升级导致补丁上下文漂移时会报 CONFLICT（不静默错位），需按 `patches/README.md` 更新补丁。
+⚠ 补丁目标目录显式登记在 `patches/apply.py` 的 `MANIFEST` 中，新增补丁须同步登记。
+
+### 组件版本基线（补丁生成时）
+
+lvgl **9.5.0** / esp_lvgl_adapter **0.4.3~1** / esp_lv_decoder 0.4.3 / esp_websocket_client 1.7.0 / idf **5.5.2**
 
 ### LVGL 构建选项覆盖（编译宏注入，非补丁）
 

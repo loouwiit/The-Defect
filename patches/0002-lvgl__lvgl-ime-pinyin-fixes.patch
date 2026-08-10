@@ -1,0 +1,133 @@
+diff -ruN a/src/widgets/ime/lv_ime_pinyin.c b/src/widgets/ime/lv_ime_pinyin.c
+--- a/src/widgets/ime/lv_ime_pinyin.c	2026-08-10 22:55:04.653437354 +0800
++++ b/src/widgets/ime/lv_ime_pinyin.c	2026-08-10 22:55:04.655330719 +0800
+@@ -753,7 +753,9 @@
+         lv_obj_t * ta = lv_keyboard_get_textarea(pinyin_ime->kb);
+         if(ta == NULL) return;
+ 
+-        uint32_t id = lv_buttonmatrix_get_selected_button(cand_panel);
++        /* 优先用事件参数确定按键（overlay 程序化翻页不移动选中；触摸/空格走按钮 id）*/
++        uint32_t * id_param = (uint32_t *)lv_event_get_param(e);
++        uint32_t id = id_param ? *id_param : lv_buttonmatrix_get_selected_button(cand_panel);
+         if(id == LV_BUTTONMATRIX_BUTTON_NONE) {
+             return;
+         }
+@@ -783,6 +785,13 @@
+ 
+     pinyin_ime->cand_str = pinyin_search_matching(obj, pinyin_ime->input_char, &pinyin_ime->cand_num);
+     if(pinyin_ime->cand_str == NULL) {
++        /* 无匹配（如退格到无结果）：隐藏候选面板，避免残留上一轮候选 */
++        lv_obj_add_flag(pinyin_ime->cand_panel, LV_OBJ_FLAG_HIDDEN);
++        return;
++    }
++    if(pinyin_ime->cand_num == 0) {
++        /* 空词条（如拼音 i / o）：不显示空候选面板 */
++        lv_obj_add_flag(pinyin_ime->cand_panel, LV_OBJ_FLAG_HIDDEN);
+         return;
+     }
+ 
+@@ -800,6 +809,20 @@
+         }
+     }
+ 
++    /* 空槽设为 HIDDEN（占位保留，方向键/触摸导航自动跳过），并清除触摸选中残留 */
++    uint16_t valid = pinyin_ime->cand_num;
++    if(valid > LV_IME_PINYIN_CAND_TEXT_NUM) valid = LV_IME_PINYIN_CAND_TEXT_NUM;
++    lv_buttonmatrix_clear_button_ctrl_all(pinyin_ime->cand_panel,
++                                          LV_BUTTONMATRIX_CTRL_HIDDEN | LV_BUTTONMATRIX_CTRL_CHECKED);
++    for(uint8_t i = valid + 1; i <= LV_IME_PINYIN_CAND_TEXT_NUM; i++) {
++        lv_buttonmatrix_set_button_ctrl(pinyin_ime->cand_panel, i, LV_BUTTONMATRIX_CTRL_HIDDEN);
++    }
++    /* 每次新拼音输入：选中回第一个候选 */
++    lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, 1);
++
++    /* 清除键盘式 ENTER 可能残留的 PRESSED（释放事件丢失），避免随机的按下高亮 */
++    lv_obj_remove_state(pinyin_ime->cand_panel, LV_STATE_PRESSED);
++
+     lv_obj_remove_flag(pinyin_ime->cand_panel, LV_OBJ_FLAG_HIDDEN);
+     lv_obj_invalidate(pinyin_ime->cand_panel);
+ }
+@@ -812,10 +835,19 @@
+ 
+     if(!pinyin_ime->cand_str) return;
+ 
++    /* 翻页前的选中（程序化翻页不移动选中；触摸翻页可能已落在 < / > 上）*/
++    uint32_t prev_sel = lv_buttonmatrix_get_selected_button(pinyin_ime->cand_panel);
++
+     if(dir == 0) {
+         if(pinyin_ime->py_page) {
+             pinyin_ime->py_page--;
+         }
++        else {
++            /* 无效上翻（已是第一页）：恢复原选中（候选槽或 < 键原样保留，可继续 A 翻页）*/
++            lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel,
++                                                prev_sel == LV_BUTTONMATRIX_BUTTON_NONE ? 1 : prev_sel);
++            return;
++        }
+     }
+     else {
+         if(remainder == 0) {
+@@ -824,7 +856,12 @@
+         if(pinyin_ime->py_page < page_num) {
+             pinyin_ime->py_page++;
+         }
+-        else return;
++        else {
++            /* 无效下翻（已是最后一页）：恢复原选中 */
++            lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel,
++                                                prev_sel == LV_BUTTONMATRIX_BUTTON_NONE ? 1 : prev_sel);
++            return;
++        }
+     }
+ 
+     for(uint8_t i = 0; i < LV_IME_PINYIN_CAND_TEXT_NUM; i++) {
+@@ -843,6 +880,24 @@
+             lv_pinyin_cand_str[i][j] = pinyin_ime->cand_str[offset + (i * 3) + j];
+         }
+     }
++
++    /* 当前页有效候选数（末页可能 < 6）*/
++    uint16_t valid = LV_IME_PINYIN_CAND_TEXT_NUM;
++    if((remainder > 0) && (pinyin_ime->py_page == page_num)) valid = remainder;
++
++    /* 空槽设为 HIDDEN（占位保留，方向键/触摸导航自动跳过），并清除触摸选中残留 */
++    lv_buttonmatrix_clear_button_ctrl_all(pinyin_ime->cand_panel,
++                                          LV_BUTTONMATRIX_CTRL_HIDDEN | LV_BUTTONMATRIX_CTRL_CHECKED);
++    for(uint8_t i = valid + 1; i <= LV_IME_PINYIN_CAND_TEXT_NUM; i++) {
++        lv_buttonmatrix_set_button_ctrl(pinyin_ime->cand_panel, i, LV_BUTTONMATRIX_CTRL_HIDDEN);
++    }
++
++    /* 焦点保持：选中在候选槽且超出当前页有效数（新页候选变少）才回退第一候选；
++       翻页键（< 0 / > 7）原样保留——A 点 > 后焦点停在 > 上，可连续翻页，与摇杆翻页不移动焦点一致 */
++    uint32_t sel = lv_buttonmatrix_get_selected_button(pinyin_ime->cand_panel);
++    if(sel >= 1 && sel <= LV_IME_PINYIN_CAND_TEXT_NUM && sel > valid) {
++        lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, 1);
++    }
+ }
+ 
+ static void lv_ime_pinyin_style_change_event(lv_event_t * e)
+@@ -898,12 +953,9 @@
+ 
+     const lv_pinyin_dict_t * cpHZ;
+     uint8_t index, len = 0, offset;
+-    volatile uint8_t count = 0;
++    volatile uint16_t count = 0;
+ 
+     if(*py_str == '\0')    return NULL;
+-    if(*py_str == 'i')     return NULL;
+-    if(*py_str == 'u')     return NULL;
+-    if(*py_str == 'v')     return NULL;
+     if(*py_str == ' ')     return NULL;
+ 
+     offset = py_str[0] - 'a';
+@@ -958,6 +1010,10 @@
+     }
+     lv_memzero(pinyin_ime->input_char, sizeof(pinyin_ime->input_char));
+ 
++    /* 清除触摸选中残留（CHECKED）+ 选中重置回第一个候选（下次输入从第一候选开始） */
++    lv_buttonmatrix_clear_button_ctrl_all(pinyin_ime->cand_panel, LV_BUTTONMATRIX_CTRL_CHECKED);
++    lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, 1);
++
+     lv_obj_add_flag(pinyin_ime->cand_panel, LV_OBJ_FLAG_HIDDEN);
+ }
+ 

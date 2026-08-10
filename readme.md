@@ -301,13 +301,16 @@ idf.py build
 
 ### 补丁
 
-项目依赖 7 个对 managed_components 的补丁：
+项目依赖 3 个对 managed_components 的补丁：
 
 ```bash
-bash patches/apply.sh
+python patches/apply.py          # 应用全部补丁
+python patches/apply.py --check  # 干跑报告
 ```
 
 > ⚠ `idf.py reconfigure` 后需重新打补丁。
+> 补丁清单与组件版本基线见 `patches/README.md`。
+> esp_lvgl_adapter另有对于p4的ppa补丁，请根据组件描述检查是否需要。
 
 ### 烧录
 
@@ -439,7 +442,7 @@ curl http://<主机名>.local/api/otaInfo
 ├── elfapps/                  ← 游戏 ELF 插件工程（snake/chineseChess/fruitNinja/tetris/douDiZhu）
 ├── gamepad/                  ← 手柄固件 (git submodule, esp32c6 target)
 ├── The-Defect-Market/        ← 游戏市场服务器 + 社区游戏内容 (git submodule)
-├── patches/                  ← managed_components 补丁（7 个）
+├── patches/                  ← managed_components 补丁
 ├── reserces/                 ← FAT 分区资源文件
 │   ├── lua/                  ← Lua 脚本
 │   ├── server/               ← HTTP 静态资源
