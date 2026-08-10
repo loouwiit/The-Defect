@@ -52,7 +52,8 @@ public:
 private:
 	// ── 数据 ──
 	std::vector<MarketScript> m_list;
-	int8_t m_selectedIdx{ -1 };
+	// ⚠ int 而非 int8_t：服务器列表 >128 条时 selectNext 的 ++ 溢出为负 → 焦点失效
+	int m_selectedIdx{ -1 };
 	bool m_loading{ false };
 	bool m_hasFetched{ false };
 	std::string m_serverUrl;
@@ -70,10 +71,11 @@ private:
 		FOCUS_DETAIL = 2,  // 详情按钮（0=返回, 1=下载/更新, 2=卸载，已装时才有 2）
 	};
 	FocusGroup m_focusGroup{ FOCUS_LIST };
-	int8_t m_focusBottomIdx{ 0 }; // 0=刷新, 1=详情, 2=下载运行
+	// ⚠ int 而非 int8_t：与 m_selectedIdx 同源溢出问题（AI select / 触屏点击路径）
+	int m_focusBottomIdx{ 0 }; // 0=刷新, 1=详情, 2=下载运行
 	static constexpr int BOTTOM_BTN_COUNT = 3;
 	static constexpr int GRID_COLS = 3;   // 网格列数（配合 lv_pct(32) 卡片宽）
-	int8_t m_focusDetailIdx{ 0 }; // 0=返回, 1=下载/更新, 2=卸载
+	int m_focusDetailIdx{ 0 }; // 0=返回, 1=下载/更新, 2=卸载
 
 	// ── UI 对象 ──
 	lv_obj_t* m_container{};

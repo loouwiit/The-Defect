@@ -236,10 +236,13 @@ void MarketApp::fetchList()
 	std::string url = m_serverUrl;
 	MarketClient::fetchList(url,
 		[this](bool ok, std::vector<MarketScript> list, const std::string& err) {
-			if (!running) return;   // App 已被销毁，放弃回调
-			m_loading = false;
+			// ⚠ 回调在 daemon 任务执行，App 可能已被 pop + delete（UAF）。
+			//   先持 LVGL 锁再检查 running：deleteApp 任务持锁 delete，与回调持锁互斥
+			//   → 锁内 this 必然存活；若 App 已销毁则拿不到锁（g 空）直接返回。
 			auto g = display->lockGuard();
 			if (!g) return;
+			if (!running) return;   // 已 deinit
+			m_loading = false;
 
 			if (ok) {
 				m_list = std::move(list);
@@ -318,7 +321,7 @@ void MarketApp::rebuildList()
 			int idx = (int)(uintptr_t)lv_obj_get_user_data(target);
 			if (idx >= 0 && idx < (int)self->m_list.size()) {
 				self->m_focusGroup = FOCUS_LIST;
-				self->m_selectedIdx = (int8_t)idx;
+				self->m_selectedIdx = idx;
 				self->ensureVisibleThumbs();
 				self->applyFocus();
 			}
@@ -506,11 +509,13 @@ void MarketApp::processThumbQueue()
 
 	MarketClient::downloadFile(url, imgRel, path,
 		[this, idx, path](bool ok, const std::string& /*err*/) {
+			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			auto g = display->lockGuard();
+			if (!g) return;
+			if (!running) return;   // 已 deinit
 			m_thumbLoading = false;
-			if (!running) return;   // App 已销毁
 			if (ok) {
-				auto g = display->lockGuard();
-				if (g && idx < (int)m_cardImages.size() && m_cardImages[idx]) {
+				if (idx < (int)m_cardImages.size() && m_cardImages[idx]) {
 					// /root/mem/market_x.jpg → F:mem/market_x.jpg
 					std::string lvPath = "F:";
 					size_t p = path.find("/root/");
@@ -521,7 +526,7 @@ void MarketApp::processThumbQueue()
 					m_thumbLoaded[idx] = true;
 				}
 			}
-			processThumbQueue();   // 继续加载下一个
+			processThumbQueue();   // 继续加载下一个（锁内递归，递归锁安全）
 		});
 }
 
@@ -743,14 +748,15 @@ void MarketApp::loadScreenshot(const MarketScript& s)
 	std::string url = m_serverUrl;
 	MarketClient::downloadFile(url, s.screenshot, m_detailImagePath,
 		[this](bool ok, const std::string& /*err*/) {
-			if (!running) return;   // App 已被销毁
+			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			auto g = display->lockGuard();
+			if (!g) return;
+			if (!running) return;   // 已 deinit
 			if (!ok) {
-				auto g = display->lockGuard();
-				if (g && m_detailImagePh) lv_label_set_text(m_detailImagePh, "截图加载失败");
+				if (m_detailImagePh) lv_label_set_text(m_detailImagePh, "截图加载失败");
 				return;
 			}
-			auto g = display->lockGuard();
-			if (!g || !m_detailImage) return;
+			if (!m_detailImage) return;
 			// 用 LVGL VFS 'F' 路径加载图片（/root/mem/market_x.jpg → F:mem/market_x.jpg）
 			std::string lvPath = "F:";
 			size_t p = m_detailImagePath.find("/root/");
@@ -793,12 +799,15 @@ void MarketApp::download()
 	MarketClient::downloadScriptText(url, s.download,
 		[this, selIdx, wasDownloaded, id = s.id, author = s.author, download = s.download]
 		(bool ok, const std::string& content, const std::string& err) {
+			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			//   回调全程持锁：文件 IO 毫秒级，可接受；deleteApp 持锁 delete 与回调互斥。
+			auto g = display->lockGuard();
+			if (!g) return;
+			if (!running) return;   // 已 deinit
 			m_downloading = false;
-			if (!running) return;   // App 已被销毁
 
 			if (!ok) {
-				auto g = display->lockGuard();
-				if (g) setStatus(("下载失败: " + err).c_str(), GUI::Color::DANGER);
+				setStatus(("下载失败: " + err).c_str(), GUI::Color::DANGER);
 				return;
 			}
 
@@ -819,16 +828,14 @@ void MarketApp::download()
 
 			FILE* f = fopen(path.c_str(), "w");
 			if (!f) {
-				auto g = display->lockGuard();
-				if (g) setStatus(("无法写入: " + path).c_str(), GUI::Color::DANGER);
+				setStatus(("无法写入: " + path).c_str(), GUI::Color::DANGER);
 				return;
 			}
 			size_t w = fwrite(content.c_str(), 1, content.size(), f);
 			fclose(f);
 
 			if (w != content.size()) {
-				auto g = display->lockGuard();
-				if (g) setStatus("写入不完整", GUI::Color::DANGER);
+				setStatus("写入不完整", GUI::Color::DANGER);
 				return;
 			}
 
@@ -839,14 +846,9 @@ void MarketApp::download()
 			updateBadge(selIdx);
 
 			// 运行统一走「脚本管理」，市场不自动启动游戏
-			{
-				auto g = display->lockGuard();
-				if (g) {
-					setStatus(wasDownloaded ? "更新完成，可在「脚本管理」中运行" : "已下载，可在「脚本管理」中运行",
-						GUI::Color::SUCCESS);
-				}
-			}
-			updateActionLabels();   // 自带锁
+			setStatus(wasDownloaded ? "更新完成，可在「脚本管理」中运行" : "已下载，可在「脚本管理」中运行",
+				GUI::Color::SUCCESS);
+			updateActionLabels();   // 自带锁（递归锁）
 
 			// 上报一次下载（尽力而为，后台 Task 执行，不阻塞）
 			// 组合键 作者/id：服务端按组合键统计，防同名游戏串号
@@ -933,13 +935,18 @@ void MarketApp::downloadElf()
 	MarketClient::downloadFile(url, manifestRel, dir + "/manifest.json",
 		[this, selIdx, wasDownloaded, url, dir, mainName, soRel, iconRel, id = s.id, author = s.author]
 		(bool ok, const std::string& err) {
-			if (!running) return;
-			if (!ok) { downloadFail("manifest 下载失败: " + err); return; }
+			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			auto g = display->lockGuard();
+			if (!g) return;
+			if (!running) return;   // 已 deinit
+			if (!ok) { downloadFail("manifest 下载失败: " + err); return; }   // 递归锁
 
 			// 步骤 2/3：.so 插件本体
 			MarketClient::downloadFile(url, soRel, dir + "/" + mainName,
 				[this, selIdx, wasDownloaded, url, dir, iconRel, id, author]
 				(bool ok2, const std::string& err2) {
+					auto g2 = display->lockGuard();
+					if (!g2) return;
 					if (!running) return;
 					if (!ok2) { downloadFail("插件下载失败: " + err2); return; }
 
@@ -951,6 +958,8 @@ void MarketApp::downloadElf()
 					MarketClient::downloadFile(url, iconRel, dir + "/icon.jpg",
 						[this, selIdx, wasDownloaded, id, author]
 						(bool /*ok3*/, const std::string& /*err3*/) {
+							auto g3 = display->lockGuard();
+							if (!g3) return;
 							if (!running) return;
 							downloadElfDone(selIdx, wasDownloaded, id, author);
 						});
@@ -1331,14 +1340,14 @@ void MarketApp::onAiSelect(const AiSelectTarget& target)
 	if (target.group == "list") {
 		m_focusGroup = FOCUS_LIST;
 		if (target.index >= 0 && target.index < (int)m_list.size()) {
-			m_selectedIdx = (int8_t)target.index;
+			m_selectedIdx = target.index;
 		}
 		applyFocus();
 	}
 	else if (target.group == "actions") {
 		m_focusGroup = FOCUS_BOTTOM;
 		if (target.index >= 0 && target.index < BOTTOM_BTN_COUNT) {
-			m_focusBottomIdx = (int8_t)target.index;
+			m_focusBottomIdx = target.index;
 		}
 		applyFocus();
 	}
@@ -1347,7 +1356,7 @@ void MarketApp::onAiSelect(const AiSelectTarget& target)
 		m_focusGroup = FOCUS_DETAIL;
 		int maxDetailIdx = m_detailUninstallVisible ? 2 : 1;
 		if (target.index >= 0 && target.index <= maxDetailIdx) {
-			m_focusDetailIdx = (int8_t)target.index;
+			m_focusDetailIdx = target.index;
 		}
 		applyFocus();
 	}
