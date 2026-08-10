@@ -87,6 +87,11 @@ void VirtualGamepad::startForwarder()
 void VirtualGamepad::stopForwarder()
 {
 	m_forwarderRunning = false;
+	// ⚠ 必须等待旧线程真正退出（forwarderTask 收尾执行 m_forwardThread = {} 已清空句柄）
+	//   再返回：否则旧线程收尾会把新 startForwarder() 写入的句柄从成员换走并 vTaskDelete，
+	//   新转发线程被误杀（从机断线重连场景，m_forwardThread 永久为空）。
+	while (m_forwardThread.isRunning())
+		vTaskDelay(10);
 	ESP_LOGI(TAG, "forwarder stopped");
 }
 
