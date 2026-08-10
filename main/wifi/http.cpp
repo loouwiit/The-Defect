@@ -888,12 +888,15 @@ void HttpRequest::receive(ISocketStream& socketStream)
 		char trash[trashSize] = "";
 		size_t readNumber = 0;
 		bool skiping = true;
+		size_t skipLines = 0;
 
 		socketStream.ignoreVoid();
 		while (skiping)
 		{
 			readNumber = socketStream.getline(trash, sizeof(trash), '\n');
 			skiping = (readNumber == readMaxSize);
+			// ⚠ 防恶意客户端持续发送恰满缓冲的行（无换行）→ 无限循环占死 worker
+			if (++skipLines > 8) break;
 		}
 	}
 
@@ -990,7 +993,15 @@ size_t HttpRequest::decodePercentUrl(char* url)
 		if (url[read] == '%')
 		{
 			// %20
-			// s
+			// ⚠ 防末尾 '%'（% 后不足 2 字符）：url[read+1]/url[read+2] 越界读（栈内 UB）。
+			//   按字面原样保留，跳到下一字符。
+			if (url[read + 1] == '\0' || url[read + 2] == '\0')
+			{
+				url[write] = url[read];
+				read++;
+				write++;
+				continue;
+			}
 			url[write] = decodePercent(url[read + 1], url[read + 2]);
 			read += 3;
 			write++;

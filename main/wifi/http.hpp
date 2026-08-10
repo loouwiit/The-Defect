@@ -3,7 +3,9 @@
 #include "utility/nonCopyAble.hpp"
 #include "storage/fat.hpp"
 
-using HttpStringPairSize_t = uint8_t;
+// ⚠ uint16_t：uint8_t 在 255 个头时 stringPairsPointer + 2 截断回绕 → setNumber(1) 收缩数组
+//   → operator[] 越界读写（恶意客户端可稳定触发堆越界）。头部数量上限 65535 足够。
+using HttpStringPairSize_t = uint16_t;
 using HttpFileBodyType = IFile;
 
 constexpr const char HttpVersion[] = "HTTP/1.1";

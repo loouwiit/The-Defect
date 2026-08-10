@@ -40,6 +40,11 @@ constexpr size_t MemPutMaxSize = 10 * 1024 * 1024; //10M
 constexpr size_t SdPutMaxSize = 50 * 1024 * 1024; //50M
 constexpr size_t PutBufferSize = 512;
 
+// ⚠ POST API 合理 body 上限（防伪造超大 Content-Length → new 失败崩溃；OTA 流式上传单独放行）
+constexpr size_t kMaxPostBody = 64 * 1024;
+// ⚠ DELETE body 是路径，上限 512
+constexpr size_t kMaxDeletePath = 512;
+
 constexpr size_t SocketStreamWindowNumber = 16;
 constexpr size_t CoworkerNumber = 6;
 
@@ -196,7 +201,7 @@ void server(void*)
 		setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
 
 		// Convert ip address to string
-		char addr_str[128];
+		char addr_str[128] = "unknown";   // ⚠ 初始化默认值：IPv6 分支不写 → 避免打印未初始化栈内存
 		if (source_addr.ss_family == PF_INET)
 		{
 			inet_ntoa_r(((sockaddr_in*)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
@@ -762,6 +767,16 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	const char* uri = request.getPath();
 	const size_t uriLenght = strlen(uri);
 
+	// ⚠ 伪造超大 Content-Length（如 2GB）→ new 失败 → 无异常处理 → abort 崩溃。
+	//   统一上限 64KB（覆盖各 POST API 合理 body）；OTA 上传是流式写入（httpOta），
+	//   不分配 body 缓冲，且 body 可达 6MB → 精确匹配 /api/ota（8 字符）单独放行。
+	if (!stringCompare((char*)uri, uriLenght, "/api/ota", 8) &&
+		request.getBodyLenght() > kMaxPostBody)
+	{
+		sendBadRequest(socketStream);
+		return;
+	}
+
 	if (stringCompare((char*)uri, uriLenght, "/api/floor", 10))
 	{
 		size_t pathSize = sizeof(PerfixRoot) + request.getBodyLenght();
@@ -1099,7 +1114,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
 		if (request.getBodyLenght() > 0)
 		{
-			char* tmp = new char[request.getBodyLenght()];
+			// ⚠ readBodyFully 末尾写 buf[len]='\0'，必须分配 len+1（此前 1 字节堆越界写）
+			char* tmp = new char[request.getBodyLenght() + 1];
 			if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
 			{
 				delete[] tmp;
@@ -1169,7 +1185,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
 		if (request.getBodyLenght() > 0)
 		{
-			char* tmp = new char[request.getBodyLenght()];
+			// ⚠ readBodyFully 末尾写 buf[len]='\0'，必须分配 len+1（此前 1 字节堆越界写）
+			char* tmp = new char[request.getBodyLenght() + 1];
 			if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
 			{
 				delete[] tmp;
@@ -1461,7 +1478,8 @@ void httpOtaConfirm(IOSocketStream& socketStream, HttpRequest& request)
 	// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
 	if (request.getBodyLenght() > 0)
 	{
-		char* tmp = new char[request.getBodyLenght()];
+		// ⚠ readBodyFully 末尾写 buf[len]='\0'，必须分配 len+1（此前 1 字节堆越界写）
+		char* tmp = new char[request.getBodyLenght() + 1];
 		if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
 		{
 			delete[] tmp;
@@ -1563,6 +1581,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 
 			vTaskDelay(100 / portTICK_PERIOD_MS);
 			socketStream.close();
+			delete[] path;   // ⚠ 此前泄漏：超大文件 PUT 每次累积 path（其他分支均有释放）
 			return;
 		}
 
@@ -1626,6 +1645,12 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 
 void httpDelete(IOSocketStream& socketStream, HttpRequest& request)
 {
+	// ⚠ 伪造超大 Content-Length → new 失败崩溃。DELETE body 是路径，上限 512。
+	if (request.getBodyLenght() > kMaxDeletePath)
+	{
+		sendBadRequest(socketStream);
+		return;
+	}
 	char* path = new char[sizeof(PerfixRoot) + request.getBodyLenght()];
 	strcpy(path, PerfixRoot);
 	size_t pathLength = sizeof(PerfixRoot) - 1;
@@ -1734,6 +1759,10 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 			contentCount[1] = 0;
 			continue;
 		}
+		// ⚠ 并发 PUT/DELETE 使目录条目变多/名字变长时，预分配的 totolSize 可能不够 →
+		//   堆越界写。写入前检查剩余容量，超限即截断（宁缺勿滥，防崩溃）。
+		size_t need = strlen(buffer) + 2;   // '/' + '\n'
+		if (bodyOffset + need > totolSize) break;
 		for (size_t j = 0; buffer[j] != '\0'; j++)
 		{
 			body[bodyOffset] = buffer[j];
@@ -1756,6 +1785,8 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 			contentCount[1] = 0;
 			continue;
 		}
+		size_t need = strlen(buffer) + 1;   // '\n'
+		if (bodyOffset + need > totolSize) break;
 		for (size_t j = 0; buffer[j] != '\0'; j++)
 		{
 			body[bodyOffset] = buffer[j];
