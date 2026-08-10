@@ -12,6 +12,9 @@
 // 额外缓冲区，防止任务数在两次采样间变化导致数组不够
 static constexpr UBaseType_t ARRAY_SIZE_OFFSET = 5;
 
+// brief 模式任务列表输出节流间隔（轮次，每轮 1s）
+static constexpr UBaseType_t kTaskListBriefInterval = 10;
+
 // ── 字节数格式化（KB / MB） ──
 static void formatSize(char* out, size_t cap, uint32_t bytes)
 {
@@ -129,6 +132,29 @@ void SystemMonitor::logMemoryAndFps()
 		ramUsedS, ramTotalS, ramUsedPct, psramUsedS, psramTotalS, psramUsedPct, fps);
 }
 
+// ── 自建 Task 调度器协程列表 ──
+// 原 Task::dumpTask 是 main 中的调试残留（从未被调用）；现纳入 SystemMonitor 定期输出，
+// 与 uxTaskGetSystemState 的 FreeRTOS 任务表互补：dumpTask 列出的是自建轮询调度器
+// 里注册的协程（name/param/下次唤醒 tick）。
+void SystemMonitor::logTaskList(bool force)
+{
+	if (!m_showTasks) return;
+
+	if (!force)
+	{
+		// brief 模式节流：每 kTaskListBriefInterval 轮（秒）输出一次，避免刷屏
+		if (++m_taskListTicks < kTaskListBriefInterval)
+			return;
+		m_taskListTicks = 0;
+	}
+
+	auto dump = Task::dumpTask();
+	ESP_LOGI(TAG, "──── Task 调度器（协程） ────");
+	for (const char* const* line = dump; (*line)[0] != '\0'; line++)
+		ESP_LOGI(TAG, "  %s", *line);
+	Task::deleteDump(dump);
+}
+
 TickType_t SystemMonitor::pollTask(void* param)
 {
 	auto* self = static_cast<SystemMonitor*>(param);
@@ -169,6 +195,7 @@ TickType_t SystemMonitor::pollTask(void* param)
 		ESP_LOGI(TAG, "CPU:%3" PRIu32 "%%, C0:%3" PRIu32 "%%, C1:%3" PRIu32 "%%",
 			totalBusy, coreBusy[0], coreBusy[1]);
 		self->logMemoryAndFps();
+		self->logTaskList(false);   // brief 模式：节流输出（每 10s 一次）
 
 		return pdMS_TO_TICKS(1000);
 	}
@@ -255,6 +282,7 @@ TickType_t SystemMonitor::pollTask(void* param)
 	ESP_LOGI(TAG, "CPU:%3" PRIu32 "%%, C0:%3" PRIu32 "%%, C1:%3" PRIu32 "%%",
 		totalBusy, coreBusy[0], coreBusy[1]);
 	self->logMemoryAndFps();
+	self->logTaskList(true);   // 详细模式：每轮都输出
 
 	// ── 交换缓冲区（prev ← curr），仅 swap 指针，零分配 ──
 	std::swap(self->m_prevSnapshot, self->m_currSnapshot);

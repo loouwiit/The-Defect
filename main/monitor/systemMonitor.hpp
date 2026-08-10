@@ -40,6 +40,9 @@ public:
 	/** @brief 设置简略模式（只输出 CPU 一行 + 内存/FPS 一行，不输出各任务详情） */
 	void setBrief(bool brief) { m_brief = brief; }
 
+	/** @brief 是否周期性输出自建 Task 调度器协程列表（默认开启；brief 模式节流到每 10s 一次） */
+	void setShowTasks(bool show) { m_showTasks = show; }
+
 private:
 	SystemMonitor() = default;
 	~SystemMonitor() = default;
@@ -54,9 +57,14 @@ private:
 	/** @brief 输出内存（内部 RAM / PSRAM）+ FPS 摘要行（两种模式共用） */
 	void logMemoryAndFps();
 
+	/** @brief 输出自建 Task 调度器协程列表（Task::dumpTask）。force=true 立即输出，false 按 brief 节流 */
+	void logTaskList(bool force);
+
 	Display* m_display{ nullptr };
 	bool m_running{ false };
 	bool m_brief{ false };
+	bool m_showTasks{ true };       // 输出 Task 调度器协程列表
+	UBaseType_t m_taskListTicks{ 0 };  // 距上次输出任务列表的轮数（brief 节流用）
 
 	// ── CPU 双缓冲快照（持久分配，避免每轮 malloc/free） ──
 	TaskStatus_t* m_prevSnapshot{ nullptr };  // 上一轮快照
