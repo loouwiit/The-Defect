@@ -63,7 +63,7 @@ private:
 	Display* m_display;
 	std::vector<AppStack*> m_stacks;
 	AppStack* m_activeStack{};
-	Mutex m_mutex;
+	RecursiveMutex m_mutex;   // ⚠ 递归锁：持锁期间 push 的 App::init() 可再调 pushApp
 
 	static constexpr char TAG[] = "AppStackManager";
 };

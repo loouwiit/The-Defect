@@ -26,6 +26,7 @@ AppStackManager::~AppStackManager()
 
 AppStack* AppStackManager::createStack()
 {
+	Lock lock{ m_mutex };
 	auto* stack = new AppStack(m_display, this);
 	m_stacks.push_back(stack);
 
@@ -39,6 +40,7 @@ AppStack* AppStackManager::createStack()
 
 void AppStackManager::destroyStack(AppStack* stack)
 {
+	Lock lock{ m_mutex };
 	if (!stack) return;
 
 	// 不允许销毁 active 栈
@@ -62,6 +64,7 @@ void AppStackManager::destroyStack(AppStack* stack)
 
 bool AppStackManager::switchToStack(size_t index)
 {
+	Lock lock{ m_mutex };
 	if (index >= m_stacks.size())
 	{
 		ESP_LOGW(TAG, "switchToStack: index %zu out of range (total=%zu)", index, m_stacks.size());
@@ -72,6 +75,7 @@ bool AppStackManager::switchToStack(size_t index)
 
 bool AppStackManager::switchToStack(AppStack* stack)
 {
+	Lock lock{ m_mutex };
 	if (!stack)
 	{
 		ESP_LOGW(TAG, "switchToStack: null stack");
@@ -102,6 +106,7 @@ bool AppStackManager::switchToStack(AppStack* stack)
 
 void AppStackManager::push(App* app)
 {
+	Lock lock{ m_mutex };
 	if (!m_activeStack)
 	{
 		ESP_LOGE(TAG, "push: no active stack");
@@ -112,6 +117,7 @@ void AppStackManager::push(App* app)
 
 void AppStackManager::pop()
 {
+	Lock lock{ m_mutex };
 	if (!m_activeStack)
 	{
 		ESP_LOGE(TAG, "pop: no active stack");
@@ -146,6 +152,7 @@ void AppStackManager::pop()
 
 void AppStackManager::replace(App* app)
 {
+	Lock lock{ m_mutex };
 	if (!m_activeStack)
 	{
 		ESP_LOGE(TAG, "replace: no active stack");
@@ -160,6 +167,7 @@ void AppStackManager::replace(App* app)
 
 AppStack* AppStackManager::pushToNewStack(App* app)
 {
+	Lock lock{ m_mutex };
 	auto* oldStack = m_activeStack;
 
 	// 旧栈顶退到后台
