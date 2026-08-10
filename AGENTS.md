@@ -156,7 +156,7 @@ reserces/
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
-| **补丁** | Patches | `patches/` | 7 个 patch：帧回调 / PPA 队列 / SRM bypass / WS transport / LVGL IME iuv 过滤 / count uint16 / PNG 禁用 |
+| **补丁** | Patches | `patches/` | 10 个 patch：帧回调 / PPA 队列 / SRM bypass / WS transport / LVGL IME iuv 过滤 / count uint16 / PNG 禁用 / IME 候选选中重置 / IME 选中高亮修复 / IME 翻页焦点保持 |
 
 ---
 
@@ -855,6 +855,9 @@ class PinyinDict {
 
 - `0005`：移除 `pinyin_search_matching` 的 `i/u/v` 开头过滤（五笔 i 水 / u 立 / v 女折 键区）
 - `0006`：`count` 从 `uint8_t`→`uint16_t`（五笔每组上千条目，uint8_t 截断 255 导致后段编码匹配失败）
+- `0008`：候选选中状态管理——空槽设 `CTRL_HIDDEN`（占位保留、方向键/触摸导航自动跳过）；每次新拼音输入选中回第一个候选；翻页保留选中原位、仅落在空槽时回退第一候选；提交/清空后清除触摸 CHECKED 残留 + 选中重置；无匹配/空词条（如拼音 i）不显示空候选面板
+- `0009`：候选选中高亮修复——① `lv_ime_pinyin_cand_panel_event` 改用事件参数路由按键（overlay 程序化翻页不再把选中移到 `<`/`>` 键上）；② `pinyin_page_proc` 无效翻页恢复原选中、有效翻页后选中不回落到翻页键/空槽（`sel<1 || sel>valid` 回退第一候选）；③ `pinyin_input_proc`/`pinyin_ime_clear_data` 清除键盘式 ENTER 残留的 `LV_STATE_PRESSED`（keypad 释放轮 `key=0` 导致 `LV_EVENT_RELEASED` 永不发出 → 对象 PRESSED 卡死 → 蓝色随机出现/消失）；配套 `aiAgentOverlay` 候选面板新增 `LV_PART_ITEMS|LV_STATE_FOCUSED` 蓝色样式（组焦点在候选面板时选中候选常显蓝色，替代依赖瞬时 PRESSED 的不稳定高亮）
+- `0010`：翻页后焦点保持——修正 0009 的「选中不在当前页有效候选一律回退第一候选」：翻页键（`<`/`>`，id 0/7）原样保留，A 点 `>` 后焦点停在 `>` 上可连续翻页（与摇杆翻页不移动焦点一致）；仅当选中在候选槽且超出当前页有效数（新页候选变少）才回退第一候选；无效翻页同样恢复翻页前选中（含翻页键）
 - 详见 [Patches](#patches) 章节
 
 ---
@@ -2055,6 +2058,17 @@ class SystemMonitor {
 
 封壳设备无串口，日志与崩溃现场通过 Wi-Fi 远程获取。入口：浏览器 `http://<主机名>.local/server/diag/`。
 
+### printf 约定（封壳设备远程调试）
+
+主固件**所有实际编译的 printf 日志均已改造为 ESP_LOGx**（`serverKernal.cpp` TAG=server、
+`fat.cpp` TAG=fat、`mem.cpp` TAG=mem、`socketStream.cpp` TAG=socketStream）——
+printf 直出 UART 无法被 `esp_log_set_vprintf` 重定向捕获，封壳后不可见。
+
+- **新增日志一律用 ESP_LOGx（带 TAG）**，禁止 `printf` 输出日志
+- 残留的 `printf` 仅存在于**不编译的调试代码**内（`#if false` / `#if MemDebug && MemProcessDebug` 等），
+  打开调试宏前需同步改为 ESP_LOG（如 `main/storage/mem.cpp` 的 VFS 回调调试打印）
+- 级别参考：错误 `ESP_LOGE` / 警告 `ESP_LOGW` / 生命周期 `ESP_LOGI` / 高频请求级 `ESP_LOGD`
+
 ### LogService — 日志重定向服务
 
 ```cpp
@@ -2298,6 +2312,9 @@ CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1  # PPA 要求 SW draw unit 为 1
 | `0005-lvgl__lvgl-ime-pinyin-allow-iu-v-start.patch` | `lvgl` (`lv_ime_pinyin.c`) | 移除 IME 匹配的 i/u/v 开头过滤（五笔 i 水/u 立/v 女折 键区） |
 | `0006-lvgl__lvgl-ime-pinyin-fix-count-uint16.patch` | `lvgl` (`lv_ime_pinyin.c`) | `count` 类型 `uint8_t`→`uint16_t`，修复五笔大组（>255 条目）匹配截断 |
 | `0007-espressif__esp_lv_decoder-disable-png.patch` | `esp_lv_decoder` (2 文件) | PNG 支持 `#if ESP_LV_ENABLE_PNG` 化（config.h 默认 1），主固件注入 `-DESP_LV_ENABLE_PNG=0` 关闭 → libpng + zlib 零引用裁掉（~100KB）；SPNG 同步禁用。本项目仅 JPG（硬件 JPEG），恢复 PNG 只需去掉 `main/CMakeLists.txt` 的注入 |
+| `0008-lvgl__lvgl-ime-pinyin-reset-selection-hide-empty-slots.patch` | `lvgl` (`lv_ime_pinyin.c`) | 候选选中状态管理：空槽设 `CTRL_HIDDEN`（占位保留、方向键/触摸跳过）、新拼音输入/提交后选中回第一候选、翻页保留原位仅空槽回退、清除触摸 CHECKED 残留；无匹配/空词条不显示空面板。配套 `aiAgentOverlay::kbExtraBtnCb` 空格分支顺延找非空候选兜底 |
+| `0009-lvgl__lvgl-ime-pinyin-selection-highlight-fix.patch` | `lvgl` (`lv_ime_pinyin.c`) | 候选选中高亮修复：事件参数路由翻页（不移动选中到 `<`/`>`）、无效翻页恢复选中、有效翻页选中不回落到翻页键/空槽、清除键盘式 ENTER 残留 `LV_STATE_PRESSED`（keypad 释放事件丢失）。配套 overlay 候选面板加 `LV_STATE_FOCUSED` 蓝色样式实现持久选中高亮 |
+| `0010-lvgl__lvgl-ime-pinyin-keep-focus-after-page-turn.patch` | `lvgl` (`lv_ime_pinyin.c`) | 翻页后焦点保持：翻页键 `<`/`>`（id 0/7）原样保留（A 点 `>` 后可连续翻页），仅选中在候选槽且超出当前页有效数（新页候选变少）才回退第一候选；无效翻页恢复翻页前选中（含翻页键） |
 
 **使用**:
 ```bash

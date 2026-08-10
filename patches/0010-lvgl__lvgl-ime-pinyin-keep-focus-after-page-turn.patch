@@ -1,0 +1,43 @@
+--- a/src/widgets/ime/lv_ime_pinyin.c	2026-08-10 00:00:00.000000000 +0800
++++ b/src/widgets/ime/lv_ime_pinyin.c	2026-08-10 00:00:00.000000000 +0800
+@@ -841,13 +841,11 @@
+     if(dir == 0) {
+         if(pinyin_ime->py_page) {
+             pinyin_ime->py_page--;
+         }
+         else {
+-            /* 无效上翻（已是第一页）：恢复原选中，避免选中卡在翻页键上 */
+-            if(prev_sel >= 1 && prev_sel <= LV_IME_PINYIN_CAND_TEXT_NUM)
+-                lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, prev_sel);
+-            else
+-                lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, 1);
++            /* 无效上翻（已是第一页）：恢复原选中（候选槽或 < 键原样保留，可继续 A 翻页）*/
++            lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel,
++                                                prev_sel == LV_BUTTONMATRIX_BUTTON_NONE ? 1 : prev_sel);
+             return;
+         }
+     }
+@@ -854,16 +854,14 @@
+         if(pinyin_ime->py_page < page_num) {
+             pinyin_ime->py_page++;
+         }
+         else {
+             /* 无效下翻（已是最后一页）：恢复原选中 */
+-            if(prev_sel >= 1 && prev_sel <= LV_IME_PINYIN_CAND_TEXT_NUM)
+-                lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, prev_sel);
+-            else
+-                lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, 1);
++            lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel,
++                                                prev_sel == LV_BUTTONMATRIX_BUTTON_NONE ? 1 : prev_sel);
+             return;
+         }
+     }
+@@ -897,5 +897,6 @@
+-    /* 保留选中原位：仅当选中不在当前页有效候选（空槽/翻页键）时回退到第一个候选 */
++    /* 焦点保持：选中在候选槽且超出当前页有效数（新页候选变少）才回退第一候选；
++       翻页键（< 0 / > 7）原样保留——A 点 > 后焦点停在 > 上，可连续翻页，与摇杆翻页不移动焦点一致 */
+     uint32_t sel = lv_buttonmatrix_get_selected_button(pinyin_ime->cand_panel);
+-    if(sel < 1 || sel > valid) {
++    if(sel >= 1 && sel <= LV_IME_PINYIN_CAND_TEXT_NUM && sel > valid) {
+         lv_buttonmatrix_set_selected_button(pinyin_ime->cand_panel, 1);
+     }

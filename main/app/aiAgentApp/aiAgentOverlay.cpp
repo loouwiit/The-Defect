@@ -531,7 +531,9 @@ void AiAgentOverlay::buildUi()
 		auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
 		if (!self->m_keyboard) return;
 		// 跳过翻页按钮（idx=0:'<', idx=CAND_NUM+1:'>'）
-		uint32_t btnId = lv_buttonmatrix_get_selected_button(self->m_candPanel);
+		// 优先用事件参数（程序化翻页不再移动选中，btn_id_sel 仍是候选）；无参数时回退按钮 id
+		uint32_t* idPtr = static_cast<uint32_t*>(lv_event_get_param(e));
+		uint32_t btnId = idPtr ? *idPtr : lv_buttonmatrix_get_selected_button(self->m_candPanel);
 		if (btnId == 0 || btnId == (LV_IME_PINYIN_CAND_TEXT_NUM + 1)) return;
 		Task::addTask([](void* p) -> TickType_t {
 			auto* s = static_cast<AiAgentOverlay*>(p);
@@ -547,6 +549,9 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x2d, 0x2d, 0x3d), 0);
 	lv_obj_set_style_bg_opa(m_candPanel, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_PRESSED);
 	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_PRESSED);
+	// 选中候选的持久高亮：组焦点在候选面板时，当前选中按钮常显蓝色（不再依赖瞬时 PRESSED）
+	lv_obj_set_style_bg_opa(m_candPanel, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
+	lv_obj_set_style_bg_color(m_candPanel, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
 	lv_obj_set_style_text_color(m_candPanel, GUI::Color::TEXT, LV_PART_ITEMS);
 	lv_obj_set_style_text_color(m_candPanel, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_PRESSED);
 	lv_obj_set_style_radius(m_candPanel, 6, LV_PART_ITEMS);
@@ -1224,7 +1229,6 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 						auto pair = static_cast<std::pair<AiAgentOverlay*, lv_obj_t*>*>(p);
 						if (auto g = pair->first->m_display->lockGuard()) {
 							uint32_t b = 0;
-							lv_buttonmatrix_set_selected_button(pair->second, b);
 							lv_obj_send_event(pair->second, LV_EVENT_VALUE_CHANGED, &b);
 							// pinyin_page_proc 更新了 cand_str 但没重绘，强制刷新
 							lv_obj_invalidate(pair->second);
@@ -1240,7 +1244,6 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 						auto pair = static_cast<std::pair<AiAgentOverlay*, lv_obj_t*>*>(p);
 						if (auto g = pair->first->m_display->lockGuard()) {
 							uint32_t b = LV_IME_PINYIN_CAND_TEXT_NUM + 1;
-							lv_buttonmatrix_set_selected_button(pair->second, b);
 							lv_obj_send_event(pair->second, LV_EVENT_VALUE_CHANGED, &b);
 							lv_obj_invalidate(pair->second);
 						}
@@ -1431,7 +1434,14 @@ void AiAgentOverlay::kbExtraBtnCb(lv_event_t* e)
 				candBtn = 1;
 			if (candBtn >= 1 && candBtn <= LV_IME_PINYIN_CAND_TEXT_NUM) {
 				const char* candTxt = lv_buttonmatrix_get_button_text(self->m_candPanel, candBtn);
-				if (candTxt && candTxt[0] != '\0' && candTxt[0] != ' ') {
+				// 防御性兜底：选中落在空槽（patch 0008 后空槽已 HIDDEN，正常不触发）→ 顺延找第一个非空候选
+				while (candTxt && (candTxt[0] == '\0' || candTxt[0] == ' ') &&
+				       candBtn < LV_IME_PINYIN_CAND_TEXT_NUM) {
+					candBtn++;
+					candTxt = lv_buttonmatrix_get_button_text(self->m_candPanel, candBtn);
+				}
+				if (candTxt && candTxt[0] != '\0' && candTxt[0] != ' ' &&
+				    candBtn >= 1 && candBtn <= LV_IME_PINYIN_CAND_TEXT_NUM) {
 					// 撤销 keyboard 默认已加入的空格（仅当末尾确为空格）
 					lv_obj_t* ta = lv_keyboard_get_textarea(self->m_keyboard);
 					if (ta) {
