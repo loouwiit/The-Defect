@@ -925,150 +925,173 @@ void AiAgentOverlay::onSend()
 
 void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg)
 {
-	auto guard = m_display->lockGuard();
-
 	ESP_LOGI(TAG, "onAiResponse: success=%d, textLen=%zu, err=%s",
 		success, responseText.size(), errorMsg.c_str());
 
 	// 注意：不在函数开头清 loading —— 链式 follow-up 期间保持等待态，
 	// 防止轮次间隙用户插入新消息导致上下文错乱；仅在本轮链结束时清 loading。
 
-	// 重新连接键盘
-	lv_keyboard_set_textarea(m_keyboard, m_inputField);
+	// ⚠ 锁策略：解析/UI 更新在锁内执行；AiExecutor::execute 必须在锁外执行（防 ABBA
+	//   死锁，见步骤 2 注释）。App 的 onAiSelect/onAiActivate/executeAiAction 内部均
+	//   自行 lockGuard（递归锁），锁外调用安全。
 
-	if (!success) {
-		m_followUpCount = 0;   // 失败时重置多轮预算
-		setLoading(false);
-		reportAiError("请求失败: " + errorMsg);
-		addChatEntry("!", "请求失败: " + errorMsg);
-		return;
-	}
+	// ── 锁内 ①：解析 + 错误处理 + UI 更新 ──
+	AiResponse response;
+	std::string replyText;
+	std::string observations;
+	{
+		auto guard = m_display->lockGuard();
 
-	// 解析
-	AiResponse response = AiParser::parse(responseText);
+		// 重新连接键盘
+		lv_keyboard_set_textarea(m_keyboard, m_inputField);
 
-	if (!response.success && response.actions.empty()) {
-		// 解析失败：记录错误 → 自动触发修正轮（自愈），让 AI 重发合法 JSON
-		std::string errMsg = response.errorMsg;
-		std::string raw = response.rawContent;
-		if (raw.size() > 500) raw = raw.substr(0, 500) + "...";
-
-		if (m_followUpCount < MAX_FOLLOW_UP) {
-			m_followUpCount++;
-			ESP_LOGI(TAG, "解析失败，自动修正轮 %d: %s", m_followUpCount, errMsg.c_str());
-
-			std::string healMsg = "你上一条回复无法解析为合法 JSON。错误: " + errMsg;
-			if (!raw.empty()) {
-				healMsg += "\n原始内容: " + raw;
-			}
-			healMsg += "\n请只返回合法 JSON（{\"actions\":[...]}），不要包含多余文字或解释。";
-
-			reportAiError("上次回复无法解析: " + errMsg);
-			addChatEntry("!", "解析失败: " + errMsg + "，正在让 AI 重新生成...");
-			sendFollowUpRound(healMsg);
+		if (!success) {
+			m_followUpCount = 0;   // 失败时重置多轮预算
+			setLoading(false);
+			reportAiError("请求失败: " + errorMsg);
+			addChatEntry("!", "请求失败: " + errorMsg);
 			return;
 		}
 
-		m_followUpCount = 0;
-		setLoading(false);
-		addChatEntry("!", "解析失败: " + errMsg);
-		if (!raw.empty()) addChatEntry("RAW", raw);
-		return;
-	}
+		// 解析
+		response = AiParser::parse(responseText);
 
-	// 解析成功 → 清除待注入的解析错误（AI 已修正；动作执行失败会重新设置）
-	{
-		Lock lock(m_pendingMutex);
-		m_pendingAiError.clear();
-	}
+		if (!response.success && response.actions.empty()) {
+			// 解析失败：记录错误 → 自动触发修正轮（自愈），让 AI 重发合法 JSON
+			std::string errMsg = response.errorMsg;
+			std::string raw = response.rawContent;
+			if (raw.size() > 500) raw = raw.substr(0, 500) + "...";
 
-	// ── 1. 提取 respond_text ──
-	std::string replyText;
-	for (const auto& action : response.actions) {
-		if (action.type == AiActionType::RespondText && !action.text.empty()) {
-			if (!replyText.empty()) replyText += "\n";
-			replyText += action.text;
+			if (m_followUpCount < MAX_FOLLOW_UP) {
+				m_followUpCount++;
+				ESP_LOGI(TAG, "解析失败，自动修正轮 %d: %s", m_followUpCount, errMsg.c_str());
+
+				std::string healMsg = "你上一条回复无法解析为合法 JSON。错误: " + errMsg;
+				if (!raw.empty()) {
+					healMsg += "\n原始内容: " + raw;
+				}
+				healMsg += "\n请只返回合法 JSON（{\"actions\":[...]}），不要包含多余文字或解释。";
+
+				reportAiError("上次回复无法解析: " + errMsg);
+				addChatEntry("!", "解析失败: " + errMsg + "，正在让 AI 重新生成...");
+				sendFollowUpRound(healMsg);
+				return;
+			}
+
+			m_followUpCount = 0;
+			setLoading(false);
+			addChatEntry("!", "解析失败: " + errMsg);
+			if (!raw.empty()) addChatEntry("RAW", raw);
+			return;
 		}
-		else if (action.type == AiActionType::ParseError) {
-			if (!replyText.empty()) replyText += "\n";
-			replyText += "[!] " + action.text;
+
+		// 解析成功 → 清除待注入的解析错误（AI 已修正；动作执行失败会重新设置）
+		{
+			Lock lock(m_pendingMutex);
+			m_pendingAiError.clear();
 		}
-	}
-	if (!replyText.empty()) {
-		addChatEntry("AI", replyText);
-	}
 
-	// ── 2. 执行系统动作 ──
-	auto* mgr = m_display->getStackManager();
-	auto execResult = AiExecutor::execute(response.actions, m_display, mgr);
-	if (replyText.empty() && execResult.totalCount > 0) {
-		addChatEntry("AI", execResult.summary);
-	}
-
-	// 动作执行失败 → 注入错误反馈（AI 下轮可据此修正）
-	if (!execResult.failureDetail.empty()) {
-		reportAiError(execResult.failureDetail);
-	}
-
-	// ── 3. 提交本轮对话到 m_history（每轮都提交，含 follow-up 轮） ──
-	// 修复：原实现只在链结束时记录历史，导致：
-	//   1) 多轮(nextRound)交互的中间轮次不落历史 → 下次用户消息上下文丢失
-	//   2) 链中途若插入新消息，将带着空历史发送
-	// 现在每轮立即提交，m_history 成为完整对话的唯一数据源。
-	if (!m_lastUserInput.empty()) {
-		std::string assistantReply = !response.parsedContent.empty()
-			? response.parsedContent
-			: (!replyText.empty() ? replyText : execResult.summary);
-		m_history.push_back({ "user", m_lastUserInput });
-		if (!assistantReply.empty())
-			m_history.push_back({ "assistant", assistantReply });
-		// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮（含 follow-up 合成轮）
-		while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
-			m_history.erase(m_history.begin());
-			m_history.erase(m_history.begin());
-		}
-		ESP_LOGI(TAG, "对话历史: %zu 轮", m_history.size() / 2);
-		m_lastUserInput.clear();
-	}
-
-	// ── 4. Agent 循环（由 AI 的 nextRound 字段控制是否继续） ──
-	if (response.nextRound && m_followUpCount < MAX_FOLLOW_UP) {
-		std::string observations;
+		// ── 1. 提取 respond_text ──
 		for (const auto& action : response.actions) {
-			if (action.type == AiActionType::SystemInfo) {
-				observations += collectSystemInfo();
+			if (action.type == AiActionType::RespondText && !action.text.empty()) {
+				if (!replyText.empty()) replyText += "\n";
+				replyText += action.text;
+			}
+			else if (action.type == AiActionType::ParseError) {
+				if (!replyText.empty()) replyText += "\n";
+				replyText += "[!] " + action.text;
 			}
 		}
-
-		m_followUpCount++;
-		ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
-		// 保持 loading（仍在处理中，防止用户插入新消息）
-
-		// 构建 follow-up 消息（作为下一轮的 user 消息，同时写入历史）
-		std::string followUpMsg;
-		if (!observations.empty()) {
-			followUpMsg += "[工具返回数据]\n" + observations + "\n\n请根据以上数据继续或向用户进行总结。";
-			addChatEntry(">>", "(采集到数据，AI 正在分析...)");
-		}
-		else {
-			followUpMsg += "已执行上一轮的指令，请继续完成用户的需求。如果已完成目标，请回复用户。";
-			addChatEntry(">>", "(继续执行...)");
+		if (!replyText.empty()) {
+			addChatEntry("AI", replyText);
 		}
 
-		sendFollowUpRound(followUpMsg);
-		return;
+		// 预收集 nextRound 的 SystemInfo 观察数据（锁内收集，execute 前后语义等价）
+		if (response.nextRound && m_followUpCount < MAX_FOLLOW_UP) {
+			for (const auto& action : response.actions) {
+				if (action.type == AiActionType::SystemInfo) {
+					observations += collectSystemInfo();
+				}
+			}
+		}
 	}
 
-	// ── 链结束：清 loading，恢复用户可输入 ──
-	m_followUpCount = 0;
-	setLoading(false);
-
-	// ── 5. 更新长期记忆 ──
-	if (!response.memory.empty()) {
-		m_memoryText = response.memory;
-		ESP_LOGI(TAG, "记忆已更新: %s", response.memory.c_str());
+	// ── 2. 执行系统动作（必须在 LVGL 锁外）──
+	// ⚠ 防 ABBA 死锁：execute 内部做 AppStackManager 栈操作（m_mutex → applyApp → LVGL 锁，
+	//   与 dispatchTask/BLE 输入路径 pushApp 的锁序相同）。若在持 LVGL 锁时调用 execute，
+	//   与"持 m_mutex 等 LVGL 锁"的任务互相等待 → 经典死锁（AI 助手 + 手柄同时操作触发）。
+	AiExecutor::Result execResult;
+	{
+		auto* mgr = m_display->getStackManager();
+		execResult = AiExecutor::execute(response.actions, m_display, mgr);
 	}
-	// 对话历史已在步骤 3 每轮提交，这里不再重复
+
+	// ── 锁内 ②：执行结果 UI + 历史 + Agent 循环 + 记忆 ──
+	{
+		auto guard = m_display->lockGuard();
+
+		if (replyText.empty() && execResult.totalCount > 0) {
+			addChatEntry("AI", execResult.summary);
+		}
+
+		// 动作执行失败 → 注入错误反馈（AI 下轮可据此修正）
+		if (!execResult.failureDetail.empty()) {
+			reportAiError(execResult.failureDetail);
+		}
+
+		// ── 3. 提交本轮对话到 m_history（每轮都提交，含 follow-up 轮） ──
+		// 修复：原实现只在链结束时记录历史，导致：
+		//   1) 多轮(nextRound)交互的中间轮次不落历史 → 下次用户消息上下文丢失
+		//   2) 链中途若插入新消息，将带着空历史发送
+		// 现在每轮立即提交，m_history 成为完整对话的唯一数据源。
+		if (!m_lastUserInput.empty()) {
+			std::string assistantReply = !response.parsedContent.empty()
+				? response.parsedContent
+				: (!replyText.empty() ? replyText : execResult.summary);
+			m_history.push_back({ "user", m_lastUserInput });
+			if (!assistantReply.empty())
+				m_history.push_back({ "assistant", assistantReply });
+			// 滚动裁剪：保留最近 MAX_HISTORY_TURNS 轮（含 follow-up 合成轮）
+			while (m_history.size() / 2 > MAX_HISTORY_TURNS) {
+				m_history.erase(m_history.begin());
+				m_history.erase(m_history.begin());
+			}
+			ESP_LOGI(TAG, "对话历史: %zu 轮", m_history.size() / 2);
+			m_lastUserInput.clear();
+		}
+
+		// ── 4. Agent 循环（由 AI 的 nextRound 字段控制是否继续） ──
+		if (response.nextRound && m_followUpCount < MAX_FOLLOW_UP) {
+			m_followUpCount++;
+			ESP_LOGI(TAG, "Agent 第 %d 轮", m_followUpCount);
+			// 保持 loading（仍在处理中，防止用户插入新消息）
+
+			// 构建 follow-up 消息（作为下一轮的 user 消息，同时写入历史）
+			std::string followUpMsg;
+			if (!observations.empty()) {
+				followUpMsg += "[工具返回数据]\n" + observations + "\n\n请根据以上数据继续或向用户进行总结。";
+				addChatEntry(">>", "(采集到数据，AI 正在分析...)");
+			}
+			else {
+				followUpMsg += "已执行上一轮的指令，请继续完成用户的需求。如果已完成目标，请回复用户。";
+				addChatEntry(">>", "(继续执行...)");
+			}
+
+			sendFollowUpRound(followUpMsg);
+			return;
+		}
+
+		// ── 链结束：清 loading，恢复用户可输入 ──
+		m_followUpCount = 0;
+		setLoading(false);
+
+		// ── 5. 更新长期记忆 ──
+		if (!response.memory.empty()) {
+			m_memoryText = response.memory;
+			ESP_LOGI(TAG, "记忆已更新: %s", response.memory.c_str());
+		}
+		// 对话历史已在步骤 3 每轮提交，这里不再重复
+	}
 }
 
 // ============================================================
