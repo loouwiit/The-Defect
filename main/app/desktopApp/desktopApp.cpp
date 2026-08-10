@@ -15,7 +15,6 @@
 #include "audio/Audio.hpp"
 #include "task/task.hpp"
 #include "esp_log.h"
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "display/font.hpp"
@@ -30,7 +29,7 @@ void DesktopApp::buildBuiltinCards()
 {
 	// 内置游戏已全部迁移 ELF（tetris/douDiZhu 由桌面动态扫描插入）
 
-	// 系统卡片 → 索引 0..2
+	// 系统卡片 → 索引 0..1（testApp 仅保留 AI 入口，不显示桌面卡片）
 	static const struct {
 		const char* name;
 		const char* desc;
@@ -38,7 +37,6 @@ void DesktopApp::buildBuiltinCards()
 	} kSystem[] = {
 		{ "Lua 脚本管理", "浏览/运行/管理 Lua 游戏脚本，支持 AI 生成新游戏", "F:system/desktop/lua.jpg" },
 		{ "游戏市场", "浏览并下载社区 Lua 脚本与 ELF 原生游戏，扩展游戏库！", "F:system/desktop/gameMarket.jpg" },
-		{ "测试", "测试", "F:system/desktop/test.jpg" },
 	};
 	for (int i = 0; i < SYSTEM_COUNT; i++)
 	{
@@ -761,10 +759,8 @@ void DesktopApp::startGame()
 			// 游戏市场
 			m_manager->pushToNewStack(new MarketApp(display));
 			break;
-		case 2:
 		default:
-			// 测试
-			m_manager->pushToNewStack(new TestApp(display, esp_random()));
+			ESP_LOGW(TAG, "未知系统卡片索引: %d", c.index);
 			break;
 		}
 		break;

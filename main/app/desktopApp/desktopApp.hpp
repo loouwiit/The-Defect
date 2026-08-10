@@ -45,7 +45,7 @@ private:
 	std::vector<GameCard> m_cards;      // 卡片数据表
 	std::vector<lv_obj_t*> m_cardObjs;  // 对应卡片对象（与 m_cards 同序）
 
-	static constexpr int SYSTEM_COUNT = 3;    // luaManager/market/testApp
+	static constexpr int SYSTEM_COUNT = 2;    // luaManager/market（testApp 仅保留 AI 入口，不出现在桌面卡片）
 	static constexpr int MAX_ELF_CARDS = 8;
 
 	// ── ELF 卡片（读 manifest.json，零 dlopen） ──
