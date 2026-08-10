@@ -352,6 +352,13 @@ void recieve(IOSocketStream& socketStream)
 void sendOk(OSocketStream& socketStream)
 {
 	HttpRespond respond;
+
+	respond.cookies.clear();
+
+	respond.heads.clear();
+	// ⚠ 必须设置 Content-Type：缺失时浏览器按 text/xml 解析（Firefox 报 XML 解析错误）
+	respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+
 	respond.setBody((void*)HttpReason::Ok);
 	respond.setBodyLenght(sizeof(HttpReason::Ok) - 1);
 	respond.setStatus(HttpStatus::Ok);
@@ -576,6 +583,10 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		count = sprintf(buffer, "%llu,%llu", free, totol);
 
 		HttpRespond respond;
+		// ⚠ 必须设置 Content-Type：缺失时浏览器按 text/xml 解析（Firefox 报 XML 解析错误）
+		respond.cookies.clear();
+		respond.heads.clear();
+		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 		respond.setBody(buffer);
 		respond.setBodyLenght(count);
 
@@ -1200,7 +1211,26 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 		newFloor(path);
 		// tree(PerfixRoot); //[debug]
 		delete[] path;
-		sendOk(socketStream);
+
+		// ⚠ 建目录无需 body，但必须消费完：readByte 非阻塞单次读不满，残留 body 会被
+		//   同一连接的下一个请求误当请求行（曾出现 POST "name": 诡异请求——客户端把
+		//   manifest 内容 PUT 到目录 URL 时 body 196B 全部残留）。空 body（file 页面
+		//   newFloor 的 send("")）不受影响。
+		size_t left = request.getBodyLenght();
+		char discard[PutBufferSize];
+		bool drained = true;
+		while (left > 0)
+		{
+			size_t got = socketStream.readByte(discard, left < PutBufferSize ? left : PutBufferSize);
+			if (got == 0)
+			{
+				if (!socketStream.isGood()) { drained = false; break; }
+				vTaskDelay(1);
+				continue;
+			}
+			left -= got;
+		}
+		if (drained) sendOk(socketStream);
 	}
 	else
 	{

@@ -14,6 +14,8 @@
 		<button id="fileUploadButton" multiple>上传至此处</button>
 		<button id="refresh" multiple>刷新</button>
 	</div>
+	<progress id="uploadProgress" value="0" max="100" style="display:none;width:240px;max-width:70%"></progress>
+	<p id="uploadStatus" style="margin:4px 0 0 0"></p>
 	<br />
 	<div>
 		<input type="text" id="newFloorNameInput" />
@@ -31,6 +33,9 @@
 	let newFloorElement = document.getElementById("newFloorNameInput");
 	let fileExplorerElement = document.getElementById("explorer");
 	let spaceElement = document.getElementById("space");
+	let uploadButton = document.getElementById("fileUploadButton");
+	let uploadProgressElement = document.getElementById("uploadProgress");
+	let uploadStatusElement = document.getElementById("uploadStatus");
 
 	let place = "/";
 	const splitChar = '\n';
@@ -121,22 +126,55 @@
 		getSpace();
 	}
 
-	function upload(place, value) {
+	function fmtMB(bytes) {
+		if (bytes < 1048576) return (bytes / 1024).toFixed(0) + " KB";
+		return (bytes / 1048576).toFixed(1) + " MB";
+	}
+
+	function upload(path, file) {
 		var request = new XMLHttpRequest();
-		request.open("PUT", place.replace(/%/g, "%25"));
-		request.onload = load;
-		request.send(value);
+		request.open("PUT", path.replace(/%/g, "%25"));
+		uploadButton.disabled = true;
+		uploadProgressElement.style.display = "block";
+		uploadProgressElement.value = 0;
+		uploadStatusElement.textContent = "正在上传 " + file.name + "...";
+
+		// 浏览器原生上传进度事件（已发出字节/总字节）；后端 httpPut 流式写入天然配合
+		request.upload.onprogress = function (e) {
+			if (e.lengthComputable) {
+				uploadProgressElement.value = (e.loaded / e.total) * 100;
+				uploadStatusElement.textContent = "正在上传 " + fmtMB(e.loaded) + " / " + fmtMB(e.total);
+			}
+		};
+
+		request.onload = function () {
+			uploadButton.disabled = false;
+			if (request.status === 200) {
+				uploadProgressElement.value = 100;
+				uploadStatusElement.textContent = "✅ 上传完成：" + file.name;
+				load();
+			} else {
+				uploadProgressElement.style.display = "none";
+				uploadStatusElement.textContent = "❌ 上传失败：" + (request.responseText || "未知错误");
+			}
+		};
+
+		request.onerror = function () {
+			uploadButton.disabled = false;
+			uploadProgressElement.style.display = "none";
+			uploadStatusElement.textContent = "❌ 上传失败：网络错误";
+		};
+
+		// 直接发送 File 对象：浏览器自动设 Content-Length 并流式读取文件（不再整读进内存）
+		request.send(file);
 	}
 
 	function uploadPressed() {
 		let file = fileUploadElement.files[0];
-		let reader = new FileReader();
-		let path = place;
-		path += file.name;
-		reader.onload = function Fileloaded() {
-			upload(path, this.result);
-		}
-		reader.readAsArrayBuffer(file);
+		if (!file) return;
+		// ⚠ 路径必须拼接文件名：place 是当前目录（以 / 结尾），漏拼会把文件内容
+		//   PUT 到目录 URL（服务端建目录分支 → body 残留污染下一请求）
+		upload(place + file.name, file);
 	}
 
 	function newFloor() {
