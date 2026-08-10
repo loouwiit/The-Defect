@@ -24,7 +24,7 @@ ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。面向局域网�
 - **系统层浮动窗**：驻留 `lv_layer_sys`，不占用 App 栈，底层 App 不受影响
 - **多种唤出方式**：顶部下滑 / 手柄组合键(Y+X+B)
 - **可拖拽窗口**：浮动窗可任意拖动位置，附带 LVGL 虚拟键盘（拼音/五笔/混合中文输入，空格上屏候选）
-- **13 个系统操作**：开关应用、焦点导航(select/activate)、调亮度/音量、WiFi 连接、设备信息、关机等
+- **14 个系统操作**：开关应用、焦点导航(select/activate)、调亮度/音量、WiFi 连接、设备信息、关机、生成 Lua 游戏、读取文件等
 - **焦点系统集成**：所有 App 接入 `onAiSelect()` / `onAiActivate()`，AI 可通过焦点组导航操作任意界面
 - **多轮协作**：AI 通过 `nextRound` 自主控制多轮交互，跨 App 探索（如打开时间设置 → 同步时间）
 - **长期记忆**：AI 通过 `memory` 字段自行维护跨对话的用户偏好
@@ -126,7 +126,7 @@ P4 专注渲染和游戏计算，C6 处理无线通信，双芯并行互不抢�
 |------|------|
 | 硬件 | ESP32-P4 + ESP32-C6，自研 PCB |
 | 固件 | ESP-IDF 5.x + C++20 |
-| GUI | LVGL 9.4 + PPA 硬件加速渲染 |
+| GUI | LVGL 9.5.0 + PPA 硬件加速渲染 |
 | 通信 | 自研 HTTP/WebSocket 服务器，裸 socket，无第三方依赖 |
 | 手柄 | 自研 BLE HID Gamepad 固件 + NimBLE 协议栈 |
 | 音频 | ES8311 编解码器 + esp_audio_render 多流混音 |
@@ -252,7 +252,7 @@ ESP32-C6 (协处理器)
 | ESP32-P4 | 主 SoC（双核 HP + LP Core） |
 | ESP32-C6 | 协处理器（WiFi/BLE） |
 | ESP-IDF 5.x | 固件框架 |
-| LVGL 9.4 | GUI 框架 |
+| LVGL 9.5.0 | GUI 框架 |
 | ILI9881C | 6" 720×1280 MIPI DSI 面板 |
 | GT911 | 5 点电容触摸（五 indev 多指桥接，多指独立 LVGL 事件） |
 | ES8311 | 音频编解码器 |

@@ -21,7 +21,7 @@
 
 ## Project Overview
 
-ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 720×1280 MIPI ILI9881C，触摸 GT911 (I²C)，GUI 使用 LVGL 9.4。
+ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 720×1280 MIPI ILI9881C，触摸 GT911 (I²C)，GUI 使用 LVGL 9.5.0。
 
 ## Build & Flash
 
@@ -112,14 +112,12 @@ reserces/
 | | LuaManagerApp | `main/app/luaManagerApp/` | Lua 脚本管理器（浏览/运行/删除/重命名，AI 生成入口；市场游戏按游戏 ID 显示、禁用重命名、删除=递归删目录） |
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/内容/图片/manifest + POST 统计；条目含 type=lua\|elf） |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（ELF 插件在前 + 系统卡片），3 焦点组导航 |
-| | AiAgentOverlay | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`，可拖拽） |
 | | MarketApp | `main/app/marketApp/` | 游戏市场：Lua+ELF 混合截图卡片网格 + 详情 + 下载/更新/卸载（ELF 装到 `/root/elf/`） |
-| BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
+| | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
 | | TestApp | `main/app/testApp/` | 测试用 App |
-| | ConsoleManagerApp | `main/app/consoleManager/` | 多主机管理（mDNS 发现其他主机） |
 | **跨主机联机** | HostManager | `main/host/hostManager.hpp` | 角色管理（主机/从机）、4 槽位管理、WsClient 连接池、mask 下发 |
 | | wsConsoleHandler | `main/host/wsConsoleHandler.cpp` | `/ws/console` 管理通道（注册/全量 slots_update 广播/心跳） |
 | | wsInputHandler | `main/host/wsInputHandler.cpp` | `/ws/input` WebSocket 入口（Web 客户端用）→ VirtualGamepad |
@@ -133,7 +131,6 @@ reserces/
 | | elfSdk | `main/elfSdk/` | ABI 契约（`elf_plugin_info_t` v4 + `ELF_SDK_VERSION`）+ 符号表 `g_main_elfsyms`（脚本生成）+ 符号哈希解析 + 启动日志静默 |
 | | elfapps | `elfapps/<name>/` | 5 个游戏 .so 插件工程（snake / chineseChess / fruitNinja / tetris / douDiZhu） |
 | **网络** | WiFi | `main/wifi/wifi.hpp` | C 风格 API：STA/AP 双模 + NAT，`esp_wifi_remote` C6 通信 |
-| **OTA** | OtaManager | `main/ota/otaManager.hpp` | 双槽 OTA 空中升级（**单例类**）：`POST /api/ota` 流式写入 + `GET /api/otaInfo` 状态查询 + bootloader 自动回滚检测（NVS 记录）+ 版本防重烧 |
 | | C6 Slave | `main/wifi/slave.hpp` | SDIO/ESP-HOSTED 协处理器管理器，后台 Task 早期启动 |
 | | SocketStream | `main/wifi/socketStream.hpp` | TCP 输入/输出/双向流封装（`ISocketStream` / `OSocketStream` / `IOSocketStream`） |
 | | SocketStreamWindow | `main/wifi/socketStreamWindow.hpp` | 连接池管理器（HTTP 6 worker 线程） |
@@ -142,17 +139,16 @@ reserces/
 | | mDNS | `main/wifi/mdns.hpp` | mDNS 服务发现（`_http` 80, `_ws` 8080, `_p4console` 80） |
 | | Discovery | `main/discovery/` | mDNS 设备发现（查询 `_p4console._tcp` 枚举其他主机） |
 | | HTTP | `main/wifi/http.hpp` | HTTP 协议解析（Method/Status/Header 等） |
+| **OTA** | OtaManager | `main/ota/otaManager.hpp` | 双槽 OTA 空中升级（**单例类**）：`POST /api/ota` 流式写入 + `GET /api/otaInfo` 状态查询 + bootloader 自动回滚检测（NVS 记录）+ 版本防重烧 |
 | **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + WebSocket 流，直接读 bridge 帧缓冲 |
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
 | **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
-| Lua Runtime | `main/lua/` | Lua 5.5 脚本引擎 + 5 个绑定模块（display/input/audio/thread/touch） |
-| LuaGameApp | `main/app/luaGameApp/` | Lua 游戏运行 App，AI 生成的 .lua 脚本在此运行 |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
 | | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → `lv_layer_sys` 弹窗 + 循环提示音，弹窗显示时屏蔽底层 App 输入 |
 | | **SystemMonitor** | `main/monitor/` | 系统监视器：CPU 利用率 + 内存（内部 RAM/PSRAM 已用）+ 显示 FPS，串口输出 |
-| **GUI** | GUI | `main/gui/` | 色板（8 色）+ 14 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) |
+| **GUI** | GUI | `main/gui/` | 色板（8 色）+ 16 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) |
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
@@ -1108,7 +1104,7 @@ static void on_click_cb(lv_event_t* e) {
 | `aiConfig.hpp` | FAT 配置文件 + NVS API Key 加载 |
 | `aiClient.hpp` | `HttpClient::send()` / `sendWithHistory()` — `esp_http_client` HTTPS POST |
 | `aiParser.hpp` | cJSON 解析，鲁棒处理；提取 `actions[]`、`memory`、`nextRound` |
-| `aiExecutor.hpp` | 动作顺序执行，13 个系统操作（含 Select/Activate/PowerOff 等） |
+| `aiExecutor.hpp` | 动作顺序执行，14 个系统操作（含 Select/Activate/PowerOff 等） |
 | `aiSystemInfo.hpp` | 系统信息采集：电池、WiFi、存储、内存、手柄电量等 |
 
 **AiAction 字段**（所有系统操作共用）：
@@ -1172,7 +1168,7 @@ class App {
 ⑤ 等待用户下一轮输入
 ```
 
-**13 个系统操作**：
+**14 个系统操作**：
 
 | 操作 | 说明 | 示例 |
 |------|------|------|
@@ -1188,6 +1184,8 @@ class App {
 | `wifi_connect` | 连接 WiFi | `{"action":"wifi_connect","params":{...}}` |
 | `system_info` | 获取设备信息 | `{"action":"system_info"}` |
 | `power_off` | 关机 (Deep-sleep) | `{"action":"power_off"}` |
+| `generate_lua_game` | AI 生成 Lua 游戏并运行 | `{"action":"generate_lua_game","text":"贪吃蛇","params":{"code":"..."}}` |
+| `read` | 读取文件内容回传 AI（配 `nextRound:true`） | `{"action":"read","text":"/root/lua/game/test.lua","nextRound":true}` |
 
 **支持**：对话历史（最近 5 轮）+ 长期记忆（AI 通过 `memory` 字段增量更新）+ 多轮协作（`nextRound` 控制）+ App 焦点探索（`select`/`activate`）
 
