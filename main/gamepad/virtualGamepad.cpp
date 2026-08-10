@@ -192,6 +192,8 @@ void VirtualGamepad::forwarderLoop()
 
 						if (last.buttons != state.buttons ||
 							last.lx != state.lx || last.ly != state.ly ||
+							last.rx != state.rx || last.ry != state.ry ||
+							last.lt != state.lt || last.rt != state.rt ||
 							last.dpad != state.dpad)
 						{
 							last = state;
