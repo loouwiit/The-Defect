@@ -13,6 +13,9 @@
 #include <cctype>
 #include <dirent.h>
 
+// lv_image_cache_drop（LVGL 9 private API，lvgl.h 需 LV_USE_PRIVATE_API 才导出；此处按需直引缓存头）
+#include "src/misc/cache/lv_cache.h"
+
 // ============================================================
 //  构造 / 析构
 // ============================================================
@@ -883,6 +886,10 @@ void MarketApp::downloadElfDone(int selIdx, bool wasDownloaded, const std::strin
 {
 	m_downloading = false;
 	if (selIdx < (int)m_downloaded.size()) m_downloaded[selIdx] = true;
+
+	// 更新场景 icon.jpg 被覆盖（路径不变）：失效 LVGL 图片缓存，防桌面残留旧图
+	// （syncElfCards 按路径比较，路径未变不会换图，须由缓存层兜底）
+	if (wasDownloaded) lv_image_cache_drop(NULL);
 
 	{
 		auto g = display->lockGuard();

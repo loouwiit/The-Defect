@@ -1055,7 +1055,7 @@ static void on_click_cb(lv_event_t* e) {
 | 上一步 / 返回桌面 | B |
 | 切换焦点组 | ↑ ↓ |
 
-**动态卡片**（`onForeground → rebuildElfCards` 全量重建，替代原 `startElfScan` 后台渐进式扫描；解析快，直接删旧重插，无需 diff）：
+**动态卡片**（`onForeground → syncElfCards` 差量同步，替代原 `startElfScan` 后台渐进式扫描；锁外 `listElfApps` 扫描毫秒级，锁内三步 diff：删缺失卡/更新元数据与图标变化卡/`addElfCard` 插新卡——无变化零 LVGL 操作不闪烁，仅真实变更才动对应卡片）：
 - 先 `listElfApps`（扫子目录 + 读 manifest.json，**零 dlopen**）→ 一步建完整卡片（中文名/描述/图标即时可见）
 - 插件元数据（ABI v4）：`display_name`（中文名）/ `description` / `icon_path` / `name` 均已从 `elf_plugin_info_t` 移除（结构体仅剩 version/create_app/destroy_app），标识与元数据统一由插件包 `/root/elf/<name>/manifest.json` 提供（`build_elf.sh` 生成）
 - 无 .so 时入口优雅提示不崩
@@ -1338,7 +1338,7 @@ pop → scheduleDeletion 任务: deinit() → delete app（虚析构在 .so 内�
 
 ### 桌面动态扫描 + AI 动态路由
 
-- **桌面**：`onForeground → rebuildElfCards`（删全部 Elf 卡 → `listElfApps` 扫 `/root/elf` 子目录 + 读 manifest.json，**零 dlopen** → 逐个 `addElfCard` 锁内防重插入）；图标 `F:elf/<name>/icon.jpg` 由 LVGL 直接解码
+- **桌面**：`onForeground → syncElfCards`（锁外 `listElfApps` 扫 `/root/elf` 子目录 + 读 manifest.json，**零 dlopen** → 锁内 diff：删除缺失卡 / 更新元数据+图标变化卡（图标换 `lv_obj_get_child(card,0)` 的 image src）/ `addElfCard` 插新卡，无变化零渲染不闪烁）；图标 `F:elf/<name>/icon.jpg` 由 LVGL 直接解码
 - **AI**：`AiAppTarget.elfPath` 字段，`open_app` 优先走 `ElfManager::createApp`；`getOpenableApps()`/`getAiContext()` 动态并入 ELF 插件（name=manifest.name）
 
 ### 插件工程（`elfapps/<name>/`）
@@ -1664,7 +1664,7 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 | 卸载 | 详情页已装时显示「卸载」按钮（焦点索引 2）：统一入口 `uninstall()` 分流——ELF=`ElfManager::unload` + `removeFloorRecursive(/root/elf/<id>)`；Lua=`removeFloorRecursive(/root/lua/market/<作者>/<游戏>)` + 清空作者目录 |
 | 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载或更新）；B 返回 |
 
-- **运行入口**：Lua 在「脚本管理」（LuaManagerApp）中运行；ELF 返回桌面自动建卡（`onForeground → rebuildElfCards` 全量重建）直接运行
+- **运行入口**：Lua 在「脚本管理」（LuaManagerApp）中运行；ELF 返回桌面自动建卡（`onForeground → syncElfCards` 差量同步）直接运行；市场更新 icon 覆盖（路径不变）后 `lv_image_cache_drop(NULL)` 失效缓存防残留旧图（`lv_image_cache_drop` 为 LVGL 9 private API，需 `#include "src/misc/cache/lv_cache.h"`）
 - **已装识别**：Lua=`testFile(本地脚本路径)`；ELF=`testFile(/root/elf/<id>/manifest.json)`（不读 .so，避免 dlopen）
 - **卸载后清理**：Lua 删除后清空空作者目录；ELF 删除后 `ElfManager::unload`（refcount=0）再递归删目录，返回桌面卡片消失
 
