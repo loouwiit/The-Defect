@@ -4,6 +4,7 @@
 #include "gamepad/gamepadState.hpp"
 #include "display/display.hpp"
 #include "task/task.hpp"
+#include "mutex/mutex.hpp"
 
 /**
  * @brief 统一手柄输入抽象层
@@ -48,6 +49,11 @@ public:
 	/// 停止转发线程（断开连接时调用）
 	void stopForwarder();
 
+	/// 等待当前分发结束（拿即放）：语义 = 确保此刻无 dispatchTask 分发进行中。
+	/// deleteApp 删除 App 前调用，避免 dispatchTask 在已删除对象上调用虚函数（UAF）。
+	/// ⚠ 必须在未持有 LVGL 锁 / AppStackManager::m_mutex 时调用（锁序：dispatchLock 在前）。
+	void waitDispatchIdle();
+
 private:
 	VirtualGamepad() = default;
 	~VirtualGamepad() = default;
@@ -64,6 +70,12 @@ private:
 	Display* m_display = nullptr;
 
 	Thread m_thread{};
+
+	// 分发互斥锁：dispatchTask 分发段持锁；deleteApp 删除前 waitDispatchIdle()（拿即放）
+	// 等锁 → 无分发进行中 → 不会在已删除 App 上调用虚函数（UAF 崩溃根因）。
+	// ⚠ 锁序：dispatchLock → LVGL（handler 内等 LVGL 锁），deleteApp 侧同样
+	//   waitDispatchIdle（不持锁）→ LVGL，二者一致无 ABBA 死锁。
+	Mutex m_dispatchLock{};
 
 	// [hostId][playerId] 最新状态
 	GamepadState m_states[4][4]{};

@@ -2,6 +2,7 @@
 #include "app/appStackManager.hpp"
 #include "task/task.hpp"
 #include "elfManager/elfManager.hpp"
+#include "gamepad/virtualGamepad.hpp"
 #include <esp_log.h>
 
 static constexpr char TAG[] = "AppStack";
@@ -142,6 +143,13 @@ void AppStack::scheduleDeletion(App* app)
 
 			if (!oldApp->deletable)
 				return 10;
+
+			// ⚠ 防 UAF：先等 VirtualGamepad 分发空闲（dispatchTask 当前帧 handler 全部返回）
+			//   再拿 LVGL 锁 delete——否则 dispatchTask 可能在已删除 App 上调用
+			//   onGamepadInput 虚函数（崩溃根因，vGamepadDisp 悬空指针）。
+			//   锁序：waitDispatchIdle（拿即放，不持锁等待）→ LVGL，与 dispatchTask
+			//   （dispatchLock → LVGL）一致，无 ABBA 死锁。
+			VirtualGamepad::instance().waitDispatchIdle();
 
 			// delete 前取 ELF 模块路径（delete 后对象已释放，不能读成员）
 			char elfPath[64];

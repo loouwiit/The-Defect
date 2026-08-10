@@ -413,6 +413,11 @@ public:
     // ── 远程转发（从机模式，UDP）──
     void startForwarder();    // 启动独立 Thread 通过 UDP 转发本机输入
     void stopForwarder();
+
+    /// 等待当前分发结束（拿即放）：语义 = 确保此刻无 dispatchTask 分发进行中。
+    /// deleteApp 删除 App 前调用，避免 dispatchTask 在已删除对象上调用虚函数（UAF）。
+    /// ⚠ 必须在未持有 LVGL 锁 / AppStackManager::m_mutex 时调用（锁序：dispatchLock 在前）
+    void waitDispatchIdle();
 };
 ```
 
@@ -426,6 +431,7 @@ VirtualGamepad:
   ├── m_states[hostId][playerId] = state  (存储)
   ├── forwarderThread @60fps UDP → 远程主机端口 8082（从机模式）
   └── dispatchTask() @60fps → app->onGamepadInput(hostId, playerId, state)
+        └── 分发段持 m_dispatchLock（见下「分发互斥锁」）
 ```
 
 | 特性 | 说明 |
@@ -440,6 +446,12 @@ VirtualGamepad:
 | 从机转发 | forwarderThread 后检查 `~m_hostMask[0] & 0x0F` 决定转发哪些玩家到主机 |
 | 传输方式 | UDP（11 字节/帧），持久 socket `connect()` + `send()`，零创建开销 |
 | 注入去重 | 状态未变化时不转发（forwarder 侧有 `m_lastForwarded` 去重） |
+
+**分发互斥锁（防 UAF）**：dispatchTask 分发段（门控检查 + `getActiveApp()` + handler 循环）持 `Mutex m_dispatchLock`；`AppStack::scheduleDeletion` 的 deleteApp 任务在 `delete` 前调用 `waitDispatchIdle()`（拿即放）确保无分发进行中 → **不会在已删除 App 上调用 `onGamepadInput` 虚函数**（崩溃根因：vGamepadDisp 悬空指针，deleteApp 双核并发恰在帧内完成 delete）。
+- ⚠ **锁序 `dispatchLock → LVGL`**：handler 内等 LVGL 锁，deleteApp 侧同样先 `waitDispatchIdle()`（不持锁等待）再 `lockGuard`——两者一致无 ABBA 死锁；**严禁**先持 LVGL 再等 dispatchLock
+- ⚠ 锁只包分发段，**不包 `vTaskDelay(16)`**：否则 deleteApp 会被迫等整帧，无意义拉长删除延迟
+- 确定性保证：`applyApp`（替换 activeApp）总是先于 `scheduleDeletion`（pop/replace/空栈三分支均如此）→ deleteApp 拿到锁后，dispatchTask 下一帧必拿新指针
+- 范围：仅保护 dispatchTask 分发路径；`AiExecutor`/`AiAgentOverlay` 的 `getActiveApp()` 裸读不走此锁（独立机制，未覆盖）
 
 **`onGamepadInput` 签名**:
 ```cpp
@@ -956,7 +968,7 @@ protected:
 - **根栈 depth ≤ 1 禁止 pop** — 防止桌面被弹出
 - **非根栈 pop 后为空 → 自动切回根栈 + 销毁空栈**
 - **push 不删旧 app** — 旧 app 留在栈底，等 pop 才删
-- **异步删除** — `scheduleDeletion()` 在独立 Task 中 `deinit()` → 等 `deletable` → `lockGuard` → `delete`
+- **异步删除** — `scheduleDeletion()` 在独立 Task 中 `deinit()` → 等 `deletable` → **`VirtualGamepad::waitDispatchIdle()`**（防 UAF：确保 dispatchTask 当前帧 handler 已返回，不会在已删 App 上调用虚函数）→ `lockGuard` → `delete`
 - **LVGL 事件回调中不可执行栈操作** — 须用 `Task::addTask` 延后（因 LVGL 锁已被持有）
 - **AppStack 操作须手动去重** — AppStack 不提供内置防重入保护，`popApp()` / `replaceWith()` / `pushToNewStack()` 等操作在快速连续触发时会导致重复执行（如双击"重新开始"创建两个实例）。**所有 AppStack 操作的入口点必须手动实现防重逻辑**。
 

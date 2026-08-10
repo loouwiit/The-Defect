@@ -65,6 +65,14 @@ void VirtualGamepad::resetPlayer(int8_t hostId, int8_t playerId)
 	ESP_LOGI(TAG, "reset H%d P%d", hostId, playerId);
 }
 
+void VirtualGamepad::waitDispatchIdle()
+{
+	// 拿即放：若 dispatchTask 正在分发（持锁中），阻塞到该帧 handler 全部返回。
+	// 调用方（deleteApp 任务）借此保证不再对已删除 App 调用虚函数。
+	// ⚠ 必须在未持有 LVGL 锁 / AppStackManager::m_mutex 时调用（锁序：dispatchLock 在前）。
+	Lock lock{ m_dispatchLock };
+}
+
 const GamepadState& VirtualGamepad::getState(int8_t hostId, int8_t playerId) const
 {
 	static GamepadState s_empty;
@@ -121,16 +129,26 @@ void VirtualGamepad::dispatchTask(void* arg)
 	while (true) {
 		auto startTick = xTaskGetTickCount();
 
-		if (self.m_display) {
-			// AI Overlay 或低电量弹窗显示时独占输入，不向 App 分发
-			if (!AiAgentOverlay::instance().isVisible() &&
-				!BatteryMonitor::instance().isAlertShown()) {
-				auto* app = self.m_display->getActiveApp();
-				if (app) {
-					for (int h = 0; h < 4; h++) {
-						for (int p = 0; p < 4; p++) {
-							if ((self.m_hostMask[h] >> p) & 1) {
-								app->onGamepadInput(h, p, self.m_states[h][p]);
+		// ⚠ 分发段持 m_dispatchLock：deleteApp 删除 App 前 waitDispatchIdle()（拿即放）
+		//   确保无分发进行中 → 不会在已删除 App 上调用 onGamepadInput 虚函数
+		//   （UAF 崩溃根因，vGamepadDisp 悬空指针）。
+		//   锁序：dispatchLock → LVGL（handler 内等 LVGL 锁），与 deleteApp
+		//   （waitDispatchIdle 不持锁 → LVGL）一致，无 ABBA 死锁。
+		//   ⚠ 锁只包分发段，不包 vTaskDelay：否则 deleteApp 会被迫等整帧。
+		{
+			Lock lock{ self.m_dispatchLock };
+
+			if (self.m_display) {
+				// AI Overlay 或低电量弹窗显示时独占输入，不向 App 分发
+				if (!AiAgentOverlay::instance().isVisible() &&
+					!BatteryMonitor::instance().isAlertShown()) {
+					auto* app = self.m_display->getActiveApp();
+					if (app) {
+						for (int h = 0; h < 4; h++) {
+							for (int p = 0; p < 4; p++) {
+								if ((self.m_hostMask[h] >> p) & 1) {
+									app->onGamepadInput(h, p, self.m_states[h][p]);
+								}
 							}
 						}
 					}
