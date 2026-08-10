@@ -122,6 +122,22 @@
 			<button id="applyLevelBtn">应用（重启保持）</button>
 			<span style="font-size:12px;color:#666">级别号越小越严重；例：落盘=ERROR、WS=INFO → 文件只留错误，WS 看全量</span>
 		</div>
+
+		<div class="row lv-ctrl" style="margin-top:14px;border-top:1px solid #444;padding-top:14px">
+			<span style="font-size:14px;color:#aaa">按来源 (tag) 源头过滤:</span>
+			<input id="tagInput" placeholder="如 BleGamepad / SysMon" style="flex:1;min-width:160px;background:#1a1a2e;color:#fff;border:1px solid #555;border-radius:6px;padding:6px 10px;font-size:14px">
+			<select id="tagLevel" style="min-width:110px">
+				<option value="0">NONE（静默）</option>
+				<option value="1">ERROR 起</option>
+				<option value="2">WARN 起</option>
+				<option value="3" selected>INFO 起</option>
+				<option value="4">DEBUG 起</option>
+				<option value="5">VERBOSE 起</option>
+			</select>
+			<button id="tagSetBtn">设置</button>
+			<button class="ghost" id="tagClearBtn">移除</button>
+		</div>
+		<div id="tagList" style="font-size:12px;color:#888;margin-top:8px;line-height:1.8"></div>
 	</div>
 
 	<!-- 实时日志 -->
@@ -220,7 +236,18 @@
 					document.getElementById("fileLevel").value = String(info.file_level);
 				if (typeof info.ws_level === "number")
 					document.getElementById("wsLevel").value = String(info.ws_level);
+				renderTagList(info.tag_levels || {});
 			} catch (e) {}
+		}
+		function renderTagList(tagLevels) {
+			const names = ["NONE","ERROR","WARN","INFO","DEBUG","VERBOSE"];
+			const el = document.getElementById("tagList");
+			const tags = Object.keys(tagLevels);
+			if (!tags.length) { el.textContent = "无 tag 级过滤（全部跟随全局级别）"; return; }
+			el.innerHTML = tags.map(t =>
+				"<span style='background:#1a1a2e;padding:2px 8px;border-radius:4px;margin-right:6px'>" +
+				escapeHtml(t) + " → <b>" + names[tagLevels[t]] + "</b></span>"
+			).join("");
 		}
 		document.getElementById("applyLevelBtn").onclick = async function () {
 			const names = ["NONE","ERROR","WARN","INFO","DEBUG","VERBOSE"];
@@ -237,6 +264,33 @@
 					toast("全局=" + names[lv] + " / 落盘=" + names[fl] + " / WS=" + names[wl] + "（重启保持）");
 				else toast("设置失败: HTTP " + r.status);
 			} catch (e) { toast("设置失败: " + e); }
+		};
+		document.getElementById("tagSetBtn").onclick = async function () {
+			const tag = document.getElementById("tagInput").value.trim();
+			const lv = parseInt(document.getElementById("tagLevel").value, 10);
+			if (!tag) { toast("请输入 tag 名称"); return; }
+			try {
+				const r = await fetch("/api/logLevel", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ tag: tag, level: lv })
+				});
+				if (r.ok) { toast("tag[" + tag + "] 级别已设（重启保持）"); loadLevel(); }
+				else toast("设置失败: HTTP " + r.status);
+			} catch (e) { toast("设置失败: " + e); }
+		};
+		document.getElementById("tagClearBtn").onclick = async function () {
+			const tag = document.getElementById("tagInput").value.trim();
+			if (!tag) { toast("请输入 tag 名称"); return; }
+			try {
+				const r = await fetch("/api/logLevel", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ tag: tag })
+				});
+				if (r.ok) { toast("tag[" + tag + "] 已移除（恢复全局）"); loadLevel(); }
+				else toast("移除失败: HTTP " + r.status);
+			} catch (e) { toast("移除失败: " + e); }
 		};
 
 		/* ── 实时日志 ── */

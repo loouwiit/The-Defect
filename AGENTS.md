@@ -2068,6 +2068,11 @@ class LogService {
     int  getFileLevel() const;        // 当前生效落盘阈值
     void setWsLevel(int level);       // WS 推送阈值（0-5，默认 3=INFO）：仅级别号 ≤ 阈值推送
     int  getWsLevel() const;          // 当前生效 WS 阈值
+    void setTagLevel(const char* tag, int level);   // 按 tag 源头过滤（esp_log_level_set）+ NVS 持久化
+    void clearTagLevel(const char* tag);            // 移除 tag 过滤（恢复全局）
+    int  getTagLevel(const char* tag) const;        // 未设置返回 -1
+    size_t getTagLevelCount() const;                // 已设置 tag 数（≤8）
+    bool getTagLevelAt(size_t i, char* tagOut, size_t tagOutSize, int* levelOut) const;
     void detectCrash();               // 启动早期：复位原因 + coredump 存在 → NVS 记录
     uint32_t getPanicCount() const;
     time_t getLastCrashTime() const;
@@ -2083,23 +2088,31 @@ esp_err_t logWsHandler(httpd_req_t* req);          // /ws/log handler（main.cpp
 **架构**（vprintf 回调可重入，多任务并发调用）：
 
 ```
-ESP_LOGx → esp_log_set_vprintf(logVprintf)
-  ├─ vsnprintf → 行缓冲 → 解析级别（fmt 首字符）→ xQueueSend 入队（64×260B，满则丢弃）
-  ├─ 链式调用旧 handler（保留 UART 输出，开发板仍可看串口）
+ESP_LOGx
+  ├─ esp_log 源头筛选（按 tag：esp_log_level_set）→ 不达标日志根本不产生
+  ↓
+logVprintf（esp_log_set_vprintf 回调）
+  ├─ vsnprintf → 解析级别（fmt 首字符）→ 入队 LogItem{line, level}（64×260B，满则丢弃）
+  ├─ 链式调用旧 handler（保留 UART 输出）
   └─ FAT 挂载前：写 PSRAM 早期缓冲（16KB），start() 后 LogTask 落盘
-
-LogTask（独立低优先级任务，内部 RAM 静态栈）：
+  ↓
+LogTask（独立低优先级任务，内部 RAM 静态栈）
   ├─ dump 早期缓冲 → app.log
-  ├─ 出队 LogItem{line, level} → 分级分流：
+  ├─ 出队 → 出口分级：
   │    level ≤ file_level → fwrite 追加 app.log（攒批 4KB / 200ms flush + fsync）
   │    level ≤ ws_level   → 推送 /ws/log 订阅客户端（断连自动移除）
   ├─ 文件 >512KB → 滚动（app.log → app.log.prev）
   └─ 每 10s status 自检：lines/bytes/err/drop/file/queue/fileLvl/wsLvl
 ```
 
-**分级语义**：级别号越小越严重（NONE=0, ERROR=1, WARN=2, INFO=3, DEBUG=4, VERBOSE=5），
-“保留”条件 = `level ≤ 阈值`。例：`file_level=1` + `ws_level=3` → **仅 ERROR 落盘、WS 显示 INFO+**。
-级别从格式串首字符解析（`parseLogLevel`，跳过 ANSI 颜色转义；解析失败按 0=全保留）。
+**两级过滤**：
+1. **源头（esp_log 层）**：`setTagLevel(tag, level)` → `esp_log_level_set`（vprintf **之前**生效，
+   不达标的该 tag 日志根本不产生；NVS 持久化 `tag_N`/`taglv_N` 固定 8 槽，start() 恢复）
+2. **出口（LogTask）**：`file_level`（落盘）/ `ws_level`（WS）独立阈值分流
+
+**级别语义**：级别号越小越严重（NONE=0, ERROR=1, WARN=2, INFO=3, DEBUG=4, VERBOSE=5），
+“保留”条件 = `level ≤ 阈值`。例：`file_level=1` + `ws_level=3` → **仅 ERROR 落盘、WS 显示 INFO+**；
+`tag="SysMon", level=2` → SysMon 只产生 WARN+（源头就掐掉 INFO，所有出口生效）。
 
 **关键设计**：
 - **vprintf 回调零阻塞**：只做 vsnprintf + 入队（xQueueSend 0 超时）；文件 IO / WS 推送全部在 LogTask
@@ -2115,8 +2128,8 @@ LogTask（独立低优先级任务，内部 RAM 静态栈）：
 | 接口 | 说明 |
 |------|------|
 | `GET /api/log?tail=N` | 日志文件尾部 N 行（默认 200，≤2000），text/plain + `no-store` |
-| `POST /api/logLevel` | body `{"level":4,"file_level":1,"ws_level":3}` 设置全局/落盘/WS 级别（0-5，缺省不改动），NVS 持久化 |
-| `GET /api/resetInfo` | JSON：`reset_reason`/`reset_reason_name`/`panic_count`/`last_crash`/`has_coredump`/`log_level`/`file_level`/`ws_level` |
+| `POST /api/logLevel` | 全局/分级：`{"level":4,"file_level":1,"ws_level":3}`（缺省不改动）；按 tag：`{"tag":"BleGamepad","level":1}`（缺省 level=移除该 tag），NVS 持久化 |
+| `GET /api/resetInfo` | JSON：`reset_reason`/`reset_reason_name`/`panic_count`/`last_crash`/`has_coredump`/`log_level`/`file_level`/`ws_level`/`tag_levels`（对象映射） |
 | `POST /api/resetInfo/clear` | 清零崩溃统计（panic_count/last_crash） |
 | `GET /api/coredump` | 下载 coredump 分区原始数据（ELF，octet-stream） |
 | `POST /api/coredump/clear` | 清除 coredump（`esp_core_dump_image_erase`） |

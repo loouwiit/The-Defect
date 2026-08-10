@@ -63,6 +63,20 @@ public:
     /** @brief 当前生效的 WS 推送阈值 */
     int getWsLevel() const;
 
+    // ── 按 tag 源头过滤（esp_log_level_set，vprintf 之前生效）──
+
+    /** @brief 设置指定 tag 的日志级别（0-5），NVS 持久化 + 立即生效。
+     *  低于该级别的该 tag 日志根本不会产生（不进入 vprintf）。level=0 表示关闭该 tag。 */
+    void setTagLevel(const char* tag, int level);
+    /** @brief 移除指定 tag 的级别设置（恢复默认全局），NVS 删除 */
+    void clearTagLevel(const char* tag);
+    /** @brief 读取指定 tag 的级别（未设置返回 -1） */
+    int getTagLevel(const char* tag) const;
+    /** @brief 获取已设置的 tag 数量（≤8） */
+    size_t getTagLevelCount() const;
+    /** @brief 枚举第 i 个已设置 tag 的 (name, level)；返回 false 越界 */
+    bool getTagLevelAt(size_t i, char* tagOut, size_t tagOutSize, int* levelOut) const;
+
     // ── 崩溃检测记录（NVS）──
 
     /**
@@ -95,6 +109,9 @@ private:
     ~LogService() = default;
     LogService(const LogService&) = delete;
     LogService& operator=(const LogService&) = delete;
+
+    /** @brief 启动时从 NVS 恢复全部 tag 级别（start() 内部调用） */
+    void restoreTagLevels();
 };
 
 /**

@@ -68,6 +68,13 @@ static constexpr char     kNvsKeyWsLevel[]   = "ws_level";     // WS 推送阈�
 static constexpr char     kNvsKeyPanic[]  = "panic_count";
 static constexpr char     kNvsKeyCrash[]  = "last_crash";
 
+/* 按 tag 源头过滤持久化：固定槽位（NVS 无动态列表），每槽 tag 名 + 级别 */
+static constexpr size_t   kMaxTagOverrides = 8;
+static constexpr size_t   kMaxTagLen       = 32;
+static constexpr char     kNvsKeyTagCount[] = "tag_count";
+static constexpr char     kNvsKeyTagPrefix[] = "tag_";      // tag_0..7（str）
+static constexpr char     kNvsKeyTagLvlPrefix[] = "taglv_"; // taglv_0..7（i32）
+
 /* 默认阈值：INFO(3)。与旧行为一致（全部消费级别 ≤3 的日志：E/W/I）。
  * 语义沿用 esp_log：级别号越小越严重（NONE=0, ERROR=1, WARN=2, INFO=3, DEBUG=4, VERBOSE=5），
  * “保留”条件 = level ≤ 阈值。例如 file_level=1 → 仅 ERROR 落盘；ws_level=3 → WS 显示 INFO+。 */
@@ -120,6 +127,11 @@ struct LogItem {
 };
 
 static int nvsReadLevel(const char* key);   // 定义在下方（start() 早于定义，需前置声明）
+
+static void nvsTagKey(char* out, size_t outSize, const char* prefix, size_t idx)
+{
+    snprintf(out, outSize, "%s%u", prefix, (unsigned)idx);
+}
 
 /* ============================================================
  *  文件操作（LogTask 内调用）
@@ -439,6 +451,9 @@ void LogService::start()
         if (fl >= 0 && fl <= 5) s_fileLevel = fl;
         int wl = nvsReadLevel(kNvsKeyWsLevel);
         if (wl >= 0 && wl <= 5) s_wsLevel = wl;
+
+        /* 恢复按 tag 源头过滤（esp_log_level_set 本身不持久化） */
+        restoreTagLevels();
     }
 
     s_oldVprintf = esp_log_set_vprintf(logVprintf);
@@ -627,6 +642,183 @@ void LogService::setWsLevel(int level)
 int LogService::getWsLevel() const
 {
     return (int)s_wsLevel;
+}
+
+/* ============================================================
+ *  按 tag 源头过滤（esp_log_level_set，vprintf 之前生效）
+ * ============================================================ */
+
+void LogService::setTagLevel(const char* tag, int level)
+{
+    if (!tag || !tag[0] || level < 0 || level > 5) return;
+
+    /* 立即生效（esp_log 内部源头筛选，低于级别的日志不再进入 vprintf） */
+    esp_log_level_set(tag, (esp_log_level_t)level);
+
+    nvs_handle_t h;
+    if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+
+    /* 已存在 → 更新；否则找空槽/覆盖最旧（固定 8 槽） */
+    int32_t count = 0;
+    nvs_get_i32(h, kNvsKeyTagCount, &count);
+    if (count < 0) count = 0;
+    if (count > (int32_t)kMaxTagOverrides) count = kMaxTagOverrides;
+
+    char key[16];
+    bool updated = false;
+    for (int32_t i = 0; i < count && !updated; i++)
+    {
+        nvsTagKey(key, sizeof(key), kNvsKeyTagPrefix, (size_t)i);
+        char existing[kMaxTagLen];
+        size_t len = sizeof(existing);
+        if (nvs_get_str(h, key, existing, &len) == ESP_OK && strcmp(existing, tag) == 0)
+        {
+            nvsTagKey(key, sizeof(key), kNvsKeyTagLvlPrefix, (size_t)i);
+            nvs_set_i32(h, key, level);
+            nvs_commit(h);
+            updated = true;
+        }
+    }
+
+    if (!updated)
+    {
+        /* 槽位满 → 覆盖最后一个（简单策略） */
+        int32_t slot = (count < (int32_t)kMaxTagOverrides) ? count : (int32_t)kMaxTagOverrides - 1;
+        nvsTagKey(key, sizeof(key), kNvsKeyTagPrefix, (size_t)slot);
+        nvs_set_str(h, key, tag);
+        nvsTagKey(key, sizeof(key), kNvsKeyTagLvlPrefix, (size_t)slot);
+        nvs_set_i32(h, key, level);
+        if (count < (int32_t)kMaxTagOverrides)
+            nvs_set_i32(h, kNvsKeyTagCount, count + 1);
+        nvs_commit(h);
+    }
+    nvs_close(h);
+    ESP_LOGI(TAG, "tag_level[%s]=%d", tag, level);
+}
+
+void LogService::clearTagLevel(const char* tag)
+{
+    if (!tag || !tag[0]) return;
+    esp_log_level_set(tag, ESP_LOG_NONE);   // 先关（不会产生日志）
+
+    nvs_handle_t h;
+    if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+
+    int32_t count = 0;
+    nvs_get_i32(h, kNvsKeyTagCount, &count);
+    if (count < 0) count = 0;
+    if (count > (int32_t)kMaxTagOverrides) count = kMaxTagOverrides;
+
+    char key[16];
+    for (int32_t i = 0; i < count; i++)
+    {
+        nvsTagKey(key, sizeof(key), kNvsKeyTagPrefix, (size_t)i);
+        char existing[kMaxTagLen];
+        size_t len = sizeof(existing);
+        if (nvs_get_str(h, key, existing, &len) == ESP_OK && strcmp(existing, tag) == 0)
+        {
+            /* 后面槽位前移，保持紧凑 */
+            for (int32_t j = i; j < count - 1; j++)
+            {
+                nvsTagKey(key, sizeof(key), kNvsKeyTagPrefix, (size_t)(j + 1));
+                char nextTag[kMaxTagLen];
+                size_t nextLen = sizeof(nextTag);
+                if (nvs_get_str(h, key, nextTag, &nextLen) == ESP_OK)
+                {
+                    char k2[16];
+                    nvsTagKey(k2, sizeof(k2), kNvsKeyTagPrefix, (size_t)j);
+                    nvs_set_str(h, k2, nextTag);
+                    nvsTagKey(k2, sizeof(k2), kNvsKeyTagLvlPrefix, (size_t)j);
+                    char kl[16];
+                    nvsTagKey(kl, sizeof(kl), kNvsKeyTagLvlPrefix, (size_t)(j + 1));
+                    int32_t lv = 0;
+                    if (nvs_get_i32(h, kl, &lv) == ESP_OK) nvs_set_i32(h, k2, lv);
+                }
+            }
+            nvs_set_i32(h, kNvsKeyTagCount, count - 1);
+            nvs_commit(h);
+            break;
+        }
+    }
+    nvs_close(h);
+    ESP_LOGI(TAG, "tag_level[%s] cleared", tag);
+}
+
+int LogService::getTagLevel(const char* tag) const
+{
+    if (!tag) return -1;
+    nvs_handle_t h;
+    if (nvs_open(kNvsNamespace, NVS_READONLY, &h) != ESP_OK) return -1;
+
+    int32_t count = 0;
+    nvs_get_i32(h, kNvsKeyTagCount, &count);
+    if (count < 0) count = 0;
+    if (count > (int32_t)kMaxTagOverrides) count = kMaxTagOverrides;
+
+    int result = -1;
+    char key[16];
+    for (int32_t i = 0; i < count; i++)
+    {
+        nvsTagKey(key, sizeof(key), kNvsKeyTagPrefix, (size_t)i);
+        char existing[kMaxTagLen];
+        size_t len = sizeof(existing);
+        if (nvs_get_str(h, key, existing, &len) == ESP_OK && strcmp(existing, tag) == 0)
+        {
+            nvsTagKey(key, sizeof(key), kNvsKeyTagLvlPrefix, (size_t)i);
+            int32_t lv = -1;
+            nvs_get_i32(h, key, &lv);
+            result = (int)lv;
+            break;
+        }
+    }
+    nvs_close(h);
+    return result;
+}
+
+size_t LogService::getTagLevelCount() const
+{
+    nvs_handle_t h;
+    int32_t count = 0;
+    if (nvs_open(kNvsNamespace, NVS_READONLY, &h) == ESP_OK)
+    {
+        nvs_get_i32(h, kNvsKeyTagCount, &count);
+        nvs_close(h);
+    }
+    if (count < 0) return 0;
+    if (count > (int32_t)kMaxTagOverrides) return kMaxTagOverrides;
+    return (size_t)count;
+}
+
+bool LogService::getTagLevelAt(size_t i, char* tagOut, size_t tagOutSize, int* levelOut) const
+{
+    if (i >= getTagLevelCount() || !tagOut || tagOutSize == 0) return false;
+    nvs_handle_t h;
+    if (nvs_open(kNvsNamespace, NVS_READONLY, &h) != ESP_OK) return false;
+
+    char key[16];
+    nvsTagKey(key, sizeof(key), kNvsKeyTagPrefix, i);
+    size_t len = tagOutSize;
+    esp_err_t err = nvs_get_str(h, key, tagOut, &len);
+    nvsTagKey(key, sizeof(key), kNvsKeyTagLvlPrefix, i);
+    int32_t lv = -1;
+    nvs_get_i32(h, key, &lv);
+    nvs_close(h);
+    if (err != ESP_OK || lv < 0 || lv > 5) return false;
+    if (levelOut) *levelOut = (int)lv;
+    return true;
+}
+
+/* 启动恢复：遍历 NVS 槽位，逐个 esp_log_level_set（在 vprintf 注册前调用） */
+void LogService::restoreTagLevels()
+{
+    size_t count = getTagLevelCount();
+    for (size_t i = 0; i < count; i++)
+    {
+        char tag[kMaxTagLen];
+        int level = -1;
+        if (getTagLevelAt(i, tag, sizeof(tag), &level))
+            esp_log_level_set(tag, (esp_log_level_t)level);
+    }
 }
 
 /* ============================================================

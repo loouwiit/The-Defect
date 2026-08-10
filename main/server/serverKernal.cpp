@@ -569,13 +569,47 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		const char* reasonName = resetReasonName((int)reason);
 		int logLevel = log.getGlobalLevel();
 		if (logLevel < 0) logLevel = 3;   // 未设置 → INFO
-		char body[512];
+
+		// 收集按 tag 源头过滤列表（≤8 项），拼入 JSON
+		char tagBuf[8][48];
+		int tagLv[8];
+		size_t tagCount = log.getTagLevelCount();
+		if (tagCount > 8) tagCount = 8;
+		for (size_t i = 0; i < tagCount; i++)
+		{
+			int lv = -1;
+			if (log.getTagLevelAt(i, tagBuf[i], sizeof(tagBuf[i]), &lv))
+				tagLv[i] = lv;
+			else
+			{
+				tagBuf[i][0] = '\0';
+				tagLv[i] = -1;
+			}
+		}
+
+		char body[768];
 		int n = snprintf(body, sizeof(body),
-			"{\"reset_reason\":%d,\"reset_reason_name\":\"%s\",\"panic_count\":%u,\"last_crash\":%lld,\"has_coredump\":%s,\"log_level\":%d,\"file_level\":%d,\"ws_level\":%d}",
+			"{\"reset_reason\":%d,\"reset_reason_name\":\"%s\",\"panic_count\":%u,\"last_crash\":%lld,\"has_coredump\":%s,\"log_level\":%d,\"file_level\":%d,\"ws_level\":%d,\"tag_levels\":{",
 			(int)reason, reasonName ? reasonName : "unknown",
 			(unsigned)log.getPanicCount(), (long long)log.getLastCrashTime(),
 			log.hasCoredump() ? "true" : "false",
 			logLevel, log.getFileLevel(), log.getWsLevel());
+		if (n < (int)sizeof(body))
+		{
+			for (size_t i = 0; i < tagCount && tagBuf[i][0]; i++)
+			{
+				int written = snprintf(body + n, sizeof(body) - n, "\"%s\":%d,", tagBuf[i], tagLv[i]);
+				if (written < 0 || n + written >= (int)sizeof(body)) break;
+				n += written;
+			}
+			if (n > 0 && body[n - 1] == ',') n--;   // 去掉尾部逗号
+			if (n < (int)sizeof(body) - 2)
+				n += snprintf(body + n, sizeof(body) - n, "}}");
+			else
+				n = (int)sizeof(body) - 1;
+		}
+		else
+			n = (int)sizeof(body) - 1;
 		// ⚠ snprintf 返回值可能 ≥ sizeof(body)，必须截断防越界读
 		if (n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
 		HttpRespond respond;
@@ -1079,10 +1113,10 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/logLevel", 13))
 	{
-		// body: {"level":4,"file_level":1,"ws_level":3}（0-5：NONE..VERBOSE）→ NVS 持久化
-		//   level       = 全局日志级别（决定“产生”什么日志）
-		//   file_level  = 落盘阈值（仅更严重级别写入文件；缺省不改动）
-		//   ws_level    = WS 推送阈值（缺省不改动）
+		// body（0-5：NONE..VERBOSE）→ NVS 持久化
+		//   全局/分级：{"level":4,"file_level":1,"ws_level":3}（缺省不改动）
+		//   按 tag 源头过滤：{"tag":"BleGamepad","level":1}（level 缺省=移除该 tag 设置）
+		//   流程：esp_log 源头筛选（vprintf 前）→ LogService 入队 → fat/ws 分级（file/ws_level）
 		char* body = new char[request.bodyLenght + 1];
 		if (!readBodyFully(socketStream, request.bodyLenght, body))
 		{
@@ -1104,15 +1138,28 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			return v;
 		};
 
-		const cJSON* level = cJSON_GetObjectItem(root, "level");
-		if (cJSON_IsNumber(level))
-			LogService::instance().setGlobalLevel(clampLevel(level->valueint));
-		const cJSON* fileLevel = cJSON_GetObjectItem(root, "file_level");
-		if (cJSON_IsNumber(fileLevel))
-			LogService::instance().setFileLevel(clampLevel(fileLevel->valueint));
-		const cJSON* wsLevel = cJSON_GetObjectItem(root, "ws_level");
-		if (cJSON_IsNumber(wsLevel))
-			LogService::instance().setWsLevel(clampLevel(wsLevel->valueint));
+		const cJSON* tag = cJSON_GetObjectItem(root, "tag");
+		if (cJSON_IsString(tag) && tag->valuestring && tag->valuestring[0])
+		{
+			/* 按 tag 源头过滤：esp_log_level_set(tag, level) 立即生效 + NVS 持久化 */
+			const cJSON* level = cJSON_GetObjectItem(root, "level");
+			if (cJSON_IsNumber(level))
+				LogService::instance().setTagLevel(tag->valuestring, clampLevel(level->valueint));
+			else
+				LogService::instance().clearTagLevel(tag->valuestring);
+		}
+		else
+		{
+			const cJSON* level = cJSON_GetObjectItem(root, "level");
+			if (cJSON_IsNumber(level))
+				LogService::instance().setGlobalLevel(clampLevel(level->valueint));
+			const cJSON* fileLevel = cJSON_GetObjectItem(root, "file_level");
+			if (cJSON_IsNumber(fileLevel))
+				LogService::instance().setFileLevel(clampLevel(fileLevel->valueint));
+			const cJSON* wsLevel = cJSON_GetObjectItem(root, "ws_level");
+			if (cJSON_IsNumber(wsLevel))
+				LogService::instance().setWsLevel(clampLevel(wsLevel->valueint));
+		}
 
 		cJSON_Delete(root);
 		sendOk(socketStream);
