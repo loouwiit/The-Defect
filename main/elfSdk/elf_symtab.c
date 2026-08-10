@@ -182,13 +182,8 @@ extern int _ZN15AppStackManager16transitionStacksEP8AppStackS1_;
 extern int _ZN15AppStackManager3popEv;
 extern int _ZN15AppStackManager4pushEP3App;
 extern int _ZN15AppStackManager7replaceEP3App;
-extern int _ZN15AppStackManagerC1EP7Display;
-extern int _ZN15AppStackManagerC1Ev;
-extern int _ZN15AppStackManagerC2EP7Display;
-extern int _ZN15AppStackManagerC2Ev;
 extern int _ZN15AppStackManagerD1Ev;
 extern int _ZN15AppStackManagerD2Ev;
-extern int _ZN15AppStackManageraSEOS_;
 extern int _ZN3App10onAiSelectERK14AiSelectTarget;
 extern int _ZN3App10setManagerEP15AppStackManager;
 extern int _ZN3App11replaceWithEPS_;
@@ -422,7 +417,6 @@ extern int _ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIc
 extern int _ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED2Ev;
 extern int _ZNSt12_Vector_baseIP3AppSaIS1_EED1Ev;
 extern int _ZNSt12_Vector_baseIP3AppSaIS1_EED2Ev;
-extern int _ZNSt12_Vector_baseIP8AppStackSaIS1_EE17_Vector_impl_data12_M_swap_dataERS4_;
 extern int _ZNSt12_Vector_baseIP8AppStackSaIS1_EED1Ev;
 extern int _ZNSt12_Vector_baseIP8AppStackSaIS1_EED2Ev;
 extern int _ZNSt12_Vector_baseIP9_lv_obj_tSaIS1_EED1Ev;
@@ -550,7 +544,6 @@ extern int _ZNSt6vectorIP3AppSaIS1_EE4backEv;
 extern int _ZNSt6vectorIP3AppSaIS1_EE4rendEv;
 extern int _ZNSt6vectorIP3AppSaIS1_EE6rbeginEv;
 extern int _ZNSt6vectorIP3AppSaIS1_EE9push_backERKS1_;
-extern int _ZNSt6vectorIP8AppStackSaIS1_EE14_M_move_assignEOS3_St17integral_constantIbLb1EE;
 extern int _ZNSt6vectorIP8AppStackSaIS1_EE4rendEv;
 extern int _ZNSt6vectorIP8AppStackSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE;
 extern int _ZNSt6vectorIP8AppStackSaIS1_EE6rbeginEv;
@@ -2323,13 +2316,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN15AppStackManager3popEv", (void*)&_ZN15AppStackManager3popEv },
     { "_ZN15AppStackManager4pushEP3App", (void*)&_ZN15AppStackManager4pushEP3App },
     { "_ZN15AppStackManager7replaceEP3App", (void*)&_ZN15AppStackManager7replaceEP3App },
-    { "_ZN15AppStackManagerC1EP7Display", (void*)&_ZN15AppStackManagerC1EP7Display },
-    { "_ZN15AppStackManagerC1Ev", (void*)&_ZN15AppStackManagerC1Ev },
-    { "_ZN15AppStackManagerC2EP7Display", (void*)&_ZN15AppStackManagerC2EP7Display },
-    { "_ZN15AppStackManagerC2Ev", (void*)&_ZN15AppStackManagerC2Ev },
     { "_ZN15AppStackManagerD1Ev", (void*)&_ZN15AppStackManagerD1Ev },
     { "_ZN15AppStackManagerD2Ev", (void*)&_ZN15AppStackManagerD2Ev },
-    { "_ZN15AppStackManageraSEOS_", (void*)&_ZN15AppStackManageraSEOS_ },
     { "_ZN3App10onAiSelectERK14AiSelectTarget", (void*)&_ZN3App10onAiSelectERK14AiSelectTarget },
     { "_ZN3App10setManagerEP15AppStackManager", (void*)&_ZN3App10setManagerEP15AppStackManager },
     { "_ZN3App11replaceWithEPS_", (void*)&_ZN3App11replaceWithEPS_ },
@@ -2563,7 +2551,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED2Ev", (void*)&_ZNSt12_Vector_baseINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED2Ev },
     { "_ZNSt12_Vector_baseIP3AppSaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIP3AppSaIS1_EED1Ev },
     { "_ZNSt12_Vector_baseIP3AppSaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIP3AppSaIS1_EED2Ev },
-    { "_ZNSt12_Vector_baseIP8AppStackSaIS1_EE17_Vector_impl_data12_M_swap_dataERS4_", (void*)&_ZNSt12_Vector_baseIP8AppStackSaIS1_EE17_Vector_impl_data12_M_swap_dataERS4_ },
     { "_ZNSt12_Vector_baseIP8AppStackSaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIP8AppStackSaIS1_EED1Ev },
     { "_ZNSt12_Vector_baseIP8AppStackSaIS1_EED2Ev", (void*)&_ZNSt12_Vector_baseIP8AppStackSaIS1_EED2Ev },
     { "_ZNSt12_Vector_baseIP9_lv_obj_tSaIS1_EED1Ev", (void*)&_ZNSt12_Vector_baseIP9_lv_obj_tSaIS1_EED1Ev },
@@ -2691,7 +2678,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorIP3AppSaIS1_EE4rendEv", (void*)&_ZNSt6vectorIP3AppSaIS1_EE4rendEv },
     { "_ZNSt6vectorIP3AppSaIS1_EE6rbeginEv", (void*)&_ZNSt6vectorIP3AppSaIS1_EE6rbeginEv },
     { "_ZNSt6vectorIP3AppSaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIP3AppSaIS1_EE9push_backERKS1_ },
-    { "_ZNSt6vectorIP8AppStackSaIS1_EE14_M_move_assignEOS3_St17integral_constantIbLb1EE", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE14_M_move_assignEOS3_St17integral_constantIbLb1EE },
     { "_ZNSt6vectorIP8AppStackSaIS1_EE4rendEv", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE4rendEv },
     { "_ZNSt6vectorIP8AppStackSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE },
     { "_ZNSt6vectorIP8AppStackSaIS1_EE6rbeginEv", (void*)&_ZNSt6vectorIP8AppStackSaIS1_EE6rbeginEv },

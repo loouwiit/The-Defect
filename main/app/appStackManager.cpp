@@ -3,16 +3,24 @@
 #include <esp_log.h>
 
 // ════════════════════════════════════════════════════════════════
-// 构造 / 析构
+// 单例 / 构造 / 析构
 // ════════════════════════════════════════════════════════════════
 
-AppStackManager::AppStackManager(Display* display)
-	: m_display(display)
+AppStackManager& AppStackManager::instance()
 {
+	// Meyer's Singleton：函数局部 static，语言保证仅构造一次 + 线程安全
+	static AppStackManager inst;
+	return inst;
+}
+
+void AppStackManager::init(Display* display)
+{
+	m_display = display;
 }
 
 AppStackManager::~AppStackManager()
 {
+	// 单例从不释放（程序运行期常驻）——此析构仅满足编译器（magic static 的 atexit 注册）
 	// 逆序销毁所有栈（后台栈先销毁）
 	for (auto it = m_stacks.rbegin(); it != m_stacks.rend(); ++it)
 		delete *it;

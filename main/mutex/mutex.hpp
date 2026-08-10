@@ -10,6 +10,13 @@ public:
 		rtosMutex = xSemaphoreCreateMutex();
 	}
 
+	// ⚠ 互斥锁不可拷贝/移动：句柄按值拷贝 + 临时对象析构 vSemaphoreDelete
+	//   会留下悬空句柄（UAF）→ 后续 lock() 在已释放队列上 assert 崩溃。
+	Mutex(const Mutex&) = delete;
+	Mutex& operator=(const Mutex&) = delete;
+	Mutex(Mutex&&) = delete;
+	Mutex& operator=(Mutex&&) = delete;
+
 	~Mutex()
 	{
 		// 确保没有线程持有互斥量
@@ -46,6 +53,12 @@ public:
 	{
 		rtosMutex = xSemaphoreCreateRecursiveMutex();
 	}
+
+	// ⚠ 同上：不可拷贝/移动（悬空句柄 UAF）
+	RecursiveMutex(const RecursiveMutex&) = delete;
+	RecursiveMutex& operator=(const RecursiveMutex&) = delete;
+	RecursiveMutex(RecursiveMutex&&) = delete;
+	RecursiveMutex& operator=(RecursiveMutex&&) = delete;
 
 	~RecursiveMutex()
 	{

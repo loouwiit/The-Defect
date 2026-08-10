@@ -54,7 +54,6 @@ Display display{};
 IIC iic;
 Touch touch{};
 ES8311 audio{};
-AppStackManager stackManager{};
 
 extern "C" void app_main(void)
 {
@@ -181,14 +180,18 @@ extern "C" void app_main(void)
 	// 初始化主机电池 ADC（全局一次性）
 	BatteryManager::instance().init();
 
-	// 启动 AppStackManager — 多栈导航系统
-	stackManager = std::move(AppStackManager{ &display });
-	display.setStackManager(&stackManager);
+	// 启动 AppStackManager — 多栈导航系统（系统级单例，程序运行期常驻）
+	// ⚠ 必须用单例，不能用其他存储形式：
+	//   1. RecursiveMutex 无移动语义 → 全局对象 + std::move 赋值会悬空句柄 panic（已踩过）
+	//   2. 局部对象 → app_main 末尾无主循环会返回，返回时析构在后台任务
+	//      （LVGL/BLE/HTTP/deleteApp）并发运行中删栈删 App → 竞态崩溃
+	AppStackManager::instance().init(&display);
+	display.setStackManager(&AppStackManager::instance());
 
 	// 创建根栈（索引 0）并推入桌面应用
-	stackManager.createStack();
+	AppStackManager::instance().createStack();
 	DesktopApp* desktop = new DesktopApp{ &display };
-	stackManager.push(desktop);
+	AppStackManager::instance().push(desktop);
 
 	// 启动 BLE 手柄管理器
 	ESP_LOGI(TAG, "BleGamepad start");

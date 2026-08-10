@@ -29,14 +29,16 @@
 class AppStackManager
 {
 public:
-	AppStackManager() = default;
+	static AppStackManager& instance();   // Meyer's Singleton（magic static，仅构造一次 + 线程安全）
+
+	void init(Display* display);          // 注入 Display（main.cpp 单线程阶段调用一次）
 
 	AppStackManager(AppStackManager& copy) = delete;
 	AppStackManager& operator=(AppStackManager& copy) = delete;
-	AppStackManager(AppStackManager&& move) = default;
-	AppStackManager& operator=(AppStackManager&& move) = default;
-	AppStackManager(Display* display);
-	~AppStackManager();
+	// ⚠ 不可移动：成员 RecursiveMutex 无移动语义，隐式移动会按值拷贝句柄 +
+	//   临时对象析构删除句柄 → 悬空锁 panic（曾由 main.cpp 的 std::move 赋值触发）。
+	AppStackManager(AppStackManager&& move) = delete;
+	AppStackManager& operator=(AppStackManager&& move) = delete;
 
 	// ── 多栈管理 ──
 	AppStack* createStack();                    // 新建空栈
@@ -58,9 +60,12 @@ public:
 	App* activeApp() const;
 
 private:
+	AppStackManager() = default;
+	~AppStackManager();   // 单例从不释放（程序运行期常驻，此析构仅满足编译器）
+
 	void transitionStacks(AppStack* from, AppStack* to);
 
-	Display* m_display;
+	Display* m_display{};
 	std::vector<AppStack*> m_stacks;
 	AppStack* m_activeStack{};
 	RecursiveMutex m_mutex;   // ⚠ 递归锁：持锁期间 push 的 App::init() 可再调 pushApp
