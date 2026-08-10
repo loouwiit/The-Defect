@@ -101,16 +101,6 @@ extern "C" void app_main(void)
 		return;
 	}
 
-	// OTA 管理：延迟 10s 检测上次升级是否回滚（NVS 记录）。不自动确认固件——
-	// 回滚确认改全手动：OTA 后固件处于 PENDING_VERIFY，用户在 web 页面
-	// 「确认此固件」（POST /api/ota/confirm）才关闭回滚窗口；未确认则任何重启自动回退。
-	// ⚠ otaInit 内部会 mmap flash（禁用 cache 期间要求栈在内部 RAM），而 Task daemon 栈在
-	//   PSRAM → 必须经 otaRunInInternalStack 在内部 RAM 栈任务中执行。
-	Task::addTask([](void*) -> TickType_t {
-		otaRunInInternalStack([](void*) { otaInit(); }, nullptr);
-		return Task::infinityTime;
-	}, "ota init", nullptr, 10000, Task::Affinity::None);
-
 	// 初始化ILI9881c
 	if (!ILI9881c::getInstance().init(horizontalResolution, verticalResolution, frameBufferCount))
 	{
@@ -264,9 +254,24 @@ extern "C" void app_main(void)
 
 	// 服务器
 	// ⚠ OTA 内部 RAM 栈常驻任务须在 HTTP 服务器启动前（单线程阶段）显式初始化：
-	//   否则首个 /api/otaInfo 请求与 10s 延迟的 otaInit 并发懒创建会重复
+	//   否则首个 /api/otaInfo 请求与延迟的 otaInit 并发懒创建会重复
 	//   xTaskCreateStatic 复用同一静态 TCB/栈 → 任务表损坏。
 	otaInternalStackInit();
+
+	// OTA 启动检查：延迟 10s 检测上次升级是否回滚（NVS 记录）。不自动确认固件——
+	// 回滚确认改全手动：OTA 后固件处于 PENDING_VERIFY，用户在 web 页面
+	// 「确认此固件」（POST /api/ota/confirm）才关闭回滚窗口；未确认则任何重启自动回退。
+	// 注册点放在这里（启动流程末尾、otaInternalStackInit 之后）：
+	//   - 依赖已满足（otaInit 内部经 otaRunInInternalStack，走快路径）
+	//   - 注册点之前的启动段基本恒定，实际执行时刻 ≈ serverStart + 10s，比放在
+	//     display.init 后（受前段启动耗时漂移影响）稳定得多
+	//   - 10s 仅为错峰 flash 读取（避开启动早期字体/显示读 flash 密集期），与回滚判定无关
+	// ⚠ otaInit 内部会 mmap flash（禁用 cache 期间要求栈在内部 RAM），而 Task daemon 栈在
+	//   PSRAM → 必须经 otaRunInInternalStack 在内部 RAM 栈任务中执行。
+	Task::addTask([](void*) -> TickType_t {
+		otaRunInInternalStack([](void*) { otaInit(); }, nullptr);
+		return Task::infinityTime;
+	}, "ota init", nullptr, 10000, Task::Affinity::None);
 	ESP_LOGI(TAG, "serverStart");
 	serverStart();
 	ESP_LOGI(TAG, "serverStart done");
