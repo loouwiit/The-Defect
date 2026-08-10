@@ -12,3 +12,11 @@
  * 在 wsServerStart() 后调用 wsServerRegisterWs() 注册。
  */
 esp_err_t wsStreamHandler(httpd_req_t* req);
+
+/**
+ * @brief 判断指定 fd 是否为当前串流客户端
+ *
+ * 供 wsServerBroadcastText 广播时排除串流专用通道，
+ * 避免 httpd 任务与 streamSendTask 并发写同一 socket 造成帧交错。
+ */
+bool wsStreamIsFd(int fd);

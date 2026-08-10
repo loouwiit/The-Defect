@@ -11,6 +11,8 @@
 #include <cstring>
 #include <unistd.h>
 
+#include "screenStream/wsStreamHandler.hpp"
+
 static constexpr char TAG[] = "wsServer";
 
 EXT_RAM_BSS_ATTR static httpd_handle_t s_server = nullptr;
@@ -141,6 +143,8 @@ esp_err_t wsServerBroadcastText(const char* data, size_t len)
 		auto info = httpd_ws_get_fd_info(s_server, fd);
 		if (info == HTTPD_WS_CLIENT_WEBSOCKET)
 		{
+			/* 串流 fd 由 streamSendTask 独占写，跳过避免并发写帧交错 */
+			if (wsStreamIsFd(fd)) continue;
 			wsServerSendText(fd, data, len);
 		}
 	}

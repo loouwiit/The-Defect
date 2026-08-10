@@ -24,6 +24,11 @@
 	let manualStop = false;
 	let currentObjectUrl = null;
 
+	// 解码失败自愈：连续失败说明 WS 帧错位（服务器帧截断/并发写导致），
+	// 连接本身还活着但数据已损坏 → 强制 close 触发 onclose 自动重连
+	let decodeFailCount = 0;
+	const MAX_DECODE_FAILS = 5;
+
 	// FPS 统计（指数移动平均）
 	let lastFrameTime = 0;
 	let smoothedFps = 0;
@@ -75,6 +80,9 @@
 
 		// 通过 Canvas 旋转竖屏 JPEG → 横屏显示
 		createImageBitmap(blob).then(bitmap => {
+			// 解码成功，清零失败计数
+			decodeFailCount = 0;
+
 			// 清除上一帧
 			ROTATE_CTX.clearRect(-640, -360, 1280, 720);
 
@@ -97,6 +105,18 @@
 				streamImage.src = currentObjectUrl;
 			}, 'image/jpeg', 0.82);
 		}).catch(err => {
+			// 解码失败：连续多次说明 WS 帧错位（服务器帧截断/并发写导致），
+			// 连接本身还活着但数据已损坏 → 强制关闭让 onclose 自动重连自愈
+			decodeFailCount++;
+			if (decodeFailCount >= MAX_DECODE_FAILS) {
+				console.warn('串流解码连续失败 ' + decodeFailCount + ' 次，强制重连');
+				decodeFailCount = 0;
+				if (wsStream) {
+					try { wsStream.close(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+
 			// 降级：直接显示未旋转的图片
 			console.warn('Canvas 旋转失败，降级显示:', err);
 			if (currentObjectUrl) {
@@ -125,6 +145,7 @@
 		}
 
 		manualStop = false;
+		decodeFailCount = 0;
 		lastFrameTime = 0;
 		smoothedFps = 0;
 		fpsDisplay.textContent = '--';
@@ -203,6 +224,7 @@
 			reconnectTimer = null;
 		}
 		streamActive = false;
+		decodeFailCount = 0;
 		if (wsStream) {
 			wsStream.close();
 			wsStream = null;
