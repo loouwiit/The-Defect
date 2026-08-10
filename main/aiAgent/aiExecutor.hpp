@@ -16,6 +16,7 @@
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "elfManager/elfManager.hpp"
 #include <cstdio>
+#include <cstring>
 
 /**
  * @file aiExecutor.hpp
@@ -167,8 +168,14 @@ public:
                     break;
 
                 case AiActionType::SetVolume:
-                    Audio::setMasterVolume(action.value);
-                    handled = true;
+                    {
+                        // 与亮度一致钳制 0-100（越界值行为依赖 codec 驱动，不可控）
+                        int vol = action.value;
+                        if (vol < 0) vol = 0;
+                        if (vol > 100) vol = 100;
+                        Audio::setMasterVolume(vol);
+                        handled = true;
+                    }
                     break;
 
                 case AiActionType::PlayAudio:
@@ -222,7 +229,18 @@ public:
                 case AiActionType::ReadFile:
                 {
                     if (action.text.empty()) break;
-                    FILE* f = fopen(action.text.c_str(), "r");
+                    // ⚠ 路径白名单：仅允许读取 Lua 脚本目录。防止 AI（或被 prompt
+                    //   注入的内容诱导）读取敏感文件（/root/system/ai_config.json
+                    //   含 API Key、ELF 插件、WiFi 配置等）并将内容外泄到远端 API。
+                    const char* path = action.text.c_str();
+                    constexpr const char* kLuaDir = "/root/lua/";
+                    if (strncmp(path, kLuaDir, sizeof(kLuaDir) - 1) != 0) {
+                        result.failureDetail +=
+                            "禁止读取该路径（仅允许 /root/lua/ 下）: " + action.text + "\n";
+                        ESP_LOGW(TAG, "AI 读取越界路径被拦截: %s", path);
+                        break;
+                    }
+                    FILE* f = fopen(path, "r");
                     if (!f) {
                         result.failureDetail += "读取文件失败: " + action.text + "\n";
                         ESP_LOGW(TAG, "读取文件失败: %s", action.text.c_str());

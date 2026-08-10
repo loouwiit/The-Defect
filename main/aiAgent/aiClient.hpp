@@ -3,6 +3,7 @@
 #include <functional>
 #include <string>
 #include <errno.h>
+#include <esp_err.h>
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
 #include <esp_log.h>
@@ -105,25 +106,33 @@ private:
         cJSON_AddNumberToObject(root, "temperature", ctx.config.temperature);
         cJSON_AddNumberToObject(root, "max_tokens", ctx.config.maxTokens);
 
+        // ⚠ 声明提前：goto cleanup 不得跨越带初始化的局部变量声明
+        esp_http_client_handle_t client = nullptr;
+        char* respBuf = nullptr;
+        int contentLen = 0;
+        int status = 0;
+        std::string body;
+        std::string url;
+
         char* jsonStr = cJSON_PrintUnformatted(root);
-        std::string body(jsonStr);
         cJSON_Delete(root);
+        // ⚠ OOM 时返回 NULL，std::string(nullptr) 构造 = UB（段错误）
+        if (!jsonStr) {
+            errorMsg = "内存不足";
+            goto cleanup;
+        }
+        body.assign(jsonStr);
         cJSON_free(jsonStr);
 
         // ── 日志：请求体 ──
         ESP_LOGI(TAG, "请求体(%zu 字节): %s", body.size(), body.c_str());
 
         // 2. 构建 URL
-        std::string url = ctx.config.apiUrl;
+        url = ctx.config.apiUrl;
         if (!url.empty() && url.back() == '/') url.pop_back();
         url += "/v1/chat/completions";
 
         // 3. 配置 esp_http_client
-        esp_http_client_handle_t client = nullptr;
-        char* respBuf = nullptr;
-        int contentLen = 0;
-        int status = 0;
-
         {
             esp_http_client_config_t cfg = {};
             cfg.url = url.c_str();
@@ -146,8 +155,21 @@ private:
 
         // 4. 使用 open/write/fetch_headers 模式（perform 会消费 body 导致无法读取）
         ESP_LOGI(TAG, "POST %s", url.c_str());
-        esp_http_client_open(client, body.size());
-        esp_http_client_write(client, body.data(), body.size());
+        {
+            // 块作用域：goto cleanup 不跨越这些局部变量初始化
+            esp_err_t openErr = esp_http_client_open(client, body.size());
+            if (openErr != ESP_OK) {
+                errorMsg = "HTTP 连接失败";
+                ESP_LOGW(TAG, "open failed: %s", esp_err_to_name(openErr));
+                goto cleanup;
+            }
+            int wlen = esp_http_client_write(client, body.data(), body.size());
+            if (wlen < 0 || (size_t)wlen != body.size()) {
+                errorMsg = "HTTP 写入失败";
+                ESP_LOGW(TAG, "write failed: %d", wlen);
+                goto cleanup;
+            }
+        }
 
         contentLen = esp_http_client_fetch_headers(client);
         status = esp_http_client_get_status_code(client);
@@ -198,6 +220,7 @@ private:
             } else if (contentLen > 0 && readLen == 0) {
                 // fallback: 用 read_response（Content-Length 已知且为 EOF 时）
                 // 注意：readLen < 0（超时/错误）时不再走此路径，避免再白等一个超时周期
+                if (respBuf) { heap_caps_free(respBuf); respBuf = nullptr; }   // 释放首块空缓冲，防覆盖指针泄漏
                 respBuf = static_cast<char*>(
                     heap_caps_malloc(contentLen + 1, MALLOC_CAP_SPIRAM));
                 if (respBuf) {
