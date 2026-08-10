@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <cstring>
+#include "mutex/mutex.hpp"
 
 class WsClient;
 
@@ -41,7 +42,7 @@ public:
 	/// 断开连接，恢复主机身份
 	void disconnectFromHost();
 
-	bool isConnectedToHost() const { return m_consoleClient != nullptr; }
+	bool isConnectedToHost() const { return m_consoleClient != nullptr && !m_consoleDisconnected; }
 	int  getMySlot() const         { return m_mySlot; }
 	const char* getRemoteHostname() const { return m_remoteHostname; }
 	const char* getRemoteIp() const       { return m_remoteIp; }
@@ -68,10 +69,12 @@ public:
 	// ── 事件回调（供 ConsoleManager 等 UI 监听）──
 
 	void setOnSlotUpdate(std::function<void(const ClientSlot* slots)> cb) {
+		Lock lock{ m_mutex };
 		m_onSlotUpdate = std::move(cb);
 	}
 
 	void setOnRoleChange(std::function<void(bool isClient)> cb) {
+		Lock lock{ m_mutex };
 		m_onRoleChange = std::move(cb);
 	}
 
@@ -115,8 +118,18 @@ private:
 	static constexpr int POOL_SIZE = 4;
 	WsEntry m_wsPool[POOL_SIZE]{};
 	WsClient* m_consoleClient = nullptr;  // /ws/console 连接
+	bool m_consoleDisconnected = false;   // 连接已断开但尚未清理（供 connectToHost 判断）
 
 	WsClient* createOrGetWsClient(const char* uri);
+
+	// ── 内部清理 ──
+
+	/// 投递统一清理到 daemon 任务。⚠ 绝不能在 WS 事件回调上下文直接 delete WsClient
+	/// （esp_websocket_client_stop 会等待客户端 task 退出 → 自等待死锁）。
+	void scheduleConnectionCleanup();
+
+	/// 统一清理：断开并销毁所有连接 + 重置角色/槽位。须在非 WS 回调上下文调用。
+	void cleanupConnection();
 
 	// ── 槽位状态（主机侧）──
 	ClientSlot m_slots[4] = {
@@ -133,5 +146,11 @@ private:
 	std::function<void(const ClientSlot* slots)> m_onSlotUpdate;
 	std::function<void(bool isClient)> m_onRoleChange;
 
+	// ⚠ 保护 m_slots / m_hostMask / m_wsPool / m_consoleClient 与回调容器。
+	//   约束：WS 事件回调（onConnected/onMessage/onDisconnected）不得持本锁——
+	//   清理路径持锁 delete client 会等待 WS task 退出，若回调持锁则死锁。
+	Mutex m_mutex;
+
 	void notifySlotUpdate();
+	void notifyRoleChange(bool isClient);
 };

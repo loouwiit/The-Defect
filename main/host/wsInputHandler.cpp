@@ -129,7 +129,16 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 
 	heap_caps_free(buf);
 
-	/* ── 追踪 fd → hostId，用于断开清理 ── */
+	/* ⚠ hostId=0 允许：/ws/input 是 Web 调试控制端（虚拟手柄页面），
+	   需要能模拟本机玩家输入以便调试，给予完整权限。仅拒绝越界值。
+	   （UDP 通道 udpInput 仍拒绝 hostId=0 —— 那是 P4→P4 联机通道，不可伪造本机源） */
+	if (hostId < 0 || hostId >= 4)
+	{
+		ESP_LOGW(TAG, "invalid hostId=%d rejected", hostId);
+		return ESP_OK;
+	}
+
+	/* ── 追踪 fd → hostId，用于断开清理（校验通过后才 track，非法帧不进表）── */
 	int fd = httpd_req_to_sockfd(req);
 	trackFd(fd, hostId);
 
@@ -139,12 +148,6 @@ esp_err_t wsInputHandler(httpd_req_t* req)
 		state.lt, state.rt, state.dpad);
 
 	/* ── 注入 ── */
-	if (hostId < 0 || hostId >= 4)
-	{
-		ESP_LOGW(TAG, "invalid hostId=%d", hostId);
-		return ESP_OK;
-	}
-
 	VirtualGamepad::instance().inject(hostId, localPlayer, state);
 
 	return ESP_OK;
