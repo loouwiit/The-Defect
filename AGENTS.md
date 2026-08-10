@@ -1470,6 +1470,20 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 - 内置 HTML 文件服务（`buildinHtml/`）
 - 静态资源目录：`/root/`（FAT 分区）
 
+#### 内置文件管理页（`/file`）
+
+**模块路径**: `main/server/buildinHtml/file.html` + `file.hpp`（`constexpr char HtmlFile[]` 编译进固件，`serverKernal.cpp:503` 在 uri=`/file|/File|/FILE` 时返回）
+
+| 功能 | 实现 |
+|------|------|
+| 上传进度条 | **纯前端** `xhr.upload.onprogress`（`e.loaded/e.total`），与 OTA 页面同款；设备端零参与 |
+| 上传方式 | `xhr.send(file)` 直发 File 对象（浏览器自动设 Content-Length + 流式读取，不再 FileReader 整读内存）；后端 `httpPut` 本就是流式写入（512B 块循环）→ 天然配合 |
+| 上传中按钮禁用 | 防并发 PUT 写坏文件，`onload/onerror` 恢复 |
+
+- ⚠ **`file.html` ↔ `file.hpp` 需同步转义，无自动脚本**：改 HTML 后必须手动转义（`\`→`\\`、`"`→`\"`、换行→`\n`、tab→`\t`，单引号不转义）重新生成 hpp（可用 python `repr()` 或 `replace` 链），漏同步则页面不更新
+- ⚠ **上传 URL 必须拼文件名**：`uploadPressed` 中路径 = `place + file.name`（place 是当前目录，以 `/` 结尾）。漏拼文件名 → 文件内容被 PUT 到**目录 URL** → 服务端走建目录分支（不落盘、body 残留污染下一请求）。曾实测：manifest.json 上传后 PUT `/elf/fruitNinja/` body 196B → 下一请求解析出 `path="name":` 诡异 POST
+- ⚠ **响应缺失 Content-Type = Firefox 报 "XML 解析错误"**：XHR 规范规定响应无 Content-Type 时默认按 `text/xml` 解析（body 非合法 XML → 控制台报错；功能正常因代码读 `responseText`，解析失败只影响 `response` 文档对象）。曾踩坑：`sendOk`（PUT/DELETE 的 OK 响应，body="OK"）与 `/api/getSpace` 均缺头 → 已补 `text/plain; charset=utf-8`。**新增响应分支务必设置 Content-Type**
+
 ### OtaManager — 双槽 OTA 空中升级（封壳设备唯一升级途径）
 
 **模块路径**: `main/ota/otaManager.hpp` / `.cpp`
@@ -1550,6 +1564,10 @@ POST /api/ota（body 不缓冲，socket 流式读取）
   （`readBodyFully()`：循环 `readByte` + `isGood` 断连检查 + `vTaskDelay(1)`）。
 - 已覆盖：`/api/floor`、`/api/wifiStart`、`/api/apStart`、`/api/formatFlash`、
   `/api/aiConfig`、`/api/mdnsConfig`、`httpDelete`、`httpOtaSetBoot`、`httpOta`。
+- ⚠ **`httpPut` 建目录分支（path 以 `/` 结尾）不读 body 也会残留**：floor 创建无需 body
+  （`newFloor` 发空 body），但客户端若带 body PUT 到目录 URL（如误把 manifest 上传到
+  `/elf/<name>/`），196B 残留被解析成下一个请求（实测 `POST "name":`）。已修复：建目录分支
+  循环 discard body（`readByte` 512B 块 + `isGood` 断连检查），空 body 零开销。
 - `/api/formatFlash` 原 VLA `char body[bodyLenght+1]`（栈上，恶意大 body 栈溢出）→ 已改堆分配。
 
 **⚠ 路由长度必须精确**（`stringCompare` 严格长度匹配）：
@@ -1712,6 +1730,25 @@ ScreenStream::instance().start(&display, 720, 1280);
 ScreenStream::instance().captureJpeg(buf, size);
 ScreenStream::instance().stop();
 ```
+
+### wsStreamHandler — /ws/stream 双任务管线（自愈模型）
+
+**模块路径**: `main/screenStream/wsStreamHandler.cpp`
+
+编码任务（`wsEnc`）+ 发送任务（`wsSend`）通过双缓冲 + 计数信号量（2）+ Queue(2) 传递帧，真正并行。
+
+| 特性 | 说明 |
+|------|------|
+| 帧格式 | 二进制 WS 帧（0x82），手写帧头 + `send()` 载荷 |
+| **完整发送** | `sendAllBytes()` 循环推进：**部分发送=正常进度**（绝不丢弃尾部——丢弃即截断帧，浏览器解析器永久错位）；`EAGAIN/EWOULDBLOCK/EINTR` 5ms 退避重试，**帧时限 2s**（`kFrameDeadlineMs`） |
+| **SO_SNDTIMEO 收紧** | 串流 fd 发送超时 5s→1s（`setsockopt`，启动/切换时设置），快速失败快速重连 |
+| **失败自愈** | 帧发送失败 → `httpd_sess_trigger_close` 主动关连接 + 停管线 → 浏览器 `onclose` → 5s 自动重连全新流。**禁止**静默累计错误后任务自杀（旧版 50 次错误后 `vTaskDelete` 且句柄不清理 → 重启门 `!s_encodeTask && !s_sendTask` 永假 → 流永久死亡，连接却保持打开） |
+| **任务退出清理** | 两个任务自删前必须 `s_encodeTask/s_sendTask = nullptr`；send task 退出前 drain 队列归还缓冲 |
+| **重启重建** | `startStreamTasks()` 每次重建 sem/queue（防计数漂移）；重建前等待旧 encode task 完全退出（删对象前 take = UB） |
+| **客户端切换** | 新客户端 GET 一律挂 `PendingClient`（`portMUX` 保护 hd/fd 一致性），send task 帧边界原子切换（唯一消费者），不粗暴杀旧管线 |
+| **广播隔离** | `wsStreamIsFd(fd)` 供 `wsServerBroadcastText` 跳过串流 fd，杜绝 httpd 任务与 send task 并发写同一 socket 帧交错 |
+
+**浏览器端自愈**（`reserces/server/screen/screen.js`）：`createImageBitmap` 连续解码失败 ≥5 次（`MAX_DECODE_FAILS`）→ `wsStream.close()` 强制重连（成功路径清零计数）。
 
 ---
 
