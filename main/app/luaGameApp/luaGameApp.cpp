@@ -5,6 +5,7 @@
 #include "task/task.hpp"
 #include "storage/fat.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
+#include "battery/batteryMonitor.hpp"
 #include "gamepad/bleGamepad.hpp"
 #include "touch/gt911Indev.hpp"
 #include <esp_log.h>
@@ -330,14 +331,42 @@ void LuaGameApp::gameLoop()
     if (last == 0 || dt < 0.1f) dt = 16.0f;     // 初始值
     if (dt > 100.0f) dt = 16.0f;   // 防止跳帧
 
-    // 更新输入上下文（先归档上一帧快照，再刷新当前帧快照）
-    // ⚠ 归档+采样须在游戏循环 Task 内完成（与 updateTouchSnapshot 同款）：
-    //   若直接 memcpy(m_prevInputs, m_inputs)，dispatch Task 并发写入的按键
-    //   上升沿可能"归档前已写入"→ prev 已按下 → is_just_pressed 整个按键期间
-    //   恒 false，本次按下被吸收永不触发（颜色切换/退出偶发失效的根因）。
-    //   帧快照模式下最坏延迟 1 帧捕获，边沿不丢失。
-    memcpy(m_prevInputs, m_frameInputs, sizeof(m_prevInputs));
-    memcpy(m_frameInputs, m_inputs, sizeof(m_frameInputs));
+    // 系统浮层（AI 助手 / 低电量弹窗）显示时独占输入：Lua 一律看到中立输入。
+    // ⚠ 与 VirtualGamepad::dispatchTask 的门控语义保持一致——dispatch 已拦截
+    //    onGamepadInput（手柄不会再写入 m_inputs），但触摸快照是直读
+    //    GT911Indev::getSlots() 的"原始输入"，不经 dispatch：浮层上触摸/按键
+    //    若不在此拦截会穿透进 Lua 游戏（AI 键盘打字时游戏被误触的根因）。
+    //    同时清空 m_inputs 实时缓冲，防止浮层关闭后残留按压被采样进快照
+    //    （浮层期间 dispatch 门控不写 m_inputs，最后按压值会滞留）。
+    const bool overlayVisible =
+        AiAgentOverlay::instance().isVisible() ||
+        BatteryMonitor::instance().isAlertShown();
+
+    if (overlayVisible) {
+        // 手柄 + 触摸快照全部置中（prev/cur 同步清空：is_just_pressed 恒 false）。
+        // ⚠ 必须用 GamepadState{} 值构造（dpad=15 松开 / 摇杆 128），
+        //   memset(0) 会把 dpad 置 0=「上」被按下，等于伪造输入。
+        for (int i = 0; i < MaxPlayers; i++) {
+            m_inputs[i]      = GamepadState{};
+            m_frameInputs[i] = GamepadState{};
+            m_prevInputs[i]  = GamepadState{};
+        }
+        memset(m_touchCtx.down,     0, sizeof(m_touchCtx.down));
+        memset(m_touchCtx.prevDown, 0, sizeof(m_touchCtx.prevDown));
+        m_touchCtx.downCount = 0;
+    } else {
+        // 更新输入上下文（先归档上一帧快照，再刷新当前帧快照）
+        // ⚠ 归档+采样须在游戏循环 Task 内完成（与 updateTouchSnapshot 同款）：
+        //   若直接 memcpy(m_prevInputs, m_inputs)，dispatch Task 并发写入的按键
+        //   上升沿可能"归档前已写入"→ prev 已按下 → is_just_pressed 整个按键期间
+        //   恒 false，本次按下被吸收永不触发（颜色切换/退出偶发失效的根因）。
+        //   帧快照模式下最坏延迟 1 帧捕获，边沿不丢失。
+        memcpy(m_prevInputs, m_frameInputs, sizeof(m_prevInputs));
+        memcpy(m_frameInputs, m_inputs, sizeof(m_frameInputs));
+
+        // 触摸快照（无锁）
+        updateTouchSnapshot();
+    }
 
     // 同步真实连接状态（BLE 链接），供 input.connected() / player_count() 使用
     for (int i = 0; i < MaxPlayers; i++) {
@@ -345,9 +374,6 @@ void LuaGameApp::gameLoop()
         m_inputCtx.connected[i] = dev && dev->connected;
     }
     m_inputCtx.playerCount = countConnectedPlayers();
-
-    // 触摸快照（无锁）
-    updateTouchSnapshot();
 
     // 持 LVGL 锁 → 帧前清槽 → 调 Lua loop(dt)（对象池化绘制，静态跳过）→ 释放锁
     {

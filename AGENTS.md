@@ -205,6 +205,7 @@ class LuaRuntime {
 - `gameLoop()` 每帧在游戏循环 Task 内两步：`memcpy(m_prevInputs, m_frameInputs)` 归档上一帧快照 → `memcpy(m_frameInputs, m_inputs)` 刷新当前帧快照
 - Lua 绑定 `states/prevStates` 指向 `m_frameInputs`/`m_prevInputs`，边沿 `is_just_pressed = cur && !prev` 同源自洽
 - ⚠ 修复前直接 `memcpy(m_prevInputs, m_inputs)`：按键上升沿若在归档前已被 dispatch Task 写入 → `prev` 已按下 → 整个按键期间 `cur && !prev` 恒 false，**本次按下被吸收永不触发**（A 键切色/B 键退出偶发失效的根因）。帧快照模式下最坏延迟 1 帧捕获，边沿不丢失
+- **系统浮层门控**（AI Overlay `isVisible()` **或** 低电量弹窗 `BatteryMonitor::isAlertShown()`）：`gameLoop()` 每帧先判 `overlayVisible`，浮层可见时**手柄+触摸快照全部置中**（`GamepadState{}` 值构造 + `down/prevDown` 清空 + `downCount=0`，含清 `m_inputs` 实时缓冲防浮层关闭后残留按压泄漏），跳过采样——与 `VirtualGamepad::dispatchTask` 门控语义一致。⚠ 触摸快照直读 `GT911Indev::getSlots()` 是**原始输入**，不经 dispatch（dispatch 只拦手柄分发），浮层上触摸/按键若不在此拦截会穿透进 Lua 游戏（AI 键盘打字误触游戏）；⚠ 置中必须用 `GamepadState{}` 值构造（dpad=15 松开/摇杆 128），`memset(0)` 会把 dpad 置 0=「上」按下=伪造输入
 ⚠ `LuaGameApp::init()` 的 `m_canvas` 须移除 `LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE`（`lv_obj_create` 默认可滚动+可点击，子对象越出画布边界时触摸拖拽会滚动整个画布——FruitNinja 画布同款处理；`LV_SCROLLBAR_MODE_OFF` 只隐藏滚动条，不防滚动）。
 
 ### Lua 沙箱（安全边界）
