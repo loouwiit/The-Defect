@@ -36,16 +36,18 @@ otadata,  data, ota  ,         ,  8k,
 phy_init, data, phy  ,         ,  4k,
 ota_0,    app , ota_0,         ,  6M
 ota_1,    app , ota_1,         ,  6M
+coredump, data, coredump,       , 512K,
 fat,      data, fat  ,      16M, 16M,
 ```
 
 分区说明：
 | 分区 | 大小 | 用途 |
 |------|------|------|
-| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名、时间自动同步开关、**OTA 回滚记录**等） |
+| nvs | 16KB | NVS 键值持久化（WiFi 配置、手柄配对、音量、mDNS 主机名、时间自动同步开关、**OTA 回滚记录**、**崩溃统计**等） |
 | otadata | 8KB | OTA 启动选择数据 |
 | phy_init | 4KB | WiFi/BT 物理层校准数据 |
 | ota_0 / ota_1 | 6MB × 2 | 双 OTA 应用槽（交替升级，bootloader 自动回滚安全网） |
+| coredump | 512KB | 崩溃转储（自动位于 ota_1 后空隙 0xc20000；fat 偏移不变，数据零迁移）。下载：`GET /api/coredump`，解码：`idf.py coredump-info -c core.elf <build/The-Defect.elf>` |
 | fat | 16MB | FAT 数据分区，挂载到 `/root/`（偏移固定 16M，OTA 不影响数据） |
 
 > ⚠ 完整板已封壳（无 USB 调试口），**唯一升级途径是 OTA**：浏览器 `http://<主机名>.local/server/ota/index.html` 或 `curl -X POST --data-binary @build/The-Defect.bin http://<主机名>.local/api/ota`。升级镜像 = `build/The-Defect.bin`（app 镜像，非 merge 整片）。分区表/bootloader 变更需在封壳前一次性 USB 全量刷写（OTA 无法改分区表）。
@@ -63,7 +65,9 @@ reserces/
 │   ├── screen/      ← 屏幕串流 Web 查看器
 │   ├── tetris/      ← Tetris 网页客户端
 │   ├── gamepad/     ← 虚拟手柄 Web 客户端（/ws/input 测试）
-│   └── wifi/        ← WiFi 网页配置
+│   ├── wifi/        ← WiFi 网页配置
+│   ├── ota/         ← OTA 升级页面
+│   └── diag/        ← 系统诊断页面（实时日志 / 崩溃状态 / 日志级别）
 └── system/          ← 系统文件（字体 + 输入法词库）
     ├── NotoSC.ttf   ← 全局默认字体
     ├── pinyin_dict.txt      ← 拼音词库（411 码 / 8343 字，Rime 8105 规范汉字表）
@@ -83,6 +87,7 @@ reserces/
 | | IIC | `main/iic/` | I²C 主控总线 (`IIC`) + 设备封装 (`IICDevice`)，自动端口选择 |
 | | VirtualGamepad | `main/gamepad/virtualGamepad.hpp` | 统一手柄输入抽象层，60fps Dispatch + hostMask 掩码 + 远程转发 |
 | | TimeService | `main/time/timeService.hpp` | 全局 SNTP 时间同步服务：自动同步 NVS 持久化 + WiFi 连接自动同步 + 周期校正 + 句柄化多回调 |
+| | **LogService** | `main/logService/` | 日志重定向（`esp_log_set_vprintf` → FAT 文件 + `/ws/log` 实时推送）+ 日志级别 NVS 持久化 + 崩溃检测记录 |
 | **显示/输入** | Display | `main/display/display.hpp` | ILI9881C 初始化 + LVGL 适配层，`LockGuard` RAII（递归锁） |
 | | ILI9881c | `main/display/ili9881c.cpp` | 面板驱动（MIPI DSI），背光亮度控制 |
 | | FontLoader | `main/display/font.cpp` | FreeType 字体加载，3 字号全局默认字体，VFS 驱动器 'F' |
@@ -2043,6 +2048,98 @@ class SystemMonitor {
 
 ---
 
+## 日志与崩溃诊断（封壳设备远程调试）
+
+**模块路径**: `main/logService/`（LogService 单例）+ `reserces/server/diag/`（Web 页面）
+
+封壳设备无串口，日志与崩溃现场通过 Wi-Fi 远程获取。入口：浏览器 `http://<主机名>.local/server/diag/`。
+
+### LogService — 日志重定向服务
+
+```cpp
+class LogService {
+    static LogService& instance();
+    void start();          // mountFlash + nvsInit 后调用：注册 vprintf + 启动 LogTask（幂等）
+    bool readTail(char* buf, size_t bufSize, size_t maxLines);  // 尾部 N 行
+    size_t getFileSize() const;
+    void setGlobalLevel(int level);   // 0-5（NONE..VERBOSE），NVS 持久化
+    int  getGlobalLevel() const;      // NVS，未设置返回 -1
+    void detectCrash();               // 启动早期：复位原因 + coredump 存在 → NVS 记录
+    uint32_t getPanicCount() const;
+    time_t getLastCrashTime() const;
+    void clearCrashRecords();
+    bool hasCoredump() const;
+    void addWsClient(httpd_handle_t hd, int fd);   // /ws/log 订阅
+    void removeWsClient(int fd);
+    void enqueue(const char* line, size_t len);    // vprintf 回调入队
+};
+esp_err_t logWsHandler(httpd_req_t* req);          // /ws/log handler（main.cpp 注册）
+```
+
+**架构**（vprintf 回调可重入，多任务并发调用）：
+
+```
+ESP_LOGx → esp_log_set_vprintf(logVprintf)
+  ├─ vsnprintf → 行缓冲 → xQueueSend 入队（64×256B，满则丢弃，绝不阻塞调用方）
+  ├─ 链式调用旧 handler（保留 UART 输出，开发板仍可看串口）
+  └─ FAT 挂载前：写 PSRAM 早期缓冲（16KB），start() 后 LogTask 落盘
+
+LogTask（独立低优先级任务）：
+  ├─ dump 早期缓冲 → app.log
+  ├─ 出队 → fwrite 追加 /root/system/log/app.log（攒批 4KB / 200ms flush）
+  ├─ 文件 >512KB → 滚动（app.log → app.log.prev）
+  └─ 每行同步推送 /ws/log 订阅客户端（断连自动移除，`httpd_ws_get_fd_info` 检测）
+```
+
+**关键设计**：
+- **vprintf 回调零阻塞**：只做 vsnprintf + 入队（xQueueSend 0 超时）；文件 IO / WS 推送全部在 LogTask
+- **va_list 消费一次**：`va_copy` 给 vsnprintf，原 `va_list` 传给旧 handler（否则二次使用 UB）
+- **链式 UART**：`esp_log_set_vprintf` 返回旧 handler，开发阶段串口日志不丢失
+- **队列满丢弃新行**：日志风暴时保系统稳定（丢日志 < 拖垮调用方）
+- **崩溃记录**（NVS namespace `"log"`）：`detectCrash()` 在 nvsInit 后调用，`esp_reset_reason()` 判定 panic/看门狗/欠压 → `panic_count`++ + `last_crash` 时间戳；coredump 存在性读分区首字（0xFFFFFFFF=空）
+- **日志级别**：`esp_log_level_set("*", level)` + NVS 持久化，`start()` 时恢复；`POST /api/logLevel` 远程调整（DEBUG 排查用）
+- **/ws/log 订阅**：`wsServerRegisterWs` 注册，`max_uri_handlers=8` 已用 5 个（touch/stream/input/console/log），上限内
+
+### HTTP 诊断 API（serverKernal.cpp）
+
+| 接口 | 说明 |
+|------|------|
+| `GET /api/log?tail=N` | 日志文件尾部 N 行（默认 200，≤2000），text/plain |
+| `POST /api/logLevel` | body `{"level":4}` 设置全局日志级别（0-5），NVS 持久化 |
+| `GET /api/resetInfo` | JSON：`reset_reason`/`reset_reason_name`/`panic_count`/`last_crash`/`has_coredump`/`log_level` |
+| `POST /api/resetInfo/clear` | 清零崩溃统计（panic_count/last_crash） |
+| `GET /api/coredump` | 下载 coredump 分区原始数据（ELF，octet-stream） |
+| `POST /api/coredump/clear` | 清除 coredump（`esp_core_dump_image_erase`） |
+
+**⚠ coredump 读取必须经 `OtaManager::runInInternalStack` + 内部 RAM 块缓冲**：
+- 读 flash 分区（非 mmap）会 `spi_flash_disable_interrupts_caches_and_other_cpu`，coWorker 栈在 PSRAM = 崩
+- `s_coredumpChunk[4096]` 静态 `.bss`（不加 `EXT_RAM_BSS_ATTR`）在内部 RAM，分块读入中转后拷贝 PSRAM 缓冲发送
+- 下载前检查 `OtaManager::isUpdating()`（与 OTA 串行，避免插队）
+- 分区第一个 4 字节 = 转储大小（`0xFFFFFFFF` = 空 → 404）
+
+**解码崩溃现场**（PC 端）：
+```bash
+curl -o core.elf http://<主机名>.local/api/coredump
+idf.py coredump-info -c core.elf build/The-Defect.elf
+```
+
+### 崩溃/复位原因（esp_reset_reason）
+
+| 值 | 枚举 | 含义 |
+|----|------|------|
+| 1 | `ESP_RST_POWERON` | 上电 |
+| 3 | `ESP_RST_SW` | 软件复位 `esp_restart()` |
+| 4 | `ESP_RST_PANIC` | **panic 崩溃** |
+| 5 | `ESP_RST_INT_WDT` | 中断看门狗 |
+| 6 | `ESP_RST_TASK_WDT` | 任务看门狗 |
+| 9 | `ESP_RST_BROWNOUT` | 欠压 |
+| 其他 | — | 外部/深睡/SDIO/USB/JTAG 等（`resetReasonName` 映射表） |
+
+> ⚠ v5.5.2 无 `esp_reset_reason_str()`（新版 API），用本地数字映射表。
+> ⚠ 崩溃瞬间不写 FAT（flash 冲突），现场由 coredump 分区保存；panic 计数在下次启动时由 `detectCrash()` 记录。
+
+---
+
 ## GUI 辅助类
 
 **模块路径**: `main/gui/`
@@ -2220,6 +2317,10 @@ mountMem()                              ← 内存文件系统 → /root/mem
 mountSd()                               ← SD 卡 → /root/sd
 nvsInit()                               ← NVS 初始化
 
+// ── 日志重定向 + 崩溃检测（封壳设备远程调试） ──
+LogService::instance().start()          ← esp_log_set_vprintf → FAT 文件 + /ws/log；早期缓冲落盘
+LogService::instance().detectCrash()    ← 复位原因 + coredump 存在 → NVS 记录（panic 计数）
+
 // ── ELF 插件 SDK ──
 elf_sdk_init()                          ← 注册符号表 g_main_elfsyms（任何 dlopen 之前）
 
@@ -2285,6 +2386,7 @@ OtaManager::instance()                  ← 单例构造：内部 RAM 栈任务 
 Task::addTask(延迟 10s → checkRollback) ← OTA 启动检查：回滚判定 + 状态日志（注册点在启动流程末尾）
 serverStart()                           ← HTTP 端口 80
 wsServerStart()                         ← WebSocket 端口 8080
+wsServerRegisterWs("/ws/log", logWsHandler) ← 实时日志推送（诊断页订阅）
 udpInputStart()                         ← UDP 端口 8082（P4→P4 手柄透传）
 
 // ⚠ 无主循环：app_main 至此返回（所有后台工作由独立 Task 承担：LVGL worker /

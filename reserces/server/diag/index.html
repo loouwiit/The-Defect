@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>系统诊断</title>
+	<style>
+		body {
+			font-family: -apple-system, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+			background: #1a1a2e;
+			color: #fff;
+			margin: 0;
+			padding: 24px;
+			max-width: 860px;
+			margin: 0 auto;
+		}
+		h2 { margin-top: 8px; }
+		.card {
+			background: #2d2d3d;
+			border-radius: 12px;
+			padding: 20px;
+			margin-top: 16px;
+		}
+		h3 { margin: 0 0 10px 0; font-size: 16px; }
+		.row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+		button {
+			background: #0088ff;
+			color: #fff;
+			border: none;
+			border-radius: 8px;
+			padding: 8px 16px;
+			font-size: 14px;
+			cursor: pointer;
+		}
+		button:disabled { background: #555; cursor: not-allowed; }
+		button.danger { background: #ff3b30; }
+		button.ghost { background: #444; }
+		select {
+			background: #1a1a2e; color: #fff; border: 1px solid #555;
+			border-radius: 6px; padding: 6px 10px; font-size: 14px;
+		}
+		.info-line { line-height: 1.9; font-size: 14px; }
+		.info-line b { color: #00c853; }
+		.info-line .warn { color: #ffa800; }
+		.info-line .danger { color: #ff8a80; }
+		.banner {
+			border-radius: 8px; padding: 10px 14px; margin-top: 10px;
+			font-size: 13px; line-height: 1.5;
+		}
+		.banner.danger { background: #3a1f1f; border: 1px solid #ff3b30; color: #ff8a80; }
+		.banner.ok     { background: #1f3a26; border: 1px solid #00c853; color: #7fd89a; }
+		#logBox {
+			background: #0d0d1a;
+			border: 1px solid #444;
+			border-radius: 8px;
+			padding: 10px 12px;
+			height: 420px;
+			overflow-y: auto;
+			font-family: "SF Mono", Consolas, "Courier New", monospace;
+			font-size: 12px;
+			line-height: 1.55;
+			white-space: pre-wrap;
+			word-break: break-all;
+			margin-top: 10px;
+		}
+		#logBox .empty { color: #666; }
+		#logStatus { font-size: 12px; color: #888; margin-left: 8px; }
+		.lv-ctrl { display: flex; align-items: center; gap: 8px; }
+		#toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+			background: #333; border-radius: 8px; padding: 10px 18px; font-size: 14px;
+			display: none; z-index: 99; }
+	</style>
+</head>
+<body>
+	<h2>系统诊断</h2>
+
+	<!-- 崩溃 / 复位状态 -->
+	<div class="card">
+		<h3>🛡 崩溃状态</h3>
+		<div class="info-line" id="resetInfo">读取中...</div>
+		<div id="crashBanner" class="banner danger" style="display:none"></div>
+		<div class="row" id="crashActions" style="display:none">
+			<a id="dumpLink" href="/api/coredump" download="core.elf"><button>⬇ 下载 coredump</button></a>
+			<button class="danger" id="clearDumpBtn">🗑 清除 coredump</button>
+			<button class="ghost" id="clearStatsBtn">清除崩溃统计</button>
+		</div>
+	</div>
+
+	<!-- 日志级别 -->
+	<div class="card">
+		<h3>📊 日志级别</h3>
+		<div class="row lv-ctrl">
+			<span style="font-size:14px;color:#aaa">全局日志级别（重启保持）:</span>
+			<select id="logLevel">
+				<option value="0">NONE</option>
+				<option value="1">ERROR</option>
+				<option value="2">WARN</option>
+				<option value="3" selected>INFO</option>
+				<option value="4">DEBUG</option>
+				<option value="5">VERBOSE</option>
+			</select>
+			<button id="applyLevelBtn">应用</button>
+		</div>
+	</div>
+
+	<!-- 实时日志 -->
+	<div class="card">
+		<div class="row" style="margin-top:0">
+			<h3 style="margin:0">📜 实时日志</h3>
+			<span id="logStatus">连接中...</span>
+			<div style="flex:1"></div>
+			<button class="ghost" id="pauseBtn">⏸ 暂停</button>
+			<button class="ghost" id="clearLogBtn">🧹 清屏</button>
+			<button class="ghost" id="downloadLogBtn">⬇ 下载日志</button>
+		</div>
+		<label style="font-size:12px;color:#888;display:flex;align-items:center;gap:6px;margin-top:8px">
+			<input type="checkbox" id="autoScroll" checked> 自动滚动到底部
+		</label>
+		<div id="logBox"><span class="empty">等待日志...</span></div>
+	</div>
+
+	<div id="toast"></div>
+
+	<script>
+		"use strict";
+
+		/* ── 通用 ── */
+		function toast(msg, ms) {
+			const t = document.getElementById("toast");
+			t.textContent = msg;
+			t.style.display = "block";
+			clearTimeout(t._timer);
+			t._timer = setTimeout(() => (t.style.display = "none"), ms || 2500);
+		}
+
+		/* ── 崩溃状态 ── */
+		async function loadResetInfo() {
+			const el = document.getElementById("resetInfo");
+			try {
+				const r = await fetch("/api/resetInfo");
+				const info = await r.json();
+				const reasonMap = {
+					0: "未知", 1: "上电", 2: "外部复位", 3: "软件复位", 4: "看门狗",
+					5: "panic 崩溃", 6: "中断看门狗", 7: "任务看门狗", 8: "欠压",
+					9: "SDIO", 10: "USB", 11: "JTAG", 12: "EEPROM", 13: "CPU 锁死"
+				};
+				const reason = reasonMap[info.reset_reason] || info.reset_reason_name || ("(" + info.reset_reason + ")");
+				const lastCrash = info.last_crash ?
+					new Date(info.last_crash * 1000).toLocaleString() : "无";
+				el.innerHTML =
+					"复位原因: <b>" + reason + "</b><br>" +
+					"累计崩溃次数: <b>" + info.panic_count + "</b><br>" +
+					"最近崩溃时间: <b>" + lastCrash + "</b>";
+
+				document.getElementById("crashActions").style.display =
+					(info.has_coredump || info.panic_count > 0) ? "flex" : "none";
+				const banner = document.getElementById("crashBanner");
+				if (info.has_coredump) {
+					banner.style.display = "block";
+					banner.textContent = "⚠ 检测到未读取的崩溃现场 (coredump)，可下载后用 " +
+						"`idf.py coredump-info -c core.elf <build/The-Defect.elf>` 解码定位崩溃位置。";
+				} else if (info.panic_count > 0) {
+					banner.style.display = "block";
+					banner.className = "banner ok";
+					banner.textContent = "ℹ 有历史崩溃记录（现场已清除或未保存）。";
+				} else {
+					banner.style.display = "none";
+				}
+			} catch (e) {
+				el.textContent = "读取失败: " + e;
+			}
+		}
+
+		document.getElementById("clearDumpBtn").onclick = async function () {
+			if (!confirm("确定清除设备上的 coredump 吗？")) return;
+			try {
+				await fetch("/api/coredump/clear", { method: "POST" });
+				toast("已清除 coredump");
+				loadResetInfo();
+			} catch (e) { toast("清除失败: " + e); }
+		};
+		document.getElementById("clearStatsBtn").onclick = async function () {
+			if (!confirm("确定清零崩溃统计吗？")) return;
+			try {
+				await fetch("/api/resetInfo/clear", { method: "POST" });
+				toast("已清零崩溃统计");
+				loadResetInfo();
+			} catch (e) { toast("清零失败: " + e); }
+		};
+
+		/* ── 日志级别 ── */
+		async function loadLevel() {
+			try {
+				const r = await fetch("/api/resetInfo");
+				const info = await r.json();
+				if (typeof info.log_level === "number")
+					document.getElementById("logLevel").value = String(info.log_level);
+			} catch (e) {}
+		}
+		document.getElementById("applyLevelBtn").onclick = async function () {
+			const lv = parseInt(document.getElementById("logLevel").value, 10);
+			try {
+				const r = await fetch("/api/logLevel", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ level: lv })
+				});
+				if (r.ok) toast("日志级别已设为 " + ["NONE","ERROR","WARN","INFO","DEBUG","VERBOSE"][lv] + "（重启保持）");
+				else toast("设置失败: HTTP " + r.status);
+			} catch (e) { toast("设置失败: " + e); }
+		};
+
+		/* ── 实时日志 ── */
+		const logBox = document.getElementById("logBox");
+		const autoScrollEl = document.getElementById("autoScroll");
+		let paused = false;
+
+		function appendLine(text) {
+			if (logBox.firstChild && logBox.firstChild.className === "empty")
+				logBox.textContent = "";
+			logBox.insertAdjacentHTML("beforeend", escapeHtml(text) + "\n");
+			// 限制 DOM 行数，防止长时间运行卡死浏览器
+			while (logBox.children.length > 3000)
+				logBox.removeChild(logBox.firstChild);
+			if (autoScrollEl.checked)
+				logBox.scrollTop = logBox.scrollHeight;
+		}
+		function escapeHtml(s) {
+			return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+		}
+
+		document.getElementById("pauseBtn").onclick = function () {
+			paused = !paused;
+			this.textContent = paused ? "▶ 继续" : "⏸ 暂停";
+			document.getElementById("logStatus").textContent =
+				paused ? "已暂停（新日志在后台丢弃显示）" : "实时";
+		};
+		document.getElementById("clearLogBtn").onclick = function () {
+			logBox.innerHTML = '<span class="empty">已清屏</span>';
+		};
+		document.getElementById("downloadLogBtn").onclick = function () {
+			window.open("/api/log?tail=2000", "_blank");
+		};
+
+		async function loadHistory() {
+			try {
+				const r = await fetch("/api/log?tail=200");
+				const text = await r.text();
+				if (text) {
+					logBox.textContent = "";
+					const lines = text.split("\n");
+					for (const ln of lines)
+						if (ln) appendLine(ln);
+				}
+			} catch (e) {}
+		}
+
+		function connectLogWs() {
+			const status = document.getElementById("logStatus");
+			// ⚠ wsServer 在端口 8080，页面由 80 端口 HTTP server 提供 →
+			// 必须显式带 :8080（location.host 不含端口，会连到 80 被当普通 GET 处理）
+			const ws = new WebSocket("ws://" + location.hostname + ":8080/ws/log");
+			ws.onopen = function () {
+				status.textContent = "已连接 (实时)";
+				status.style.color = "#00c853";
+			};
+			ws.onmessage = function (ev) {
+				if (!paused) appendLine(ev.data);
+			};
+			ws.onclose = function () {
+				status.textContent = "连接断开，5s 后重连...";
+				status.style.color = "#ff8a80";
+				setTimeout(connectLogWs, 5000);
+			};
+			ws.onerror = function () { ws.close(); };
+		}
+
+		/* ── 初始化 ── */
+		loadResetInfo();
+		loadLevel();
+		loadHistory();
+		connectLogWs();
+		setInterval(loadResetInfo, 30000);   // 周期刷新崩溃状态
+	</script>
+</body>
+</html>

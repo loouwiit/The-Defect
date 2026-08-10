@@ -12,6 +12,7 @@ idf_component_register(SRCS "main.cpp"
                             "monitor/systemMonitor.cpp"
                             "battery/batteryManager.cpp" "battery/batteryMonitor.cpp"
                             "power/powerManager.cpp"
+                            "logService/logService.cpp"
                             "time/timeService.cpp"
                             "discovery/discovery.cpp"
 
@@ -46,7 +47,7 @@ idf_component_register(SRCS "main.cpp"
                        "../managed_components/espressif__esp_lvgl_adapter/src/display/ports"
                        REQUIRES nvs_flash esp_wifi esp_event esp_netif lwip mdns lua
                        PRIV_REQUIRES esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_lvgl_adapter fatfs esp_driver_jpeg esp_http_server esp_websocket_client esp_codec_dev esp_audio_codec esp_audio_render gmf_core gmf_audio bt json esp_http_client elf_loader
-                       app_update esp_app_format esp_partition esp_timer bootloader_support)
+                       app_update esp_app_format esp_partition esp_timer bootloader_support espcoredump)
 
 # Lua 需要 32-bit 模式（ESP32-P4 RISC-V 架构）
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LUA_32BITS=1)

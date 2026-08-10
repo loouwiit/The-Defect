@@ -3,7 +3,12 @@
 #include <esp_task.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#include <esp_partition.h>
+#include <esp_core_dump.h>
 #include <lwip/sockets.h>
+
+#include <cstdlib>
+#include <cstring>
 
 #include "utility/stringCompare.hpp"
 
@@ -19,6 +24,7 @@
 #include "aiAgent/aiClient.hpp"
 #include "aiAgent/aiParser.hpp"
 #include "ota/otaManager.hpp"
+#include "logService/logService.hpp"
 
 #include "task/task.hpp"
 
@@ -44,6 +50,11 @@ EXT_RAM_BSS_ATTR bool serverRunning = false;
 EXT_RAM_BSS_ATTR SocketStreamWindow socketStreamWindows[SocketStreamWindowNumber]{};
 EXT_RAM_BSS_ATTR static Mutex scanMutex{};
 EXT_RAM_BSS_ATTR static size_t scanPosition = 0;
+
+/* /api/coredump 下载用：分块读 coredump 分区（读 flash 禁 cache 窗口内访问要求内部 RAM）。
+ * 普通 static（不加 EXT_RAM_BSS_ATTR）→ .bss 内部 RAM；经 runInInternalStack 串行使用。
+ * 16KB：512KB 分区仅 32 次调用（每次调用会产生 2 条 otaInt 日志，块越大噪音越少）。 */
+static uint8_t s_coredumpChunk[16 * 1024] __attribute__((aligned(4)));
 
 EXT_RAM_BSS_ATTR TaskHandle_t serverHandle{};
 EXT_RAM_BSS_ATTR StackType_t* serverStack{};
@@ -382,6 +393,31 @@ void sendBadRequest(OSocketStream& socketStream)
 	respond.send(socketStream);
 }
 
+/* v5.5.2 无 esp_reset_reason_str()，用数字映射（枚举值见 esp_system.h esp_reset_reason_t） */
+static const char* resetReasonName(int reason)
+{
+	static const char* const names[] = {
+		"ESP_RST_UNKNOWN",    /* 0 */
+		"ESP_RST_POWERON",    /* 1 */
+		"ESP_RST_EXT",        /* 2 */
+		"ESP_RST_SW",         /* 3 */
+		"ESP_RST_PANIC",      /* 4 */
+		"ESP_RST_INT_WDT",    /* 5 */
+		"ESP_RST_TASK_WDT",   /* 6 */
+		"ESP_RST_WDT",        /* 7 */
+		"ESP_RST_DEEPSLEEP",  /* 8 */
+		"ESP_RST_BROWNOUT",   /* 9 */
+		"ESP_RST_SDIO",       /* 10 */
+		"ESP_RST_USB",        /* 11 */
+		"ESP_RST_JTAG",       /* 12 */
+		"ESP_RST_EFUSE",      /* 13 */
+		"ESP_RST_PWR_GLITCH", /* 14 */
+		"ESP_RST_CPU_LOCKUP", /* 15 */
+	};
+	if (reason < 0 || reason > 15) return "UNKNOWN";
+	return names[reason];
+}
+
 // 循环读取完整 body。readByte 非阻塞（IBuffer 仅 64B），单次可能读不满；
 // 残留 body 会被同一连接的下一个请求误当请求行（曾出现 path=ota_1",... 诡异 POST）。
 // 成功返回 true，并在 buf[len] 写 '\0'（调用方需保证 buf 至少 len+1 字节）。
@@ -490,6 +526,141 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		respond.setStatus(HttpStatus::Ok);
 		respond.setReason(HttpReason::Ok);
 		respond.send(socketStream);
+		return;
+	}
+
+	// ── API: 日志尾部（支持 ?tail=N，默认 200 行）──
+	if (strncmp(uri, "/api/log", 8) == 0 && (uri[8] == '\0' || uri[8] == '?'))
+	{
+		size_t maxLines = 200;
+		const char* q = strchr(uri, '?');
+		if (q)
+		{
+			const char* tail = strstr(q, "tail=");
+			if (tail)
+			{
+				int n = atoi(tail + 5);
+				if (n > 0 && n <= 2000) maxLines = (size_t)n;
+			}
+		}
+		// ⚠ 栈上 64KB 会爆 worker 栈（16KB）→ 堆分配（PSRAM）
+		char* body = new char[64 * 1024];
+		LogService::instance().readTail(body, 64 * 1024, maxLines);
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+		// 顶层导航（window.open / <a download>）触发文件下载；fetch 历史回填不受影响
+		respond.heads.add({ "Content-Disposition", " attachment; filename=\"app.log\"" });
+		// 日志是动态文件，禁止缓存（否则浏览器启发式缓存会显示旧内容，误判"日志停滞"）
+		respond.heads.add({ "Cache-Control", " no-store" });
+		respond.setBody(body);
+		respond.setBodyLenght(strlen(body));
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		delete[] body;
+		return;
+	}
+
+	// ── API: 复位/崩溃信息 ──
+	if (stringCompare((char*)uri, strlen(uri), "/api/resetInfo", 14))
+	{
+		LogService& log = LogService::instance();
+		esp_reset_reason_t reason = esp_reset_reason();
+		const char* reasonName = resetReasonName((int)reason);
+		int logLevel = log.getGlobalLevel();
+		if (logLevel < 0) logLevel = 3;   // 未设置 → INFO
+		char body[512];
+		int n = snprintf(body, sizeof(body),
+			"{\"reset_reason\":%d,\"reset_reason_name\":\"%s\",\"panic_count\":%u,\"last_crash\":%lld,\"has_coredump\":%s,\"log_level\":%d}",
+			(int)reason, reasonName ? reasonName : "unknown",
+			(unsigned)log.getPanicCount(), (long long)log.getLastCrashTime(),
+			log.hasCoredump() ? "true" : "false", logLevel);
+		// ⚠ snprintf 返回值可能 ≥ sizeof(body)，必须截断防越界读
+		if (n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+		respond.setBody(body);
+		respond.setBodyLenght(n);
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		return;
+	}
+
+	// ── API: 下载 coredump 分区（ELF 崩溃转储）──
+	if (stringCompare((char*)uri, strlen(uri), "/api/coredump", 13))
+	{
+		// 读 flash（禁 cache 窗口）→ runInInternalStack（内部 RAM 栈）+ 内部 RAM 块缓冲中转
+		if (OtaManager::instance().isUpdating())
+		{
+			sendBadRequest(socketStream);
+			return;
+		}
+		const esp_partition_t* part = esp_partition_find_first(
+			ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, nullptr);
+		if (!part)
+		{
+			sendBadRequest(socketStream);
+			return;
+		}
+
+		// 分区第一个字 = 转储大小（0xFFFFFFFF=空）
+		uint32_t dumpSize = 0xFFFFFFFF;
+		{
+			struct ReadSizeCtx { const esp_partition_t* part; uint32_t* out; esp_err_t err; };
+			ReadSizeCtx ctx{ part, &dumpSize, ESP_FAIL };
+			OtaManager::instance().runInInternalStack([](void* p) {
+				auto* c = (ReadSizeCtx*)p;
+				c->err = esp_partition_read(c->part, 0, c->out, sizeof(uint32_t));
+			}, &ctx);
+			if (ctx.err != ESP_OK) { sendBadRequest(socketStream); return; }
+		}
+
+		if (dumpSize == 0xFFFFFFFF || dumpSize == 0 || dumpSize > part->size)
+		{
+			HttpRespond respond;
+			respond.setStatus(HttpStatus::NotFound);
+			respond.setReason(HttpReason::NotFound);
+			respond.setBody((void*)HttpReason::NotFound);
+			respond.setBodyLenght(sizeof(HttpReason::NotFound) - 1);
+			respond.send(socketStream);
+			return;
+		}
+
+		// 分块读入 PSRAM 缓冲（每块经内部栈任务 + 内部 RAM 缓冲中转）
+		size_t total = (size_t)dumpSize;
+		char* blob = new char[total];
+		size_t off = 0;
+		bool ok = true;
+		while (off < total && ok)
+		{
+			size_t chunk = (total - off < sizeof(s_coredumpChunk)) ? (total - off) : sizeof(s_coredumpChunk);
+			struct ReadChunkCtx { const esp_partition_t* part; size_t off; uint8_t* buf; size_t len; esp_err_t err; };
+			ReadChunkCtx ctx{ part, off, s_coredumpChunk, chunk, ESP_FAIL };
+			OtaManager::instance().runInInternalStack([](void* p) {
+				auto* c = (ReadChunkCtx*)p;
+				c->err = esp_partition_read(c->part, c->off, c->buf, c->len);
+			}, &ctx);
+			if (ctx.err != ESP_OK) { ok = false; break; }
+			memcpy(blob + off, s_coredumpChunk, chunk);
+			off += chunk;
+		}
+
+		if (!ok)
+		{
+			delete[] blob;
+			sendBadRequest(socketStream);
+			return;
+		}
+
+		HttpRespond respond;
+		respond.heads.add({ "Content-Type", " application/octet-stream" });
+		respond.setBody(blob);
+		respond.setBodyLenght(total);
+		respond.setStatus(HttpStatus::Ok);
+		respond.setReason(HttpReason::Ok);
+		respond.send(socketStream);
+		delete[] blob;
 		return;
 	}
 
@@ -887,6 +1058,78 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		}
 
 		cJSON_Delete(root);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/resetInfo/clear", 20))
+	{
+		// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
+		if (request.getBodyLenght() > 0)
+		{
+			char* tmp = new char[request.getBodyLenght()];
+			if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
+			{
+				delete[] tmp;
+				sendBadRequest(socketStream);
+				return;
+			}
+			delete[] tmp;
+		}
+		LogService::instance().clearCrashRecords();
+		sendOk(socketStream);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/logLevel", 13))
+	{
+		// body: {"level":4}（0-5：NONE..VERBOSE）→ NVS 持久化
+		char* body = new char[request.bodyLenght + 1];
+		if (!readBodyFully(socketStream, request.bodyLenght, body))
+		{
+			delete[] body;
+			sendBadRequest(socketStream);
+			return;
+		}
+		cJSON* root = cJSON_Parse(body);
+		delete[] body;
+		if (!root)
+		{
+			sendBadRequest(socketStream);
+			return;
+		}
+		const cJSON* level = cJSON_GetObjectItem(root, "level");
+		if (!cJSON_IsNumber(level))
+		{
+			cJSON_Delete(root);
+			sendBadRequest(socketStream);
+			return;
+		}
+		int lv = level->valueint;
+		if (lv < 0) lv = 0;
+		if (lv > 5) lv = 5;
+		LogService::instance().setGlobalLevel(lv);
+		cJSON_Delete(root);
+		sendOk(socketStream);
+	}
+	else if (stringCompare((char*)uri, uriLenght, "/api/coredump/clear", 19))
+	{
+		// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
+		if (request.getBodyLenght() > 0)
+		{
+			char* tmp = new char[request.getBodyLenght()];
+			if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
+			{
+				delete[] tmp;
+				sendBadRequest(socketStream);
+				return;
+			}
+			delete[] tmp;
+		}
+
+		struct Ctx { esp_err_t err; };
+		Ctx ctx{ ESP_FAIL };
+		OtaManager::instance().runInInternalStack([](void* p) {
+			((Ctx*)p)->err = esp_core_dump_image_erase();
+		}, &ctx);
+
+		if (ctx.err == ESP_OK) sendOk(socketStream);
+		else sendBadRequest(socketStream);
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/ota/setBoot", 16))
 	{

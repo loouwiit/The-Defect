@@ -47,6 +47,7 @@
 #include "time/timeService.hpp"
 #include "elfSdk/elf_sdk.h"
 #include "ota/otaManager.hpp"
+#include "logService/logService.hpp"
 
 static constexpr char TAG[] = "main";
 
@@ -78,6 +79,13 @@ extern "C" void app_main(void)
 
 	// nvs
 	nvsInit();
+
+	// 日志重定向服务（封壳设备远程调试）：
+	// esp_log_set_vprintf 接管全部 ESP_LOGx → FAT 文件 /root/system/log/app.log + /ws/log 实时推送；
+	// 链式保留 UART 输出。FAT 挂载前的早期日志存 PSRAM 缓冲，此处启动后自动落盘。
+	// detectCrash：复位原因 + coredump 存在性 → NVS 记录（panic 计数 / 最近崩溃时间）。
+	LogService::instance().start();
+	LogService::instance().detectCrash();
 
 	// ELF 插件 SDK：注册符号表（C 库 / C++ 运行时 / C++ 框架）——必须在任何 dlopen 之前
 	elf_sdk_init();
@@ -287,6 +295,7 @@ extern "C" void app_main(void)
 	wsServerRegisterWs("/ws/stream", wsStreamHandler);
 	wsServerRegisterWs("/ws/input", wsInputHandler);
 	wsServerRegisterWs("/ws/console", wsConsoleHandler);
+	wsServerRegisterWs("/ws/log", logWsHandler);
 	ESP_LOGI(TAG, "wsServerStart done");
 
 	// UDP 游戏手柄输入（端口 8082，替代 WebSocket 的低延迟方案）

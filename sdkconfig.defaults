@@ -18,6 +18,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # ============================================================
+# Core Dump — 崩溃现场保存到 flash 分区（封壳设备无串口调试黑匣子）
+# 分区见 partitions.csv 的 coredump (512K，位于 ota_1 与 fat 之间空隙)
+# ============================================================
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=32
+
+# ============================================================
 # 串行 Flash 配置 — 32MB QIO 80MHz
 # ============================================================
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
