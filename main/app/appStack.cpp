@@ -109,6 +109,11 @@ void AppStack::replace(App* app)
 	auto* oldTop = top();
 	m_stack.back() = app;
 
+	// ⚠ push/pop 均调用 oldTop->onBackground()，replace 此前遗漏：
+	//   被替换 App 的后台定时器/任务不停（如 LuaGameApp::onBackground 置 m_paused 不生效，
+	//   游戏循环在 deinit 前继续跑），前台状态机错乱。
+	oldTop->onBackground();
+
 	app->setManager(m_manager);
 	app->init();
 
