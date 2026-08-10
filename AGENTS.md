@@ -1,5 +1,24 @@
 # The-Defect — Agent Guidelines
 
+## ⚠ AGENTS.md 维护约定
+
+本仓库的 AI 协作指南采用「**草稿 + 发布**」双文件工作流：
+
+- **`AGENTS.md`（发布版）** — 被所有 AI 会话加载的正式指南。**避免中途修改**：其他 AI 可能正
+  依赖其内容作为缓存/上下文，半中间改动会造成**上下文漂移与缓存失效**。
+- **`newAGENTS.md`（草稿版）** — 所有对指南的修改**必须先应用到这里**，经人工确认
+  无误后再整体替换 `AGENTS.md`（`mv newAGENTS.md AGENTS.md`，或由用户用全局替换工具完成）。
+
+**工作流约定（对 AI）**：
+1. 代码/架构发生变更时，先更新 `newAGENTS.md` 中对应章节（`AGENTS.md` 保持不动）
+2. 汇总本次变更内容，向用户报告并请求确认
+3. 用户确认后，由用户（或经用户同意）将 `newAGENTS.md` 整体替换 `AGENTS.md`
+
+**⚠ 检查提醒（对 AI）**：若发现工作区**没有 `newAGENTS.md`**（或内容明显落后于 `AGENTS.md`），
+请**主动提醒用户创建/同步一份**再继续——避免后续修改直接落到 `AGENTS.md`，造成缓存失效与上下文变化。
+
+---
+
 ## Project Overview
 
 ESP32-P4 驱动的多人游戏主机 + ESP32-C6 无线手柄。屏幕为 6寸 720×1280 MIPI ILI9881C，触摸 GT911 (I²C)，GUI 使用 LVGL 9.4。
@@ -72,7 +91,7 @@ reserces/
 | | VirtualIndev | `main/virtualIndev/` | 虚拟触摸输入设备（Web 触摸注入），无锁去重 + hasNewData/continue_reading |
 | **导航** | App | `main/app/app.hpp` | 应用基类（生命周期、栈钩子、手柄输入） |
 | | AppStack | `main/app/appStack.hpp` | 单栈导航（push/pop/replace + 异步删除） |
-| | AppStackManager | `main/app/appStackManager.hpp` | 多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
+| | AppStackManager | `main/app/appStackManager.hpp` | **系统级单例**多栈管理器（根栈 + 游戏独立栈 + 前台切换） |
 | **AI Agent** | AiClient / AiParser / AiExecutor / AiSystemInfo | `main/aiAgent/` | OpenAI API 调用、JSON 解析、动作执行、系统信息采集 |
 | | AiAgentOverlay | `main/app/aiAgentApp/` | 系统层浮动窗（`lv_layer_sys`），对话历史 + 长期记忆 |
 | | PinyinDict | `main/app/aiAgentApp/pinyinDict.hpp` | 输入法词库加载（拼音/五笔/混合），FAT 文本 → `lv_ime_pinyin_set_dict` |
@@ -305,6 +324,11 @@ class Lock {
     ~Lock();                    // 析构时 unlock
 };
 ```
+
+**⚠ 不可拷贝/移动（编译期拦截）**: `Mutex` / `RecursiveMutex` 的拷贝/移动构造与赋值均已 `= delete`。
+互斥锁句柄按值拷贝 + 临时对象析构 `vSemaphoreDelete` 会留下**悬空句柄** → 后续 `lock()`
+在已释放队列上 assert 崩溃（`pxQueue->uxItemSize == 0`，曾致 App 切换偶发卡死）。
+因此含锁成员的对象（如 `AppStackManager`）**必须用单例/常驻存储，不可 `std::move` 赋值**。
 
 **与 Display::LockGuard 的区别**:
 - `Mutex` / `Lock` — 用于 BleGamepad 等模块内部的多线程保护，**非递归**互斥锁
@@ -846,6 +870,23 @@ class PinyinDict {
 | `app.hpp` / `app.cpp` | `App` 基类 |
 | `appStack.hpp` / `appStack.cpp` | `AppStack` 单栈 |
 | `appStackManager.hpp` / `appStackManager.cpp` | `AppStackManager` 多栈管理器 |
+
+### 单例（系统级，程序运行期常驻）
+
+`AppStackManager` 为 **Meyer's Singleton**（仿 `OtaManager`），构造/析构私有：
+
+```cpp
+static AppStackManager& instance();   // magic static，仅构造一次 + 线程安全
+void init(Display* display);          // main.cpp 单线程阶段注入 Display（启动时调用一次）
+```
+
+- **不可拷贝/不可移动**：成员 `RecursiveMutex` 无移动语义，拷贝/移动 `= delete` 编译期拦截
+- ⚠ **不可用局部对象**：`app_main` 末尾无主循环会返回，返回时析构 `~AppStackManager` 在后台任务
+  （LVGL 渲染 / BLE / HTTP 6 worker / deleteApp Task）并发运行中删栈删 App → 竞态崩溃
+- ⚠ **不可用全局对象 + `std::move` 赋值**：隐式移动按值拷贝锁句柄 + 临时对象析构删除句柄 → 悬空锁 panic
+- 调用方式：`AppStackManager::instance().pushToNewStack(app)` 等
+- App / Display / ELF 插件全部通过 `getManager()` / `setStackManager()` **指针**间接引用，不受单例化影响，
+  无需改调用点
 
 ### 架构
 
@@ -2171,11 +2212,11 @@ Audio::loadVolumeFromNvs()              ← 音量恢复
 // ── 电池 ──
 BatteryManager::instance().init()
 
-// ── App 导航系统 ──
-AppStackManager mgr(&display)
-display.setStackManager(&mgr)
-mgr.createStack()                       ← 根栈（Stack 0）
-mgr.push(new DesktopApp(&display))      ← 桌面应用
+// ── App 导航系统（系统级单例，程序运行期常驻） ──
+AppStackManager::instance().init(&display)          ← 注入 Display（单线程阶段）
+display.setStackManager(&AppStackManager::instance())
+AppStackManager::instance().createStack()           ← 根栈（Stack 0）
+AppStackManager::instance().push(new DesktopApp(&display))  ← 桌面应用
 
 // ── BLE 手柄 ──
 BleGamepad::instance().start(&display)
@@ -2203,8 +2244,10 @@ serverStart()                           ← HTTP 端口 80
 wsServerStart()                         ← WebSocket 端口 8080
 udpInputStart()                         ← UDP 端口 8082（P4→P4 手柄透传）
 
-// ── 主循环 ──
-while (true) vTaskDelay(1000);
+// ⚠ 无主循环：app_main 至此返回（所有后台工作由独立 Task 承担：LVGL worker /
+//   BLE / HTTP 6 worker / WS / deleteApp / 协程调度 daemon）。因此关键对象
+//   （AppStackManager 等）必须用单例/常驻存储，绝不能用局部对象——返回时析构
+//   会在后台任务并发运行中删对象 → 竞态崩溃。
 ```
 
 agent 应查看 `main/main.cpp` 的最新代码为准。
