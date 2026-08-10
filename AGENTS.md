@@ -194,6 +194,12 @@ class LuaRuntime {
 `LuaGameApp::updateTouchSnapshot()` 每帧在 `loop(dt)` 前（无锁阶段）先归档 `prevDown=down` 再刷新当前槽位快照；
 边沿在绑定内计算：`is_just_pressed(i) = down[i] && !prevDown[i]`（自上一帧以来的上升沿），状态与边沿同源自洽。
 坐标与 `display` 模块一致（旋转后 1280×720 屏幕坐标）；槽位为虚拟手指（可被不同物理手指复用），逐槽轮询即可。
+
+**手柄输入**（`luaInput`）：同样采用**帧快照模式**（与触摸同款，防边沿丢失竞态）。
+- `VirtualGamepad::dispatchTask`（~60fps 独立 Task）经 `LuaGameApp::onGamepadInput` **并发写** `m_inputs[]`（实时缓冲）
+- `gameLoop()` 每帧在游戏循环 Task 内两步：`memcpy(m_prevInputs, m_frameInputs)` 归档上一帧快照 → `memcpy(m_frameInputs, m_inputs)` 刷新当前帧快照
+- Lua 绑定 `states/prevStates` 指向 `m_frameInputs`/`m_prevInputs`，边沿 `is_just_pressed = cur && !prev` 同源自洽
+- ⚠ 修复前直接 `memcpy(m_prevInputs, m_inputs)`：按键上升沿若在归档前已被 dispatch Task 写入 → `prev` 已按下 → 整个按键期间 `cur && !prev` 恒 false，**本次按下被吸收永不触发**（A 键切色/B 键退出偶发失效的根因）。帧快照模式下最坏延迟 1 帧捕获，边沿不丢失
 ⚠ `LuaGameApp::init()` 的 `m_canvas` 须移除 `LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE`（`lv_obj_create` 默认可滚动+可点击，子对象越出画布边界时触摸拖拽会滚动整个画布——FruitNinja 画布同款处理；`LV_SCROLLBAR_MODE_OFF` 只隐藏滚动条，不防滚动）。
 
 ### Lua 沙箱（安全边界）

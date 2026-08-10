@@ -149,7 +149,9 @@ void LuaGameApp::init()
     m_dispCtx.display = display;
 
     for (int i = 0; i < MaxPlayers; i++) {
-        m_inputCtx.states[i] = &m_inputs[i];
+        // states 指向帧快照（gameLoop 同任务归档/采样），
+        // 避免 dispatch Task 并发写 m_inputs 导致 is_just_pressed 边沿丢失
+        m_inputCtx.states[i] = &m_frameInputs[i];
         m_inputCtx.prevStates[i] = &m_prevInputs[i];
     }
 
@@ -322,8 +324,14 @@ void LuaGameApp::gameLoop()
     if (last == 0 || dt < 0.1f) dt = 16.0f;     // 初始值
     if (dt > 100.0f) dt = 16.0f;   // 防止跳帧
 
-    // 更新输入上下文（备份上一帧）
-    memcpy(m_prevInputs, m_inputs, sizeof(m_inputs));
+    // 更新输入上下文（先归档上一帧快照，再刷新当前帧快照）
+    // ⚠ 归档+采样须在游戏循环 Task 内完成（与 updateTouchSnapshot 同款）：
+    //   若直接 memcpy(m_prevInputs, m_inputs)，dispatch Task 并发写入的按键
+    //   上升沿可能"归档前已写入"→ prev 已按下 → is_just_pressed 整个按键期间
+    //   恒 false，本次按下被吸收永不触发（颜色切换/退出偶发失效的根因）。
+    //   帧快照模式下最坏延迟 1 帧捕获，边沿不丢失。
+    memcpy(m_prevInputs, m_frameInputs, sizeof(m_prevInputs));
+    memcpy(m_frameInputs, m_inputs, sizeof(m_frameInputs));
 
     // 同步真实连接状态（BLE 链接），供 input.connected() / player_count() 使用
     for (int i = 0; i < MaxPlayers; i++) {

@@ -80,8 +80,9 @@ private:
     uint32_t m_lastFrameTime{0};   // 上帧时间戳（成员而非 static：static 跨实例共享，restart 后 dt 污染）
 
     // ── 输入快照（hostId=0 本地玩家） ──
-    GamepadState m_inputs[MaxPlayers]{};
-    GamepadState m_prevInputs[MaxPlayers]{};
+    GamepadState m_inputs[MaxPlayers]{};        // dispatch Task 实时写入的缓冲（onGamepadInput）
+    GamepadState m_prevInputs[MaxPlayers]{};    // 上一帧快照（gameLoop 归档，供 is_just_pressed 对比）
+    GamepadState m_frameInputs[MaxPlayers]{};   // 当前帧快照（gameLoop 采样，供 Lua input API 读取）
 
     // ── 绑定上下文 ──
     LuaDisplayContext m_dispCtx{};
