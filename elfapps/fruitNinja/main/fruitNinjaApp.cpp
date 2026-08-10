@@ -70,8 +70,11 @@ void FruitNinjaApp::init()
 void FruitNinjaApp::deinit()
 {
 	running = false;
-	vTaskDelay(pdMS_TO_TICKS(200));
-	m_thread = {};
+	// 等待游戏循环任务自删完成（任务收尾 self.m_thread = {} 清空句柄）再继续。
+	// ⚠ 不能用 vTaskDelay(200) + m_thread = {}：任务可能仍持 LVGL 锁（render 内）
+	//   → vTaskDelete 正在持锁的任务 → 锁永久遗弃 → 全系统 UI 冻结。
+	while (m_thread.isRunning())
+		vTaskDelay(pdMS_TO_TICKS(20));
 
 	// 隐藏 GameOver 对象（重启时使用 replaceWith，对象由 LVGL 自动清理）
 	deletable = true;
@@ -157,8 +160,13 @@ void FruitNinjaApp::gameLoop(void* param)
 	ESP_LOGI(TAG, "游戏循环结束");
 	self.deletable = true;
 
-	while (true)
-		vTaskDelay(5000);
+	// ⚠ 原实现 while(true) 挂死 + deinit 外部 vTaskDelete：删除瞬间若任务正持 LVGL 锁
+	//   （render 内）→ 持锁任务被杀 → 锁永久遗弃 → 全系统 UI 冻结（deinit 的 200ms 等待
+	//   只是概率缓解，非保证）。改为任务内自删（与 LuaGameApp 同款）：循环退出点必在锁外
+	//   （render 的 lockGuard 作用域已结束），vTaskDelete 自身安全；m_thread 句柄随之清空，
+	//   deinit 的等待循环可正常退出。析构链已 vTaskDelete 自身，此后不能再触碰 self。
+	self.m_thread = {};
+	return;
 }
 
 // ============================================================

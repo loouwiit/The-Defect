@@ -108,8 +108,10 @@ void ChineseChessApp::init()
 void ChineseChessApp::deinit()
 {
 	running = false;
-	vTaskDelay(pdMS_TO_TICKS(200));
-	m_thread = {};
+	// 等待游戏循环任务自删完成（任务收尾 self.m_thread = {} 清空句柄）再继续。
+	// ⚠ 不能用 vTaskDelay(200) + m_thread = {}：任务可能仍持 LVGL 锁 → 锁永久遗弃。
+	while (m_thread.isRunning())
+		vTaskDelay(pdMS_TO_TICKS(20));
 
 	// LVGL 对象由 screen 析构时自动回收
 	deletable = true;
@@ -971,6 +973,10 @@ void ChineseChessApp::gameLoop(void* param)
 	ESP_LOGI(TAG, "游戏循环退出");
 	self.deletable = true;
 
-	while (true)
-		vTaskDelay(pdMS_TO_TICKS(5000));
+	// ⚠ 原实现 while(true) 挂死 + deinit 外部 vTaskDelete：删除瞬间若任务正持 LVGL 锁
+	//   → 锁永久遗弃 → 全系统 UI 冻结。改为任务内自删（与 FruitNinja/LuaGameApp 同款）：
+	//   循环退出点必在锁外（lockGuard 作用域已结束），vTaskDelete 自身安全；
+	//   m_thread 句柄随之清空，deinit 的等待循环正常退出。
+	self.m_thread = {};
+	return;
 }
