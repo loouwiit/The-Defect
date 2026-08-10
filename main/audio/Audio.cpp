@@ -897,7 +897,9 @@ AudioHandle Audio::play(const AudioSample& sample, bool loop)
 
 int Audio::usedStreamCount()
 {
-	uint16_t mask = instance().streamUsedMask;
+	Audio& self = instance();
+	Lock lock(self.m_streamMutex);
+	uint16_t mask = self.streamUsedMask;
 	int cnt = 0;
 	while (mask) { cnt += mask & 1; mask >>= 1; }
 	return cnt;
@@ -907,6 +909,9 @@ int Audio::usedStreamCount()
 
 esp_audio_render_stream_id_t Audio::allocStreamId()
 {
+	// ⚠ 多个解码 task 并发启动（BGM/提示音/SFX detach）会同时读到同一空闲位
+	//   → 相同 stream ID 冲突。必须互斥。
+	Lock lock(m_streamMutex);
 	for (uint8_t i = 0; i < MaxStreamNum; ++i) {
 		if (!(streamUsedMask & (1 << i))) {
 			streamUsedMask |= (1 << i);
@@ -918,6 +923,7 @@ esp_audio_render_stream_id_t Audio::allocStreamId()
 
 void Audio::freeStreamId(esp_audio_render_stream_id_t id)
 {
+	Lock lock(m_streamMutex);
 	if (id < MaxStreamNum) {
 		streamUsedMask &= ~(1 << id);
 	}

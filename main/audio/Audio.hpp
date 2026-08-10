@@ -217,6 +217,7 @@ private:
 	bool                      initialized{};
 	int                       m_volume{100};  // 当前主音量（OPENED 时恢复）
 	Mutex                     m_codecMutex{}; // 保护 codec->open/close 并发
+	Mutex                     m_streamMutex{}; // 保护 streamUsedMask 分配/释放/计数并发
 
 	uint16_t streamUsedMask{};  // 流分配位图，bit n = stream n 已分配
 
