@@ -773,7 +773,10 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	if (!stringCompare((char*)uri, uriLenght, "/api/ota", 8) &&
 		request.getBodyLenght() > kMaxPostBody)
 	{
-		sendBadRequest(socketStream);
+		// ⚠ 拒绝超大 body 必须关闭连接：sendBadRequest 保持 keep-alive，
+		//   残留 body（可达 2GB，消费会拖死 worker）会被同一连接的下一个请求
+		//   误当请求行 → 协议污染（与 readBodyFully 防的是同一类坑）。
+		socketStream.close();
 		return;
 	}
 
@@ -1648,7 +1651,8 @@ void httpDelete(IOSocketStream& socketStream, HttpRequest& request)
 	// ⚠ 伪造超大 Content-Length → new 失败崩溃。DELETE body 是路径，上限 512。
 	if (request.getBodyLenght() > kMaxDeletePath)
 	{
-		sendBadRequest(socketStream);
+		// ⚠ 同 httpPost：拒绝路径直接关闭连接，防残留 body 污染下一请求
+		socketStream.close();
 		return;
 	}
 	char* path = new char[sizeof(PerfixRoot) + request.getBodyLenght()];
@@ -1797,7 +1801,10 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 	}
 
 	respond.setBody((void*)body);
-	if (totolSize > 1) respond.setBodyLenght(totolSize - 1); //去除最后一个'\n'
+	// ⚠ 并发 PUT/DELETE 下预分配不够会提前 break（bodyOffset < totolSize），
+	//   必须按**实际写入量**截断：原 setBodyLenght(totolSize-1) 会把未初始化
+	//   堆内存发给客户端（越界读 + 响应乱码）。
+	if (bodyOffset > 1) respond.setBodyLenght(bodyOffset - 1); //去除最后一个'\n'
 	else respond.setBodyLenght(0);
 	respond.send(socketStream);
 
