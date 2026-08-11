@@ -82,7 +82,7 @@ private:
 
 	// hostMask[hostId] 的 bit[playerId] = 1 表示启用该输入源
 	// 默认：仅本机 4 个手柄全开
-	uint8_t m_hostMask[4] = { 0x0F, 0x07, 0x07, 0x07 };
+	uint8_t m_hostMask[4] = { 0x0F, 0x00, 0x00, 0x00 };
 
 	// ── 远程转发（独立线程，不阻塞 dispatch）──
 	Thread m_forwardThread{};
