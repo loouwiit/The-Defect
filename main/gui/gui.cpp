@@ -11,7 +11,12 @@ void GUI::setBackground(lv_color_t color)
 lv_obj_t* GUI::createPage()
 {
 	lv_obj_t* page = lv_obj_create(lv_scr_act());
-	lv_obj_set_size(page, LV_HOR_RES, LV_VER_RES);
+	// ⚠ 用实际显示分辨率：esp_lvgl_adapter ROTATE_90 后逻辑屏 1280×720；
+	//   原 LV_HOR_RES/LV_VER_RES 未在 sdkconfig/CMake 配置，恒为 lv_conf.h 默认值
+	lv_display_t* disp = lv_disp_get_default();
+	lv_obj_set_size(page,
+		disp ? lv_display_get_horizontal_resolution(disp) : 1280,
+		disp ? lv_display_get_vertical_resolution(disp) : 720);
 	lv_obj_set_style_border_width(page, 0, 0);
 	lv_obj_set_style_bg_opa(page, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_pad_all(page, 16, 0);
@@ -24,7 +29,12 @@ lv_obj_t* GUI::createPage()
 lv_obj_t* GUI::createPage(lv_obj_t* parent)
 {
 	lv_obj_t* page = lv_obj_create(parent);
-	lv_obj_set_size(page, 720, 1280);
+	// ⚠ 原硬编码 720×1280 是**物理竖屏**尺寸（旋转后逻辑屏 1280×720），
+	//   启用会竖向溢出 → 改用实际显示分辨率
+	lv_display_t* disp = lv_disp_get_default();
+	lv_obj_set_size(page,
+		disp ? lv_display_get_horizontal_resolution(disp) : 1280,
+		disp ? lv_display_get_vertical_resolution(disp) : 720);
 	lv_obj_set_style_border_width(page, 0, 0);
 	lv_obj_set_style_bg_opa(page, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_pad_all(page, 0, 0);
