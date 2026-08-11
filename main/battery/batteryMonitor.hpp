@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -13,7 +14,7 @@
  * @brief 低电量检测提醒（主机 + 蓝牙手柄）
  *
  * 系统级单例：周期 Task 轮询主机 BatteryManager 与各手柄槽位 BleGamepad，
- * 单阈值穿越判定（主机 <15%、手柄 <20%，连续 2 次确认防抖），触发
+ * 单阈值穿越判定（主机 <20%、手柄 <20%，连续 2 次确认防抖），触发
  * lv_layer_sys() 系统级弹窗（列出所有低电量设备）+ 提示音。
  *
  * 语义：
@@ -88,7 +89,9 @@ private:
 	SourceState m_pad[MaxPlayers]{};
 
 	// ── 弹窗状态 ──
-	bool        m_alertShown{};
+	// ⚠ m_alertShown：monitor Task（tick 写）↔ LVGL task（hideAlert/dismissTimerCb 读）
+	//   跨核并发 → 必须原子
+	std::atomic<bool> m_alertShown{ false };
 	std::string m_bodyText;        // 当前弹窗设备列表文本（用于去重 set_text）
 	Mutex       m_alertMutex;      // ⚠ 保护 alertAudio 与状态机（monitor task ↔ LVGL task 并发）
 	AudioHandle alertAudio{};

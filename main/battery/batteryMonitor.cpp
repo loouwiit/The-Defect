@@ -219,80 +219,89 @@ void BatteryMonitor::tick()
 	// 是否有设备在本轮新触发（用于播放提示音 + 再次弹窗）
 	bool newlyAlerted = false;
 
-	// 更新主机状态机
-	if (hostLow)
+	// ⚠ 状态机数据段持 m_alertMutex（monitor Task ↔ LVGL task 并发）：
+	//   hideAlert(userDismiss=true) 在 LVGL 线程持锁写 dismissed，tick 无锁整体赋值
+	//   m_host = {} / m_pad[i] = {} 会与位写交错 → 丢失更新（用户刚关闭提醒，
+	//   下一轮复位检查读到旧值，弹窗逻辑错乱）。锁只包状态机段，LVGL 操作留在锁外。
+	std::string body;
+	bool anyActive = false;
 	{
-		m_host.low = true;
-		m_host.confirmTicks++;
-		if (!m_host.alerted && m_host.confirmTicks >= kConfirmTicks)
-		{
-			m_host.alerted = true;
-			newlyAlerted = true;
-			ESP_LOGI(TAG, "主机低电量触发 (%d%%)", hostPct);
-		}
-	}
-	else
-	{
-		if (m_host.alerted || m_host.low || m_host.dismissed)
-			ESP_LOGI(TAG, "主机电量恢复/充电中 (%d%%)，低电状态复位", hostPct);
-		m_host = {};
-	}
+		Lock lock{ m_alertMutex };
 
-	// ── 2. 读各手柄电量 ──
-	for (int i = 0; i < MaxPlayers; i++)
-	{
-		const auto* dev = BleGamepad::instance().getDevice(i);
-		if (!dev || !dev->connected)
+		// 更新主机状态机
+		if (hostLow)
 		{
-			if (m_pad[i].alerted || m_pad[i].low || m_pad[i].dismissed)
-				ESP_LOGI(TAG, "手柄 P%d 断开，低电状态复位", i + 1);
-			m_pad[i] = {};
-			continue;
-		}
-
-		uint8_t level = dev->batteryLevel;
-		bool padLow = (level != 255) && (level < kPadLowPercent);  // 255=未知，跳过
-		if (padLow)
-		{
-			m_pad[i].low = true;
-			m_pad[i].confirmTicks++;
-			if (!m_pad[i].alerted && m_pad[i].confirmTicks >= kConfirmTicks)
+			m_host.low = true;
+			m_host.confirmTicks++;
+			if (!m_host.alerted && m_host.confirmTicks >= kConfirmTicks)
 			{
-				m_pad[i].alerted = true;
+				m_host.alerted = true;
 				newlyAlerted = true;
-				ESP_LOGI(TAG, "手柄 P%d (%s) 低电量触发 (%d%%)", i + 1,
-					dev->name[0] ? dev->name : "?", level);
+				ESP_LOGI(TAG, "主机低电量触发 (%d%%)", hostPct);
 			}
 		}
 		else
 		{
-			if (m_pad[i].alerted || m_pad[i].low || m_pad[i].dismissed)
-				ESP_LOGI(TAG, "手柄 P%d 电量恢复 (%d%%)，低电状态复位", i + 1, level);
-			m_pad[i] = {};
+			if (m_host.alerted || m_host.low || m_host.dismissed)
+				ESP_LOGI(TAG, "主机电量恢复/充电中 (%d%%)，低电状态复位", hostPct);
+			m_host = {};
 		}
-	}
 
-	// ── 3. 汇总待提醒设备行（低电 && 已触发 && 未被用户关闭） ──
-	std::string body;
-	if (m_host.alerted && m_host.low && !m_host.dismissed)
-	{
-		char line[64];
-		snprintf(line, sizeof(line), "主机 电量 %d%%", hostPct);
-		body += line;
-		body += "\n";
-	}
-	for (int i = 0; i < MaxPlayers; i++)
-	{
-		if (!(m_pad[i].alerted && m_pad[i].low && !m_pad[i].dismissed)) continue;
-		const auto* dev = BleGamepad::instance().getDevice(i);
-		char line[96];
-		snprintf(line, sizeof(line), "手柄 P%d (%s) 电量 %d%%", i + 1,
-			(dev && dev->name[0]) ? dev->name : "?",
-			(dev && dev->batteryLevel <= 100) ? dev->batteryLevel : 0);
-		body += line;
-		body += "\n";
-	}
-	bool anyActive = !body.empty();
+		// ── 2. 读各手柄电量 ──
+		for (int i = 0; i < MaxPlayers; i++)
+		{
+			const auto* dev = BleGamepad::instance().getDevice(i);
+			if (!dev || !dev->connected)
+			{
+				if (m_pad[i].alerted || m_pad[i].low || m_pad[i].dismissed)
+					ESP_LOGI(TAG, "手柄 P%d 断开，低电状态复位", i + 1);
+				m_pad[i] = {};
+				continue;
+			}
+
+			uint8_t level = dev->batteryLevel;
+			bool padLow = (level != 255) && (level < kPadLowPercent);  // 255=未知，跳过
+			if (padLow)
+			{
+				m_pad[i].low = true;
+				m_pad[i].confirmTicks++;
+				if (!m_pad[i].alerted && m_pad[i].confirmTicks >= kConfirmTicks)
+				{
+					m_pad[i].alerted = true;
+					newlyAlerted = true;
+					ESP_LOGI(TAG, "手柄 P%d (%s) 低电量触发 (%d%%)", i + 1,
+						dev->name[0] ? dev->name : "?", level);
+				}
+			}
+			else
+			{
+				if (m_pad[i].alerted || m_pad[i].low || m_pad[i].dismissed)
+					ESP_LOGI(TAG, "手柄 P%d 电量恢复 (%d%%)，低电状态复位", i + 1, level);
+				m_pad[i] = {};
+			}
+		}
+
+		// ── 3. 汇总待提醒设备行（低电 && 已触发 && 未被用户关闭） ──
+		if (m_host.alerted && m_host.low && !m_host.dismissed)
+		{
+			char line[64];
+			snprintf(line, sizeof(line), "主机 电量 %d%%", hostPct);
+			body += line;
+			body += "\n";
+		}
+		for (int i = 0; i < MaxPlayers; i++)
+		{
+			if (!(m_pad[i].alerted && m_pad[i].low && !m_pad[i].dismissed)) continue;
+			const auto* dev = BleGamepad::instance().getDevice(i);
+			char line[96];
+			snprintf(line, sizeof(line), "手柄 P%d (%s) 电量 %d%%", i + 1,
+				(dev && dev->name[0]) ? dev->name : "?",
+				(dev && dev->batteryLevel <= 100) ? dev->batteryLevel : 0);
+			body += line;
+			body += "\n";
+		}
+		anyActive = !body.empty();
+	}   // 锁释放（LVGL 操作不持 m_alertMutex）
 
 	// ── 4. 提示音：新设备触发时播放 ──
 	if (newlyAlerted)
@@ -355,6 +364,9 @@ void BatteryMonitor::playAlertSound()
 	// 须加锁（移动赋值是 swap 两个 shared_ptr，并发 = 双重释放）
 	Lock lock{ m_alertMutex };
 	// Audio::play() 对文件缺失等失败路径返回空句柄，detach() 自动为 no-op
-	alertAudio = Audio::play(kAlertSoundPath).setLoop(true);
+	// ⚠ 先移动赋值（右值）再 setLoop：AudioHandle 拷贝已删除，
+	//   setLoop 返回左值引用，链式赋值走拷贝赋值会编译失败
+	alertAudio = Audio::play(kAlertSoundPath);
+	alertAudio.setLoop(true);
 	alertAudio.play();
 }
