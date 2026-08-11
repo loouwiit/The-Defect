@@ -31,7 +31,9 @@ static int l_audio_play(lua_State* L)
 static int l_audio_play_bgm(lua_State* L)
 {
     const char* path = luaL_checkstring(L, 1);
-    auto h = Audio::play(path).setLoop(true);
+    // ⚠ 先移动构造（右值）再 setLoop：AudioHandle 拷贝已删除，链式 = 拷贝构造失败
+    auto h = Audio::play(path);
+    h.setLoop(true);
     h.play();
     s_bgmHandles.push_back(std::move(h));
     return 0;

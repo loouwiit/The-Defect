@@ -87,8 +87,11 @@ public:
 	AudioHandle() = default;
 	~AudioHandle();
 
-	AudioHandle(const AudioHandle&) = default;
-	AudioHandle& operator=(const AudioHandle&) = default;
+	// ⚠ 禁止拷贝：拷贝共享同一 Impl（shared_ptr），任一拷贝析构都会 stop 播放——
+	//   正是 AGENTS.md 所述"局部 handle 析构误 stop"那类 bug 的复发路径。
+	//   与 std::thread 一致：只允许移动（返回值走 move，impl 移交不误 stop）。
+	AudioHandle(const AudioHandle&) = delete;
+	AudioHandle& operator=(const AudioHandle&) = delete;
 
 	AudioHandle(AudioHandle&& move);
 	AudioHandle& operator=(AudioHandle&& move);
@@ -118,8 +121,6 @@ public:
 private:
 	struct Impl
 	{
-		std::shared_ptr<Impl> taskRef{};   // 任务持有，防止 detach 后提前析构
-
 		Audio*            manager{};
 		esp_audio_render_stream_handle_t stream{};
 		esp_audio_dec_handle_t           dec{};

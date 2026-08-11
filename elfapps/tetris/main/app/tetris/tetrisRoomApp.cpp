@@ -66,7 +66,9 @@ void TetrisRoomApp::init()
 	m_focusPlayersIdx = 1;  // 默认 2P
 	applyFocus();
 
-	bgm = Audio::play("/root/system/music/tetris/bgm.aac").setLoop(true);
+	// ⚠ 先移动赋值（右值）再 setLoop：AudioHandle 拷贝已删除，链式 = 拷贝赋值失败
+	bgm = Audio::play("/root/system/music/tetris/bgm.aac");
+	bgm.setLoop(true);
 	bgm.play();
 }
 

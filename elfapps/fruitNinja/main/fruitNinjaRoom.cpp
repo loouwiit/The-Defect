@@ -56,7 +56,9 @@ void FruitNinjaRoom::init()
 	m_focusIdx = 1;
 	applyFocus();
 
-	bgm = Audio::play("/root/system/music/fruitninja/bgm.aac").setLoop(true);
+	// ⚠ 先移动赋值（右值）再 setLoop：AudioHandle 拷贝已删除，链式 = 拷贝赋值失败
+	bgm = Audio::play("/root/system/music/fruitninja/bgm.aac");
+	bgm.setLoop(true);
 	bgm.play();
 }
 

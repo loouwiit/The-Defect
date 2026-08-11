@@ -38,7 +38,9 @@ void SnakeRoom::init()
 {
 	App::init();
 
-	m_bgm = Audio::play("/root/system/music/snake/bgm.aac").setLoop(true);
+	// ⚠ 先移动赋值（右值）再 setLoop：AudioHandle 拷贝已删除，链式 = 拷贝赋值失败
+	m_bgm = Audio::play("/root/system/music/snake/bgm.aac");
+	m_bgm.setLoop(true);
 
 	auto guard = display->lockGuard();
 	if (!guard)

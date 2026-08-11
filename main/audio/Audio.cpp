@@ -882,6 +882,9 @@ AudioHandle Audio::play(const AudioSample& sample, bool loop)
 	auto sid = self.allocStreamId();
 	if (sid == 0xFF) {
 		ESP_LOGE(TAG, "无空闲音频流");
+		// ⚠ 流分配失败必须回退 activeCount：原实现只增不减，应用层限流
+		//   （activeCount() < 3）在流满后会逐渐失效
+		sample.m_activeCount.fetch_sub(1);
 		return {};
 	}
 	impl->streamId = sid;
