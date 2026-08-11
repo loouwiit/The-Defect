@@ -22,6 +22,11 @@
 #include <esp_heap_caps.h>
 #include <cstring>
 
+// ⚠ portMUX：httpd 6 worker 线程并发处理不同 fd 的 WS 连接（含握手/断开），
+//   s_fdMap 静态数组无锁写 → 数据竞争（条目覆盖/计数错乱）
+#include "freertos/FreeRTOS.h"
+#include "esp_attr.h"
+
 static constexpr char TAG[] = "WSInput";
 
 // 二进制帧大小：11 字节（hostId + GamepadState）
@@ -32,30 +37,39 @@ static struct {
 	int fd;
 	int8_t hostId;
 } s_fdMap[4] = {};
+static portMUX_TYPE s_fdMapMux = portMUX_INITIALIZER_UNLOCKED;
 
 static void trackFd(int fd, int8_t hostId)
 {
+	portENTER_CRITICAL(&s_fdMapMux);
 	// 找到或覆盖
 	int oldest = 0;
 	for (int i = 0; i < 4; i++) {
-		if (s_fdMap[i].fd == fd) { s_fdMap[i].hostId = hostId; return; }
+		if (s_fdMap[i].fd == fd) { s_fdMap[i].hostId = hostId; portEXIT_CRITICAL(&s_fdMapMux); return; }
 		if (s_fdMap[i].fd < s_fdMap[oldest].fd) oldest = i;
 	}
 	s_fdMap[oldest] = { fd, hostId };
+	portEXIT_CRITICAL(&s_fdMapMux);
 }
 
 static void untrackFd(int fd)
 {
+	int8_t hostId = -1;
+	portENTER_CRITICAL(&s_fdMapMux);
 	for (int i = 0; i < 4; i++) {
 		if (s_fdMap[i].fd == fd) {
-			int8_t hostId = s_fdMap[i].hostId;
+			hostId = s_fdMap[i].hostId;
 			s_fdMap[i] = { -1, -1 };
-			// 复位该 hostId 的所有 4 个玩家
-			for (int p = 0; p < 4; p++)
-				VirtualGamepad::instance().resetPlayer(hostId, p);
-			ESP_LOGI(TAG, "cleaned up hostId=%d (fd=%d)", hostId, fd);
-			return;
+			break;
 		}
+	}
+	portEXIT_CRITICAL(&s_fdMapMux);
+
+	if (hostId >= 0) {
+		// 复位该 hostId 的所有 4 个玩家（临界区外调用：resetPlayer 可能耗时）
+		for (int p = 0; p < 4; p++)
+			VirtualGamepad::instance().resetPlayer(hostId, p);
+		ESP_LOGI(TAG, "cleaned up hostId=%d (fd=%d)", hostId, fd);
 	}
 }
 
