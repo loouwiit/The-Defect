@@ -16,6 +16,7 @@
 	const statusText = document.getElementById('statusText');
 	const fpsDisplay = document.getElementById('fpsDisplay');
 	const frameSizeDisplay = document.getElementById('frameSizeDisplay');
+	const btnShot = document.getElementById('btnShot');
 	const btnStart = document.getElementById('btnStart');
 	const btnStop = document.getElementById('btnStop');
 
@@ -23,6 +24,8 @@
 	let reconnectTimer = null;
 	let manualStop = false;
 	let currentObjectUrl = null;
+	// 最近一帧 JPEG 字节（供截图按钮使用；断连后仍保留最后一帧）
+	let latestFrameBytes = null;
 
 	// 解码失败自愈：连续失败说明 WS 帧错位（服务器帧截断/并发写导致），
 	// 连接本身还活着但数据已损坏 → 强制 close 触发 onclose 自动重连
@@ -192,6 +195,7 @@
 			const raw = new Uint8Array(e.data);
 			const copy = new Uint8Array(raw.length);
 			copy.set(raw);
+			latestFrameBytes = copy;   // 保存最新帧供截图
 			displayFrame(copy);
 		};
 
@@ -238,9 +242,48 @@
 		btnStop.disabled = true;
 	}
 
+	// ---- 截图（保存已收到的串流帧，新标签页打开） ----
+	// 无需后端接口：直接复用 ws 收到的 JPEG 帧，与显示同款 Canvas 旋转为横屏 1280×720
+	function rotateJpegToLandscape(blob) {
+		return createImageBitmap(blob).then(bitmap => {
+			ROTATE_CTX.clearRect(-640, -360, 1280, 720);
+			ROTATE_CTX.drawImage(bitmap, -360, -640, 720, 1280);
+			bitmap.close();
+			return new Promise(resolve => {
+				ROTATE_CANVAS.toBlob(resolve, 'image/jpeg', 0.82);
+			});
+		});
+	}
+
+	async function takeScreenshot() {
+		if (btnShot.disabled) return;
+		if (!latestFrameBytes) {
+			alert('暂无画面：请先点击「开始串流」连接屏幕画面');
+			return;
+		}
+		btnShot.disabled = true;
+		btnShot.textContent = '📷 截图中...';
+		try {
+			const blob = new Blob([latestFrameBytes], { type: 'image/jpeg' });
+			const rotated = await rotateJpegToLandscape(blob);
+			if (!rotated) throw new Error('图片编码失败');
+			// 新标签页打开横屏截图（用户可右键保存）；objectURL 不 revoke，
+			// 新标签页持有引用，页面卸载时自动释放
+			const url = URL.createObjectURL(rotated);
+			window.open(url, '_blank');
+		} catch (err) {
+			console.warn('截图失败:', err);
+			alert('截图失败：' + (err && err.message ? err.message : err));
+		} finally {
+			btnShot.disabled = false;
+			btnShot.textContent = '📷 截图';
+		}
+	}
+
 	// ---- 事件绑定 ----
 
 	btnStart.addEventListener('click', startStream);
+	btnShot.addEventListener('click', takeScreenshot);
 	btnStop.addEventListener('click', stopStream);
 
 	window.addEventListener('beforeunload', function () {
