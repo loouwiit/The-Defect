@@ -60,21 +60,25 @@ void BleSettingsApp::init()
 
 void BleSettingsApp::deinit()
 {
-	// 删除定时器
-	if (m_refreshTimer)
+	// 删除定时器（⚠ lv_timer_del 须持 LVGL 锁：deleteApp task 与 LVGL task 并发）
+	if (m_refreshTimer || m_restoreTimer || m_activityTimer)
 	{
-		lv_timer_del(m_refreshTimer);
-		m_refreshTimer = nullptr;
-	}
-	if (m_restoreTimer)
-	{
-		lv_timer_del(m_restoreTimer);
-		m_restoreTimer = nullptr;
-	}
-	if (m_activityTimer)
-	{
-		lv_timer_del(m_activityTimer);
-		m_activityTimer = nullptr;
+		auto guard = display->lockGuard();
+		if (m_refreshTimer)
+		{
+			lv_timer_del(m_refreshTimer);
+			m_refreshTimer = nullptr;
+		}
+		if (m_restoreTimer)
+		{
+			lv_timer_del(m_restoreTimer);
+			m_restoreTimer = nullptr;
+		}
+		if (m_activityTimer)
+		{
+			lv_timer_del(m_activityTimer);
+			m_activityTimer = nullptr;
+		}
 	}
 
 	App::deinit();

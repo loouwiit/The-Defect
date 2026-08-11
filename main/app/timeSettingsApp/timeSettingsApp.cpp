@@ -84,8 +84,10 @@ void TimeSettingsApp::deinit()
 		m_syncCbHandle = 0;
 	}
 
+	// ⚠ lv_timer_del 须持 LVGL 锁（deleteApp task 与 LVGL task 并发）
 	if (m_refreshTimer)
 	{
+		auto guard = display->lockGuard();
 		lv_timer_del(m_refreshTimer);
 		m_refreshTimer = nullptr;
 	}

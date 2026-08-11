@@ -116,27 +116,32 @@ void DesktopApp::init()
 
 void DesktopApp::deinit()
 {
-	if (m_timeTimer)
+	// ⚠ lv_timer_del 与 LVGL 任务并发（deleteApp task 无锁运行）→ 必须持锁
+	if (m_timeTimer || m_batteryTimer || m_volumeSliderTimer || m_brightnessSliderTimer)
 	{
-		lv_timer_del(m_timeTimer);
-		m_timeTimer = nullptr;
-	}
-	if (m_batteryTimer)
-	{
-		lv_timer_del(m_batteryTimer);
-		m_batteryTimer = nullptr;
-	}
-	// ⚠ 音量/亮度滑块定时器（200ms 周期）也是 LVGL 全局注册，不随 screen 删除：
-	//   桌面在滑块打开状态被销毁时，回调会访问已析构 this → UAF。必须同款清理。
-	if (m_volumeSliderTimer)
-	{
-		lv_timer_del(m_volumeSliderTimer);
-		m_volumeSliderTimer = nullptr;
-	}
-	if (m_brightnessSliderTimer)
-	{
-		lv_timer_del(m_brightnessSliderTimer);
-		m_brightnessSliderTimer = nullptr;
+		auto guard = display->lockGuard();
+		if (m_timeTimer)
+		{
+			lv_timer_del(m_timeTimer);
+			m_timeTimer = nullptr;
+		}
+		if (m_batteryTimer)
+		{
+			lv_timer_del(m_batteryTimer);
+			m_batteryTimer = nullptr;
+		}
+		// ⚠ 音量/亮度滑块定时器（200ms 周期）也是 LVGL 全局注册，不随 screen 删除：
+		//   桌面在滑块打开状态被销毁时，回调会访问已析构 this → UAF。必须同款清理。
+		if (m_volumeSliderTimer)
+		{
+			lv_timer_del(m_volumeSliderTimer);
+			m_volumeSliderTimer = nullptr;
+		}
+		if (m_brightnessSliderTimer)
+		{
+			lv_timer_del(m_brightnessSliderTimer);
+			m_brightnessSliderTimer = nullptr;
+		}
 	}
 	App::deinit();
 	ESP_LOGI(TAG, "桌面已释放");

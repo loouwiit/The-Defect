@@ -104,26 +104,33 @@ void ConsoleManagerApp::deinit()
 	HostManager::instance().setOnSlotUpdate(nullptr);
 	HostManager::instance().setOnRoleChange(nullptr);
 
-	if (m_refreshTimer)
+	// ⚠ LVGL 操作须持锁（deleteApp task 与 LVGL task 并发）
 	{
-		lv_timer_del(m_refreshTimer);
-		m_refreshTimer = nullptr;
+		auto guard = display->lockGuard();
+		if (m_refreshTimer)
+		{
+			lv_timer_del(m_refreshTimer);
+			m_refreshTimer = nullptr;
+		}
+		if (m_activityTimer)
+		{
+			lv_timer_del(m_activityTimer);
+			m_activityTimer = nullptr;
+		}
+
+		// 清零槽位控件指针（下一个实例会重新创建）
+		for (auto& w : m_slotsUI)
+			w = SlotWidgets{};
 	}
-	if (m_activityTimer)
-	{
-		lv_timer_del(m_activityTimer);
-		m_activityTimer = nullptr;
-	}
 
-	// 清零槽位控件指针（下一个实例会重新创建）
-	for (auto& w : m_slotsUI)
-		w = SlotWidgets{};
-
-	running = false;
-	deletable = !m_scanActive;
-
+	// ⚠ 走基类契约（running=false + deletable=true），再按扫描态调整：
+	//   扫描中（m_scanActive，mDNS 查询 3s 阻塞）deletable=false → deleteApp 每 10 tick 重试
+	App::deinit();
 	if (m_scanActive)
+	{
+		deletable = false;
 		ESP_LOGI(TAG, "扫描进行中，延迟销毁");
+	}
 	else
 		ESP_LOGI(TAG, "已释放");
 }

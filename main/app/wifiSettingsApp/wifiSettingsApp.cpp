@@ -89,13 +89,18 @@ void WifiSettingsApp::init()
 
 void WifiSettingsApp::deinit()
 {
-	if (m_refreshTimer)
+	// ⚠ LVGL 操作（lv_timer_del / hideEditDialog 内部 lv_obj_del）须持锁：
+	//   deleteApp task 与 LVGL task 并发；hideEditDialog 内部自带递归锁，嵌套安全
 	{
-		lv_timer_del(m_refreshTimer);
-		m_refreshTimer = nullptr;
+		auto guard = display->lockGuard();
+		if (m_refreshTimer)
+		{
+			lv_timer_del(m_refreshTimer);
+			m_refreshTimer = nullptr;
+		}
+		// 关闭所有弹窗
+		hideEditDialog();
 	}
-	// 关闭所有弹窗
-	hideEditDialog();
 
 	App::deinit();
 	ESP_LOGI(TAG, "WiFi 设置 App 已释放");
