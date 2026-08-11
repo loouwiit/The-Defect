@@ -116,7 +116,9 @@ void AppStack::replace(App* app)
 	oldTop->onBackground();
 
 	app->setManager(m_manager);
-	app->init();
+	// ⚠ 与 push() 对齐：已初始化过的实例（running=true）不重复 init（防重复建 UI）
+	if (!app->running)
+		app->init();
 
 	m_display->applyApp(app);
 	app->onForeground();
