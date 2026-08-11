@@ -175,6 +175,11 @@ void GT911Indev::updateAndRoute()
                 slot.pressed = false;
                 slot.hasNewData = true;
             }
+            // ⚠ 手指消失即取消暂存按压：若 pendingPress 未消费（release 尚未被 LVGL
+            //   读取）手指就抬起，indevReadCb 会在消费 RELEASE 时把暂存按压提升为
+            //   PRESSED → 以过期坐标交付一次虚假按压 + 下帧补 RE → "幽灵点击"误触按钮。
+            slot.pendingPress = false;
+            slot.pendingPoint = {};
         }
     }
 }
