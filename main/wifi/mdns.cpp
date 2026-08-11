@@ -151,8 +151,13 @@ bool mdnsStart(const char* hostname, const char* instanceName)
 	}
 
 	// 缓存当前 hostname
+	// ⚠ strncpy 不保证 null 终止：若 hostname 长度 ≥ sizeof-1 则缓存无终止符，
+	//   后续 strlen/snprintf 越界读 → 强制补终止符
 	if (hostname)
+	{
 		strncpy(s_currentHostname, hostname, sizeof(s_currentHostname) - 1);
+		s_currentHostname[sizeof(s_currentHostname) - 1] = '\0';
+	}
 
 	ESP_LOGI(TAG, "start hostname: %s, instance: %s", hostname, instanceName);
 
@@ -268,10 +273,12 @@ const char* mdnsGetConfiguredHostname()
 			size_t len = sizeof(hostname);
 			err = nvs_get_str(handle, NvsKeyHostname, hostname, &len);
 			nvs_close(handle);
+			hostname[sizeof(hostname) - 1] = '\0';   // ⚠ nvs_get_str 可能超长，强制终止
 		}
 
 		if (hostname[0] == '\0')
 			strncpy(hostname, DefaultHostname, sizeof(hostname) - 1);
+		hostname[sizeof(hostname) - 1] = '\0';       // ⚠ DefaultHostname 超长时强制终止
 	}
 
 	return hostname;

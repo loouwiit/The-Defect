@@ -121,6 +121,8 @@ size_t ISocketStream::readByte(char* buffer, size_t bufferSize)
 
 size_t ISocketStream::read(char* buffer, size_t bufferSize)
 {
+	// ⚠ 防御：bufferSize==0 时 bufferSize-1 下溢为 SIZE_MAX → 越界写
+	if (bufferSize <= 1) return 0;
 	size_t readCount = readByte(buffer, bufferSize - 1);
 	buffer[readCount] = '\0'; // 规范字符串
 	return readCount;
@@ -169,7 +171,8 @@ size_t ISocketStream::getline(char* buffer, size_t bufferSize, char end)
 	} while (reading);
 
 	buffer[readCount] = '\0'; // 规范字符串
-	if (IBuffer[IPointer] == end)
+	// ⚠ 先判越界再访问：缓冲耗尽（IPointer==IBufferLenght）时 IBuffer[IPointer] 越界读 1 字节
+	if (IPointer < IBufferLenght && IBuffer[IPointer] == end)
 		IPointer++;
 
 	return readCount;

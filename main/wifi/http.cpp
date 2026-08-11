@@ -1,4 +1,5 @@
 #include "http.hpp"
+#include <utility>   // std::move（HttpCookie 移动构造）
 
 bool compareStringCase(const char* a, const char* b);
 
@@ -177,29 +178,25 @@ HttpStringPair::HttpStringPair(const char* name, const char* value)
 
 HttpStringPair::HttpStringPair(const HttpStringPair& copy)
 {
-	size_t lenght;
-	lenght = strlen(copy.name) + 1;
 	delete[] name;
+	name = nullptr;
+	delete[] value;
+	value = nullptr;
+
+	// ⚠ 先判空再 strlen：默认构造/clear() 后的 pair（name/value 为 nullptr）被拷贝时，
+	//   strlen(nullptr) 直接崩溃
 	if (copy.name != nullptr)
 	{
+		size_t lenght = strlen(copy.name) + 1;
 		name = new char[lenght];
 		memcpy(name, copy.name, lenght);
 	}
-	else
-	{
-		name = nullptr;
-	}
 
-	lenght = strlen(copy.value) + 1;
-	delete[] value;
 	if (copy.value != nullptr)
 	{
+		size_t lenght = strlen(copy.value) + 1;
 		value = new char[lenght];
 		memcpy(value, copy.value, lenght);
-	}
-	else
-	{
-		value = nullptr;
 	}
 }
 
@@ -225,29 +222,24 @@ HttpStringPair::~HttpStringPair()
 
 HttpStringPair& HttpStringPair::operator=(const HttpStringPair& stringPair)
 {
-	size_t lenght;
-	lenght = strlen(stringPair.name) + 1;
 	delete[] name;
+	name = nullptr;
+	delete[] value;
+	value = nullptr;
+
+	// ⚠ 先判空再 strlen（同拷贝构造）
 	if (stringPair.name != nullptr)
 	{
+		size_t lenght = strlen(stringPair.name) + 1;
 		name = new char[lenght];
 		memcpy(name, stringPair.name, lenght);
 	}
-	else
-	{
-		name = nullptr;
-	}
 
-	lenght = strlen(stringPair.value) + 1;
-	delete[] value;
 	if (stringPair.value != nullptr)
 	{
+		size_t lenght = strlen(stringPair.value) + 1;
 		value = new char[lenght];
 		memcpy(value, stringPair.value, lenght);
-	}
-	else
-	{
-		value = nullptr;
 	}
 
 	return *this;
@@ -281,29 +273,24 @@ void HttpStringPair::swap(HttpStringPair& swap)
 
 void HttpStringPair::copy(const HttpStringPair& copy)
 {
-	size_t lenght;
-	lenght = strlen(copy.name) + 1;
 	delete[] name;
+	name = nullptr;
+	delete[] value;
+	value = nullptr;
+
+	// ⚠ 先判空再 strlen（同拷贝构造）
 	if (copy.name != nullptr)
 	{
+		size_t lenght = strlen(copy.name) + 1;
 		name = new char[lenght];
 		memcpy(name, copy.name, lenght);
 	}
-	else
-	{
-		name = nullptr;
-	}
 
-	lenght = strlen(copy.value) + 1;
-	delete[] value;
 	if (copy.value != nullptr)
 	{
+		size_t lenght = strlen(copy.value) + 1;
 		value = new char[lenght];
 		memcpy(value, copy.value, lenght);
-	}
-	else
-	{
-		value = nullptr;
 	}
 }
 
@@ -488,13 +475,18 @@ HttpCookie::HttpCookie(const HttpCookie& copy) : HttpStringPair(copy)
 {
 	maxAge = copy.maxAge;
 
-	size_t lenght = strlen(copy.path) + 1;
 	delete[] this->path;
-	this->path = new char[lenght];
-	memcpy(this->path, copy.path, lenght);
+	this->path = nullptr;
+	// ⚠ 先判空再 strlen：默认构造的 HttpCookie()（path==nullptr）被拷贝时崩溃
+	if (copy.path != nullptr)
+	{
+		size_t lenght = strlen(copy.path) + 1;
+		this->path = new char[lenght];
+		memcpy(this->path, copy.path, lenght);
+	}
 }
 
-HttpCookie::HttpCookie(HttpCookie&& move) :HttpStringPair(move)
+HttpCookie::HttpCookie(HttpCookie&& move) :HttpStringPair(std::move(move))
 {
 	uint32_t age = this->maxAge;
 	this->maxAge = move.maxAge;
