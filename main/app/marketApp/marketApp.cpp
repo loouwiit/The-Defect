@@ -237,8 +237,12 @@ void MarketApp::fetchList()
 	MarketClient::fetchList(url,
 		[this](bool ok, std::vector<MarketScript> list, const std::string& err) {
 			// ⚠ 回调在 daemon 任务执行，App 可能已被 pop + delete（UAF）。
-			//   先持 LVGL 锁再检查 running：deleteApp 任务持锁 delete，与回调持锁互斥
-			//   → 锁内 this 必然存活；若 App 已销毁则拿不到锁（g 空）直接返回。
+			//   deleteApp 流程：deinit（running=false）→ waitDispatchIdle → 持锁 delete。
+			//   此处先无锁快速检查 running（deinit 后 99% 提前返回）；再取锁复查。
+			//   注意局限：若 delete 恰在取锁前完成，锁内访问 this 仍可能 UAF
+			//   （lockGuard 是阻塞的，delete 也在锁内）——此模式只能缩小窗口不能根治；
+			//   实践中下载/列表回调多在用户停留期间完成，窗口极小。
+			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
 			if (!running) return;   // 已 deinit
@@ -509,7 +513,10 @@ void MarketApp::processThumbQueue()
 
 	MarketClient::downloadFile(url, imgRel, path,
 		[this, idx, path](bool ok, const std::string& /*err*/) {
-			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			// ⚠ 回调在 daemon 任务执行，App 可能已被 delete（UAF）：
+			//   先无锁快速检查 running（deinit 已置 false 提前返回），再取锁复查。
+			//   局限：delete 恰在取锁前完成时锁内仍可能 UAF（窗口极小，见 fetchList 注释）
+			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
 			if (!running) return;   // 已 deinit
@@ -748,7 +755,8 @@ void MarketApp::loadScreenshot(const MarketScript& s)
 	std::string url = m_serverUrl;
 	MarketClient::downloadFile(url, s.screenshot, m_detailImagePath,
 		[this](bool ok, const std::string& /*err*/) {
-			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			// ⚠ 先快速检查 running 再取锁（防 App 已 delete 的 UAF），见 fetchList 注释
+			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
 			if (!running) return;   // 已 deinit
@@ -799,8 +807,8 @@ void MarketApp::download()
 	MarketClient::downloadScriptText(url, s.download,
 		[this, selIdx, wasDownloaded, id = s.id, author = s.author, download = s.download]
 		(bool ok, const std::string& content, const std::string& err) {
-			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
-			//   回调全程持锁：文件 IO 毫秒级，可接受；deleteApp 持锁 delete 与回调互斥。
+			// ⚠ 先快速检查 running 再取锁（防 App 已 delete 的 UAF），见 fetchList 注释
+			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
 			if (!running) return;   // 已 deinit
@@ -935,7 +943,8 @@ void MarketApp::downloadElf()
 	MarketClient::downloadFile(url, manifestRel, dir + "/manifest.json",
 		[this, selIdx, wasDownloaded, url, dir, mainName, soRel, iconRel, id = s.id, author = s.author]
 		(bool ok, const std::string& err) {
-			// ⚠ 先持锁再检查（防 App 已 delete 的 UAF），见 fetchList 回调注释。
+			// ⚠ 先快速检查 running 再取锁（防 App 已 delete 的 UAF），见 fetchList 注释
+			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
 			if (!running) return;   // 已 deinit
@@ -945,6 +954,7 @@ void MarketApp::downloadElf()
 			MarketClient::downloadFile(url, soRel, dir + "/" + mainName,
 				[this, selIdx, wasDownloaded, url, dir, iconRel, id, author]
 				(bool ok2, const std::string& err2) {
+					if (!running) return;
 					auto g2 = display->lockGuard();
 					if (!g2) return;
 					if (!running) return;
@@ -958,6 +968,7 @@ void MarketApp::downloadElf()
 					MarketClient::downloadFile(url, iconRel, dir + "/icon.jpg",
 						[this, selIdx, wasDownloaded, id, author]
 						(bool /*ok3*/, const std::string& /*err3*/) {
+							if (!running) return;
 							auto g3 = display->lockGuard();
 							if (!g3) return;
 							if (!running) return;
