@@ -692,6 +692,25 @@ void LuaManagerApp::submitRename()
 		return;
 	}
 
+	// ⚠ 文件名净化（防路径穿越/任意文件移动）：原实现直接拼接 → 输入
+	//   "../../system/ai_config.json" 可把脚本移出 /root/lua/ 甚至覆盖系统文件。
+	//   复用 luaStorage::sanitizeName 同款白名单：字母/数字/下划线/点/连字符，
+	//   禁首字符点（隐藏文件/相对路径）。
+	const size_t nameLen = strlen(newName);
+	if (nameLen > 60 || newName[0] == '.') {
+		cancelRename();
+		return;
+	}
+	for (size_t i = 0; i < nameLen; i++) {
+		const char c = newName[i];
+		const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+			         || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-';
+		if (!ok) {
+			cancelRename();
+			return;
+		}
+	}
+
 	const auto& se = m_scripts[m_selectedIdx];
 
 	// 构造新路径（保留原目录）

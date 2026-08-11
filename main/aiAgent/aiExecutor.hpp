@@ -240,6 +240,17 @@ public:
                         ESP_LOGW(TAG, "AI 读取越界路径被拦截: %s", path);
                         break;
                     }
+                    // ⚠ 路径穿越拦截：前缀匹配挡不住 "/root/lua/../system/..."
+                    //   （FatFs 会解析 .. 段 → 实际读出 /root/system/ai_config.json
+                    //   含 API Key）。拒绝任何含 "." / ".." 段（含结尾）的路径；
+                    //   普通文件名如 "a.b.lua"（点前非 '/'）不受影响。
+                    if (strstr(path, "/../") || strstr(path, "/./") ||
+                        strstr(path, "/..") || strstr(path, "/.")) {
+                        result.failureDetail +=
+                            "禁止读取含路径穿越的路径: " + action.text + "\n";
+                        ESP_LOGW(TAG, "AI 读取路径穿越被拦截: %s", path);
+                        break;
+                    }
                     FILE* f = fopen(path, "r");
                     if (!f) {
                         result.failureDetail += "读取文件失败: " + action.text + "\n";
