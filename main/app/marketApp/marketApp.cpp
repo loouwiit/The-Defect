@@ -62,6 +62,195 @@ void MarketApp::cleanupLegacyFlatFiles()
 }
 
 // ============================================================
+//  服务器地址编辑弹窗
+// ============================================================
+
+// 弹窗模式参考 wifiSettingsApp.cpp 的 showEditDialog：
+//   lv_layer_top 遮罩 + 居中卡片 + textarea + 软键盘 + 取消/确定按钮行；
+//   手柄通过 m_editGroup 向键盘发送按键（A 按下选中键 / 摇杆导航 / B 取消）。
+void MarketApp::showServerDialog()
+{
+	if (m_editDialog) return;
+
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	// ── 遮罩层（绝对像素） ──
+	auto overlay = lv_obj_create(lv_layer_top());
+	lv_obj_set_size(overlay, lv_disp_get_hor_res(NULL), lv_disp_get_ver_res(NULL));
+	lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), 0);
+	lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+	lv_obj_set_style_border_width(overlay, 0, 0);
+	lv_obj_set_style_pad_all(overlay, 0, 0);
+	lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_move_foreground(overlay);
+
+	// ── 卡片，在遮罩内居中 ──
+	auto card = lv_obj_create(overlay);
+	lv_obj_set_size(card, lv_pct(80), LV_SIZE_CONTENT);
+	lv_obj_center(card);
+	styleCard(card);
+	lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(card, 12, 0);
+	lv_obj_set_style_pad_top(card, 20, 0);
+
+	m_editDialog = overlay;
+
+	// 标题 / 副标题
+	auto titleLabel = GUI::createLabel(card, "市场服务器地址");
+	lv_obj_set_style_text_font(titleLabel, FontLoader::getDefault(FontLoader::FontSize::Default), 0);
+
+	auto sub = GUI::createLabel(card, "支持 http:// 或裸 IP:端口（自动补全 http://）");
+	lv_obj_set_style_text_font(sub, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_obj_set_style_text_color(sub, GUI::Color::SUBTLE, 0);
+	lv_obj_set_style_pad_bottom(sub, 8, 0);
+
+	// 输入框（预填当前服务器地址）
+	m_editTa = lv_textarea_create(card);
+	lv_obj_set_width(m_editTa, lv_pct(90));
+	lv_obj_set_height(m_editTa, 60);
+	lv_textarea_set_one_line(m_editTa, true);
+	lv_obj_set_scrollbar_mode(m_editTa, LV_SCROLLBAR_MODE_OFF);
+	lv_textarea_set_placeholder_text(m_editTa, "http://192.168.1.100:3000");
+	lv_obj_set_style_text_align(m_editTa, LV_TEXT_ALIGN_LEFT, 0);
+	lv_obj_set_style_text_font(m_editTa, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	lv_textarea_set_text(m_editTa, m_serverUrl.c_str());
+	lv_textarea_set_cursor_pos(m_editTa, LV_TEXTAREA_CURSOR_LAST);
+	// 键盘"Enter"键 → LV_EVENT_READY → 执行确认
+	lv_obj_add_event_cb(m_editTa, onServerEditConfirmCb, LV_EVENT_READY, this);
+
+	// 键盘（固定高度，避免 flex 重算导致光标晃动）
+	m_editKeyboard = lv_keyboard_create(card);
+	lv_obj_set_width(m_editKeyboard, lv_pct(100));
+	lv_obj_set_height(m_editKeyboard, 240);
+	lv_obj_set_flex_grow(m_editKeyboard, 0);
+	lv_keyboard_set_textarea(m_editKeyboard, m_editTa);
+	// 键盘按钮使用 NotoSC Small（fallback 到 lv_font_get_default 含符号字型）
+	lv_obj_set_style_text_font(m_editKeyboard, FontLoader::getDefault(FontLoader::FontSize::Small), LV_PART_ITEMS);
+	// 键盘按键焦点高亮（参考 aiAgentOverlay / wifiSettingsApp）
+	lv_obj_set_style_bg_color(m_editKeyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_opa(m_editKeyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_text_color(m_editKeyboard, LV_COLOR_MAKE(0xff, 0xff, 0xff), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_color(m_editKeyboard, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
+	lv_obj_set_style_bg_opa(m_editKeyboard, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
+
+	// 创建 Group，使摇杆可通过 lv_group_send_data 向键盘发送按键事件
+	m_editGroup = lv_group_create();
+	lv_group_add_obj(m_editGroup, m_editKeyboard);
+	lv_group_focus_obj(m_editKeyboard);
+
+	// 按钮行
+	auto btn_row = lv_obj_create(card);
+	lv_obj_set_width(btn_row, lv_pct(90));
+	lv_obj_set_height(btn_row, LV_SIZE_CONTENT);
+	lv_obj_remove_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_style_border_width(btn_row, 0, 0);
+	lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(btn_row, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(btn_row, 8, 0);
+
+	auto cancelBtn = GUI::createButton(btn_row, "取消", 120, 44);
+	lv_obj_set_style_bg_color(cancelBtn, LV_COLOR_MAKE(0x50, 0x50, 0x60), 0);
+	lv_obj_add_event_cb(cancelBtn, onServerEditCancelCb, LV_EVENT_CLICKED, this);
+	// 设置按钮 label 字体（lv_layer_top 上无字体继承）
+	if (auto* l = lv_obj_get_child(cancelBtn, 0))
+		lv_obj_set_style_text_font(l, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+
+	auto confirmBtn = GUI::createButton(btn_row, "确定", 120, 44);
+	lv_obj_set_style_bg_color(confirmBtn, LV_COLOR_MAKE(0x00, 0x88, 0x00), 0);
+	lv_obj_add_event_cb(confirmBtn, onServerEditConfirmCb, LV_EVENT_CLICKED, this);
+	if (auto* l = lv_obj_get_child(confirmBtn, 0))
+		lv_obj_set_style_text_font(l, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+}
+
+void MarketApp::hideServerDialog()
+{
+	if (!m_editDialog) return;
+
+	// LVGL 锁：可能从 BLE task（onGamepadInput）调用
+	auto guard = display->lockGuard();
+	if (!guard) return;
+
+	if (m_editGroup) {
+		lv_group_del(m_editGroup);
+		m_editGroup = nullptr;
+	}
+
+	m_editKeyboard = nullptr;
+	m_editTa = nullptr;
+	lv_obj_del(m_editDialog);
+	m_editDialog = nullptr;
+}
+
+void MarketApp::confirmServerDialog()
+{
+	if (!m_editTa) return;
+
+	// 复制文本（dialog 关闭后 textarea 被删除）
+	char* text = strdup(lv_textarea_get_text(m_editTa));
+	hideServerDialog();
+
+	if (!text) {
+		if (auto g = display->lockGuard())
+			setStatus("保存失败: 内存不足", GUI::Color::DANGER);
+		return;
+	}
+
+	// 去首尾空白
+	std::string url(text);
+	free(text);
+	while (!url.empty() && isspace((unsigned char)url.front())) url.erase(url.begin());
+	while (!url.empty() && isspace((unsigned char)url.back())) url.pop_back();
+
+	// 空输入 → 提示不保存
+	if (url.empty()) {
+		if (auto g = display->lockGuard())
+			setStatus("服务器地址不能为空", GUI::Color::DANGER);
+		return;
+	}
+
+	// 无 scheme 自动补 http://（裸 IP:端口 友好输入）
+	if (url.find("://") == std::string::npos)
+		url = "http://" + url;
+	// 去末尾斜杠
+	while (url.size() > 1 && url.back() == '/') url.pop_back();
+
+	// 写 FAT 配置（保留 timeout_ms）
+	if (!marketConfigSaveUrl(url)) {
+		if (auto g = display->lockGuard())
+			setStatus("保存服务器配置失败", GUI::Color::DANGER);
+		return;
+	}
+
+	// 更新内存地址并重新拉取（等效连接测试）
+	// ⚠ m_serverUrl 的写须在锁内：fetchList 回调在锁内读取，避免跨任务数据竞争
+	if (auto g = display->lockGuard()) {
+		m_serverUrl = url;
+		setStatus(("服务器: " + url).c_str(), GUI::Color::SUBTLE);
+		applyFocus();
+	}
+	fetchList();
+}
+
+void MarketApp::onServerEditConfirmCb(lv_event_t* e)
+{
+	auto* self = static_cast<MarketApp*>(lv_event_get_user_data(e));
+	self->confirmServerDialog();
+}
+
+void MarketApp::onServerEditCancelCb(lv_event_t* e)
+{
+	auto* self = static_cast<MarketApp*>(lv_event_get_user_data(e));
+	self->hideServerDialog();
+	if (auto guard = self->display->lockGuard())
+		self->applyFocus();
+}
+
+// ============================================================
 //  init
 // ============================================================
 
@@ -151,7 +340,7 @@ void MarketApp::init()
 	lv_obj_set_style_flex_main_place(m_bottomBar, LV_FLEX_ALIGN_CENTER, 0);
 	lv_obj_set_scrollbar_mode(m_bottomBar, LV_SCROLLBAR_MODE_OFF);
 
-	const char* btnLabels[] = { LV_SYMBOL_REFRESH "刷新", "详情", LV_SYMBOL_OK "下载" };
+	const char* btnLabels[] = { LV_SYMBOL_REFRESH "刷新", "详情", LV_SYMBOL_OK "下载", LV_SYMBOL_SETTINGS "服务器" };
 	for (int i = 0; i < BOTTOM_BTN_COUNT; i++) {
 		m_bottomBtns[i] = GUI::createButton(m_bottomBar, btnLabels[i], 150, 38);
 		lv_obj_set_style_radius(m_bottomBtns[i], 6, 0);
@@ -179,6 +368,11 @@ void MarketApp::init()
 		self->download();
 		}, LV_EVENT_CLICKED, this);
 
+	lv_obj_add_event_cb(m_bottomBtns[3], [](lv_event_t* e) {
+		auto* self = static_cast<MarketApp*>(lv_event_get_user_data(e));
+		self->showServerDialog();
+		}, LV_EVENT_CLICKED, this);
+
 	// 读取服务器配置
 	m_serverUrl = marketConfigGetUrl();
 
@@ -198,6 +392,13 @@ void MarketApp::init()
 
 void MarketApp::deinit()
 {
+	// ⚠ LVGL 操作（hideServerDialog 内部 lv_obj_del）须持锁：
+	//   deleteApp task 与 LVGL task 并发；hideServerDialog 内部自带递归锁，嵌套安全
+	{
+		auto guard = display->lockGuard();
+		// 关闭服务器编辑弹窗（lv_layer_top 上创建，App screen 删除不会自动清理）
+		hideServerDialog();
+	}
 	App::deinit();
 }
 
@@ -233,9 +434,10 @@ void MarketApp::fetchList()
 	auto guard = display->lockGuard();
 	if (guard) setStatus("连接服务器中...", GUI::Color::SUBTLE);
 
+	// ⚠ 捕获发起时的服务器地址：弹窗期间改地址后旧响应不得覆盖新状态
 	std::string url = m_serverUrl;
 	MarketClient::fetchList(url,
-		[this](bool ok, std::vector<MarketScript> list, const std::string& err) {
+		[this, url](bool ok, std::vector<MarketScript> list, const std::string& err) {
 			// ⚠ 回调在 daemon 任务执行，App 可能已被 pop + delete（UAF）。
 			//   deleteApp 流程：deinit（running=false）→ waitDispatchIdle → 持锁 delete。
 			//   此处先无锁快速检查 running（deinit 后 99% 提前返回）；再取锁复查。
@@ -246,6 +448,13 @@ void MarketApp::fetchList()
 			auto g = display->lockGuard();
 			if (!g) return;
 			if (!running) return;   // 已 deinit
+
+			// ⚠ 竞态防护：请求期间服务器地址被修改（编辑弹窗确认）→ 丢弃旧响应，用新地址重拉
+			if (url != m_serverUrl) {
+				m_loading = false;
+				fetchList();
+				return;
+			}
 			m_loading = false;
 
 			if (ok) {
@@ -1203,6 +1412,66 @@ void MarketApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 	uint16_t newPress = state.buttons & ~m_prevButtons[hostId][playerId];
 	m_prevButtons[hostId][playerId] = state.buttons;
 
+	// ── 服务器编辑弹窗中：手柄全权交给键盘（参考 wifiSettingsApp） ──
+	if (m_editDialog)
+	{
+		// B 键取消
+		if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
+		{
+			// 关闭弹窗时同步设置动作冷却：防手柄 B 键震荡边沿紧接着触发退出 App
+			m_nextActionTime = now + ACTION_COOLDOWN;
+			hideServerDialog();
+			if (auto guard = display->lockGuard())
+				applyFocus();
+			return;
+		}
+
+		// A / L3 / START → 按下当前选中的键盘按键（带防连击冷却；手柄无滤波易震荡）
+		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_START)))
+		{
+			if (now >= m_nextActionTime)
+			{
+				m_nextActionTime = now + ACTION_COOLDOWN;
+				if (auto guard = display->lockGuard())
+				{
+					if (m_editKeyboard) {
+						uint16_t btn_id = lv_btnmatrix_get_selected_btn(m_editKeyboard);
+						if (btn_id != LV_BUTTONMATRIX_BUTTON_NONE) {
+							uint32_t id = btn_id;
+							lv_obj_send_event(m_editKeyboard, LV_EVENT_VALUE_CHANGED, &id);
+						}
+					}
+				}
+			}
+			return;
+		}
+
+		// 摇杆方向 → 键盘按键导航
+		if (!lxLeft && !lxRight && !lyUp && !lyDown) {
+			m_nextMoveTime[hostId][playerId] = 0;
+			return;
+		}
+		if (m_nextMoveTime[hostId][playerId] >= now) return;
+
+		TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+		m_nextMoveTime[hostId][playerId] = now + delay;
+
+		uint32_t key = 0;
+		if (lxLeft)  key = LV_KEY_LEFT;
+		if (lxRight) key = LV_KEY_RIGHT;
+		if (lyUp)    key = LV_KEY_UP;
+		if (lyDown)  key = LV_KEY_DOWN;
+
+		if (auto guard = display->lockGuard())
+		{
+			if (m_editGroup)
+				lv_group_send_data(m_editGroup, key);
+		}
+		return;
+	}
+
 	// 摇杆导航（独立延迟）
 	bool hasMove = lxLeft || lxRight || lyUp || lyDown;
 	if (!hasMove)
@@ -1269,6 +1538,7 @@ void MarketApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadSt
 				case 0: fetchList(); break;
 				case 1: showDetail(); break;
 				case 2: download(); break;
+				case 3: showServerDialog(); break;
 				}
 			}
 			else if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B)) {
@@ -1322,7 +1592,7 @@ std::string MarketApp::getAiContext()
 	std::string ctx = "当前在游戏市场。\n"
 		"可用焦点组（select 的 text 参数）：\n"
 		"- list(0-N)\t脚本列表（条目含 Lua 脚本 / ELF 原生插件，看 type）\n"
-		"- actions(0-2)\t操作按钮（刷新/详情/下载或更新）\n"
+		"- actions(0-3)\t操作按钮（刷新/详情/下载或更新/服务器）\n"
 		"- detail(0-1)\t详情按钮（返回/下载或更新；已装时为 0-2，2=卸载）\n\n";
 
 	ctx += "服务器: " + m_serverUrl + "\n";
@@ -1384,6 +1654,7 @@ void MarketApp::onAiActivate()
 		case 0: fetchList(); break;
 		case 1: showDetail(); break;
 		case 2: download(); break;
+		case 3: showServerDialog(); break;
 		}
 		break;
 	case FOCUS_DETAIL:

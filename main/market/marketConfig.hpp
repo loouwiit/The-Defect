@@ -4,12 +4,13 @@
 #include <cstdio>
 #include <cJSON.h>
 #include <esp_log.h>
+#include "storage/fat.hpp"
 
 /**
  * @file marketConfig.hpp
  * @brief 游戏市场服务器配置
  *
- * 从 FAT 分区配置文件加载市场服务器地址。
+ * 从 FAT 分区配置文件加载 / 保存市场服务器地址。
  * 配置文件路径: /root/system/market_config.json (FAT 分区)
  *
  * 示例：
@@ -94,4 +95,54 @@ inline std::string marketConfigGetUrl()
     std::string url = cfg.serverUrl;
     while (!url.empty() && url.back() == '/') url.pop_back();
     return url;
+}
+
+/// 保存市场服务器地址到 FAT 配置（保留原有 timeout_ms）
+/// @return true 保存成功；false 失败（目录创建 / 文件写入错误）
+inline bool marketConfigSaveUrl(const std::string& url)
+{
+    // 读现有配置，保留 timeout_ms
+    MarketConfig cfg;
+    loadConfigFromFile(cfg);
+
+    // 构造 JSON
+    cJSON* root = cJSON_CreateObject();
+    if (!root) return false;
+    cJSON_AddStringToObject(root, "server_url", url.c_str());
+    cJSON_AddNumberToObject(root, "timeout_ms", cfg.timeoutMs);
+
+    char* json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json) return false;
+
+    // 确保目录存在（FAT 无自动建目录）
+    // ⚠ newFloor 直接 mkdir()：目录**已存在**时返回 EEXIST=false，
+    //   误报"无法创建"。须先 testFloor 判断，仅缺失时再 mkdir
+    if (!testFloor("/root/system/") && !newFloor("/root/system/")) {
+        ESP_LOGE(CFG_TAG, "无法创建目录 /root/system/");
+        free(json);
+        return false;
+    }
+
+    bool ok = false;
+    {
+        // ⚠ OFile::open 为 O_RDWR|O_CREAT（无 O_TRUNC），URL 变短会残留旧字节
+        //   → 先删后写，确保覆写完整
+        removeFile(CONFIG_PATH);
+        OFile file;
+        if (file.open(CONFIG_PATH)) {
+            size_t len = strlen(json);
+            ok = (file.write(json, len) == len);
+            file.close();
+            if (ok)
+                ESP_LOGI(CFG_TAG, "已保存市场服务器地址: %s", url.c_str());
+            else
+                ESP_LOGE(CFG_TAG, "写入 %s 不完整", CONFIG_PATH);
+        }
+        else {
+            ESP_LOGE(CFG_TAG, "无法打开 %s 写入", CONFIG_PATH);
+        }
+    }
+    free(json);
+    return ok;
 }

@@ -72,8 +72,8 @@ private:
 	};
 	FocusGroup m_focusGroup{ FOCUS_LIST };
 	// ⚠ int 而非 int8_t：与 m_selectedIdx 同源溢出问题（AI select / 触屏点击路径）
-	int m_focusBottomIdx{ 0 }; // 0=刷新, 1=详情, 2=下载运行
-	static constexpr int BOTTOM_BTN_COUNT = 3;
+	int m_focusBottomIdx{ 0 }; // 0=刷新, 1=详情, 2=下载运行, 3=服务器
+	static constexpr int BOTTOM_BTN_COUNT = 4;
 	static constexpr int GRID_COLS = 3;   // 网格列数（配合 lv_pct(32) 卡片宽）
 	int m_focusDetailIdx{ 0 }; // 0=返回, 1=下载/更新, 2=卸载
 
@@ -95,6 +95,12 @@ private:
 
 	lv_obj_t* m_bottomBar{};
 	lv_obj_t* m_bottomBtns[BOTTOM_BTN_COUNT]{};
+
+	// 服务器地址编辑弹窗（复用 WifiSettingsApp 弹窗模式）
+	lv_obj_t* m_editDialog{};
+	lv_obj_t* m_editTa{};
+	lv_obj_t* m_editKeyboard{};
+	lv_group_t* m_editGroup{};
 
 	// 详情视图
 	lv_obj_t* m_detailBox{};          // 全屏遮罩
@@ -157,4 +163,11 @@ private:
 	void cleanupLegacyFlatFiles();
 	void setStatus(const char* text, lv_color_t color);
 	static std::string sanitizeSegment(const std::string& seg);
+
+	// ── 服务器地址编辑弹窗 ──
+	void showServerDialog();      // 打开编辑弹窗（预填当前服务器地址）
+	void hideServerDialog();      // 关闭弹窗（不保存）
+	void confirmServerDialog();   // 确认：规范化 + 写配置 + 重新拉取
+	static void onServerEditConfirmCb(lv_event_t* e);
+	static void onServerEditCancelCb(lv_event_t* e);
 };
