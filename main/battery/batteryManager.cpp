@@ -227,7 +227,8 @@ bool BatteryManager::chargingDetectCb(void* userData)
 // 充电呼吸动画
 // ════════════════════════════════════════════════════════════════
 
-// 电池格数循环序列（ping-pong: 0→1→2→3→4→3→2→1→0→...）
+// 电池格数循环序列（循环取模: 0→1→2→3→4→0→...；实现为 (step+1)%5 递增，
+// 非 ping-pong——文档/注释与此对齐。原注释"ping-pong"与实现不符）
 static const char* s_chargeIcons[] = {
 	LV_SYMBOL_BATTERY_EMPTY,
 	LV_SYMBOL_BATTERY_1,
