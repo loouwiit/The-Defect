@@ -48,7 +48,7 @@ void TimeService::start()
 	// 2. 注册 WiFi 拿到 IP 事件（自动模式下触发立即同步）
 	ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &onGotIpEvent, nullptr));
 
-	// 4. 初始化 SNTP（全局唯一一次；静态服务器，无需 DHCP renew）
+	// 3. 初始化 SNTP（全局唯一一次；静态服务器，无需 DHCP renew）
 	esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
 	config.start = true;                       // 初始化后立即启动
 	config.server_from_dhcp = false;           // 固定使用 pool.ntp.org

@@ -2,6 +2,7 @@
 
 #include "mutex/mutex.hpp"
 #include "esp_event.h"
+#include <atomic>
 #include <functional>
 #include <utility>
 #include <vector>
@@ -65,7 +66,9 @@ private:
 
     bool m_started{ false };
     bool m_autoSync{ true };          // 默认开启，start() 时从 NVS 覆盖
-    time_t m_lastSyncUnix{ 0 };
+    // ⚠ SNTP 任务写（onTimeSyncCb）↔ UI/HTTP 任务读（getLastSyncUnix）跨核并发；
+    //   time_t 为 64 位，32 位 RISC-V 上非原子读写会撕裂（半新半旧值）→ 原子化
+    std::atomic<time_t> m_lastSyncUnix{ 0 };
 
     mutable Mutex m_syncCbMutex;      // 保护回调容器（事件线程 / App 线程并发）
     std::vector<std::pair<SyncCbHandle, SyncCallback>> m_syncCbs;
