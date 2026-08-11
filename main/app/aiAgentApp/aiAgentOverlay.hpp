@@ -15,7 +15,8 @@
  *
  * 唤出方式：
  * - 屏幕顶部下滑手势（由 gestureDetection Task 检测）
- * - 手柄 SELECT+START 组合键
+ * - 手柄 Y+X+B 组合键（⚠ 实现在 gestureTimerCb 检测 Y/X/B 三键同按；
+ *   旧注释"SELECT+START"与实现不符，已更正）
  * - 桌面 AI 卡片点击
  *
  * 布局（400×280）：

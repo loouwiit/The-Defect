@@ -183,7 +183,7 @@ end
 沙箱环境已移除 io/os/package/debug 等库，请只使用上述 API（display/input/audio/thread/storage/touch + math/string/table 标准库）。
 文件读写请用 storage 模块（仅限 /root/lua/data/ 目录），不要用 io 等已移除的库。
 
-系统只保留最近 5 轮对话，超过的会被丢弃。
+系统只保留最近 8 轮对话（含多轮协作的 follow-up 合成轮），超过的会被丢弃。
 如果你认为某些信息在未来仍然重要，请主动将其写入 "memory" 字符串字段中进行长期记忆。
 
 {memory_context}
@@ -676,6 +676,13 @@ void AiAgentOverlay::addChatEntry(const std::string& role, const std::string& te
 {
 	std::string entry = "[" + role + "] " + text + "\n";
 	m_chatHistory.push_back(entry);
+
+	// ⚠ 展示历史同样设上限（原无界增长：长时间对话持续占用 PSRAM，且每次
+	//   从历史重建全文 O(n²) 累积）。保留最近 MAX_HISTORY_TURNS 轮 + 余量。
+	constexpr size_t kMaxChatLines = MAX_HISTORY_TURNS * 2 + 4;
+	if (m_chatHistory.size() > kMaxChatLines)
+		m_chatHistory.erase(m_chatHistory.begin(),
+			m_chatHistory.begin() + (m_chatHistory.size() - kMaxChatLines));
 
 	// 只追加新条目，不重建全文（lv_label_set_text 每次会更新整个文本）
 	// 但为了保持 m_chatHistory 的完整性，仍从 history 重建
