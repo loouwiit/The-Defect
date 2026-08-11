@@ -70,13 +70,20 @@ extern int _ZN11AudioHandleaSEOS_;
 extern int _ZN11AudioSample4loadEPKc;
 extern int _ZN11AudioSample4playEb;
 extern int _ZN11AudioSample6unloadEv;
+extern int _ZN11HostManager10ClientSlotC1Ev;
+extern int _ZN11HostManager10ClientSlotC2Ev;
 extern int _ZN11HostManager11setHostMaskEPKh;
 extern int _ZN11HostManager13connectToHostEPKctS1_;
+extern int _ZN11HostManager15setOnRoleChangeESt8functionIFvbEE;
+extern int _ZN11HostManager15setOnSlotUpdateESt8functionIFvPKNS_10ClientSlotEEE;
 extern int _ZN11HostManager16disconnectClientEi;
+extern int _ZN11HostManager16notifyRoleChangeEb;
 extern int _ZN11HostManager16notifySlotUpdateEv;
+extern int _ZN11HostManager17cleanupConnectionEv;
 extern int _ZN11HostManager18disconnectFromHostEv;
 extern int _ZN11HostManager18onClientRegisteredEiPKcS1_i;
 extern int _ZN11HostManager20onClientDisconnectedEi;
+extern int _ZN11HostManager25scheduleConnectionCleanupEv;
 extern int _ZN11HostManager8instanceEv;
 extern int _ZN11HostManager9swapSlotsEii;
 extern int _ZN11HostManagerC1Ev;
@@ -167,10 +174,13 @@ extern int _ZN14VirtualGamepad13forwarderLoopEv;
 extern int _ZN14VirtualGamepad13forwarderTaskEPv;
 extern int _ZN14VirtualGamepad13stopForwarderEv;
 extern int _ZN14VirtualGamepad14startForwarderEv;
+extern int _ZN14VirtualGamepad16waitDispatchIdleEv;
 extern int _ZN14VirtualGamepad5startEP7Display;
 extern int _ZN14VirtualGamepad6injectEaaRK12GamepadState;
 extern int _ZN14VirtualGamepad8instanceEv;
 extern int _ZN14VirtualGamepad9packFrameEPhaaRK12GamepadState;
+extern int _ZN14VirtualGamepadC1Ev;
+extern int _ZN14VirtualGamepadC2Ev;
 extern int _ZN14VirtualGamepadD1Ev;
 extern int _ZN14VirtualGamepadD2Ev;
 extern int _ZN15AppStackManager11createStackEv;
@@ -180,8 +190,12 @@ extern int _ZN15AppStackManager13switchToStackEj;
 extern int _ZN15AppStackManager14pushToNewStackEP3App;
 extern int _ZN15AppStackManager16transitionStacksEP8AppStackS1_;
 extern int _ZN15AppStackManager3popEv;
+extern int _ZN15AppStackManager4initEP7Display;
 extern int _ZN15AppStackManager4pushEP3App;
 extern int _ZN15AppStackManager7replaceEP3App;
+extern int _ZN15AppStackManager8instanceEv;
+extern int _ZN15AppStackManagerC1Ev;
+extern int _ZN15AppStackManagerC2Ev;
 extern int _ZN15AppStackManagerD1Ev;
 extern int _ZN15AppStackManagerD2Ev;
 extern int _ZN3App10onAiSelectERK14AiSelectTarget;
@@ -206,14 +220,16 @@ extern int _ZN3AppC2EP7Display;
 extern int _ZN3AppD0Ev;
 extern int _ZN3AppD1Ev;
 extern int _ZN3AppD2Ev;
-extern int _ZN3GUI10createCardEP9_lv_obj_tll;
 extern int _ZN3GUI10createFlexEP9_lv_obj_t14lv_flex_flow_tll;
 extern int _ZN3GUI11createLabelEP9_lv_obj_tPKc;
 extern int _ZN3GUI11createTitleEP9_lv_obj_tPKc;
 extern int _ZN3GUI12createButtonEP9_lv_obj_tPKcll;
 extern int _ZN3GUI14createSubtitleEP9_lv_obj_tPKc;
 extern int _ZN3GUI17createProgressBarEP9_lv_obj_tllll;
+extern int _ZN4LockD1Ev;
+extern int _ZN4LockD2Ev;
 extern int _ZN4Task10daemonMainEPv;
+extern int _ZN4Task10deleteDumpEPKPKc;
 extern int _ZN4Task10removeTaskEPS_;
 extern int _ZN4Task11setAffinityEPS_NS_8AffinityE;
 extern int _ZN4Task4initEj;
@@ -319,6 +335,7 @@ extern int _ZNKSt20bad_array_new_length4whatEv;
 extern int _ZNKSt6vectorI10ScanDeviceSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI10ScanDeviceSaIS0_EE5emptyEv;
 extern int _ZNKSt6vectorI11AiAppTargetSaIS0_EE12_M_check_lenEjPKc;
+extern int _ZNKSt6vectorI11AudioHandleSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI12MarketScriptSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI12MarketScriptSaIS0_EE5emptyEv;
 extern int _ZNKSt6vectorI12PairedDeviceSaIS0_EE12_M_check_lenEjPKc;
@@ -330,6 +347,7 @@ extern int _ZNKSt6vectorI17DiscoveredConsoleSaIS0_EE5emptyEv;
 extern int _ZNKSt6vectorI8AiActionSaIS0_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorI8AiActionSaIS0_EE5emptyEv;
 extern int _ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE12_M_check_lenEjPKc;
+extern int _ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE5emptyEv;
 extern int _ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE12_M_check_lenEjPKc;
 extern int _ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE5emptyEv;
 extern int _ZNKSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE12_M_check_lenEjPKc;
@@ -358,8 +376,6 @@ extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE5rfindEcj;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEjj;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_;
 extern int _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc;
-extern int _ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_;
-extern int _ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_;
 extern int _ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_;
 extern int _ZNKSt8functionIFvPKcjEEclES1_j;
 extern int _ZNKSt8functionIFvbEEclEb;
@@ -384,6 +400,7 @@ extern int _ZNSt10unique_ptrIA_N3nvs4PageESt14default_deleteIS2_EED1Ev;
 extern int _ZNSt10unique_ptrIA_N3nvs4PageESt14default_deleteIS2_EED2Ev;
 extern int _ZNSt11__copy_moveILb0ELb0ESt26random_access_iterator_tagE8__copy_mISt13_Bit_iteratorS3_EET0_T_S5_S4_;
 extern int _ZNSt11__copy_moveILb0ELb0ESt26random_access_iterator_tagE8__copy_mISt19_Bit_const_iteratorSt13_Bit_iteratorEET0_T_S6_S5_;
+extern int _ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES9_EET0_T_SB_SA_;
 extern int _ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES9_ESB_EET0_T_SD_SC_;
 extern int _ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPSt4pairImSt8functionIFvvEEES8_EET0_T_SA_S9_;
 extern int _ZNSt11__copy_moveILb1ELb1ESt26random_access_iterator_tagE8__copy_mISt5arrayIhLj6EES4_EEPT0_PT_S8_S6_;
@@ -396,6 +413,8 @@ extern int _ZNSt12_Vector_baseI10ScanDeviceSaIS0_EED1Ev;
 extern int _ZNSt12_Vector_baseI10ScanDeviceSaIS0_EED2Ev;
 extern int _ZNSt12_Vector_baseI11AiAppTargetSaIS0_EED1Ev;
 extern int _ZNSt12_Vector_baseI11AiAppTargetSaIS0_EED2Ev;
+extern int _ZNSt12_Vector_baseI11AudioHandleSaIS0_EED1Ev;
+extern int _ZNSt12_Vector_baseI11AudioHandleSaIS0_EED2Ev;
 extern int _ZNSt12_Vector_baseI12MarketScriptSaIS0_EE17_M_create_storageEj;
 extern int _ZNSt12_Vector_baseI12MarketScriptSaIS0_EE17_Vector_impl_data12_M_swap_dataERS3_;
 extern int _ZNSt12_Vector_baseI12MarketScriptSaIS0_EED1Ev;
@@ -451,11 +470,11 @@ extern int _ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC1ERKS2_;
 extern int _ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC1IN11AudioHandle4ImplESaIvEJEEERPT_St20_Sp_alloc_shared_tagIT0_EDpOT1_;
 extern int _ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC2ERKS2_;
 extern int _ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC2IN11AudioHandle4ImplESaIvEJEEERPT_St20_Sp_alloc_shared_tagIT0_EDpOT1_;
-extern int _ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEaSERKS2_;
 extern int _ZNSt15__allocated_ptrISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEED1Ev;
 extern int _ZNSt15__allocated_ptrISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEED2Ev;
 extern int _ZNSt15__new_allocatorI10ScanDeviceE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI11AiAppTargetE8allocateEjPKv;
+extern int _ZNSt15__new_allocatorI11AudioHandleE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI12MarketScriptE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI12PairedDeviceE8allocateEjPKv;
 extern int _ZNSt15__new_allocatorI16wifi_ap_record_tE8allocateEjPKv;
@@ -514,6 +533,10 @@ extern int _ZNSt6vectorI10ScanDeviceSaIS0_EEaSERKS2_;
 extern int _ZNSt6vectorI11AiAppTargetSaIS0_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS0_S2_EEOS0_;
 extern int _ZNSt6vectorI11AiAppTargetSaIS0_EEC1ESt16initializer_listIS0_ERKS1_;
 extern int _ZNSt6vectorI11AiAppTargetSaIS0_EEC2ESt16initializer_listIS0_ERKS1_;
+extern int _ZNSt6vectorI11AudioHandleSaIS0_EE15_M_erase_at_endEPS0_;
+extern int _ZNSt6vectorI11AudioHandleSaIS0_EE4backEv;
+extern int _ZNSt6vectorI11AudioHandleSaIS0_EED1Ev;
+extern int _ZNSt6vectorI11AudioHandleSaIS0_EED2Ev;
 extern int _ZNSt6vectorI12MarketScriptSaIS0_EE14_M_move_assignEOS2_St17integral_constantIbLb1EE;
 extern int _ZNSt6vectorI12MarketScriptSaIS0_EE15_M_erase_at_endEPS0_;
 extern int _ZNSt6vectorI12MarketScriptSaIS0_EE4backEv;
@@ -531,12 +554,17 @@ extern int _ZNSt6vectorI8AiActionSaIS0_EE4backEv;
 extern int _ZNSt6vectorI8AiActionSaIS0_EE9push_backERKS0_;
 extern int _ZNSt6vectorI8AiActionSaIS0_EED1Ev;
 extern int _ZNSt6vectorI8AiActionSaIS0_EED2Ev;
+extern int _ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE;
 extern int _ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE6insertEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EERS6_;
+extern int _ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE;
 extern int _ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE9push_backERKS1_;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE15_M_erase_at_endEPS1_;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE4backEv;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev;
 extern int _ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED2Ev;
+extern int _ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE15_M_erase_at_endEPS5_;
+extern int _ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS5_S7_EESC_;
+extern int _ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS5_S7_EESB_;
 extern int _ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE9push_backERKS5_;
 extern int _ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED1Ev;
 extern int _ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED2Ev;
@@ -552,7 +580,9 @@ extern int _ZNSt6vectorIP8AppStackSaIS1_EE9push_backERKS1_;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEjRKS1_;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EEOS1_;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE4backEv;
+extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE6resizeEjRKS1_;
+extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE;
 extern int _ZNSt6vectorIP9_lv_obj_tSaIS1_EE9push_backERKS1_;
 extern int _ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE12emplace_backIJS7_EEERS7_DpOT_;
 extern int _ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE4backEv;
@@ -635,16 +665,22 @@ extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt
 extern int _ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE8_M_eraseEPSt13_Rb_tree_nodeISA_E;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEE4swapERS5_;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1EOS5_;
+extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1ERKS5_;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2EOS5_;
+extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2ERKS5_;
 extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEaSEOS5_;
+extern int _ZNSt8functionIFvPKN11HostManager10ClientSlotEEEaSERKS5_;
 extern int _ZNSt8functionIFvPKcjEE4swapERS3_;
 extern int _ZNSt8functionIFvPKcjEEC1EOS3_;
 extern int _ZNSt8functionIFvPKcjEEC2EOS3_;
 extern int _ZNSt8functionIFvPKcjEEaSEOS3_;
 extern int _ZNSt8functionIFvbEE4swapERS1_;
 extern int _ZNSt8functionIFvbEEC1EOS1_;
+extern int _ZNSt8functionIFvbEEC1ERKS1_;
 extern int _ZNSt8functionIFvbEEC2EOS1_;
+extern int _ZNSt8functionIFvbEEC2ERKS1_;
 extern int _ZNSt8functionIFvbEEaSEOS1_;
+extern int _ZNSt8functionIFvbEEaSERKS1_;
 extern int _ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC1EOS9_;
 extern int _ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2EOS9_;
 extern int _ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEC1EOS9_;
@@ -706,6 +742,10 @@ extern int _ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_
 extern int _ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD2Ev;
+extern int _ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN11_Guard_eltsD1Ev;
+extern int _ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN11_Guard_eltsD2Ev;
+extern int _ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev;
+extern int _ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev;
 extern int _ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev;
 extern int _ZZNSt6vectorI12PairedDeviceSaIS0_EE17_M_default_appendEjEN6_GuardD1Ev;
@@ -846,7 +886,6 @@ extern int cJSON_ParseWithLengthOpts;
 extern int cJSON_ParseWithOpts;
 extern int cJSON_PrintUnformatted;
 extern int cJSON_free;
-extern int ceil;
 extern int ceilf;
 extern int closedir;
 extern int cos;
@@ -868,6 +907,7 @@ extern int esp_log_linked_list_clean;
 extern int esp_log_linked_list_get_level;
 extern int esp_log_linked_list_set_level;
 extern int esp_log_set_default_level;
+extern int esp_log_set_vprintf;
 extern int esp_log_timestamp;
 extern int esp_log_util_set_cache_enabled_cb;
 extern int esp_log_va;
@@ -2052,7 +2092,6 @@ extern int memmove;
 extern int memset;
 extern int mkdir;
 extern int opendir;
-extern int pow;
 extern int powf;
 extern int rand;
 extern int readdir;
@@ -2127,6 +2166,7 @@ extern int xTaskGetCoreID;
 extern int xTaskGetCurrentTaskHandle;
 extern int xTaskGetCurrentTaskHandleForCore;
 extern int xTaskGetIdleTaskHandleForCore;
+extern int xTaskGetNext;
 extern int xTaskGetSchedulerState;
 extern int xTaskGetStaticBuffers;
 extern int xTaskGetTickCount;
@@ -2204,13 +2244,20 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN11AudioSample4loadEPKc", (void*)&_ZN11AudioSample4loadEPKc },
     { "_ZN11AudioSample4playEb", (void*)&_ZN11AudioSample4playEb },
     { "_ZN11AudioSample6unloadEv", (void*)&_ZN11AudioSample6unloadEv },
+    { "_ZN11HostManager10ClientSlotC1Ev", (void*)&_ZN11HostManager10ClientSlotC1Ev },
+    { "_ZN11HostManager10ClientSlotC2Ev", (void*)&_ZN11HostManager10ClientSlotC2Ev },
     { "_ZN11HostManager11setHostMaskEPKh", (void*)&_ZN11HostManager11setHostMaskEPKh },
     { "_ZN11HostManager13connectToHostEPKctS1_", (void*)&_ZN11HostManager13connectToHostEPKctS1_ },
+    { "_ZN11HostManager15setOnRoleChangeESt8functionIFvbEE", (void*)&_ZN11HostManager15setOnRoleChangeESt8functionIFvbEE },
+    { "_ZN11HostManager15setOnSlotUpdateESt8functionIFvPKNS_10ClientSlotEEE", (void*)&_ZN11HostManager15setOnSlotUpdateESt8functionIFvPKNS_10ClientSlotEEE },
     { "_ZN11HostManager16disconnectClientEi", (void*)&_ZN11HostManager16disconnectClientEi },
+    { "_ZN11HostManager16notifyRoleChangeEb", (void*)&_ZN11HostManager16notifyRoleChangeEb },
     { "_ZN11HostManager16notifySlotUpdateEv", (void*)&_ZN11HostManager16notifySlotUpdateEv },
+    { "_ZN11HostManager17cleanupConnectionEv", (void*)&_ZN11HostManager17cleanupConnectionEv },
     { "_ZN11HostManager18disconnectFromHostEv", (void*)&_ZN11HostManager18disconnectFromHostEv },
     { "_ZN11HostManager18onClientRegisteredEiPKcS1_i", (void*)&_ZN11HostManager18onClientRegisteredEiPKcS1_i },
     { "_ZN11HostManager20onClientDisconnectedEi", (void*)&_ZN11HostManager20onClientDisconnectedEi },
+    { "_ZN11HostManager25scheduleConnectionCleanupEv", (void*)&_ZN11HostManager25scheduleConnectionCleanupEv },
     { "_ZN11HostManager8instanceEv", (void*)&_ZN11HostManager8instanceEv },
     { "_ZN11HostManager9swapSlotsEii", (void*)&_ZN11HostManager9swapSlotsEii },
     { "_ZN11HostManagerC1Ev", (void*)&_ZN11HostManagerC1Ev },
@@ -2301,10 +2348,13 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN14VirtualGamepad13forwarderTaskEPv", (void*)&_ZN14VirtualGamepad13forwarderTaskEPv },
     { "_ZN14VirtualGamepad13stopForwarderEv", (void*)&_ZN14VirtualGamepad13stopForwarderEv },
     { "_ZN14VirtualGamepad14startForwarderEv", (void*)&_ZN14VirtualGamepad14startForwarderEv },
+    { "_ZN14VirtualGamepad16waitDispatchIdleEv", (void*)&_ZN14VirtualGamepad16waitDispatchIdleEv },
     { "_ZN14VirtualGamepad5startEP7Display", (void*)&_ZN14VirtualGamepad5startEP7Display },
     { "_ZN14VirtualGamepad6injectEaaRK12GamepadState", (void*)&_ZN14VirtualGamepad6injectEaaRK12GamepadState },
     { "_ZN14VirtualGamepad8instanceEv", (void*)&_ZN14VirtualGamepad8instanceEv },
     { "_ZN14VirtualGamepad9packFrameEPhaaRK12GamepadState", (void*)&_ZN14VirtualGamepad9packFrameEPhaaRK12GamepadState },
+    { "_ZN14VirtualGamepadC1Ev", (void*)&_ZN14VirtualGamepadC1Ev },
+    { "_ZN14VirtualGamepadC2Ev", (void*)&_ZN14VirtualGamepadC2Ev },
     { "_ZN14VirtualGamepadD1Ev", (void*)&_ZN14VirtualGamepadD1Ev },
     { "_ZN14VirtualGamepadD2Ev", (void*)&_ZN14VirtualGamepadD2Ev },
     { "_ZN15AppStackManager11createStackEv", (void*)&_ZN15AppStackManager11createStackEv },
@@ -2314,8 +2364,12 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN15AppStackManager14pushToNewStackEP3App", (void*)&_ZN15AppStackManager14pushToNewStackEP3App },
     { "_ZN15AppStackManager16transitionStacksEP8AppStackS1_", (void*)&_ZN15AppStackManager16transitionStacksEP8AppStackS1_ },
     { "_ZN15AppStackManager3popEv", (void*)&_ZN15AppStackManager3popEv },
+    { "_ZN15AppStackManager4initEP7Display", (void*)&_ZN15AppStackManager4initEP7Display },
     { "_ZN15AppStackManager4pushEP3App", (void*)&_ZN15AppStackManager4pushEP3App },
     { "_ZN15AppStackManager7replaceEP3App", (void*)&_ZN15AppStackManager7replaceEP3App },
+    { "_ZN15AppStackManager8instanceEv", (void*)&_ZN15AppStackManager8instanceEv },
+    { "_ZN15AppStackManagerC1Ev", (void*)&_ZN15AppStackManagerC1Ev },
+    { "_ZN15AppStackManagerC2Ev", (void*)&_ZN15AppStackManagerC2Ev },
     { "_ZN15AppStackManagerD1Ev", (void*)&_ZN15AppStackManagerD1Ev },
     { "_ZN15AppStackManagerD2Ev", (void*)&_ZN15AppStackManagerD2Ev },
     { "_ZN3App10onAiSelectERK14AiSelectTarget", (void*)&_ZN3App10onAiSelectERK14AiSelectTarget },
@@ -2340,14 +2394,16 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZN3AppD0Ev", (void*)&_ZN3AppD0Ev },
     { "_ZN3AppD1Ev", (void*)&_ZN3AppD1Ev },
     { "_ZN3AppD2Ev", (void*)&_ZN3AppD2Ev },
-    { "_ZN3GUI10createCardEP9_lv_obj_tll", (void*)&_ZN3GUI10createCardEP9_lv_obj_tll },
     { "_ZN3GUI10createFlexEP9_lv_obj_t14lv_flex_flow_tll", (void*)&_ZN3GUI10createFlexEP9_lv_obj_t14lv_flex_flow_tll },
     { "_ZN3GUI11createLabelEP9_lv_obj_tPKc", (void*)&_ZN3GUI11createLabelEP9_lv_obj_tPKc },
     { "_ZN3GUI11createTitleEP9_lv_obj_tPKc", (void*)&_ZN3GUI11createTitleEP9_lv_obj_tPKc },
     { "_ZN3GUI12createButtonEP9_lv_obj_tPKcll", (void*)&_ZN3GUI12createButtonEP9_lv_obj_tPKcll },
     { "_ZN3GUI14createSubtitleEP9_lv_obj_tPKc", (void*)&_ZN3GUI14createSubtitleEP9_lv_obj_tPKc },
     { "_ZN3GUI17createProgressBarEP9_lv_obj_tllll", (void*)&_ZN3GUI17createProgressBarEP9_lv_obj_tllll },
+    { "_ZN4LockD1Ev", (void*)&_ZN4LockD1Ev },
+    { "_ZN4LockD2Ev", (void*)&_ZN4LockD2Ev },
     { "_ZN4Task10daemonMainEPv", (void*)&_ZN4Task10daemonMainEPv },
+    { "_ZN4Task10deleteDumpEPKPKc", (void*)&_ZN4Task10deleteDumpEPKPKc },
     { "_ZN4Task10removeTaskEPS_", (void*)&_ZN4Task10removeTaskEPS_ },
     { "_ZN4Task11setAffinityEPS_NS_8AffinityE", (void*)&_ZN4Task11setAffinityEPS_NS_8AffinityE },
     { "_ZN4Task4initEj", (void*)&_ZN4Task4initEj },
@@ -2453,6 +2509,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt6vectorI10ScanDeviceSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI10ScanDeviceSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI10ScanDeviceSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI10ScanDeviceSaIS0_EE5emptyEv },
     { "_ZNKSt6vectorI11AiAppTargetSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI11AiAppTargetSaIS0_EE12_M_check_lenEjPKc },
+    { "_ZNKSt6vectorI11AudioHandleSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI11AudioHandleSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI12MarketScriptSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI12MarketScriptSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI12MarketScriptSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI12MarketScriptSaIS0_EE5emptyEv },
     { "_ZNKSt6vectorI12PairedDeviceSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI12PairedDeviceSaIS0_EE12_M_check_lenEjPKc },
@@ -2464,6 +2521,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt6vectorI8AiActionSaIS0_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorI8AiActionSaIS0_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorI8AiActionSaIS0_EE5emptyEv", (void*)&_ZNKSt6vectorI8AiActionSaIS0_EE5emptyEv },
     { "_ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE12_M_check_lenEjPKc },
+    { "_ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE5emptyEv", (void*)&_ZNKSt6vectorIN10DesktopApp8GameCardESaIS1_EE5emptyEv },
     { "_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE12_M_check_lenEjPKc },
     { "_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE5emptyEv", (void*)&_ZNKSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE5emptyEv },
     { "_ZNKSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE12_M_check_lenEjPKc", (void*)&_ZNKSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE12_M_check_lenEjPKc },
@@ -2492,8 +2550,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEjj", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEjj },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7compareERKS4_ },
     { "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc", (void*)&_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8_M_checkEjPKc },
-    { "_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_", (void*)&_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE14_M_lower_boundEPKSt13_Rb_tree_nodeISA_EPKSt18_Rb_tree_node_baseRS7_ },
-    { "_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_", (void*)&_ZNKSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE4findERS7_ },
     { "_ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_", (void*)&_ZNKSt8functionIFvPKN11HostManager10ClientSlotEEEclES3_ },
     { "_ZNKSt8functionIFvPKcjEEclES1_j", (void*)&_ZNKSt8functionIFvPKcjEEclES1_j },
     { "_ZNKSt8functionIFvbEEclEb", (void*)&_ZNKSt8functionIFvbEEclEb },
@@ -2518,6 +2574,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt10unique_ptrIA_N3nvs4PageESt14default_deleteIS2_EED2Ev", (void*)&_ZNSt10unique_ptrIA_N3nvs4PageESt14default_deleteIS2_EED2Ev },
     { "_ZNSt11__copy_moveILb0ELb0ESt26random_access_iterator_tagE8__copy_mISt13_Bit_iteratorS3_EET0_T_S5_S4_", (void*)&_ZNSt11__copy_moveILb0ELb0ESt26random_access_iterator_tagE8__copy_mISt13_Bit_iteratorS3_EET0_T_S5_S4_ },
     { "_ZNSt11__copy_moveILb0ELb0ESt26random_access_iterator_tagE8__copy_mISt19_Bit_const_iteratorSt13_Bit_iteratorEET0_T_S6_S5_", (void*)&_ZNSt11__copy_moveILb0ELb0ESt26random_access_iterator_tagE8__copy_mISt19_Bit_const_iteratorSt13_Bit_iteratorEET0_T_S6_S5_ },
+    { "_ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES9_EET0_T_SB_SA_", (void*)&_ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES9_EET0_T_SB_SA_ },
     { "_ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES9_ESB_EET0_T_SD_SC_", (void*)&_ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPSt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES9_ESB_EET0_T_SD_SC_ },
     { "_ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPSt4pairImSt8functionIFvvEEES8_EET0_T_SA_S9_", (void*)&_ZNSt11__copy_moveILb1ELb0ESt26random_access_iterator_tagE8__copy_mIPSt4pairImSt8functionIFvvEEES8_EET0_T_SA_S9_ },
     { "_ZNSt11__copy_moveILb1ELb1ESt26random_access_iterator_tagE8__copy_mISt5arrayIhLj6EES4_EEPT0_PT_S8_S6_", (void*)&_ZNSt11__copy_moveILb1ELb1ESt26random_access_iterator_tagE8__copy_mISt5arrayIhLj6EES4_EEPT0_PT_S8_S6_ },
@@ -2530,6 +2587,8 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt12_Vector_baseI10ScanDeviceSaIS0_EED2Ev", (void*)&_ZNSt12_Vector_baseI10ScanDeviceSaIS0_EED2Ev },
     { "_ZNSt12_Vector_baseI11AiAppTargetSaIS0_EED1Ev", (void*)&_ZNSt12_Vector_baseI11AiAppTargetSaIS0_EED1Ev },
     { "_ZNSt12_Vector_baseI11AiAppTargetSaIS0_EED2Ev", (void*)&_ZNSt12_Vector_baseI11AiAppTargetSaIS0_EED2Ev },
+    { "_ZNSt12_Vector_baseI11AudioHandleSaIS0_EED1Ev", (void*)&_ZNSt12_Vector_baseI11AudioHandleSaIS0_EED1Ev },
+    { "_ZNSt12_Vector_baseI11AudioHandleSaIS0_EED2Ev", (void*)&_ZNSt12_Vector_baseI11AudioHandleSaIS0_EED2Ev },
     { "_ZNSt12_Vector_baseI12MarketScriptSaIS0_EE17_M_create_storageEj", (void*)&_ZNSt12_Vector_baseI12MarketScriptSaIS0_EE17_M_create_storageEj },
     { "_ZNSt12_Vector_baseI12MarketScriptSaIS0_EE17_Vector_impl_data12_M_swap_dataERS3_", (void*)&_ZNSt12_Vector_baseI12MarketScriptSaIS0_EE17_Vector_impl_data12_M_swap_dataERS3_ },
     { "_ZNSt12_Vector_baseI12MarketScriptSaIS0_EED1Ev", (void*)&_ZNSt12_Vector_baseI12MarketScriptSaIS0_EED1Ev },
@@ -2585,11 +2644,11 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC1IN11AudioHandle4ImplESaIvEJEEERPT_St20_Sp_alloc_shared_tagIT0_EDpOT1_", (void*)&_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC1IN11AudioHandle4ImplESaIvEJEEERPT_St20_Sp_alloc_shared_tagIT0_EDpOT1_ },
     { "_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC2ERKS2_", (void*)&_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC2ERKS2_ },
     { "_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC2IN11AudioHandle4ImplESaIvEJEEERPT_St20_Sp_alloc_shared_tagIT0_EDpOT1_", (void*)&_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEC2IN11AudioHandle4ImplESaIvEJEEERPT_St20_Sp_alloc_shared_tagIT0_EDpOT1_ },
-    { "_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEaSERKS2_", (void*)&_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE1EEaSERKS2_ },
     { "_ZNSt15__allocated_ptrISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEED1Ev", (void*)&_ZNSt15__allocated_ptrISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEED1Ev },
     { "_ZNSt15__allocated_ptrISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEED2Ev", (void*)&_ZNSt15__allocated_ptrISaISt23_Sp_counted_ptr_inplaceIN11AudioHandle4ImplESaIvELN9__gnu_cxx12_Lock_policyE1EEEED2Ev },
     { "_ZNSt15__new_allocatorI10ScanDeviceE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI10ScanDeviceE8allocateEjPKv },
     { "_ZNSt15__new_allocatorI11AiAppTargetE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI11AiAppTargetE8allocateEjPKv },
+    { "_ZNSt15__new_allocatorI11AudioHandleE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI11AudioHandleE8allocateEjPKv },
     { "_ZNSt15__new_allocatorI12MarketScriptE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI12MarketScriptE8allocateEjPKv },
     { "_ZNSt15__new_allocatorI12PairedDeviceE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI12PairedDeviceE8allocateEjPKv },
     { "_ZNSt15__new_allocatorI16wifi_ap_record_tE8allocateEjPKv", (void*)&_ZNSt15__new_allocatorI16wifi_ap_record_tE8allocateEjPKv },
@@ -2648,6 +2707,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorI11AiAppTargetSaIS0_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS0_S2_EEOS0_", (void*)&_ZNSt6vectorI11AiAppTargetSaIS0_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS0_S2_EEOS0_ },
     { "_ZNSt6vectorI11AiAppTargetSaIS0_EEC1ESt16initializer_listIS0_ERKS1_", (void*)&_ZNSt6vectorI11AiAppTargetSaIS0_EEC1ESt16initializer_listIS0_ERKS1_ },
     { "_ZNSt6vectorI11AiAppTargetSaIS0_EEC2ESt16initializer_listIS0_ERKS1_", (void*)&_ZNSt6vectorI11AiAppTargetSaIS0_EEC2ESt16initializer_listIS0_ERKS1_ },
+    { "_ZNSt6vectorI11AudioHandleSaIS0_EE15_M_erase_at_endEPS0_", (void*)&_ZNSt6vectorI11AudioHandleSaIS0_EE15_M_erase_at_endEPS0_ },
+    { "_ZNSt6vectorI11AudioHandleSaIS0_EE4backEv", (void*)&_ZNSt6vectorI11AudioHandleSaIS0_EE4backEv },
+    { "_ZNSt6vectorI11AudioHandleSaIS0_EED1Ev", (void*)&_ZNSt6vectorI11AudioHandleSaIS0_EED1Ev },
+    { "_ZNSt6vectorI11AudioHandleSaIS0_EED2Ev", (void*)&_ZNSt6vectorI11AudioHandleSaIS0_EED2Ev },
     { "_ZNSt6vectorI12MarketScriptSaIS0_EE14_M_move_assignEOS2_St17integral_constantIbLb1EE", (void*)&_ZNSt6vectorI12MarketScriptSaIS0_EE14_M_move_assignEOS2_St17integral_constantIbLb1EE },
     { "_ZNSt6vectorI12MarketScriptSaIS0_EE15_M_erase_at_endEPS0_", (void*)&_ZNSt6vectorI12MarketScriptSaIS0_EE15_M_erase_at_endEPS0_ },
     { "_ZNSt6vectorI12MarketScriptSaIS0_EE4backEv", (void*)&_ZNSt6vectorI12MarketScriptSaIS0_EE4backEv },
@@ -2665,12 +2728,17 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorI8AiActionSaIS0_EE9push_backERKS0_", (void*)&_ZNSt6vectorI8AiActionSaIS0_EE9push_backERKS0_ },
     { "_ZNSt6vectorI8AiActionSaIS0_EED1Ev", (void*)&_ZNSt6vectorI8AiActionSaIS0_EED1Ev },
     { "_ZNSt6vectorI8AiActionSaIS0_EED2Ev", (void*)&_ZNSt6vectorI8AiActionSaIS0_EED2Ev },
+    { "_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE", (void*)&_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE },
     { "_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE6insertEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EERS6_", (void*)&_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE6insertEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EERS6_ },
+    { "_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE", (void*)&_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE },
     { "_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIN10DesktopApp8GameCardESaIS1_EE9push_backERKS1_ },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE15_M_erase_at_endEPS1_", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE15_M_erase_at_endEPS1_ },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE4backEv", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EE4backEv },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED1Ev },
     { "_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED2Ev", (void*)&_ZNSt6vectorIN13LuaManagerApp11ScriptEntryESaIS1_EED2Ev },
+    { "_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE15_M_erase_at_endEPS5_", (void*)&_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE15_M_erase_at_endEPS5_ },
+    { "_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS5_S7_EESC_", (void*)&_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS5_S7_EESC_ },
+    { "_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS5_S7_EESB_", (void*)&_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS5_S7_EESB_ },
     { "_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE9push_backERKS5_", (void*)&_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE9push_backERKS5_ },
     { "_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED1Ev", (void*)&_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED1Ev },
     { "_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED2Ev", (void*)&_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EED2Ev },
@@ -2686,7 +2754,9 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEjRKS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEjRKS1_ },
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EEOS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EEOS1_ },
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE4backEv", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE4backEv },
+    { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS1_S3_EE },
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE6resizeEjRKS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE6resizeEjRKS1_ },
+    { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS1_S3_EE },
     { "_ZNSt6vectorIP9_lv_obj_tSaIS1_EE9push_backERKS1_", (void*)&_ZNSt6vectorIP9_lv_obj_tSaIS1_EE9push_backERKS1_ },
     { "_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE12emplace_backIJS7_EEERS7_DpOT_", (void*)&_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE12emplace_backIJS7_EEERS7_DpOT_ },
     { "_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE4backEv", (void*)&_ZNSt6vectorISt4pairINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES6_ESaIS7_EE4backEv },
@@ -2769,16 +2839,22 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE8_M_eraseEPSt13_Rb_tree_nodeISA_E", (void*)&_ZNSt8_Rb_treeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_N10ElfManager6ModuleEESt10_Select1stISA_ESt4lessIS5_ESaISA_EE8_M_eraseEPSt13_Rb_tree_nodeISA_E },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEE4swapERS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEE4swapERS5_ },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1EOS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1EOS5_ },
+    { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1ERKS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC1ERKS5_ },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2EOS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2EOS5_ },
+    { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2ERKS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEC2ERKS5_ },
     { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEaSEOS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEaSEOS5_ },
+    { "_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEaSERKS5_", (void*)&_ZNSt8functionIFvPKN11HostManager10ClientSlotEEEaSERKS5_ },
     { "_ZNSt8functionIFvPKcjEE4swapERS3_", (void*)&_ZNSt8functionIFvPKcjEE4swapERS3_ },
     { "_ZNSt8functionIFvPKcjEEC1EOS3_", (void*)&_ZNSt8functionIFvPKcjEEC1EOS3_ },
     { "_ZNSt8functionIFvPKcjEEC2EOS3_", (void*)&_ZNSt8functionIFvPKcjEEC2EOS3_ },
     { "_ZNSt8functionIFvPKcjEEaSEOS3_", (void*)&_ZNSt8functionIFvPKcjEEaSEOS3_ },
     { "_ZNSt8functionIFvbEE4swapERS1_", (void*)&_ZNSt8functionIFvbEE4swapERS1_ },
     { "_ZNSt8functionIFvbEEC1EOS1_", (void*)&_ZNSt8functionIFvbEEC1EOS1_ },
+    { "_ZNSt8functionIFvbEEC1ERKS1_", (void*)&_ZNSt8functionIFvbEEC1ERKS1_ },
     { "_ZNSt8functionIFvbEEC2EOS1_", (void*)&_ZNSt8functionIFvbEEC2EOS1_ },
+    { "_ZNSt8functionIFvbEEC2ERKS1_", (void*)&_ZNSt8functionIFvbEEC2ERKS1_ },
     { "_ZNSt8functionIFvbEEaSEOS1_", (void*)&_ZNSt8functionIFvbEEaSEOS1_ },
+    { "_ZNSt8functionIFvbEEaSERKS1_", (void*)&_ZNSt8functionIFvbEEaSERKS1_ },
     { "_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC1EOS9_", (void*)&_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC1EOS9_ },
     { "_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2EOS9_", (void*)&_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2EOS9_ },
     { "_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEC1EOS9_", (void*)&_ZNSt8functionIFvbRKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES7_EEC1EOS9_ },
@@ -2840,6 +2916,10 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "_ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI10ScanDeviceSaIS0_EE17_M_realloc_appendIJRKS0_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI11AiAppTargetSaIS0_EE17_M_realloc_insertIJS0_EEEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EEDpOT_EN6_GuardD2Ev },
+    { "_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN11_Guard_eltsD1Ev", (void*)&_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN11_Guard_eltsD1Ev },
+    { "_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN11_Guard_eltsD2Ev", (void*)&_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN11_Guard_eltsD2Ev },
+    { "_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev },
+    { "_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI11AudioHandleSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev", (void*)&_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD1Ev },
     { "_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev", (void*)&_ZZNSt6vectorI12MarketScriptSaIS0_EE17_M_realloc_appendIJS0_EEEvDpOT_EN6_GuardD2Ev },
     { "_ZZNSt6vectorI12PairedDeviceSaIS0_EE17_M_default_appendEjEN6_GuardD1Ev", (void*)&_ZZNSt6vectorI12PairedDeviceSaIS0_EE17_M_default_appendEjEN6_GuardD1Ev },
@@ -2980,7 +3060,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "cJSON_ParseWithOpts", (void*)&cJSON_ParseWithOpts },
     { "cJSON_PrintUnformatted", (void*)&cJSON_PrintUnformatted },
     { "cJSON_free", (void*)&cJSON_free },
-    { "ceil", (void*)&ceil },
     { "ceilf", (void*)&ceilf },
     { "closedir", (void*)&closedir },
     { "cos", (void*)&cos },
@@ -3002,6 +3081,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "esp_log_linked_list_get_level", (void*)&esp_log_linked_list_get_level },
     { "esp_log_linked_list_set_level", (void*)&esp_log_linked_list_set_level },
     { "esp_log_set_default_level", (void*)&esp_log_set_default_level },
+    { "esp_log_set_vprintf", (void*)&esp_log_set_vprintf },
     { "esp_log_timestamp", (void*)&esp_log_timestamp },
     { "esp_log_util_set_cache_enabled_cb", (void*)&esp_log_util_set_cache_enabled_cb },
     { "esp_log_va", (void*)&esp_log_va },
@@ -4186,7 +4266,6 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "memset", (void*)&memset },
     { "mkdir", (void*)&mkdir },
     { "opendir", (void*)&opendir },
-    { "pow", (void*)&pow },
     { "powf", (void*)&powf },
     { "rand", (void*)&rand },
     { "readdir", (void*)&readdir },
@@ -4261,6 +4340,7 @@ const struct esp_elfsym g_main_elfsyms[] = {
     { "xTaskGetCurrentTaskHandle", (void*)&xTaskGetCurrentTaskHandle },
     { "xTaskGetCurrentTaskHandleForCore", (void*)&xTaskGetCurrentTaskHandleForCore },
     { "xTaskGetIdleTaskHandleForCore", (void*)&xTaskGetIdleTaskHandleForCore },
+    { "xTaskGetNext", (void*)&xTaskGetNext },
     { "xTaskGetSchedulerState", (void*)&xTaskGetSchedulerState },
     { "xTaskGetStaticBuffers", (void*)&xTaskGetStaticBuffers },
     { "xTaskGetTickCount", (void*)&xTaskGetTickCount },
