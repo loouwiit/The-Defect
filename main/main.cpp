@@ -34,8 +34,7 @@
 #include "wifi/mdns.hpp"
 #include "virtualIndev/wsTouchHandler.hpp"
 #include "screenStream/wsStreamHandler.hpp"
-#include "host/wsInputHandler.hpp"
-#include "host/wsConsoleHandler.hpp"
+
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
 
