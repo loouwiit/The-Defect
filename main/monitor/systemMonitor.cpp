@@ -80,25 +80,24 @@ bool SystemMonitor::ensureCapacity(UBaseType_t needed)
 	if (needed <= m_capacity)
 		return true;
 
-	// 按需扩容（至少增长到 needed）
+	// 按需扩容（至少增长到 needed）。逐成员 realloc 并立即更新成员指针：
+	// ⚠ 原三连 realloc 任一失败时把三个指针全部置 nullptr → 已成功扩容的
+	//   旧块泄漏 + 未扩容块的旧指针丢失（账目混乱）；且失败后 m_capacity 归零
+	//   下次扩容对已释放指针再 realloc（UAF）。现失败路径保留已完成成员，
+	//   下次调用幂等重试（realloc 对已扩容块是 no-op）。
 	auto newCap = needed + ARRAY_SIZE_OFFSET;
 	auto* newPrev = (TaskStatus_t*)realloc(m_prevSnapshot, sizeof(TaskStatus_t) * newCap);
-	auto* newCurr = (TaskStatus_t*)realloc(m_currSnapshot, sizeof(TaskStatus_t) * newCap);
-	auto* newMatch = (bool*)realloc(m_matchedBuf, sizeof(bool) * newCap * 2);
-	if (!newPrev || !newCurr || !newMatch)
-	{
-		free(newPrev);
-		free(newCurr);
-		free(newMatch);
-		m_prevSnapshot = nullptr;
-		m_currSnapshot = nullptr;
-		m_matchedBuf = nullptr;
-		m_capacity = 0;
-		return false;
-	}
+	if (!newPrev) return false;
 	m_prevSnapshot = newPrev;
+
+	auto* newCurr = (TaskStatus_t*)realloc(m_currSnapshot, sizeof(TaskStatus_t) * newCap);
+	if (!newCurr) return false;
 	m_currSnapshot = newCurr;
+
+	auto* newMatch = (bool*)realloc(m_matchedBuf, sizeof(bool) * newCap * 2);
+	if (!newMatch) return false;
 	m_matchedBuf = newMatch;
+
 	m_capacity = newCap;
 	return true;
 }
