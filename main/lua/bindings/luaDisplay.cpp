@@ -87,9 +87,9 @@ static uint16_t to565(lv_color_t c) { return lv_color_to_u16(c); }
 
 enum SlotKind : uint8_t { SLOT_NONE = 0, SLOT_SHAPE = 1, SLOT_TEXT = 2 };
 
-// 获取/复用槽位对象。静态（对象已存在且与上帧同 kind + 同参数）返回 nullptr → 跳过更新。
+// 获取/复用槽位对象。静态（对象已存在且与上帧同 kind + subKind + 同参数）返回 nullptr → 跳过更新。
 // 所有 LVGL 调用须在 Display::LockGuard 下（gameLoop 持锁调用 loop(dt)）。
-static LuaDisplayContext::Slot* slotAcquire(LuaDisplayContext* ctx, uint8_t kind,
+static LuaDisplayContext::Slot* slotAcquire(LuaDisplayContext* ctx, uint8_t kind, uint8_t subKind,
     int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color, const char* text)
 {
     int i = ctx->slotIndex;
@@ -100,7 +100,8 @@ static LuaDisplayContext::Slot* slotAcquire(LuaDisplayContext* ctx, uint8_t kind
     ctx->slotIndex++;
 
     auto& s = ctx->slots[i];
-    bool same = s.obj && s.kind == kind && s.x == x && s.y == y
+    bool same = s.obj && s.kind == kind && s.subKind == subKind
+             && s.x == x && s.y == y
              && s.w == w && s.h == h && s.color == color;
     if (same && kind == SLOT_TEXT && text) {
         // 文本过长无法完整比对 → 视为变化
@@ -115,6 +116,7 @@ static LuaDisplayContext::Slot* slotAcquire(LuaDisplayContext* ctx, uint8_t kind
         s.obj = (kind == SLOT_TEXT) ? lv_label_create(ctx->canvas) : lv_obj_create(ctx->canvas);
     }
     s.kind = kind;
+    s.subKind = subKind;
     s.x = x; s.y = y; s.w = w; s.h = h;
     s.color = color;
     if (text) {
@@ -162,7 +164,7 @@ static int l_display_fill_rect(lua_State* L)
     sanitizeCoord(x, y);
     sanitizeSize(w, h);
 
-    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, 1, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
     if (!s) return 0;   // 静态跳过
     lv_obj_t* o = s->obj;
     lv_obj_remove_style_all(o);
@@ -193,7 +195,7 @@ static int l_display_draw_rect(lua_State* L)
     sanitizeCoord(x, y);
     sanitizeSize(w, h);
 
-    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, 2, (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, to565(color), nullptr);
     if (!s) return 0;
     lv_obj_t* o = s->obj;
     lv_obj_remove_style_all(o);
@@ -226,13 +228,14 @@ static int l_display_draw_text(lua_State* L)
 
     // 选择字体尺寸
     const lv_font_t* font = nullptr;
-    if (size <= 24)        font = FontLoader::getDefault(FontLoader::FontSize::Small);
-    else if (size <= 32)   font = FontLoader::getDefault(FontLoader::FontSize::Default);
-    else                   font = FontLoader::getDefault(FontLoader::FontSize::Large);
+    uint8_t sizeSlot = 2;   // 槽位子类型：1=小 2=中 3=大（防同位置同文本换字号静态跳过）
+    if (size <= 24)      { font = FontLoader::getDefault(FontLoader::FontSize::Small);  sizeSlot = 1; }
+    else if (size <= 32) { font = FontLoader::getDefault(FontLoader::FontSize::Default); }
+    else                 { font = FontLoader::getDefault(FontLoader::FontSize::Large);  sizeSlot = 3; }
     if (!font) return 0;
 
-    // 文本槽位：静态（同位置同文本同色）跳过 → 不触发 LVGL 重绘
-    auto* s = slotAcquire(ctx, SLOT_TEXT, (int16_t)x, (int16_t)y, 0, 0, to565(color), text);
+    // 文本槽位：静态（同位置同文本同色同字号）跳过 → 不触发 LVGL 重绘
+    auto* s = slotAcquire(ctx, SLOT_TEXT, sizeSlot, (int16_t)x, (int16_t)y, 0, 0, to565(color), text);
     if (!s) return 0;
     lv_obj_t* o = s->obj;
     lv_label_set_text(o, text);
@@ -263,7 +266,7 @@ static int l_display_draw_line(lua_State* L)
     // 槽位用包围盒（静态线跳过，不触发重绘）
     int bx = std::min(x0, x1), by = std::min(y0, y1);
     int bw = std::max(x0, x1) - bx + 1, bh = std::max(y0, y1) - by + 1;
-    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)bx, (int16_t)by, (int16_t)bw, (int16_t)bh, to565(color), nullptr);
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, 3, (int16_t)bx, (int16_t)by, (int16_t)bw, (int16_t)bh, to565(color), nullptr);
     if (!s) return 0;
     lv_obj_t* o = s->obj;
     // 细长矩形 + transform 旋转（仅在线条变化时更新）
@@ -271,7 +274,10 @@ static int l_display_draw_line(lua_State* L)
     lv_coord_t len = (dx != 0 || dy != 0) ? (lv_coord_t)sqrtf((float)(dx * dx + dy * dy)) : 1;
     lv_obj_remove_style_all(o);
     lv_obj_set_size(o, len, 3);
-    lv_obj_set_pos(o, (x0 + x1 - len) / 2, (y0 + y1) / 2 - 1);
+    // ⚠ 起点定位 + pivot(0,1)（左上角垂直中心）：原 (x0+x1-len)/2 把对象中心放
+    //   线段中点，pivot 却在左端 → 垂直线/斜线偏离实际端点（垂直线偏差半个线长）。
+    //   起点定位后旋转端点精确落在 (x0,y0)~(x1,y1)。
+    lv_obj_set_pos(o, x0, y0 - 1);
     lv_obj_set_style_bg_color(o, color, 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(o, 0, 0);
@@ -301,7 +307,7 @@ static int l_display_draw_circle(lua_State* L)
     if (r < 0) r = 0;
     if (r > 2048) r = 2048;   // ⚠ r*2 超 int16 会截断碰撞；2048 上限足够覆盖画布
 
-    auto* s = slotAcquire(ctx, SLOT_SHAPE, (int16_t)(cx - r), (int16_t)(cy - r),
+    auto* s = slotAcquire(ctx, SLOT_SHAPE, 4, (int16_t)(cx - r), (int16_t)(cy - r),
                           (int16_t)(r * 2), (int16_t)(r * 2), to565(color), nullptr);
     if (!s) return 0;
     lv_obj_t* o = s->obj;

@@ -28,6 +28,9 @@ struct LuaDisplayContext {
     struct Slot {
         lv_obj_t* obj = nullptr;
         uint8_t kind = 0;     // 0=none, 1=shape(lv_obj), 2=text(lv_label)
+        // ⚠ 子类型参与静态跳过键：shape 区分 fill_rect/border/line/circle（同参数
+        //   切换会串样式），text 区分字号档位（同位置同文本换字号不生效）
+        uint8_t subKind = 0;  // shape: 1=fill_rect 2=border 3=line 4=circle；text: 1=小 2=中 3=大
         int16_t x = 0, y = 0, w = 0, h = 0;
         uint16_t color = 0;
         char text[48] = {};
