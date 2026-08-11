@@ -86,9 +86,13 @@ void VirtualIndev::indevReadCb(lv_indev_t* /*drv*/, lv_indev_data_t* data)
 	}
 	else
 	{
-		// fallback: 锁被占用时返回无触摸
-		data->state = LV_INDEV_STATE_REL;
-		data->point.x = 0;
-		data->point.y = 0;
+		// fallback: 锁被占用（WS 写线程瞬时持有）时返回**上一采样**（不清标志）——
+		// 原返回 (0,0)+REL 的失败模式恶劣：正在按压的手指被强制提前 RE（丢按压），
+		// 且 REL 态下 LVGL 会把 (0,0) 与上次坐标间的移动解释为一次点击左上角
+		// （屏幕左上恰是返回/关闭按钮区）。写侧仅 5 次赋值，窗口极小，
+		// 下帧即可正常读取。
+		data->state = self.sample.state;
+		data->point = self.sample.point;
+		data->continue_reading = false;
 	}
 }
