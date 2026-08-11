@@ -435,7 +435,7 @@ VirtualGamepad:
 | inject(hostId, ...) | hostId=0 本机，1-3 远程；仅存状态，不修改 mask |
 | 分发频率 | 固定 60fps (16ms)，独立 Dispatch Task |
 | 全量更新 | 每次遍历 `m_hostMask` 启用的 (hostId, playerId) |
-| 掩码默认 | `{0x0F, 0x00, 0x00, 0x00}`（仅本机 P0-P3 启用） |
+| 掩码默认 | `{0x0F, 0x00, 0x00, 0x00}`（仅本机 P0-P3 启用；远程输入默认不进入本地游戏，由 ConsoleManager 打开后 `setAllMasks` 按用户配置覆盖） |
 | 掩码来源 | 主机由 ConsoleManager UI 控制；从机接收主机下发的反码 |
 | AI Overlay | `isVisible()` 时跳过分发，AI 独占输入 |
 | 系统浮层屏蔽 | AI Overlay `isVisible()` **或** 低电量弹窗 `BatteryMonitor::isAlertShown()` 时跳过分发，底层 App 不收输入 |
@@ -1094,7 +1094,7 @@ static void on_click_cb(lv_event_t* e) {
 
 | App | 路径 | 说明 |
 |-----|------|------|
-| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄组合键唤起。集成 LVGL `lv_ime_pinyin` 输入法（三态：拼/五/EN，自定义词库 + 空格上屏） |
+| **AiAgentOverlay** | `main/app/aiAgentApp/` | AI 助手浮动窗（`lv_layer_sys`）。不占 AppStack，对话历史 + 长期记忆。可拖拽，顶部下滑/桌面卡片/手柄 **Y+X+B 组合键**唤起（实现在 gestureTimerCb；旧文档 SELECT+START 未实现）。集成 LVGL `lv_ime_pinyin` 输入法（三态：拼/五/EN，自定义词库 + 空格上屏） |
 
 **模块路径**: `main/aiAgent/`
 
@@ -1162,8 +1162,8 @@ class App {
 ③ 如果 response.nextRound == true 且未达 3 轮上限：
    → 从模板重建 system prompt（刷新 {app_context} 为新 App 信息）
    → 再次调用 AI 继续完成目标
-   ↓ (最多 5 轮)
-④ 记录 memory（长期记忆） + 对话历史（最近 5 轮）
+   ↓ (最多 5 轮 follow-up)
+④ 记录 memory（长期记忆） + 对话历史（最近 8 轮，含 follow-up 合成轮；`MAX_HISTORY_TURNS=8`）
   ↓
 ⑤ 等待用户下一轮输入
 ```
@@ -1187,7 +1187,7 @@ class App {
 | `generate_lua_game` | AI 生成 Lua 游戏并运行 | `{"action":"generate_lua_game","text":"贪吃蛇","params":{"code":"..."}}` |
 | `read` | 读取文件内容回传 AI（配 `nextRound:true`） | `{"action":"read","text":"/root/lua/game/test.lua","nextRound":true}` |
 
-**支持**：对话历史（最近 5 轮）+ 长期记忆（AI 通过 `memory` 字段增量更新）+ 多轮协作（`nextRound` 控制）+ App 焦点探索（`select`/`activate`）
+**支持**：对话历史（最近 8 轮）+ 长期记忆（AI 通过 `memory` 字段增量更新）+ 多轮协作（`nextRound` 控制）+ App 焦点探索（`select`/`activate`）
 
 **手柄按钮映射**（键盘显示时）：
 
@@ -1688,7 +1688,7 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 
 - 服务器地址：`/root/system/market_config.json` 的 `server_url` 字段
 - `MarketClient`（`main/market/marketClient.hpp`，header-only）异步封装 GET/POST，`.so` 二进制与文本走同一 `downloadFile`
-- `MarketConfig`（`main/market/marketConfig.hpp`）从 FAT JSON 读服务器地址
+- `MarketConfig`（`main/market/marketConfig.hpp`）从 FAT JSON 读服务器地址；`marketConfigSaveUrl(url)` **设备端写回**（header-only：读现有配置保留 `timeout_ms` → cJSON 构造 → `testFloor` 确认目录存在、仅缺失时 `newFloor`（⚠ `newFloor` 直接 `mkdir`，目录已存在返回 `EEXIST=false` 会误报"无法创建"）→ `OFile` 覆写；⚠ `OFile::open` 无 `O_TRUNC`，先 `removeFile` 再写防旧字节残留）
 - **类型判定**：服务器扫描时目录含 `manifest.json` → `type="elf"`（否则 "lua"）；ELF 条目的 `main`（.so 文件名）/ `manifest`（URL）/ `icon`（URL）由服务端补全
 - **无版本校验**：`version` 字段仅详情页显示（info.json 提供）；「更新」永远 = 重新下载覆盖，不做版本比较
 
@@ -1701,11 +1701,14 @@ int discoverConsoles(DiscoveredConsole* consoles, int maxCount, uint32_t timeout
 | 详情 | 大图（CONTAIN 自适应，支持横屏/拼接长图）+ 类型/作者/版本/更新时间/下载量/评分 + 简介 |
 | 下载/更新 | 按 `s.type` 分流：Lua 存 `/root/lua/market/<作者>/<游戏>/`；ELF 走 `downloadElf()`（`newFloor("/root/elf/<id>")` → 依次下载 manifest.json → .so → icon.jpg(可选)）。`testFile()` 检测已装 → 按钮「更新」，未装 → 「下载」 |
 | 卸载 | 详情页已装时显示「卸载」按钮（焦点索引 2）：统一入口 `uninstall()` 分流——ELF=`ElfManager::unload` + `removeFloorRecursive(/root/elf/<id>)`；Lua=`removeFloorRecursive(/root/lua/market/<作者>/<游戏>)` + 清空作者目录 |
-| 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载或更新）；B 返回 |
+| 输入 | 网格 4 向导航；A 直接进详情；最后一行 ↓ 进底部栏（刷新/详情/下载或更新/服务器）；B 返回 |
+| **服务器编辑** | 底部栏第 4 按钮 `LV_SYMBOL_SETTINGS "服务器"`（`BOTTOM_BTN_COUNT=4`）→ `showServerDialog()` 编辑弹窗（复用 WifiSettingsApp 弹窗模式：`lv_layer_top` 遮罩 + textarea 预填当前地址 + 软键盘 + 取消/确定）。确认 → `confirmServerDialog()`：去首尾空白 → 空输入拒绝 → 无 `://` 自动补 `http://`（裸 IP:端口友好）→ 去末尾斜杠 → `marketConfigSaveUrl()` 写 FAT → 更新 `m_serverUrl` + 自动 `fetchList()`（等效连接测试）。弹窗期间手柄走键盘路由（A/L3/START 按下选中键、摇杆 `lv_group_send_data`、B 取消） |
 
 - **运行入口**：Lua 在「脚本管理」（LuaManagerApp）中运行；ELF 返回桌面自动建卡（`onForeground → syncElfCards` 差量同步）直接运行；市场更新 icon 覆盖（路径不变）后 `lv_image_cache_drop(NULL)` 失效缓存防残留旧图（`lv_image_cache_drop` 为 LVGL 9 private API，需 `#include "src/misc/cache/lv_cache.h"`）
 - **已装识别**：Lua=`testFile(本地脚本路径)`；ELF=`testFile(/root/elf/<id>/manifest.json)`（不读 .so，避免 dlopen）
 - **卸载后清理**：Lua 删除后清空空作者目录；ELF 删除后 `ElfManager::unload`（refcount=0）再递归删目录，返回桌面卡片消失
+- **拉取竞态防护**：`fetchList()` 捕获发起时 `m_serverUrl` 快照，回调比对——请求期间地址被改（编辑弹窗确认）→ 丢弃旧响应并立即用新地址重拉，防旧服务器数据覆盖新状态
+- **弹窗生命周期**：`deinit()` 关闭服务器编辑弹窗（`lv_layer_top` 上创建，App screen 删除不会自动清理）
 
 ---
 
@@ -1771,6 +1774,17 @@ ScreenStream::instance().stop();
 
 **浏览器端自愈**（`reserces/server/screen/screen.js`）：`createImageBitmap` 连续解码失败 ≥5 次（`MAX_DECODE_FAILS`）→ `wsStream.close()` 强制重连（成功路径清零计数）。
 
+### 截图（纯前端，零后端接口）
+
+串流页「📷 截图」按钮：**直接复用 ws 已收到的 JPEG 帧**（`wsStream.onmessage` 拷贝保存为 `latestFrameBytes`）→ `createImageBitmap` → 复用 `ROTATE_CANVAS` 旋转为横屏 1280×720 → `toBlob` → `window.open(objectURL)` 新标签打开（用户右键保存）。
+
+| 特性 | 说明 |
+|------|------|
+| **零后端改动** | 不走 HTTP/WS 新增接口，**不触发服务端 JPEG 编码**——避免 coServer 在 PSRAM 栈执行 `captureJpeg` 的 cache/中断禁用崩溃（曾实测崩溃：`coServer00` 栈 PSRAM，日志输出路径进入临界区异常） |
+| 依赖串流 | 必须已连接 `/ws/stream` 且有帧到达（断连后保留最后一帧仍可截图）；未连接时按钮提示先开始串流 |
+| 延迟 | 保存的是最近一帧（网络延迟 ≤ 数百 ms），手动截图无感 |
+| 方向 | 与串流显示一致：竖屏帧 → 前端 Canvas 旋转横屏 |
+
 ---
 
 ## 媒体与外设
@@ -1810,7 +1824,7 @@ class ES8311 {
 
 **`Audio`** — Meyer's Singleton，管理 `esp_audio_render` 多流混音渲染器。
 
-**`AudioHandle`** — 值类型，效仿 `std::thread` 生命周期模型。
+**`AudioHandle`** — 值类型，效仿 `std::thread` 生命周期模型。⚠ **禁止拷贝**（拷贝构造/赋值 `= delete`）：拷贝共享同一 Impl，任一拷贝析构都会 stop 播放——只允许移动（返回值走 move，impl 移交不误 stop），与 `std::thread` 一致。
 
 ```cpp
 // 绑定模式（handle 析构时停止播放）
@@ -2017,7 +2031,7 @@ class BatteryManager {
 
 **硬件配置**: ADC1_CH6, 分压 5.1kΩ+10.2kΩ, 充电检测 GPIO23 (低电平=充电中)
 
-**充电动画**: 300ms 定时器 ping-pong：EMPTY→1→2→3→FULL→3→2→1→...
+**充电动画**: 300ms 定时器循环取模（0→1→2→3→4→0→...，`(step+1)%5`，非 ping-pong）
 
 ### BatteryMonitor — 低电量检测提醒（主机 + 蓝牙手柄）
 
