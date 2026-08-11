@@ -14,8 +14,7 @@ static const char* TAG = "ILI9881c";
 
 // ── 背光驱动电压窗口 ──
 // PWM 10-bit → 3.3V: duty=1023 → 3.3V
-// 背光驱动有效调压范围 0.7V~1.4V → duty 217~434
-// 放高数值以获取更一致的效果
+// 背光驱动有效调压范围 0.7V~1.4V → duty 230~450（放高数值以获取更一致的效果）
 static constexpr uint16_t BACKLIGHT_DUTY_MIN = 230;
 static constexpr uint16_t BACKLIGHT_DUTY_MAX = 450;
 
@@ -81,7 +80,7 @@ void ILI9881c::setBrightness(int percent)
 	} else {
 		// 第 1 层: 伽马校正 (0..1023)
 		uint32_t gammaDuty = dutyFromPercent(percent);
-		// 第 2 层: 窗口映射到背光驱动有效电压 (217..434)
+		// 第 2 层: 窗口映射到背光驱动有效电压 (230..450)
 		duty = BACKLIGHT_DUTY_MIN + (gammaDuty * (BACKLIGHT_DUTY_MAX - BACKLIGHT_DUTY_MIN)) / 1023;
 	}
 
