@@ -402,6 +402,7 @@ bool Floor::open(const char* path)
 	if (this->path != nullptr)
 		delete[] this->path;
 	pathBufferLenght = strlen(path);
+	if (pathBufferLenght == 0) return false; // 空串防御（原 path[-1] 越界读）
 	if (path[pathBufferLenght - 1] != '/')
 		pathBufferLenght++; // for '/'
 	this->path = new char[pathBufferLenght];

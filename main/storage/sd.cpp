@@ -81,9 +81,6 @@ bool mountSd()
 		else
 		{
 			ESP_LOGE(TAG, "Failed to initialize the card (%s).", esp_err_to_name(ret));
-#ifdef CONFIG_EXAMPLE_DEBUG_PIN_CONNECTIONS
-			check_sd_card_pins(&config, pin_count);
-#endif
 		}
 		return false;
 	}

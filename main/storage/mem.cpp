@@ -283,7 +283,12 @@ size_t MemFileView::read(char* buffer, size_t size)
 	//           ^     ^ finalBlockLocalSize
 	//           | localOffset
 
-	const size_t finalBlockLocalSize = this->file->size % MemFileDataBlock::BlockDataSize;
+	// ⚠ 文件大小恰为 BlockDataSize 整数倍时（如恰好 1 个满块 504B），
+	//   size % BlockDataSize == 0 → 末尾块被当成 0 字节 → 整个文件读出 0 字节。
+	//   修正：size>0 且整除时按满块处理（读到块尾）。
+	size_t finalBlockLocalSize = this->file->size % MemFileDataBlock::BlockDataSize;
+	if (finalBlockLocalSize == 0 && this->file->size > 0)
+		finalBlockLocalSize = MemFileDataBlock::BlockDataSize;
 
 	size_t readSize = 0;
 
@@ -426,6 +431,7 @@ MemFloorHead* MemFloorHead::findChildFloor(const char* floorName, size_t floorNa
 
 MemFloorHead* MemFloorHead::findFloor(const char* path, size_t pathLenght)
 {
+	if (pathLenght == 0) return nullptr; // 空串防御（原 path[pathLenght-1] 越界读）
 	if (path[pathLenght - 1] == '/')
 	{
 		pathLenght -= 1;
@@ -438,12 +444,6 @@ MemFloorHead* MemFloorHead::findFloor(const char* path, size_t pathLenght)
 		if (pathLenght == 0) return nullptr; //路径无效
 	}
 
-	if (pathLenght == (size_t)-1) // '/'
-	{
-		ESP_LOGD(TAG, "%s:%d I just want to figure out whether it matter, now it seem count", __FILE__, __LINE__);
-		return this;
-	}
-
 	MemFloorHead* floor = this;
 	size_t begin = 0;
 	size_t end = 0;
@@ -454,8 +454,8 @@ MemFloorHead* MemFloorHead::findFloor(const char* path, size_t pathLenght)
 	//begin        Lenght
 	while (begin < pathLenght)
 	{
-		// 找end
-		while (path[end] != '/' && end < pathLenght) end++;
+		// 找end（先判越界再访问，原顺序在 end==pathLenght 时越界读）
+		while (end < pathLenght && path[end] != '/') end++;
 		// root/path/floor
 		// ^   ^          ^
 		// |   |          |
@@ -482,7 +482,6 @@ MemFloorHead* MemFloorHead::findFloor(const char* path, size_t pathLenght)
 	}
 
 	ESP_LOGW(TAG, "???How I get Here???\n\tpath=%s\n\tpathLenght=%u", path, pathLenght);
-	//throw "???How I get Here???"
 	return nullptr;
 }
 
@@ -500,6 +499,7 @@ MemFileHead* MemFloorHead::findChildFile(const char* fileName, size_t fileNameLe
 
 MemFileHead* MemFloorHead::findFile(const char* path, size_t pathLenght)
 {
+	if (pathLenght == 0) return nullptr; // 空串防御
 	if (path[pathLenght - 1] == '/')
 	{
 		pathLenght -= 1;
@@ -557,6 +557,7 @@ bool MemFloorHead::removeChildFloor(const char* floorName, size_t floorNameLengh
 
 bool MemFloorHead::removeFloor(const char* path, size_t pathLenght)
 {
+	if (pathLenght == 0) return false; // 空串防御
 	if (path[pathLenght - 1] == '/')
 	{
 		pathLenght -= 1;
@@ -613,6 +614,7 @@ bool MemFloorHead::removeChildFile(const char* fileName, size_t fileNameLenght)
 
 bool MemFloorHead::removeFile(const char* path, size_t pathLenght)
 {
+	if (pathLenght == 0) return false; // 空串防御
 	if (path[pathLenght - 1] == '/')
 	{
 		pathLenght -= 1;
@@ -878,7 +880,8 @@ int memOpen(const char* path, int flags, int mode)
 	// 找fd
 	int fd = 0;
 	Lock lock{ mutex };
-	while (memFileDescriptions[fd].file != nullptr && fd < MaxMemFileDescriptionCount) fd++;
+	// ⚠ 先判断越界再访问：原顺序在 fd==16（全部占用）时先读 memFileDescriptions[16]（越界 UB）
+	while (fd < MaxMemFileDescriptionCount && memFileDescriptions[fd].file != nullptr) fd++;
 	// 没有文件描述符
 	if (fd == MaxMemFileDescriptionCount) return MemFileSystemError::NoAviliableDescription;
 
@@ -905,6 +908,7 @@ int memFstat(int fd, struct stat* st)
 int memStat(const char* path, struct stat* st)
 {
 	auto pathLenght = strlen(path);
+	if (pathLenght == 0) return MemFileSystemError::UnReachablePath; // 空串防御
 
 	if (path[pathLenght - 1] == '/')
 	{
@@ -1030,6 +1034,7 @@ int memUnlink(const char* path)
 	printf("memUnlink\n");
 #endif
 	size_t pathLenght = strlen(path);
+	if (pathLenght == 0) return MemFileSystemError::Error; // 空串防御
 	if (path[pathLenght - 1] == '/')
 		return memRoot.removeFloor(path, pathLenght) ? 0 : MemFileSystemError::Error;
 	else
