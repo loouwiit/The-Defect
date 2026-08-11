@@ -526,10 +526,13 @@ bool LogService::readTail(char* buf, size_t bufSize, size_t maxLines)
         portEXIT_CRITICAL(&s_earlyMux);
         if (pos == 0) { buf[0] = '\0'; return true; }
 
+        /* ⚠ 早期缓冲以 '\0' 分隔行（enqueue 写入 s_earlyBuf[pos+len]='\0'，非 '\n'）——
+         *   原按 '\n' 查找导致 maxLines 截断失效（整段被当一行）+ 崩溃 backtrace
+         *   内含 '\n' 时误切行。此处按 '\0' 对齐写入侧。 */
         size_t start = 0, nl = 0;
         for (long i = (long)pos - 1; i >= 0 && nl < maxLines; i--)
         {
-            if (s_earlyBuf[i] == '\n') { nl++; start = (size_t)i + 1; }
+            if (s_earlyBuf[i] == '\0') { nl++; start = (size_t)i + 1; }
         }
         size_t len = pos - start;
         if (len > bufSize - 1) { start += len - (bufSize - 1); len = bufSize - 1; }
