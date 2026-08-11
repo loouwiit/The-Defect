@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <atomic>
 #include <esp_partition.h>
 
 #include "freertos/FreeRTOS.h"
@@ -128,5 +129,9 @@ private:
     QueueHandle_t m_otaIntQueue{};     // 请求队列（runInInternalStack → worker）
 
     const esp_partition_t* m_updatePartition{};
-    bool m_otaUpdating{};
+    // ⚠ 并发标志：6 个 HTTP coWorker 线程并发读-判-写（httpOtaInternal 内
+    //   isUpdating → setUpdating(true) 非原子）。普通 bool 在 P4 双核下两个 worker
+    //   可同时读到 false 双双进入 → 同时 esp_ota_begin 写同一分区 → 镜像损坏。
+    //   必须用 std::atomic（test-and-set 语义由 load/store 保证）。
+    std::atomic<bool> m_otaUpdating{false};
 };

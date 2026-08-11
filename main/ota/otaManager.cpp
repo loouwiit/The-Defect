@@ -245,8 +245,10 @@ size_t OtaManager::getUpdatePartitionSize()
 
 esp_err_t OtaManager::precheckImage(const uint8_t* header, size_t headerLen)
 {
-	// 头不够覆盖 app_desc → 无法预检，拒绝
-	if (header == nullptr || headerLen < AppDescOffset + 8)
+	// 头不够覆盖整个 app_desc → 无法预检，拒绝
+	// ⚠ 原 AppDescOffset + 8（40B）过松：strncmp(desc->version) 需要完整 app_desc
+	//   （约 96B），40~95B 区间读到的是静态缓冲未初始化区域（防御性不足）。
+	if (header == nullptr || headerLen < HeaderReadSize)
 		return ESP_ERR_INVALID_ARG;
 
 	// magic 校验（非有效 ESP 镜像）
