@@ -52,6 +52,7 @@ bool ILI9881c::initBrightness()
 		.timer_num = LEDC_TIMER_1,
 		.freq_hz = 5000,
 		.clk_cfg = LEDC_AUTO_CLK,
+		.deconfigure = false,
 	};
 	ledc_channel_config_t ch = {
 		.gpio_num = BACKLIGHT_GPIO,
@@ -61,6 +62,8 @@ bool ILI9881c::initBrightness()
 		.timer_sel = LEDC_TIMER_1,
 		.duty = BACKLIGHT_DUTY_MAX,
 		.hpoint = 0,
+		.sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
+		.flags = { .output_invert = 0 },
 	};
 	ESP_ERROR_CHECK(ledc_timer_config(&tm));
 	ESP_ERROR_CHECK(ledc_channel_config(&ch));

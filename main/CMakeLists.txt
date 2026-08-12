@@ -107,4 +107,10 @@ target_link_options(${COMPONENT_LIB} INTERFACE
     "-Wl,--undefined=_ZN11AudioSample6unloadEv"
     "-Wl,--undefined=_ZN3App11replaceWithEPS_"
     # douDiZhu 迁出 ELF 后唯一调用方消失 → GC 回收（douDiZhuTable 用）→ 保活
-    "-Wl,--undefined=lv_obj_set_style_text_line_space")
+    "-Wl,--undefined=lv_obj_set_style_text_line_space"
+    # ── O2 切换后新暴露：cJSON 创建函数被 GC 回收 ──
+    # 主固件只用 cJSON_Parse/GetObjectItem 等读取 API，创建 API（CreateNumber/CreateString）
+    # 仅 douDiZhu/tetris 插件序列化快照时使用 → 无引用被 --gc-sections 回收 → .elf 缺失
+    # → dlopen "Can't find common"（gen_elf_syms.py 白名单 cJSON_ 前缀会自动选中，仅需保活）
+    "-Wl,--undefined=cJSON_CreateNumber"
+    "-Wl,--undefined=cJSON_CreateString")

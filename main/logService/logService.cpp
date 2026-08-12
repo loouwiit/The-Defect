@@ -71,6 +71,7 @@ static constexpr char     kNvsKeyCrash[]  = "last_crash";
 /* 按 tag 源头过滤持久化：固定槽位（NVS 无动态列表），每槽 tag 名 + 级别 */
 static constexpr size_t   kMaxTagOverrides = 8;
 static constexpr size_t   kMaxTagLen       = 32;
+static constexpr size_t   kMaxTagPrefixLen = 6;   // NVS key 前缀最大长度（"taglv_"=6，"tag_"=4）
 static constexpr char     kNvsKeyTagCount[] = "tag_count";
 static constexpr char     kNvsKeyTagPrefix[] = "tag_";      // tag_0..7（str）
 static constexpr char     kNvsKeyTagLvlPrefix[] = "taglv_"; // taglv_0..7（i32）
@@ -130,7 +131,10 @@ static int nvsReadLevel(const char* key);   // 定义在下方（start() 早于�
 
 static void nvsTagKey(char* out, size_t outSize, const char* prefix, size_t idx)
 {
-    snprintf(out, outSize, "%s%u", prefix, (unsigned)idx);
+    // ⚠ %.*s 限定 prefix 精度 + idx 取模：GCC O2 下 -Wformat-truncation 对未知长度
+    // 字符串做最坏推断（strlen 可达数百字节）→ 恒误报截断。实际输出最长
+    // 6(prefix) + 1(idx<8，取模后单十进制位) = 7 字节 < 16，精度约束后编译器可证明不截断
+    snprintf(out, outSize, "%.*s%u", (int)kMaxTagPrefixLen, prefix, (unsigned)(idx % 10));
 }
 
 /* ============================================================
@@ -152,7 +156,7 @@ static void openLogFile()
     s_file = fopen(kLogPath, "a");
     if (!s_file)
     {
-        s_errCount++;
+        s_errCount = s_errCount + 1;
         ESP_LOGE(TAG, "fopen %s failed (err=%d)", kLogPath, errno);
         return;
     }
@@ -168,7 +172,7 @@ static void flushLogFile()
     if (!s_file) return;
     if (fflush(s_file) != 0)
     {
-        s_errCount++;
+        s_errCount = s_errCount + 1;
         ESP_LOGE(TAG, "fflush failed (err=%d)", errno);
     }
     /* ⚠ 关键：fflush 只刷 newlib stdio 缓冲，不更新 FAT 目录项中的文件大小——
@@ -176,7 +180,7 @@ static void flushLogFile()
      * 若只 fflush，stat()/ftell() 恒返回旧值（新文件=0），/api/log 会读到空。 */
     if (fsync(fileno(s_file)) != 0)
     {
-        s_errCount++;
+        s_errCount = s_errCount + 1;
         ESP_LOGE(TAG, "fsync failed (err=%d)", errno);
     }
 }
@@ -206,20 +210,20 @@ static void appendToFile(const char* line, size_t len)
     if (!s_file) openLogFile();
     if (!s_file)
     {
-        s_errCount++;   // FAT 未就绪/打开失败，本行丢弃（下轮重试）
+        s_errCount = s_errCount + 1;   // FAT 未就绪/打开失败，本行丢弃（下轮重试）
         return;
     }
     if (fwrite(line, 1, len, s_file) != len)
     {
         // 写失败（如 FAT 被格式化/卸载/磁盘满）→ 关闭句柄，下轮重开
-        s_errCount++;
+        s_errCount = s_errCount + 1;
         ESP_LOGE(TAG, "fwrite failed (err=%d)", errno);
         closeLogFile();
         return;
     }
     s_fileSize += len;
-    s_writeCount++;
-    s_writeBytes += (uint32_t)len;
+    s_writeCount = s_writeCount + 1;
+    s_writeBytes = s_writeBytes + (uint32_t)len;
 }
 
 /** dump 早期缓冲（FAT 挂载前的日志）到文件头部 */
@@ -488,7 +492,7 @@ void LogService::enqueue(const char* line, size_t len, int level)
         memcpy(item.line, line, len);
         item.line[len] = '\0';
         if (xQueueSend(s_queue, &item, 0) != pdTRUE)
-            s_dropCount++;   // 日志风暴时保系统稳定
+            s_dropCount = s_dropCount + 1;   // 日志风暴时保系统稳定
     }
     else
     {

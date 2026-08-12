@@ -181,9 +181,6 @@ void WsClient::handleEvent(int32_t eventId, esp_websocket_event_data_t* data)
 
 	case WEBSOCKET_EVENT_ERROR:
 	{
-		// 尝试获取更多错误信息
-		int sock_err = 0;
-		socklen_t opt_len = sizeof(sock_err);
 		ESP_LOGW(TAG, "error event (errno=%d)", errno);
 		break;
 	}

@@ -112,8 +112,12 @@ static void mdns_restart_services()
 	{
 		instanceName[0] = '\0';
 		if (s_services[i].suffix[0])
-			snprintf(instanceName, sizeof(instanceName), "%s%s",
-				s_currentHostname, s_services[i].suffix);
+			// ⚠ 用 %.*s 限定最大写入长度：GCC O2 下 -Wformat-truncation 会对
+			// 未终止字符串做最坏长度推断（可达数百字节），而实例名实际最长为
+			// (hostname 63) + (suffix 63) = 126 < 129，精度限制后编译器可证明不截断
+			snprintf(instanceName, sizeof(instanceName), "%.*s%.*s",
+				(int)(sizeof(s_currentHostname) - 1), s_currentHostname,
+				(int)(sizeof(s_services[i].suffix) - 1), s_services[i].suffix);
 
 		auto err = mdns_service_add(
 			instanceName[0] ? instanceName : NULL,
@@ -352,7 +356,8 @@ bool mdnsSetHostname(const char* hostname)
 	if (mdnsInited)
 	{
 		char instanceName[128];
-		snprintf(instanceName, sizeof(instanceName), "%s Game Console", s_currentHostname);
+		snprintf(instanceName, sizeof(instanceName), "%.*s Game Console",
+			(int)(sizeof(s_currentHostname) - 1), s_currentHostname);
 
 		ESP_LOGI(TAG, "mdns hot restart with hostname: %s", s_currentHostname);
 

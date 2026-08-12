@@ -122,6 +122,8 @@ const lv_font_t* FontLoader::load(const char* vfsPath, uint16_t size)
 		.name = vfsPath,
 		.size = size,
 		.style = ESP_LV_ADAPTER_FT_FONT_STYLE_NORMAL,
+		.mem = nullptr,
+		.mem_size = 0,
 	};
 
 	auto ret = esp_lv_adapter_ft_font_init(&cfg, &handle);

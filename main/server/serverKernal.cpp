@@ -1437,7 +1437,8 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 	// slot 在调用者栈（PSRAM）：worker 仅在 mmap 窗口外读取（strcmp 发生在库调用之前），安全。
 	struct Ctx { char slot[16]; bool invalidate; esp_err_t err; };
 	Ctx ctx{};
-	strncpy(ctx.slot, slot, sizeof(ctx.slot) - 1);
+	// ⚠ snprintf 保证终止（strncpy 在源恰好填满时不写 '\0'，GCC O2 -Wstringop-truncation 报错）
+	snprintf(ctx.slot, sizeof(ctx.slot), "%s", slot);
 	ctx.invalidate = invalidate;
 	ctx.err = ESP_FAIL;
 
