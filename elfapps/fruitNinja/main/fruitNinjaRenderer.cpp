@@ -328,7 +328,9 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::segBBox(const TrailSegment& s) cons
 		float imgLong = (m_swordImg.w >= m_swordImg.h) ? (float)m_swordImg.w : (float)m_swordImg.h;
 		if (imgLong > 0.0f)
 		{
-			float len = hypotf(s.x2 - s.x1, s.y2 - s.y1);
+			// hypotf 未被主固件导出（esp_elf_loader libc 表无），用 sqrtf(x²+y²) 等价替代
+			float dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+			float len = sqrtf(dx * dx + dy * dy);
 			float scale = kSwordScale * len / imgLong;
 			float hw, hh;
 			rotatedExtents(m_swordImg.w, m_swordImg.h, scale,
@@ -359,7 +361,7 @@ FruitNinjaRenderer::BBox FruitNinjaRenderer::leafBBox(const LeafParticle& l) con
 {
 	// 半对角外接矩形（旋转安全超集）：l.scale * 图半对角
 	if (!m_leafImg.valid) return {};
-	float hr = 0.5f * l.scale * hypotf((float)m_leafImg.w, (float)m_leafImg.h);
+	float hr = 0.5f * l.scale * sqrtf((float)(m_leafImg.w * m_leafImg.w) + (float)(m_leafImg.h * m_leafImg.h));
 	int R = static_cast<int>(ceilf(hr)) + 1;
 	BBox b;
 	b.active = true;
