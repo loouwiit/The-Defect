@@ -59,6 +59,13 @@ void TetrisRemoteApp::init()
 	for (int i = 0; i < MAX_RENDER_PLAYERS; i++) {
 		m_renderers[i] = new TetrisRenderer(display, flexRow, playerW);
 		m_renderers[i]->bindGameState(&m_remoteStates[i]);
+		// 侧栏「退出」按钮：断开连接并返回房间（LVGL 事件回调内不可直接操作栈，须延后）
+		m_renderers[i]->setOnExit([this]() {
+			Task::addTask([](void* p) -> TickType_t {
+				static_cast<TetrisRemoteApp*>(p)->popApp();
+				return Task::infinityTime;
+			}, "remoteExit", this, 0, Task::Affinity::None);
+		});
 	}
 
 	// ── 连接状态标签（覆盖在 flexRow 上方） ──

@@ -3,7 +3,9 @@
 #include "app/app.hpp"
 #include "app/tetris/net/tetrisRemoteClient.hpp"
 #include "app/tetris/renderer/tetris_renderer.hpp"
+#include "audio/Audio.hpp"
 #include "task/task.hpp"
+#include <utility>
 
 /**
  * @brief Tetris 远程游戏 App — 作为从机渲染远程主机的游戏画面
@@ -31,6 +33,10 @@ public:
 	void onForeground() override;
 	void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state) override;
 
+	/// 接管房间的 BGM（移动语义）：room 被 replaceWith 删除时其 AudioHandle 析构会停播，
+	/// 先把循环 BGM 移交给远程游戏 App 继续播放（从机远程模式共用房间 BGM）。
+	void takeBgm(AudioHandle&& bgm) { m_bgm = std::move(bgm); }
+
 private:
 	static constexpr int MAX_RENDER_PLAYERS = 3;
 
@@ -41,6 +47,9 @@ private:
 	char m_remoteHost[64];
 	uint16_t m_remotePort;
 	int  m_targetPlayer;
+
+	// 从房间接管过来的 BGM（room 删除时由 takeBgm 移动转移，播放不中断）
+	AudioHandle m_bgm{};
 
 	// 渲染器引用的 GameState（持久化，多玩家）
 	GameState m_remoteStates[MAX_RENDER_PLAYERS]{};

@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <utility>
 
 static constexpr uint32_t BG = 0x0D0D1A;
 static constexpr uint32_t TEXT = 0xFFFFFF;
@@ -39,9 +40,15 @@ void TetrisRoomApp::init()
 {
 	App::init();
 
-	// ── 从机模式：跳过本地 UI，直接进入远程游戏 ──
+	// ── 从机模式：房间 UI 照常构建，1s 后替换为远程游戏 ──
+	//   ⚠ 不能提前 return 跳过 buildUi()：VirtualGamepad 每帧向房间分发手柄输入 →
+	//   onGamepadInput → updateActivity() 访问 m_slotActivity[]，UI 未构建（nullptr）
+	//   会在 vGamepadDisp 任务中 lv_obj_set_style_bg_opa(nullptr) 崩溃（实测 core dump：
+	//   vGamepadDisp → lv_obj_set_local_style_prop obj=0x0）。
+	//   startRemoteGame() 用 replaceWith 替换自身：栈变为 Desktop → TetrisRemoteApp，
+	//   从机退出远程游戏后直接回桌面，不再出现房间选择界面（从机无权开本地游戏）。
 	if (HostManager::instance().isClient()) {
-		// 在下一个 tick 执行 pushRemote，避免在 init 中操作栈
+		// 在下一个 tick 执行 startRemoteGame，避免在 init 中操作栈
 		ESP_LOGI(TAG, "client mode, jump to remote game");
 		Task::addTask([](void* param) -> TickType_t {
 			static_cast<TetrisRoomApp*>(param)->startRemoteGame();
@@ -465,7 +472,11 @@ void TetrisRoomApp::startRemoteGame()
 			HostManager::instance().getRemoteIp(),
 			8083,  // TCP 游戏端口
 			HostManager::instance().getMySlot());
-		self.m_manager->push(app);
+		// BGM 移动转移：replaceWith 会异步删除 room，其 AudioHandle 析构会停播——
+		// 先把循环 BGM 移交给远程游戏 App 继续播放（远程模式共用房间 BGM）
+		app->takeBgm(std::move(self.bgm));
+		// 替换自身（room）：从机退出远程游戏后直接回桌面，不再出现房间界面
+		self.replaceWith(app);
 		return Task::infinityTime;
 		}, "startRemoteTetris", this, 0, Task::Affinity::None);
 }
