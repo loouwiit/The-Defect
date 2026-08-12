@@ -1291,7 +1291,14 @@ class App {
 - **提示文字（↑A/↓B）**：↑↓←→ + A/B/X/Y 共 8 字符 glyph 预缓存——`create()` 持锁用 `lv_font_get_glyph_dsc`/`lv_font_get_glyph_bitmap`
   取 A8 位图，按 `header.stride` 逐行复制成紧凑 PSRAM 私有副本；每帧**无锁**软件 blit（定位公式与 LVGL 一致 `lv_draw_label.c:624`）。
   ⚠ freetype IMAGE 模式 `lv_font_get_glyph_bitmap` 返回 `lv_draw_buf_t*`（**非像素数组**）、位图 stride 对齐——不能直接 memcpy（会乱码）
-- **刀光**：段池（kMaxSegments=64）+ **超时消失**（`TRAIL_LIFETIME=0.5s`，`ageTrail` 递减 life），纯色不透明单层粗线（无逐帧淡出/半透明，性能最优）；仅在新增/移除/回绕顶掉时标脏
+- **刀光**：段池（kMaxSegments=64）+ **超时消失**（`TRAIL_LIFETIME=0.2s`，`ageTrail` 递减 life），仅在新增/移除/回绕顶掉时标脏。
+  - **光效刀光**（wudo 合并，sword.jpg）：深色底光效图 → 亮度抠 alpha（`kSwordAlphaGain=1.5` / 下限 `kSwordAlphaFloor=32`）+ **加法混合**，逐段旋转（`blitSwordSegment`）+ 分级量化渐隐（`kFadeLevels=6` 级阶梯淡出，仅在等级跳变时重绘避免逐帧全段重绘）；图加载失败回退纯色竹绿粗线（`kBambooGreen`）
+  - **残留刀光切割**：活跃段在其存活期内每帧与水果做线段碰撞（`forEachTrailSegment` → `m_logic.handleSwipe`），水果飞过残留白刃也能被切；同一水果由 sliced 防重判
+  - 段归属玩家 `player`（2P 分屏按玩家过滤）；`addTrailSegment` 带 player 参数
+- **竹叶粒子**（wudo 合并，bamboo leaves.jpg）：切割时随机向四周飘散（旋转缩放 + 重力 + 渐隐，纯渲染层）；池 `kMaxLeaves=48` + 同时活跃上限 `kMaxActiveLeaves=4`（超限跳过生成防卡顿）；旋转安全 bbox 用图半对角外接矩形
+- **触摸头部人物 qiuyuan**（wudo 合并，qiuyuan.jpg）：跟随手指 + 沿滑动方向旋转（`setTouchHead`，默认朝上，`kQiuyuanTrail=110px` 身后偏移防遮挡）；`kMaxTouchHeads=5` 对齐 GT911 槽位；非游戏状态/松手时清除（`clearTouchHeads`）
+- **游戏背景板**（wudo 合并，fruitbackground.jpg）：整局固定背景图
+- **性能插桩**：`FRUIT_NINJA_PERF=1` 编译期开关，每 60 帧输出 loop/paint 耗时 + seg/leaf/head 活跃数 + dirty 面积
 - **水果**：图片化——`esp_driver_jpeg` 硬件解码 5 张 JPG（`JPEG_DECODE_OUT_FORMAT_RGB565` + 小端序，无需 RGB888→565 转换）
   → PSRAM（>128px 边软件最近邻缩到 128，省内存 + 加速 blit）→ `blitImage` 软件圆形裁剪 + 最近邻缩放 blit；
   任一图失败自动回退纯色圆 + 顶部高光。⚠ buffer 必须用 `jpeg_alloc_decoder_mem` 分配（驱动 DMA 对齐要求，
@@ -1301,7 +1308,8 @@ class App {
 - **性能实测**：游戏线程 CPU 47%→~7%（5a：提示标签进 canvas + 去 expandRedraw O(n²) + fill 优化 + 收缩锁范围），
   普通 FPS ~31（目标 30 达标）、CPU ~35%；极端情况（大量粒子+刀光）FPS ~10，剩余瓶颈 = `paint` 写大脏区（fruitNinja 49%），
   可选项：粒子/刀光数量上限、Phase 5b 双缓冲并行（把 paint 也挪出锁）
-- 完整实现见 `elfapps/fruitNinja/main/app/fruitNinja/fruitNinjaRenderer.hpp/.cpp`
+- 完整实现见 `elfapps/fruitNinja/main/fruitNinjaRenderer.hpp/.cpp`
+- ⚠ **插件符号坑（wudo 合并实测）**：`hypotf` 未在主固件 `.elf` 导出（esp_elf_loader libc 表无），dlopen 报 "Can't find common"；用已导出的 `sqrtf(x²+y²)` 等价替代（游戏坐标数值范围不会溢出）
 
 ---
 
