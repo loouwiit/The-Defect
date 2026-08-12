@@ -7,7 +7,7 @@
   - 格式：字<TAB>拼音<TAB>权重（sort: by_weight，25 亿字语料权威字频）
   - ü 系以 v 代（lv/nv/lve/nve），与 LVGL 键盘输入约定一致
 
-输出：reserces/system/pinyin_dict.txt（FAT 上传到 /root/system/）
+输出：resourse/system/pinyin_dict.txt（FAT 上传到 /root/system/）
   - 格式：拼音<TAB>汉字直接连接（无分隔符，紧凑，每字 3 字节 UTF-8）
   - 拼音按字典序排列（LVGL 前缀匹配要求，短音在前）
   - 组内按权重降序（常用字靠前，翻页可访问全部）
@@ -70,8 +70,8 @@ def main():
     ap.add_argument('--output',
                     default=os.path.normpath(os.path.join(
                         os.path.dirname(os.path.abspath(__file__)),
-                        '..', 'reserces', 'system', 'pinyin_dict.txt')),
-                    help='输出词库文件（默认 reserces/system/pinyin_dict.txt）')
+                        '..', 'resourse', 'system', 'pinyin_dict.txt')),
+                    help='输出词库文件（默认 resourse/system/pinyin_dict.txt）')
     args = ap.parse_args()
 
     if not os.path.isfile(args.input):

@@ -10,7 +10,7 @@
 
 static constexpr char TAG[] = "PinyinDict";
 
-// 词库文件路径（FAT 分区，reserces/system/ 上传到 /root/）
+// 词库文件路径（FAT 分区，resourse/system/ 上传到 /root/）
 static const char* PINYIN_PATH = "/root/system/pinyin_dict.txt";
 static const char* WUBI_PATH   = "/root/system/wubi_dict.txt";
 static const char* MIXED_PATH  = "/root/system/wubi_pinyin_dict.txt";

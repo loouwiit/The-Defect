@@ -54,10 +54,10 @@ fat,      data, fat  ,      16M, 16M,
 
 ## Resources
 
-`reserces/` 目录下的文件会被上传到 FAT 分区，挂载路径为 `/root/`。
+`resourse/` 目录下的文件会被上传到 FAT 分区，挂载路径为 `/root/`。
 
 ```
-reserces/
+resourse/
 ├── lua/              ← Lua 测试/示例脚本
 ├── server/          ← HTTP 服务器静态资源（端口 80）
 │   ├── index.html
@@ -1563,7 +1563,7 @@ POST /api/ota（body 不缓冲，socket 流式读取）
 - 分区表：`ota_0` + `ota_1` 双 6M 槽（fat 偏移 16M 不变，数据零迁移）
 - `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`：未确认固件崩溃/重启 → bootloader 自动回退旧版，防封壳变砖
 - `main/CMakeLists.txt` PRIV_REQUIRES 含 `app_update esp_app_format esp_partition esp_timer bootloader_support`
-- 升级页面：FAT 静态资源 `reserces/server/ota/index.html`（`/server/ota/` 前缀映射），显示当前/目标版本 + 待确认警告条 + 回滚警告条 + 分区管理（切换/回退）+ 上传进度
+- 升级页面：FAT 静态资源 `resourse/server/ota/index.html`（`/server/ota/` 前缀映射），显示当前/目标版本 + 待确认警告条 + 回滚警告条 + 分区管理（切换/回退）+ 上传进度
 
 **⚠ P4 内部 RAM 三原则**（OTA 全链路实测踩坑，违反必崩）：
 1. **调用 OTA API 的任务栈必须在内部 RAM**：`esp_ota_*` 内部会 mmap flash /
@@ -1772,7 +1772,7 @@ ScreenStream::instance().stop();
 | **客户端切换** | 新客户端 GET 一律挂 `PendingClient`（`portMUX` 保护 hd/fd 一致性），send task 帧边界原子切换（唯一消费者），不粗暴杀旧管线 |
 | **广播隔离** | `wsStreamIsFd(fd)` 供 `wsServerBroadcastText` 跳过串流 fd，杜绝 httpd 任务与 send task 并发写同一 socket 帧交错 |
 
-**浏览器端自愈**（`reserces/server/screen/screen.js`）：`createImageBitmap` 连续解码失败 ≥5 次（`MAX_DECODE_FAILS`）→ `wsStream.close()` 强制重连（成功路径清零计数）。
+**浏览器端自愈**（`resourse/server/screen/screen.js`）：`createImageBitmap` 连续解码失败 ≥5 次（`MAX_DECODE_FAILS`）→ `wsStream.close()` 强制重连（成功路径清零计数）。
 
 ### 截图（纯前端，零后端接口）
 
@@ -2080,7 +2080,7 @@ class SystemMonitor {
 
 ## 日志与崩溃诊断（封壳设备远程调试）
 
-**模块路径**: `main/logService/`（LogService 单例）+ `reserces/server/diag/`（Web 页面）
+**模块路径**: `main/logService/`（LogService 单例）+ `resourse/server/diag/`（Web 页面）
 
 封壳设备无串口，日志与崩溃现场通过 Wi-Fi 远程获取。入口：浏览器 `http://<主机名>.local/server/diag/`。
 

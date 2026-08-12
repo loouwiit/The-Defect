@@ -7,7 +7,7 @@
   - 格式：词<TAB>编码<TAB>权重（columns: text/code/weight/stem）
   - 编码 1-4 码（a-z），含一级简码
 
-输出：reserces/system/wubi_dict.txt（FAT 上传到 /root/system/）
+输出：resourse/system/wubi_dict.txt（FAT 上传到 /root/system/）
   - 格式：编码<TAB>汉字直接连接（无分隔符，紧凑，每字 3 字节 UTF-8）
   - 编码按字典序排列（LVGL 前缀匹配要求，短码在前：工 a 在 式 aa 之前）
   - 组内按权重降序（常用字靠前）；同码多字（重码）拼进一个条目，翻页浏览
@@ -70,8 +70,8 @@ def main():
     ap.add_argument('--output',
                     default=os.path.normpath(os.path.join(
                         os.path.dirname(os.path.abspath(__file__)),
-                        '..', 'reserces', 'system', 'wubi_dict.txt')),
-                    help='输出词库文件（默认 reserces/system/wubi_dict.txt）')
+                        '..', 'resourse', 'system', 'wubi_dict.txt')),
+                    help='输出词库文件（默认 resourse/system/wubi_dict.txt）')
     args = ap.parse_args()
 
     if not os.path.isfile(args.input):

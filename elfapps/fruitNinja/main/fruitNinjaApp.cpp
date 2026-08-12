@@ -4,6 +4,10 @@
 #include "esp_timer.h"
 #include "lvgl.h"
 
+// 性能插桩（Phase 1）：每 60 帧输出一次渲染耗时/活跃计数/dirty 面积，便于优化前后对比。
+// 设为 0 关闭（编译期开关，不参与运行逻辑）。
+#define FRUIT_NINJA_PERF 1
+
 // ============================================================
 // 构造 / 析构
 // ============================================================
@@ -95,6 +99,7 @@ void FruitNinjaApp::onForeground()
 	if (auto guard = display->lockGuard())
 	{
 		m_renderer.clearTrail();
+		m_renderer.clearTouchHeads();
 		applyFocus();
 	}
 }
@@ -115,11 +120,22 @@ void FruitNinjaApp::gameLoop(void* param)
 	constexpr float TICK_MS = 16.0f; // ~60fps 渲染节拍
 	constexpr float MAX_DT = 0.05f;  // 单帧最大 dt（50ms），防长时间阻塞后螺旋死亡
 
+#ifdef FRUIT_NINJA_PERF
+	int64_t t0Us = 0;
+	int64_t accLoopUs = 0, accPaintUs = 0;
+	int frameCnt = 0;
+	int accSegs = 0, accLeaves = 0, accHeads = 0, accDirty = 0;
+	uint64_t accDirtyPx = 0;
+#endif
+
 	TickType_t lastWake = xTaskGetTickCount();
 	int64_t lastUs = esp_timer_get_time();
 
 	while (self.running)
 	{
+#ifdef FRUIT_NINJA_PERF
+		t0Us = esp_timer_get_time();
+#endif
 		// 实时 dt：以真实流逝时间推进游戏，使倒计时/物理/生成间隔随真实时间走，
 		// 不被渲染帧率下降 / LVGL 锁竞争稀释（固定 dt 在低帧率下会把游戏时间拉长）
 		int64_t nowUs = esp_timer_get_time();
@@ -132,11 +148,22 @@ void FruitNinjaApp::gameLoop(void* param)
 		self.m_logic.tick(dt);
 		self.updateTouchFromSlots();
 		self.m_renderer.ageTrail(dt);
+
+		// 残留刀光切割：活跃刀光段在其 0.5s 存活期内每帧与水果做线段碰撞，
+		// 使水果飞过残留白刃也能被切（已超时段经 ageTrail 置 inactive，不参与）。
+		// 同一水果由 sliced 防重判，不重复计分；与当帧即时 swipe 互补。
+		self.m_renderer.forEachTrailSegment([&self](float x1, float y1, float x2, float y2, int segPlayer) {
+			self.m_logic.handleSwipe(segPlayer, x1, y1, x2, y2);
+		});
+
 		self.m_renderer.beginFrame(self.m_logic);
 
 		// 渲染提交（持锁：写 canvas buffer + invalidate + HUD）
 		if (auto guard = self.display->lockGuard())
 		{
+#ifdef FRUIT_NINJA_PERF
+			int64_t tPaint0 = esp_timer_get_time();
+#endif
 			self.m_renderer.render(self.m_logic);
 
 			// GameOver 检测
@@ -152,7 +179,33 @@ void FruitNinjaApp::gameLoop(void* param)
 
 				self.applyFocus();
 			}
+#ifdef FRUIT_NINJA_PERF
+			accPaintUs += esp_timer_get_time() - tPaint0;
+#endif
 		}
+
+#ifdef FRUIT_NINJA_PERF
+		{
+			auto st = self.m_renderer.getFrameStats();
+			accSegs += st.activeSegs;
+			accLeaves += st.activeLeaves;
+			accHeads += st.activeHeads;
+			accDirty += st.dirtyCount;
+			accDirtyPx += st.dirtyPx;
+			accLoopUs += esp_timer_get_time() - t0Us;
+			if (++frameCnt >= 60)
+			{
+				ESP_LOGI(TAG, "[perf] loop=%.2fms paint=%.2fms seg=%d leaf=%d head=%d dirty=%d px=%u",
+					accLoopUs / 1000.0f / frameCnt, accPaintUs / 1000.0f / frameCnt,
+					accSegs / frameCnt, accLeaves / frameCnt, accHeads / frameCnt,
+					accDirty / frameCnt, (unsigned)(accDirtyPx / frameCnt));
+				accLoopUs = accPaintUs = 0;
+				accSegs = accLeaves = accHeads = accDirty = 0;
+				accDirtyPx = 0;
+				frameCnt = 0;
+			}
+		}
+#endif
 
 		vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(static_cast<int>(TICK_MS)));
 	}
@@ -179,12 +232,13 @@ void FruitNinjaApp::gameLoop(void* param)
 
 void FruitNinjaApp::updateTouchFromSlots()
 {
-	// 非游戏状态：所有手指复位并清空刀光
+	// 非游戏状态：所有手指复位并清空刀光/头部人物
 	if (m_logic.getState() != FruitNinjaLogic::State::Playing)
 	{
 		for (auto& f : m_fingers)
 			f = FingerTouch{};
 		m_renderer.clearTrail();
+		m_renderer.clearTouchHeads();
 		return;
 	}
 
@@ -221,21 +275,31 @@ void FruitNinjaApp::updateTouchFromSlots()
 						static_cast<float>(f.prevPoint.x),
 						static_cast<float>(f.prevPoint.y),
 						static_cast<float>(pt.x),
-						static_cast<float>(pt.y));
+						static_cast<float>(pt.y),
+						player);
 					f.prevPoint = pt;
 				}
+				// 头部人物：始终跟随当前手指位置（方向由移动量决定，微小抖动沿用上一朝向）
+				m_renderer.setTouchHead(i,
+					static_cast<float>(pt.x), static_cast<float>(pt.y),
+					static_cast<float>(dx), static_cast<float>(dy), true);
 			}
 			else
 			{
 				// ── 按压起点：仅记录上一帧位置（线段需两个点，首帧不产生段） ──
 				f.prevPoint = pt;
 				f.hasPrev = true;
+				// 头部人物：显示在按压点，默认朝上
+				m_renderer.setTouchHead(i,
+					static_cast<float>(pt.x), static_cast<float>(pt.y),
+					0.0f, -1.0f, true);
 			}
 		}
 		else
 		{
 			// ── 松手：停止追加，已有线段交由渲染器超时老化清理 ──
 			f.hasPrev = false;
+			m_renderer.setTouchHead(i, 0.0f, 0.0f, 0.0f, 0.0f, false);
 		}
 	}
 }

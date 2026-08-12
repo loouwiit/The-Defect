@@ -13,10 +13,10 @@
   3. 编码 = 五笔编码 ∪ 拼音编码，按字典序输出（LVGL 前缀匹配要求，短码在前）
 
 输入：
-  - reserces/system/wubi_dict.txt   （tools/gen_wubi_dict.py 生成）
-  - reserces/system/pinyin_dict.txt （tools/gen_pinyin_dict.py 生成）
+  - resourse/system/wubi_dict.txt   （tools/gen_wubi_dict.py 生成）
+  - resourse/system/pinyin_dict.txt （tools/gen_pinyin_dict.py 生成）
 输出：
-  - reserces/system/wubi_pinyin_dict.txt
+  - resourse/system/wubi_pinyin_dict.txt
 
 用法：
   python3 tools/gen_wubi_pinyin_dict.py [--wubi 五笔词库] [--pinyin 拼音词库] [--output 输出]
@@ -49,13 +49,13 @@ def load_dict(path):
 def main():
     ap = argparse.ArgumentParser(description='混合五笔与拼音词库（五笔优先，拼音兜底）')
     res = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        '..', 'reserces', 'system'))
+                                        '..', 'resourse', 'system'))
     ap.add_argument('--wubi', default=os.path.join(res, 'wubi_dict.txt'),
-                    help='五笔词库（默认 reserces/system/wubi_dict.txt）')
+                    help='五笔词库（默认 resourse/system/wubi_dict.txt）')
     ap.add_argument('--pinyin', default=os.path.join(res, 'pinyin_dict.txt'),
-                    help='拼音词库（默认 reserces/system/pinyin_dict.txt）')
+                    help='拼音词库（默认 resourse/system/pinyin_dict.txt）')
     ap.add_argument('--output', default=os.path.join(res, 'wubi_pinyin_dict.txt'),
-                    help='混合词库输出（默认 reserces/system/wubi_pinyin_dict.txt）')
+                    help='混合词库输出（默认 resourse/system/wubi_pinyin_dict.txt）')
     args = ap.parse_args()
 
     for p in (args.wubi, args.pinyin):
