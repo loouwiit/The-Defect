@@ -81,6 +81,12 @@ void BleSettingsApp::deinit()
 		}
 	}
 
+	// 关闭重命名对话框（如果打开）
+	if (m_renameLayer) {
+		auto guard = display->lockGuard();
+		closeRenameDialog();
+	}
+
 	App::deinit();
 	ESP_LOGI(TAG, "BLE 设置 App 已释放");
 }
@@ -444,6 +450,20 @@ void BleSettingsApp::buildUi()
 		lv_obj_add_flag(moveBtn, LV_OBJ_FLAG_HIDDEN);
 		m_moveBtns[i] = moveBtn;
 
+		auto renameBtn = GUI::createButton(btnGroup, LV_SYMBOL_EDIT, 36, 24);
+		lv_obj_set_style_bg_color(renameBtn, LV_COLOR_MAKE(0x00, 0x60, 0x90), 0);
+		lv_obj_set_style_radius(renameBtn, 6, 0);
+		lv_obj_set_style_pad_all(renameBtn, 0, 0);
+		lv_obj_set_style_border_width(renameBtn, 3, LV_STATE_FOCUSED);
+		lv_obj_set_style_border_color(renameBtn, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_width(renameBtn, 2, LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_color(renameBtn, lv_color_white(), LV_STATE_FOCUSED);
+		lv_obj_set_style_outline_opa(renameBtn, LV_OPA_50, LV_STATE_FOCUSED);
+		lv_obj_add_event_cb(renameBtn, onRenameBtnCb, LV_EVENT_CLICKED, this);
+		lv_obj_set_user_data(renameBtn, (void*)(uintptr_t)i);
+		lv_obj_add_flag(renameBtn, LV_OBJ_FLAG_HIDDEN);
+		m_renameBtns[i] = renameBtn;
+
 		auto disconnectBtn = GUI::createButton(btnGroup, "断开", 56, 24);
 		lv_obj_set_style_bg_color(disconnectBtn, GUI::Color::DANGER, 0);
 		lv_obj_set_style_radius(disconnectBtn, 6, 0);
@@ -640,10 +660,12 @@ void BleSettingsApp::updateConnectedList()
 			if (m_moveMode) {
 				lv_obj_add_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
 				lv_obj_add_flag(m_moveBtns[i], LV_OBJ_FLAG_HIDDEN);
+				lv_obj_add_flag(m_renameBtns[i], LV_OBJ_FLAG_HIDDEN);
 			}
 			else {
 				lv_obj_clear_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
 				lv_obj_clear_flag(m_moveBtns[i], LV_OBJ_FLAG_HIDDEN);
+				lv_obj_clear_flag(m_renameBtns[i], LV_OBJ_FLAG_HIDDEN);
 			}
 			m_slotConnected[i] = true;
 		}
@@ -655,6 +677,7 @@ void BleSettingsApp::updateConnectedList()
 			lv_label_set_text(m_slotInfoLabels[i], "");
 			lv_obj_add_flag(m_disconnectBtns[i], LV_OBJ_FLAG_HIDDEN);
 			lv_obj_add_flag(m_moveBtns[i], LV_OBJ_FLAG_HIDDEN);
+			lv_obj_add_flag(m_renameBtns[i], LV_OBJ_FLAG_HIDDEN);
 			m_slotConnected[i] = false;
 		}
 
@@ -817,6 +840,7 @@ void BleSettingsApp::applyFocus()
 	for (auto* row : m_scanRows) clearFocus(row);
 	for (auto* card : m_slotCards) clearFocus(card);
 	for (auto* moveBtn : m_moveBtns) clearFocus(moveBtn);
+	for (auto* renameBtn : m_renameBtns) clearFocus(renameBtn);
 	for (auto* disconnectBtn : m_disconnectBtns) clearFocus(disconnectBtn);
 
 	// 设置当前聚焦对象的 LV_STATE_FOCUSED
@@ -841,9 +865,10 @@ void BleSettingsApp::applyFocus()
 		break;
 	case FOCUS_CARD_BTNS:
 		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers) {
-			lv_obj_t* target = (m_focusBtnIdx == 0)
-				? m_moveBtns[m_focusSlotsIdx]
-				: m_disconnectBtns[m_focusSlotsIdx];
+			lv_obj_t* target = nullptr;
+			if (m_focusBtnIdx == 0) target = m_moveBtns[m_focusSlotsIdx];
+			else if (m_focusBtnIdx == 1) target = m_renameBtns[m_focusSlotsIdx];
+			else if (m_focusBtnIdx == 2) target = m_disconnectBtns[m_focusSlotsIdx];
 			if (target) {
 				focus(target);
 				lv_obj_scroll_to_view(target, LV_ANIM_ON);
@@ -852,6 +877,9 @@ void BleSettingsApp::applyFocus()
 		break;
 	case FOCUS_SAVE:
 		focus(m_saveBtn);
+		break;
+	case FOCUS_RENAME:
+		if (m_renameKb) focus(m_renameKb);
 		break;
 	}
 }
@@ -893,9 +921,10 @@ void BleSettingsApp::activateFocus()
 
 	case FOCUS_CARD_BTNS:
 		if (m_focusSlotsIdx >= 0 && m_focusSlotsIdx < MaxPlayers) {
-			lv_obj_t* target = (m_focusBtnIdx == 0)
-				? m_moveBtns[m_focusSlotsIdx]
-				: m_disconnectBtns[m_focusSlotsIdx];
+			lv_obj_t* target = nullptr;
+			if (m_focusBtnIdx == 0) target = m_moveBtns[m_focusSlotsIdx];
+			else if (m_focusBtnIdx == 1) target = m_renameBtns[m_focusSlotsIdx];
+			else if (m_focusBtnIdx == 2) target = m_disconnectBtns[m_focusSlotsIdx];
 			if (target)
 				lv_obj_send_event(target, LV_EVENT_CLICKED, nullptr);
 		}
@@ -903,6 +932,11 @@ void BleSettingsApp::activateFocus()
 
 	case FOCUS_SAVE:
 		lv_obj_send_event(m_saveBtn, LV_EVENT_CLICKED, nullptr);
+		break;
+
+	case FOCUS_RENAME:
+		// 键盘对话框中 A 键 = 确认
+		confirmRename();
 		break;
 	}
 }
@@ -1022,6 +1056,10 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 				cancelMoveMode();
 				return;
 			}
+			if (m_focusGroup == FOCUS_RENAME) {
+				closeRenameDialog();
+				return;
+			}
 			if (m_focusGroup == FOCUS_CARD_BTNS) {
 				// 卡片按钮层 → 退回到卡片选择
 				m_focusGroup = FOCUS_SLOTS;
@@ -1136,13 +1174,13 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 
 	case FOCUS_CARD_BTNS:
 	{
-		// 卡片内部按钮切换: ⇄ ↔ 断开
+		// 卡片内部按钮切换: ⇄ ↔ 重命名 ↔ 断开
 		if (lxLeft) {
-			m_focusBtnIdx = 0;
+			if (m_focusBtnIdx > 0) m_focusBtnIdx--;
 			applyFocus();
 		}
 		if (lxRight) {
-			m_focusBtnIdx = 1;
+			if (m_focusBtnIdx < 2) m_focusBtnIdx++;
 			applyFocus();
 		}
 		if (lyUp) {
@@ -1184,10 +1222,13 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 			applyFocus();
 		}
 		break;
+
+	case FOCUS_RENAME:
+		// 键盘对话框中摇杆不导航（LVGL 键盘自行处理）
+		break;
 	}
 }
 
-// ════════════════════════════════════════════════════════════════
 // LVGL 事件回调
 // ════════════════════════════════════════════════════════════════
 
@@ -1369,6 +1410,156 @@ void BleSettingsApp::doMove(uint8_t from, uint8_t to)
 }
 
 // ════════════════════════════════════════════════════════════════
+// 重命名对话框
+// ════════════════════════════════════════════════════════════════
+
+void BleSettingsApp::onRenameBtnCb(lv_event_t* e)
+{
+	auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+	auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
+	uint8_t slotIdx = (uint8_t)(uintptr_t)lv_obj_get_user_data(btn);
+	self->showRenameDialog(slotIdx);
+}
+
+void BleSettingsApp::showRenameDialog(uint8_t playerId)
+{
+	if (playerId >= MaxPlayers) return;
+	auto* ctx = BleGamepad::instance().getDevice(playerId);
+	if (!ctx || !ctx->connected) return;
+
+	m_renamePlayerId = playerId;
+
+	// ⚠ 参考 WifiSettingsApp：overlay 创建在 lv_layer_top() 内部（作为其子对象），
+	// 这样它浮在所有 screen 内容之上，且 flex 布局不影响它。
+	// 不要直接用 lv_layer_top() 本身作为容器（它是 LVGL 内部单例，clean 会崩）。
+	if (m_renameLayer) {
+		lv_obj_del(m_renameLayer);
+		m_renameLayer = nullptr;
+	}
+
+	auto overlay = lv_obj_create(lv_layer_top());
+	lv_obj_set_size(overlay, lv_disp_get_hor_res(NULL), lv_disp_get_ver_res(NULL));
+	lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+	lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+	lv_obj_set_style_border_width(overlay, 0, 0);
+	lv_obj_set_style_pad_all(overlay, 0, 0);
+	lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+	// 继承 App 的默认中文字体（overlay 不在 screen 继承链上，需手动设）
+	lv_obj_set_style_text_font(overlay, FontLoader::getDefault(), 0);
+	lv_obj_move_foreground(overlay);
+	m_renameLayer = overlay;
+
+	//居中卡片
+	auto card = lv_obj_create(m_renameLayer);
+	lv_obj_set_size(card, lv_pct(80), LV_SIZE_CONTENT);
+	lv_obj_center(card);
+	styleCard(card);
+	lv_obj_set_style_bg_color(card, GUI::Color::CARD, 0);
+	lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(card, 12, 0);
+	lv_obj_set_style_pad_top(card, 20, 0);
+	lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+	// 标题
+	char titleText[32];
+	snprintf(titleText, sizeof(titleText), "重命名 P%d", playerId + 1);
+	auto title = GUI::createTitle(card, titleText);
+	lv_obj_set_style_text_font(title, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+
+	// textarea
+	m_renameTa = lv_textarea_create(card);
+	lv_obj_set_width(m_renameTa, lv_pct(90));
+	lv_obj_set_height(m_renameTa, 60);
+	lv_textarea_set_one_line(m_renameTa, true);
+	lv_textarea_set_max_length(m_renameTa, 20);
+	lv_textarea_set_text(m_renameTa, ctx->name);
+	lv_obj_set_style_text_font(m_renameTa, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+
+	// 键盘（固定高度，避免 flex 重算导致光标晃动）
+	m_renameKb = lv_keyboard_create(card);
+	lv_obj_set_width(m_renameKb, lv_pct(100));
+	lv_obj_set_height(m_renameKb, 280);
+	lv_obj_set_flex_grow(m_renameKb, 0);
+	lv_keyboard_set_textarea(m_renameKb, m_renameTa);
+	lv_obj_set_style_text_font(m_renameKb, FontLoader::getDefault(FontLoader::FontSize::Small), LV_PART_ITEMS);
+	lv_obj_set_style_bg_color(m_renameKb, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_opa(m_renameKb, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_text_color(m_renameKb, lv_color_white(), LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+	lv_obj_set_style_bg_color(m_renameKb, LV_COLOR_MAKE(0x00, 0x77, 0xdd), LV_PART_ITEMS | LV_STATE_FOCUSED);
+	lv_obj_set_style_bg_opa(m_renameKb, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_FOCUSED);
+	lv_obj_set_style_text_color(m_renameKb, lv_color_white(), LV_PART_ITEMS | LV_STATE_FOCUSED);
+
+	// 按钮行
+	auto btnRow = lv_obj_create(card);
+	lv_obj_set_width(btnRow, lv_pct(100));
+	lv_obj_set_height(btnRow, LV_SIZE_CONTENT);
+	lv_obj_set_style_border_width(btnRow, 0, 0);
+	lv_obj_set_style_bg_opa(btnRow, LV_OPA_TRANSP, 0);
+	lv_obj_set_layout(btnRow, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(btnRow, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(btnRow, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_all(btnRow, 0, 0);
+	lv_obj_set_style_pad_column(btnRow, 8, 0);
+	lv_obj_remove_flag(btnRow, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_remove_flag(btnRow, LV_OBJ_FLAG_CLICKABLE);
+
+	auto cancelBtn = GUI::createButton(btnRow, "取消", 80, 32);
+	lv_obj_set_style_bg_color(cancelBtn, LV_COLOR_MAKE(0x50, 0x50, 0x60), 0);
+	lv_obj_set_style_radius(cancelBtn, 6, 0);
+	lv_obj_set_style_pad_all(cancelBtn, 0, 0);
+	lv_obj_add_event_cb(cancelBtn, [](lv_event_t* e) {
+		auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+		self->closeRenameDialog();
+	}, LV_EVENT_CLICKED, this);
+
+	auto confirmBtn = GUI::createButton(btnRow, "确定", 80, 32);
+	lv_obj_set_style_bg_color(confirmBtn, GUI::Color::PRIMARY, 0);
+	lv_obj_set_style_radius(confirmBtn, 6, 0);
+	lv_obj_set_style_pad_all(confirmBtn, 0, 0);
+	lv_obj_add_event_cb(confirmBtn, [](lv_event_t* e) {
+		auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+		self->confirmRename();
+	}, LV_EVENT_CLICKED, this);
+
+	m_focusGroup = FOCUS_RENAME;
+	lv_group_focus_obj(m_renameKb);
+}
+
+void BleSettingsApp::closeRenameDialog()
+{
+	if (!m_renameLayer) return;
+	// m_renameLayer 是 lv_layer_top() 的子对象（非其本身），可安全删除
+	lv_obj_del(m_renameLayer);
+	m_renameLayer = nullptr;
+	m_renameTa = nullptr;
+	m_renameKb = nullptr;
+	m_renamePlayerId = 0xff;
+	m_focusGroup = FOCUS_SLOTS;
+	applyFocus();
+}
+
+void BleSettingsApp::confirmRename()
+{
+	if (m_renamePlayerId >= MaxPlayers || !m_renameTa) {
+		closeRenameDialog();
+		return;
+	}
+
+	const char* newName = lv_textarea_get_text(m_renameTa);
+	if (!newName || newName[0] == '\0') {
+		closeRenameDialog();
+		return;
+	}
+
+	ESP_LOGI(TAG, "重命名 P%d → %s", m_renamePlayerId + 1, newName);
+	BleGamepad::instance().writeDeviceName(m_renamePlayerId, newName);
+
+	closeRenameDialog();
+}
+
+// ════════════════════════════════════════════════════════════════
 // AI 能力
 // ════════════════════════════════════════════════════════════════
 
@@ -1393,6 +1584,7 @@ std::string BleSettingsApp::getAiContext()
 		case FOCUS_SLOTS:     groupName = "slots"; break;
 		case FOCUS_CARD_BTNS: groupName = "cardBtns"; break;
 		case FOCUS_SAVE:      groupName = "save"; break;
+		case FOCUS_RENAME:    groupName = "rename"; break;
 	}
 	ctx += std::string("焦点@") + groupName;
 	if (m_focusGroup == FOCUS_LIST) ctx += ":" + std::to_string(m_focusListIdx);

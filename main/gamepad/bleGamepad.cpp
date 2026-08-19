@@ -762,6 +762,13 @@ static int hidChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error
 	const struct ble_gatt_chr* chr, void* arg);
 static int batChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 	const struct ble_gatt_chr* chr, void* arg);
+static void advanceAfterCustomDisc(uint16_t conn_handle, uint8_t pid);
+static int customChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	const struct ble_gatt_chr* chr, void* arg);
+static int nameReadCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg);
+static int nameWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg);
 
 // Battery Level 读完成回调（防御：默认 255=未知，仅拷贝成功且数据完整才写入）
 static int batReadCb(uint16_t conn_handle, const struct ble_gatt_error* error,
@@ -788,7 +795,15 @@ static int batReadCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 	else {
 		ESP_LOGW(TAG, "    P%d battery read error: %d (keep unknown)", pid, error->status);
 	}
-	ctx->gattPhase = DeviceContext::GattPhase::Done;
+	// 进入自定义服务发现（设备名称）
+	if (ctx->customSvcEnd != 0) {
+		ctx->gattPhase = DeviceContext::GattPhase::DiscCustom;
+		ESP_LOGI(TAG, "  -> Discovering Custom service characteristics...");
+		ble_gattc_disc_all_chrs(conn_handle, ctx->customSvcStart, ctx->customSvcEnd,
+			customChrDiscCb, (void*)(uintptr_t)pid);
+	} else {
+		ctx->gattPhase = DeviceContext::GattPhase::Done;
+	}
 	return 0;
 }
 
@@ -1025,9 +1040,10 @@ static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 		auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
 		if (!ctx) { s_svcCount = 0; return 0; }
 
-		// 记录 HID / 电池服务范围（严格按序：先 HID 后电池）
+		// 记录 HID / 电池 / 自定义服务范围
 		ctx->hidSvcStart = ctx->hidSvcEnd = 0;
 		ctx->batSvcStart = ctx->batSvcEnd = 0;
+		ctx->customSvcStart = ctx->customSvcEnd = 0;
 		for (int i = 0; i < s_svcCount; i++) {
 			if (s_svcList[i].uuid == 0x1812) {
 				ctx->hidSvcStart = s_svcList[i].start;
@@ -1036,6 +1052,12 @@ static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 			else if (s_svcList[i].uuid == 0x180F) {
 				ctx->batSvcStart = s_svcList[i].start;
 				ctx->batSvcEnd   = s_svcList[i].end;
+			}
+			else if (s_svcList[i].uuid == 0xFF00) {
+				ctx->customSvcStart = s_svcList[i].start;
+				ctx->customSvcEnd   = s_svcList[i].end;
+				ESP_LOGI(TAG, "  Custom service found: start=%u end=%u",
+					ctx->customSvcStart, ctx->customSvcEnd);
 			}
 		}
 		s_svcCount = 0;   // 用后即清（静态全局，避免跨连接累积）
@@ -1061,6 +1083,111 @@ static int svcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
 		ESP_LOGE(TAG, "  Service discovery error: %d", error->status);
 	}
 	return 0;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  自定义 GATT 服务 — 设备名称读写
+// ════════════════════════════════════════════════════════════════
+
+// 自定义服务特征发现完成/报错 → 推进到读名称
+static void advanceAfterCustomDisc(uint16_t conn_handle, uint8_t pid)
+{
+	auto* ctx = mutableDeviceCtx(pid);
+	if (!ctx) return;
+	if (ctx->gattPhase != DeviceContext::GattPhase::DiscCustom) return;
+
+	if (ctx->nameCharHandle != 0) {
+		ctx->gattPhase = DeviceContext::GattPhase::ReadName;
+		ESP_LOGI(TAG, "    -> P%d Reading device name (handle %u)...", pid, ctx->nameCharHandle);
+		ble_gattc_read(conn_handle, ctx->nameCharHandle, nameReadCb, (void*)(uintptr_t)pid);
+	} else {
+		ESP_LOGI(TAG, "    P%d: no name characteristic found, skipping", pid);
+		ctx->gattPhase = DeviceContext::GattPhase::Done;
+	}
+}
+
+// 自定义服务特征发现回调（只记录句柄；完成后推进到读名称）
+static int customChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	const struct ble_gatt_chr* chr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	auto* ctx = (pid < MaxPlayers)
+		? mutableDeviceCtx((uint8_t)pid) : nullptr;
+
+	if (error->status == 0 && chr && ctx) {
+		uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
+		ESP_LOGI(TAG, "    CHAR: val=%u uuid=0x%04x props=0x%02x",
+			chr->val_handle, uuid, chr->properties);
+
+		// 设备名称特征 (0xFF01, Read|Write)
+		if (uuid == 0xFF01 && (chr->properties & BLE_GATT_CHR_PROP_WRITE)) {
+			ctx->nameCharHandle = chr->val_handle;
+			ESP_LOGI(TAG, "    -> Name characteristic found, handle=%u", chr->val_handle);
+		}
+	}
+	else if (error->status == BLE_HS_EDONE) {
+		ESP_LOGI(TAG, "  Custom service characteristic discovery complete");
+		advanceAfterCustomDisc(conn_handle, (uint8_t)pid);
+	}
+	else if (error->status != 0) {
+		ESP_LOGE(TAG, "  Custom char discovery error: %d", error->status);
+		advanceAfterCustomDisc(conn_handle, (uint8_t)pid);
+	}
+	return 0;
+}
+
+// 读取设备名称完成回调
+static int nameReadCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg)
+{
+	uintptr_t pid = (uintptr_t)arg;
+	auto* ctx = (pid < MaxPlayers) ? mutableDeviceCtx((uint8_t)pid) : nullptr;
+	if (!ctx) return 0;
+
+	if (error->status == 0 && attr && attr->om) {
+		uint16_t len = OS_MBUF_PKTLEN(attr->om);
+		if (len > 0 && len < sizeof(ctx->name)) {
+			ble_hs_mbuf_to_flat(attr->om, ctx->name, len, nullptr);
+			ctx->name[len] = '\0';
+			ESP_LOGI(TAG, "    P%d device name: %s", pid, ctx->name);
+		} else {
+			ESP_LOGW(TAG, "    P%d name read: invalid len=%u", pid, len);
+		}
+	} else {
+		ESP_LOGW(TAG, "    P%d name read error: %d", pid, error->status);
+	}
+
+	ctx->gattPhase = DeviceContext::GattPhase::Done;
+	return 0;
+}
+
+// 写入设备名称完成回调
+static int nameWriteCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+	struct ble_gatt_attr* attr, void* arg)
+{
+	if (error->status == 0) {
+		ESP_LOGI(TAG, "Device name write succeeded");
+	} else {
+		ESP_LOGW(TAG, "Device name write failed: %d", error->status);
+	}
+	return 0;
+}
+
+void BleGamepad::writeDeviceName(uint8_t playerId, const char* name)
+{
+	if (!m_running || playerId >= MaxPlayers || !name || name[0] == '\0') return;
+	auto* ctx = const_cast<DeviceContext*>(getDevice(playerId));
+	if (!ctx || !ctx->connected || ctx->nameCharHandle == 0) {
+		ESP_LOGW(TAG, "Cannot write name: P%d not connected or no name char", playerId);
+		return;
+	}
+
+	ESP_LOGI(TAG, "Writing device name to P%d: %s", playerId, name);
+	int rc = ble_gattc_write_flat(ctx->connHandle, ctx->nameCharHandle,
+		name, strlen(name), nameWriteCb, this);
+	if (rc != 0) {
+		ESP_LOGE(TAG, "ble_gattc_write_flat failed: %d", rc);
+	}
 }
 
 int BleGamepad::connectGapEvent(struct ble_gap_event* event, void* /*arg*/)

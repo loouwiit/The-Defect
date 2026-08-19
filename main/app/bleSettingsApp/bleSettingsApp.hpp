@@ -72,6 +72,7 @@ private:
 	lv_obj_t* m_slotInfoLabels[MaxPlayers]{};
 	lv_obj_t* m_disconnectBtns[MaxPlayers]{};
 	lv_obj_t* m_moveBtns[MaxPlayers]{};   // 移动按钮
+	lv_obj_t* m_renameBtns[MaxPlayers]{};  // 重命名按钮
 	bool m_slotConnected[MaxPlayers]{};
 	lv_obj_t* m_saveBtn{};           // 保存配对按钮
 
@@ -98,8 +99,9 @@ private:
 		FOCUS_TITLE = 0,  // 左右: 返回 ↔ 扫描
 		FOCUS_LIST,       // 上下: 设备列表, 左右到列表首尾
 		FOCUS_SLOTS,      // 左右: 4 个槽位, 上下跳到列表/标题
-		FOCUS_CARD_BTNS,  // 卡片内部按钮: ⇄ ↔ 断开（上退回 FOCUS_SLOTS）
+		FOCUS_CARD_BTNS,  // 卡片内部按钮: ⇄ ↔ 重命名 ↔ 断开（上退回 FOCUS_SLOTS）
 		FOCUS_SAVE,       // 保存按钮（从 P4 右进，左回 P4，上回扫描）
+		FOCUS_RENAME,     // 重命名对话框
 	};
 	FocusGroup m_focusGroup{ FOCUS_TITLE };
 	int8_t m_focusTitleIdx{ 0 };   // 0=返回, 1=扫描
@@ -121,6 +123,7 @@ private:
 	static void onBackBtnCb(lv_event_t* e);
 	static void onSaveBtnCb(lv_event_t* e);
 	static void onMoveBtnCb(lv_event_t* e);
+	static void onRenameBtnCb(lv_event_t* e);
 
 	// ── 内部方法 ──
 	void buildUi();
@@ -144,6 +147,15 @@ private:
 	void navListEnd();
 	void navSlotsLeft();
 	void navSlotsRight();
+
+	// ── 重命名对话框 ──
+	void showRenameDialog(uint8_t playerId);
+	void closeRenameDialog();
+	void confirmRename();
+	lv_obj_t* m_renameLayer{};    // lv_layer_top 遮罩
+	lv_obj_t* m_renameTa{};      // textarea
+	lv_obj_t* m_renameKb{};      // 键盘
+	uint8_t m_renamePlayerId{0xff};
 
 	// ── AI 能力 ──
 	std::string getAiContext() override;

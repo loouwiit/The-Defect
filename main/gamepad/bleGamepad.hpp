@@ -47,6 +47,9 @@ public:
 
     std::vector<ScanDevice> getScannedDevices() const;
 
+    // ── 设备名称读写（自定义 GATT 服务 0xFF00/0xFF01） ──
+    void writeDeviceName(uint8_t playerId, const char* name);
+
     // ── NVS 持久化配对 ──
     void syncPairedToNvs();                     // 将当前连接的设备 (BDA+name) 写入 NVS
     std::vector<PairedDevice> getPairedDevices() const; // 读取 NVS 中保存的配对列表

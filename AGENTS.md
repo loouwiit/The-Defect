@@ -113,7 +113,7 @@ resourse/
 | **市场** | MarketClient / MarketConfig | `main/market/` | 游戏市场 HTTP 客户端（异步 GET 列表/内容/图片/manifest + POST 统计；条目含 type=lua\|elf） |
 | **应用** | DesktopApp | `main/app/desktopApp/` | 桌面启动器，**动态卡片**（ELF 插件在前 + 系统卡片），3 焦点组导航 |
 | | MarketApp | `main/app/marketApp/` | 游戏市场：Lua+ELF 混合截图卡片网格 + 详情 + 下载/更新/卸载（ELF 装到 `/root/elf/`） |
-| | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理 UI |
+| | BleSettingsApp | `main/app/bleSettingsApp/` | BLE 手柄配对/管理/远程改名 UI |
 | | WifiSettingsApp | `main/app/wifiSettingsApp/` | WiFi 扫描/连接 UI |
 | | TimeSettingsApp | `main/app/timeSettingsApp/` | 时间/SNTP 设置 UI |
 | | PowerManagementApp | `main/app/powerManagementApp/` | 电源管理（电量、关机 Deep-sleep） |
@@ -143,7 +143,7 @@ resourse/
 | **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + WebSocket 流，直接读 bridge 帧缓冲 |
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
-| **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
+| **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对，**自定义 GATT 服务支持远程改名** |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
 | | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → SystemPopup 弹窗，弹窗显示时屏蔽底层 App 输入 |
@@ -1205,7 +1205,7 @@ class App {
 
 | App | 路径 | 功能 |
 |-----|------|------|
-| **BleSettingsApp** | `main/app/bleSettingsApp/` | BLE 手柄扫描/连接/断开/删除配对，NVS 持久化 |
+| **BleSettingsApp** | `main/app/bleSettingsApp/` | BLE 手柄扫描/连接/断开/删除配对/**远程改名**，NVS 持久化 |
 | **WifiSettingsApp** | `main/app/wifiSettingsApp/` | WiFi AP 扫描/连接/断开，密码输入键盘 |
 | **TimeSettingsApp** | `main/app/timeSettingsApp/` | 手动调时 / SNTP 自动同步 / 立即同步 |
 | **PowerManagementApp** | `main/app/powerManagementApp/` | 主机+手柄电量显示 / 关机 (Deep-sleep) / 低功耗 |
@@ -1956,6 +1956,7 @@ class BleGamepad {
     void disconnectAll();
     uint8_t connectedCount() const;
     uint8_t getBatteryLevel(uint8_t playerId) const;
+    void writeDeviceName(uint8_t playerId, const char* name);
     void syncPairedToNvs();
     std::vector<PairedDevice> getPairedDevices() const;
 };
@@ -2001,6 +2002,27 @@ git submodule update --init --recursive
 
 手柄固件与主机通过 NimBLE GATT 协议通信，定义 `GamepadButton` 位图（见 `gamepadState.hpp`）和输入事件队列。双方需保持协议同步。
 
+C6 手柄固件提供自定义 GATT 服务（`0xFF00`），其中设备名称特征（`0xFF01`，Read|Write）允许 P4 主机远程修改手柄名称。名称持久化到 C6 NVS，重启后保持。
+
+#### GATT 阶段机
+
+连接建立后的 GATT 客户端过程严格串行推进：
+
+```
+DiscHid → DiscBattery → SubHid → SubBattery → ReadBattery → DiscCustom → ReadName → Done
+```
+
+| 阶段 | 说明 |
+|------|------|
+| `DiscHid` | 发现 HID 服务 (0x1812) 特征，记录 Report 句柄 |
+| `DiscBattery` | 发现 Battery 服务 (0x180F) 特征，记录 Battery Level 句柄 |
+| `SubHid` | 订阅 HID 输入报告 CCCD |
+| `SubBattery` | 订阅 Battery Level 通知 CCCD |
+| `ReadBattery` | 读取初始电池电量 |
+| `DiscCustom` | 发现自定义服务 (0xFF00) 特征，记录设备名称句柄 |
+| `ReadName` | 读取当前设备名称 |
+| `Done` | 完成 |
+
 > 📖 手柄固件完整文档见 [`gamepad/readme.md`](../gamepad/readme.md)。
 
 #### 特性
@@ -2008,6 +2030,7 @@ git submodule update --init --recursive
 - **上限 4 玩家** (`MaxPlayers = 4`)
 - **自动重连**: 启动后扫描 5 秒，自动连接 NVS 中保存的已配对设备
 - **NVS 持久化**: `syncPairedToNvs()` 将 BDA+name 写入 NVS
+- **远程改名**: `writeDeviceName()` 通过自定义 GATT 服务 (0xFF00/0xFF01) 修改手柄名称
 - **输入队列**: FreeRTOS Queue 做线程安全的输入事件传递
 - **Battery Level**: 通过 BLE Battery Service 读取手柄电量
 

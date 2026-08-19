@@ -72,6 +72,8 @@ struct DeviceContext {
         SubHid,         // 订阅 HID 输入报告
         SubBattery,     // 订阅电池通知
         ReadBattery,    // 读电池初始值
+        DiscCustom,     // 发现自定义服务特征（设备名称）
+        ReadName,       // 读取设备名称
         Done,           // 完成
     };
     GattPhase gattPhase{ GattPhase::Idle };
@@ -81,4 +83,8 @@ struct DeviceContext {
     uint16_t hidReportHandle{};           // HID 输入报告特征值句柄
     uint8_t hidSubRetries{};              // HID 订阅重试计数
     uint8_t batterySubRetries{};          // 电池订阅重试计数
+
+    // ── 自定义 GATT 服务（设备名称读写） ──
+    uint16_t customSvcStart{}, customSvcEnd{};  // 自定义服务句柄范围
+    uint16_t nameCharHandle{};                  // 设备名称特征值句柄（0xFF01）
 };
