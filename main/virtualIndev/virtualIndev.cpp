@@ -19,7 +19,10 @@ bool VirtualIndev::start(Display* disp)
 	display = disp;
 	s_instance = this;
 
-	lv_indev_t* indev = lv_indev_create();
+	// ⚠ 必须赋值成员 `this->indev`：原实现 `lv_indev_t* indev = lv_indev_create()` 是
+	//   局部变量遮蔽成员 → 成员恒为 nullptr → 幂等守卫永不成立，重复 start() 会重复注册
+	//   indev（泄漏 + 双输入源）。
+	this->indev = lv_indev_create();
 
 	if (!indev)
 	{
@@ -29,6 +32,9 @@ bool VirtualIndev::start(Display* disp)
 
 	lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
 	lv_indev_set_read_cb(indev, indevReadCb);
+	// 绑定到当前 display（与 GT911Indev 一致，多 display 时避免默认 display 错配）
+	if (display->getLvglDisplay())
+		lv_indev_set_display(indev, display->getLvglDisplay());
 
 	ESP_LOGI(TAG, "virtual indev registered");
 	return true;
