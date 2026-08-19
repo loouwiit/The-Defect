@@ -329,6 +329,9 @@ esp_err_t OtaManager::finish(void* handle)
 	if (err != ESP_OK)
 	{
 		ESP_LOGE(TAG, "esp_ota_end 校验失败: %s", esp_err_to_name(err));
+		// ⚠ 校验失败必须清除 pending：否则重启后 checkRollback 会把"升级失败未切换"
+		//   误报为一次回滚事件（last_rollback）。abort() 路径同样清除。
+		otaNvsEraseKey(NvsKeyPendingSlot);
 		return err;
 	}
 

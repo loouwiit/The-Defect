@@ -129,9 +129,10 @@ private:
     QueueHandle_t m_otaIntQueue{};     // 请求队列（runInInternalStack → worker）
 
     const esp_partition_t* m_updatePartition{};
-    // ⚠ 并发标志：6 个 HTTP coWorker 线程并发读-判-写（httpOtaInternal 内
-    //   isUpdating → setUpdating(true) 非原子）。普通 bool 在 P4 双核下两个 worker
-    //   可同时读到 false 双双进入 → 同时 esp_ota_begin 写同一分区 → 镜像损坏。
-    //   必须用 std::atomic（test-and-set 语义由 load/store 保证）。
+    // ⚠ 并发标志：httpOtaInternal 整段经 runInInternalStack（队列深度 1）串行执行，
+    //   故 isUpdating → setUpdating 的"读-判-写"序列实际不会并发——**并发安全由队列
+    //   串行化保证，而非 std::atomic**。std::atomic 只保证单个 load/store 原子，
+    //   不构成 test-and-set（check-then-act 在两线程仍可双双通过）。切勿在队列外
+    //   用该标志做互斥判断。
     std::atomic<bool> m_otaUpdating{false};
 };
