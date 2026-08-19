@@ -63,6 +63,7 @@ private:
 	lv_obj_t* m_scanListContainer{};
 	std::vector<lv_obj_t*> m_scanRows;
 	std::vector<lv_obj_t*> m_connectBtns;
+	std::vector<uint8_t> m_scanListConnected;   // 上次构建时每行"已连接"状态（非扫描态 diff 用）
 
 	// ── 已连接区域 ──
 	lv_obj_t* m_connectedContainer{};

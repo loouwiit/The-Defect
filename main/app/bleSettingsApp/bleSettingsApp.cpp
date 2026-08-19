@@ -208,9 +208,22 @@ void BleSettingsApp::refreshUi()
 		}
 	}
 	else
-	{		// 冻结列表，只更新已连接状态
-		updateScanList();
-		applyFocus();
+	{		// 冻结列表：仅当"已连接"状态集合变化时才重建（原实现每秒整表删除重建 →
+			//   滚动位置回顶 + 焦点重置 + LVGL 对象抖动）
+		std::vector<uint8_t> curConnected;
+		curConnected.reserve(m_localScanResults.size());
+		for (const auto& dev : m_localScanResults) {
+			bool c = false;
+			for (uint8_t p = 0; p < MaxPlayers; p++) {
+				auto* ctx = BleGamepad::instance().getDevice(p);
+				if (ctx && ctx->connected && memcmp(ctx->bda, dev.bda, 6) == 0) { c = true; break; }
+			}
+			curConnected.push_back(c ? 1 : 0);
+		}
+		if (curConnected != m_scanListConnected) {
+			updateScanList();
+			applyFocus();
+		}
 	}
 
 	// ── 已连接区域 ──
@@ -463,6 +476,18 @@ void BleSettingsApp::updateScanList()
 	m_scanRows.clear();
 	m_connectBtns.clear();
 
+	// ⚠ 先计算每行连接状态（非扫描态 diff 复用，行内直接用查表替代逐行重复判断）
+	m_scanListConnected.clear();
+	m_scanListConnected.reserve(m_localScanResults.size());
+	for (const auto& dev : m_localScanResults) {
+		bool c = false;
+		for (uint8_t p = 0; p < MaxPlayers; p++) {
+			auto* ctx = BleGamepad::instance().getDevice(p);
+			if (ctx && ctx->connected && memcmp(ctx->bda, dev.bda, 6) == 0) { c = true; break; }
+		}
+		m_scanListConnected.push_back(c ? 1 : 0);
+	}
+
 	if (m_localScanResults.empty())
 	{
 		auto hint = GUI::createLabel(m_scanListContainer,
@@ -482,16 +507,7 @@ void BleSettingsApp::updateScanList()
 		const auto& dev = m_localScanResults[i];
 
 		// 检查是否已连接（在任一玩家槽位中）
-		bool isConnected = false;
-		for (uint8_t p = 0; p < MaxPlayers; p++)
-		{
-			auto* ctx = BleGamepad::instance().getDevice(p);
-			if (ctx && ctx->connected && memcmp(ctx->bda, dev.bda, 6) == 0)
-			{
-				isConnected = true;
-				break;
-			}
-		}
+		bool isConnected = m_scanListConnected[i] != 0;
 
 		auto row = lv_obj_create(m_scanListContainer);
 		lv_obj_set_width(row, lv_pct(100));
