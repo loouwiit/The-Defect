@@ -64,6 +64,9 @@ void SystemMonitor::start(Display* display)
 
 void SystemMonitor::stop()
 {
+	// ⚠ 与 pollTask 无同步：若 pollTask 正在采样/ensureCapacity（realloc 中），此处
+	//   free 会 UAF。当前系统运行期不调用 stop()（仅 start 一次），保留此约束：
+	//   stop 必须等 pollTask 退出（如先置 m_running=false 后 vTaskDelay 一拍）再调用。
 	m_running = false;
 	free(m_prevSnapshot);
 	free(m_currSnapshot);
