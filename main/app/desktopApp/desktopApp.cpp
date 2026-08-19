@@ -94,6 +94,9 @@ void DesktopApp::init()
 			char buf[8]{};
 			strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
 			lv_label_set_text(self->m_timeLabel, buf);
+			// ⚠ 必须记录已显示时间：原实现缺少赋值 → 每秒都重写标签（浪费），
+			//   且每天 00:00（hour==0 && min==0）整分钟被跳过不刷新
+			self->showedTime = timeinfo;
 		}, 1000, this);
 	lv_timer_ready(m_timeTimer); // 首帧立即触发
 
@@ -1079,6 +1082,9 @@ void DesktopApp::showBrightnessSlider()
 	lv_obj_move_to_index(m_brightnessSlider, lv_obj_get_index(m_brightnessLabel) + 1);  // 动态定位到亮度标签之后
 	lv_obj_add_event_cb(m_brightnessSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		// ⚠ 收起动画期间 m_brightnessSlider 已置空但对象仍存活可触摸（deleted_cb 才异步删除），
+		//   直接 lv_slider_get_value(NULL) 崩溃。
+		if (!self->m_brightnessSlider) return;
 		int val = lv_slider_get_value(self->m_brightnessSlider);
 		self->display->setBrightness(val);
 		self->m_brightnessSliderTimeout = xTaskGetTickCount() + 3000;
@@ -1158,6 +1164,7 @@ void DesktopApp::hideBrightnessSlider()
 void DesktopApp::onBrightnessSliderCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	if (!self->m_brightnessSlider) return;   // 收起动画期间成员已置空
 	int val = lv_slider_get_value(self->m_brightnessSlider);
 	self->display->setBrightness(val);
 }
@@ -1186,6 +1193,8 @@ void DesktopApp::showVolumeSlider()
 	lv_obj_move_to_index(m_volumeSlider, lv_obj_get_index(m_volumeLabel) + 1);  // 动态定位到音量标签之后
 	lv_obj_add_event_cb(m_volumeSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+		// ⚠ 收起动画期间 m_volumeSlider 已置空但对象仍存活可触摸（deleted_cb 才异步删除）
+		if (!self->m_volumeSlider) return;
 		int val = lv_slider_get_value(self->m_volumeSlider);
 		Audio::setMasterVolume(val);
 		self->m_volumeSliderTimeout = xTaskGetTickCount() + 3000;
@@ -1265,6 +1274,7 @@ void DesktopApp::hideVolumeSlider()
 void DesktopApp::onVolumeSliderCb(lv_event_t* e)
 {
 	auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
+	if (!self->m_volumeSlider) return;   // 收起动画期间成员已置空
 	int val = lv_slider_get_value(self->m_volumeSlider);
 	Audio::setMasterVolume(val);
 }
