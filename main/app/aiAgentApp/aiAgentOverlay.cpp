@@ -677,15 +677,14 @@ void AiAgentOverlay::addChatEntry(const std::string& role, const std::string& te
 	std::string entry = "[" + role + "] " + text + "\n";
 	m_chatHistory.push_back(entry);
 
-	// ⚠ 展示历史同样设上限（原无界增长：长时间对话持续占用 PSRAM，且每次
-	//   从历史重建全文 O(n²) 累积）。保留最近 MAX_HISTORY_TURNS 轮 + 余量。
+	// 展示历史设上限（原无界增长：长时间对话持续占用 PSRAM，且每次从历史重建全文
+	//   O(n²) 累积）。保留最近 MAX_HISTORY_TURNS 轮 + 余量。
 	constexpr size_t kMaxChatLines = MAX_HISTORY_TURNS * 2 + 4;
 	if (m_chatHistory.size() > kMaxChatLines)
 		m_chatHistory.erase(m_chatHistory.begin(),
 			m_chatHistory.begin() + (m_chatHistory.size() - kMaxChatLines));
 
-	// 只追加新条目，不重建全文（lv_label_set_text 每次会更新整个文本）
-	// 但为了保持 m_chatHistory 的完整性，仍从 history 重建
+	// 从 m_chatHistory 重建全文（lv_label_set_text 整体替换；条目上限已设，重建开销可控）
 	std::string full;
 	for (const auto& line : m_chatHistory) {
 		full += line;
@@ -818,10 +817,12 @@ void AiAgentOverlay::sendFollowUpRound(const std::string& followUpMsg)
 	HttpClient::sendWithHistory(m_config, m_lastSystemPrompt,
 		followUpMsg, m_history,
 		[this](bool ok, const std::string& resp, const std::string& err) {
-			auto* ctx = new AiSendCtx{ this, resp, err, ok };
+			// 捕获当前请求序号：若 hide 后又有新请求，旧响应到达时按序号丢弃
+			uint32_t mySeq = ++m_requestSeq;
+			auto* ctx = new AiSendCtx{ this, resp, err, ok, mySeq };
 			Task::addTask([](void* p) -> TickType_t {
 				auto* c = static_cast<AiSendCtx*>(p);
-				c->self->onAiResponse(c->ok, c->text, c->err);
+				c->self->onAiResponse(c->seq, c->ok, c->text, c->err);
 				delete c;
 				return Task::infinityTime;
 				}, "aiFup", ctx, 0, Task::Affinity::None);
@@ -921,10 +922,12 @@ void AiAgentOverlay::onSend()
 	HttpClient::sendWithHistory(m_config, systemPrompt, input, history,
 		[this](bool success, const std::string& responseText, const std::string& errorMsg)
 		{
-			auto* ctx = new AiSendCtx{ this, responseText, errorMsg, success };
+			// 捕获当前请求序号：若 hide 后又有新请求，旧响应到达时按序号丢弃
+			uint32_t mySeq = ++m_requestSeq;
+			auto* ctx = new AiSendCtx{ this, responseText, errorMsg, success, mySeq };
 			Task::addTask([](void* param) -> TickType_t {
 				auto* c = static_cast<AiSendCtx*>(param);
-				c->self->onAiResponse(c->ok, c->text, c->err);
+				c->self->onAiResponse(c->seq, c->ok, c->text, c->err);
 				delete c;
 				return Task::infinityTime;
 				}, "aiRsp", ctx, 0, Task::Affinity::None);
@@ -935,10 +938,17 @@ void AiAgentOverlay::onSend()
 //  发送逻辑 — onAiResponse
 // ============================================================
 
-void AiAgentOverlay::onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg)
+void AiAgentOverlay::onAiResponse(uint32_t seq, bool success, const std::string& responseText, const std::string& errorMsg)
 {
 	ESP_LOGI(TAG, "onAiResponse: success=%d, textLen=%zu, err=%s",
 		success, responseText.size(), errorMsg.c_str());
+
+	// ⚠ 过期响应丢弃：hide() 已清 m_isWaiting，用户可能已发起新请求——旧请求（未取消）
+	//   的响应若继续处理，会与新请求的 onAiResponse 并发交错写共享状态（历史错乱）。
+	if (seq != m_requestSeq) {
+		ESP_LOGW(TAG, "丢弃过期响应 (seq=%u, cur=%u)", seq, m_requestSeq);
+		return;
+	}
 
 	// 注意：不在函数开头清 loading —— 链式 follow-up 期间保持等待态，
 	// 防止轮次间隙用户插入新消息导致上下文错乱；仅在本轮链结束时清 loading。

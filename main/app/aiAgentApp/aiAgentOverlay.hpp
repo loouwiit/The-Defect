@@ -148,7 +148,7 @@ private:
 
     // ── 发送逻辑 ──
     void onSend();
-    void onAiResponse(bool success, const std::string& responseText, const std::string& errorMsg);
+    void onAiResponse(uint32_t seq, bool success, const std::string& responseText, const std::string& errorMsg);
 
     // ── prompt 构建 ──
     std::string loadPromptTemplate();   // 加载 system prompt 模板（缓存，避免每次重读）
@@ -175,7 +175,12 @@ private:
         std::string text;
         std::string err;
         bool ok;
+        uint32_t seq{};   // 请求序号（丢弃过期响应用）
     };
+
+    // ⚠ 请求序号：hide() 清 m_isWaiting 允许新请求，但旧 HTTP 请求未取消——
+    //   无序号隔离时新旧响应并发回调会交错写 m_history / m_followUpCount / m_lastUserInput。
+    uint32_t m_requestSeq{};
 };
 
 /** @brief 默认 System Prompt（/root/system/ai_prompt.txt 不存在时的 fallback） */

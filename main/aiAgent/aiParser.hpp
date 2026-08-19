@@ -195,7 +195,10 @@ private:
             result.nextRound = cJSON_IsTrue(nextRoundObj);
         }
 
-        result.success = !result.actions.empty();
+        // ⚠ success 与 actions 是否为空解耦：AI 合法返回 {"actions":[]}（决定不做任何事）
+        //   时应视为成功而非解析失败——原 `!result.actions.empty()` 会误触发自愈轮
+        //   （且错误消息为空串）。解析失败路径均已显式 push makeError + 提前 return。
+        result.success = true;
         cJSON_Delete(root);
         return result;
     }
@@ -272,18 +275,20 @@ private:
     static std::string stripMarkdown(const std::string& text) {
         std::string result = text;
 
-        // 去除 ```json ... ```
-        auto replace = [&](const std::string& prefix, const std::string& suffix) {
-            size_t start = result.find(prefix);
-            if (start != std::string::npos) {
-                size_t end = result.find(suffix, start + prefix.size());
-                if (end != std::string::npos) {
-                    result = result.substr(start + prefix.size(), end - start - prefix.size());
-                }
-            }
-        };
-        replace("```json", "```");
-        replace("```", "```");
+        // 去除 ```json ... ```（带语言标签）
+        // ⚠ 原实现第二句 `replace("```", "```")` 是自我替换空操作：AI 返回普通
+        //   "```"（无语言标签）包裹时不会剥离 → 解析失败走自愈轮。以下改为通用剥离：
+        //   找第一个 "```" 与后续最近的 "```" 闭合，取两者之间的内容。
+        size_t start = result.find("```");
+        if (start != std::string::npos) {
+            size_t contentStart = start + 3;
+            // 跳过语言标签（```json 等，到行尾）
+            size_t nl = result.find('\n', contentStart);
+            size_t end = result.find("```", contentStart);
+            if (end == std::string::npos) end = result.size();
+            if (nl != std::string::npos && nl < end) contentStart = nl + 1;
+            result = result.substr(contentStart, end - contentStart);
+        }
 
         // 去除首尾空白
         auto trim = [](std::string& s) {
