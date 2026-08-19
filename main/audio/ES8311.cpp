@@ -60,6 +60,18 @@ bool ES8311::init(IIC& iic, Config config)
 	// ── 2. 创建 Codec 接口 ────────────────────────────────
 	ESP_LOGI(TAG, "创建 Codec 接口");
 
+	// ⚠ 后续任一创建失败必须清理已创建的 I2S 通道：原实现直接 return false，
+	//   txHandle 泄漏（失败重试每次泄漏一个 I2S 通道）。
+	auto failCleanup = [&](const char* what) -> bool {
+		ESP_LOGE(TAG, "%s", what);
+		if (txHandle) {
+			i2s_channel_disable((i2s_chan_handle_t)txHandle);
+			i2s_del_channel((i2s_chan_handle_t)txHandle);
+			txHandle = nullptr;
+		}
+		return false;
+	};
+
 	// I2C 控制接口：复用已有的 I2C 总线
 	audio_codec_i2c_cfg_t i2cCfg = {
 		.port      = 0,
@@ -68,15 +80,13 @@ bool ES8311::init(IIC& iic, Config config)
 	};
 	const audio_codec_ctrl_if_t* ctrlIf = audio_codec_new_i2c_ctrl(&i2cCfg);
 	if (ctrlIf == nullptr) {
-		ESP_LOGE(TAG, "创建 I2C 控制接口失败");
-		return false;
+		return failCleanup("创建 I2C 控制接口失败");
 	}
 
 	// GPIO 接口
 	const audio_codec_gpio_if_t* gpioIf = audio_codec_new_gpio();
 	if (gpioIf == nullptr) {
-		ESP_LOGE(TAG, "创建 GPIO 接口失败");
-		return false;
+		return failCleanup("创建 GPIO 接口失败");
 	}
 
 	// ES8311 编解码器
@@ -92,8 +102,7 @@ bool ES8311::init(IIC& iic, Config config)
 	};
 	const audio_codec_if_t* codecIf = es8311_codec_new(&es8311Cfg);
 	if (codecIf == nullptr) {
-		ESP_LOGE(TAG, "创建 ES8311 Codec 接口失败");
-		return false;
+		return failCleanup("创建 ES8311 Codec 接口失败");
 	}
 
 	// I2S 数据接口
@@ -104,8 +113,7 @@ bool ES8311::init(IIC& iic, Config config)
 	};
 	const audio_codec_data_if_t* dataIf = audio_codec_new_i2s_data(&i2sDataCfg);
 	if (dataIf == nullptr) {
-		ESP_LOGE(TAG, "创建 I2S 数据接口失败");
-		return false;
+		return failCleanup("创建 I2S 数据接口失败");
 	}
 
 	// ── 3. 创建 Codec 设备句柄 ────────────────────────────
@@ -116,8 +124,7 @@ bool ES8311::init(IIC& iic, Config config)
 	};
 	codecDev = esp_codec_dev_new(&devCfg);
 	if (codecDev == nullptr) {
-		ESP_LOGE(TAG, "创建 Codec 设备句柄失败");
-		return false;
+		return failCleanup("创建 Codec 设备句柄失败");
 	}
 
 	initialized = true;

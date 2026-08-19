@@ -376,6 +376,11 @@ void AudioHandle::play()
 		&impl->stream);
 	if (!impl->stream) {
 		ESP_LOGE(TAG, "无法获取 render stream %u", impl->streamId);
+		// ⚠ 流获取失败必须立即释放 stream ID：~Impl 中 `if (stream)` 为假会跳过
+		//   freeStreamId → 流号永久占用（usedStreamCount 虚高，MaxStreamNum=14 逐渐耗尽）。
+		if (impl->manager)
+			impl->manager->freeStreamId(impl->streamId);
+		impl->streamId = 0xFF;
 		return;
 	}
 
@@ -600,7 +605,11 @@ bool AudioSample::load(const char* path)
 		if (esp_ae_rate_cvt_open(&rsCfg, &rsHd) == ESP_AE_ERR_OK) {
 			uint32_t maxOut = 0;
 			esp_ae_rate_cvt_get_max_out_sample_num(rsHd, 2048, &maxOut);
-			size_t maxDstFrames = m_frames * 48000 / m_sampleRate + 1024;
+			// ⚠ 64 位计算：m_frames(uint32) × 48000 在 32 位算术中溢出回绕
+			//   （>2.03s @44.1kHz 即溢出）→ 目标缓冲远小于实际输出 → 越界写堆。
+			//   例：10s/44.1kHz → 441000×48000 溢出为 3,988,130,816 → 缓冲仅 ~9 万帧，
+			//   实际写入 ~48 万帧 → 堆损坏。
+			size_t maxDstFrames = (size_t)m_frames * 48000 / m_sampleRate + 1024;
 			auto* dst = new int16_t[maxDstFrames * m_channels];
 			size_t dstPos = 0;
 			constexpr uint32_t Chunk = 2048;
