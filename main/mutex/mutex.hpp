@@ -19,9 +19,11 @@ public:
 
 	~Mutex()
 	{
-		// 确保没有线程持有互斥量
-		while (xSemaphoreTake(rtosMutex, portMAX_DELAY) != pdTRUE)
-			vTaskDelay(1);
+		// ⚠ 析构前确保无并发持有者：非递归锁阻塞 take 直到独占（当前调用方须未持有
+		//   该锁，否则同任务重复 take 永久阻塞——本仓库 Mutex 均为常驻单例，不会触发）。
+		//   原实现 `while (take != pdTRUE) vTaskDelay(1)` 中 take 用 portMAX_DELAY 永不返回
+		//   非 pdTRUE → 循环体为死代码，已简化。
+		xSemaphoreTake(rtosMutex, portMAX_DELAY);
 		vSemaphoreDelete(rtosMutex);
 	}
 
@@ -62,9 +64,9 @@ public:
 
 	~RecursiveMutex()
 	{
-		// 确保没有线程持有互斥量
-		while (xSemaphoreTakeRecursive(rtosMutex, portMAX_DELAY) != pdTRUE)
-			vTaskDelay(1);
+		// ⚠ 阻塞 take 直到独占（析构前提：当前调用方未持有；递归锁可安全重复 take
+		//   计数归零后删除）。原实现 while 循环体为死代码，已简化。
+		xSemaphoreTakeRecursive(rtosMutex, portMAX_DELAY);
 		vSemaphoreDelete(rtosMutex);
 	}
 
