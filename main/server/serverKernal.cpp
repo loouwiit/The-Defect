@@ -851,6 +851,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		{
 			// 发送错误
 			HttpRespond respond;
+			// ⚠ Content-Type 缺失 → Firefox 报 "XML 解析错误"（规范按 text/xml 默认解析）
+			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 			respond.setBody((void*)"ERROR:wifi not started");
 			respond.setBodyLenght(22);
 			respond.send(socketStream);
@@ -1606,6 +1608,8 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 			ESP_LOGW(TAG, "put file is too large");
 
 			HttpRespond respond;
+			// ⚠ Content-Type 缺失 → Firefox 报 "XML 解析错误"
+			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 			respond.setBody((void*)"file too large");
 			respond.setBodyLenght(14);
 			respond.setStatus(HttpStatus::BadRequest);
