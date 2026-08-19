@@ -146,14 +146,26 @@ extern "C" void app_main(void)
 	// 加载字体并设为默认
 	if (testFile("/root/system/NotoSC.ttf"))
 	{
-		FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small), FontLoader::FontSize::Small);
-		FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Medium), FontLoader::FontSize::Medium);
-		FontLoader::setDefault(FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large), FontLoader::FontSize::Large);
+		// ⚠ 逐个判空：esp_lv_adapter_ft_font_init 失败返回 nullptr 时不能直接塞进
+		//   setDefault（失败字体不得占槽），且回退链赋值前必须兜底——全部失败时
+		//   getDefault(Small) 可能返回 nullptr，->fallback 解引用即崩。
+		const lv_font_t* smallFont = FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Small);
+		const lv_font_t* mediumFont = FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Medium);
+		const lv_font_t* largeFont = FontLoader::load("F:system/NotoSC.ttf", (int)FontLoader::FontSize::Large);
+		if (!smallFont) { ESP_LOGW(TAG, "Small 字体加载失败，回退默认"); smallFont = lv_font_get_default(); }
+		if (!mediumFont) { ESP_LOGW(TAG, "Medium 字体加载失败，回退默认"); mediumFont = lv_font_get_default(); }
+		if (!largeFont) { ESP_LOGW(TAG, "Large 字体加载失败，回退默认"); largeFont = lv_font_get_default(); }
+		FontLoader::setDefault(smallFont, FontLoader::FontSize::Small);
+		FontLoader::setDefault(mediumFont, FontLoader::FontSize::Medium);
+		FontLoader::setDefault(largeFont, FontLoader::FontSize::Large);
 
 		// 字体回退链：NotoSC 缺少的符号（电池图标等）由 LVGL 内置 symbol 字体提供
-		const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Small))->fallback = lv_font_get_default();
-		const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Medium))->fallback = lv_font_get_default();
-		const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Large))->fallback = lv_font_get_default();
+		if (auto* f = const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Small)))
+			f->fallback = lv_font_get_default();
+		if (auto* f = const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Medium)))
+			f->fallback = lv_font_get_default();
+		if (auto* f = const_cast<lv_font_t*>(FontLoader::getDefault(FontLoader::FontSize::Large)))
+			f->fallback = lv_font_get_default();
 	}
 	else
 	{
