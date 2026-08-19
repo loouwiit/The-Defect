@@ -706,7 +706,12 @@ void LogService::setTagLevel(const char* tag, int level)
 void LogService::clearTagLevel(const char* tag)
 {
     if (!tag || !tag[0]) return;
-    esp_log_level_set(tag, ESP_LOG_NONE);   // 先关（不会产生日志）
+    // ⚠ 恢复为当前全局级别而非 ESP_LOG_NONE：esp_log 中 tag 级别优先于 "*" 级别，
+    //   置 NONE 会让该 tag 日志彻底静默（即使全局级别允许也不产生），
+    //   与"清除 tag 过滤"语义不符。注意：清除后再改全局级别不会联动本 tag
+    //   （esp_log 固有覆盖语义，可接受）。
+    int global = getGlobalLevel();
+    esp_log_level_set(tag, (global >= 0 && global <= 5) ? (esp_log_level_t)global : ESP_LOG_INFO);
 
     nvs_handle_t h;
     if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return;
