@@ -103,7 +103,6 @@ static struct {
 	int fd;
 	int hostId;  // 该客户端分配的 hostId (1-3)
 } s_clients[MAX_CONSOLE_CLIENTS] = {};
-static int s_clientCount = 0;
 static portMUX_TYPE s_clientsMux = portMUX_INITIALIZER_UNLOCKED;
 
 static void addClient(int fd, int hostId)
@@ -112,7 +111,6 @@ static void addClient(int fd, int hostId)
 	for (int i = 0; i < MAX_CONSOLE_CLIENTS; i++) {
 		if (s_clients[i].fd <= 0) {
 			s_clients[i] = { fd, hostId };
-			if (i >= s_clientCount) s_clientCount = i + 1;
 			portEXIT_CRITICAL(&s_clientsMux);
 			return;
 		}
