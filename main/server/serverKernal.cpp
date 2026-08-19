@@ -221,8 +221,19 @@ void server(void*)
 			{
 				index = 0;
 				ESP_LOGW(TAG, "all window was occupied");
-				vTaskDelay(100 / portTICK_PERIOD_MS);
+				// ⚠ 不能无限自旋持有已 accept 的 fd：16 个 keep-alive 空闲连接即可占满
+				//   窗口池，每个新连接泄漏一个 fd，且 accept 循环被占死（listen 队列积压）。
+				//   直接关闭本连接拒绝服务（客户端稍后重试即可）。
+				close(sock);
+				ESP_LOGW(TAG, "no free window, connection rejected");
+				sock = -1;
+				break;
 			}
+		}
+		if (sock < 0)
+		{
+			vTaskDelay(100 / portTICK_PERIOD_MS);
+			continue;
 		}
 		ESP_LOGD(TAG, "SocketStreamWindow state: %d / %d", SocketStreamWindow::getEnabledCount(), SocketStreamWindowNumber);
 		vTaskDelay(1);
