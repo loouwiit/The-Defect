@@ -180,23 +180,31 @@ private:
 
         size_t offset = 0;
         int readLen = 0;
+        bool truncated = false;
         while ((readLen = esp_http_client_read(client, buf + offset, bufSize - offset - 1)) > 0) {
             offset += readLen;
             buf[offset] = '\0';
             if (bufSize - offset < 4096) {
-                if (bufSize >= maxBytes) break;   // 已达上限
+                if (bufSize >= maxBytes) { truncated = true; break; }   // 已达上限（截断）
                 size_t newSize = bufSize * 2;
                 if (newSize > maxBytes) newSize = maxBytes;
                 char* nb = static_cast<char*>(heap_caps_realloc(buf, newSize, MALLOC_CAP_SPIRAM));
-                if (!nb) break;
+                if (!nb) { truncated = true; break; }
                 buf = nb;
                 bufSize = newSize;
             }
         }
+        // 若已知 Content-Length 且未读满 → 也是截断（HTTP 传输中断）
+        if (contentLen > 0 && offset < (size_t)contentLen)
+            truncated = true;
 
-        bool ok = (offset > 0);
+        // ⚠ 截断必须判失败：原实现 (offset > 0) 把截断数据报成功 → >2MB 的 ELF 插件
+        //   会被静默装成损坏文件（桌面 dlopen 才暴露）。
+        bool ok = (offset > 0) && !truncated;
         if (ok) {
             outBody.assign(buf, offset);
+        } else if (truncated) {
+            errorMsg = "响应超出上限 (" + std::to_string(maxBytes) + " B) 或传输中断，已截断";
         } else if (readLen < 0) {
             errorMsg = "响应读取超时或中断";
         } else {
