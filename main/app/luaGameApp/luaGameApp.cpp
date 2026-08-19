@@ -183,6 +183,8 @@ void LuaGameApp::init()
     m_luaReady = true;
 
     // 6. 调用 setup()（可选）——同样装看门狗
+    // ⚠ 返回值必须检查：setup 内运行时错误（nil 访问 / 看门狗中断）若被吞掉，
+    //    游戏会在未初始化状态下进入循环，产生难排查的后续行为异常。
     if (m_lua.hasFunction("setup")) {
 		if (L) {
 			// 清零 sleep 预算（setup 内 sleep 独立于每帧预算）
@@ -190,8 +192,17 @@ void LuaGameApp::init()
 			lua_setfield(L, LUA_REGISTRYINDEX, "LUA_THREAD_SLEEP_BUDGET");
 			lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame);
 		}
-		m_lua.callFunction("setup", 0, 0);
+		bool setupOk = m_lua.callFunction("setup", 0, 0);
 		if (L) lua_sethook(L, nullptr, 0, 0);
+		if (!setupOk) {
+			std::string err = m_lua.getLastError();
+			if (err.empty()) err = "Lua setup error";
+			ESP_LOGE(TAG, "setup() 调用失败: %s", err.c_str());
+			// 与 loop 错误同款处理：上报 AI（下次对话注入 system prompt 可修复）
+			AiAgentOverlay::reportLuaError(err);
+			updateStatus();
+			return;
+		}
     }
 
     // 7. 更新状态显示
@@ -263,6 +274,8 @@ void LuaGameApp::onBackground()
 
 // ============================================================
 //  onGamepadInput — 缓存输入快照
+//  ⚠ 仅接收本机（hostId=0）输入：远程联机（hostId 1-3）的手柄输入不进入 Lua 游戏
+//    （设计取舍：Lua 游戏为单人本地体验；ConsoleManager 联机面向 ELF 多人游戏）。
 // ============================================================
 
 void LuaGameApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
@@ -386,6 +399,11 @@ void LuaGameApp::gameLoop()
         lua_State* L = m_lua.state();
         if (L) {
             lua_pushnumber(L, dt);
+            // ⚠ 每帧清零 sleep 预算（l_thread_sleep 按帧累计，注释契约由本帧负责重置）。
+            //   若不重置：预算跨帧无限累计，任何在 loop(dt) 内调用 thread.sleep() 的
+            //   合法游戏累计 500ms 后被误杀（sleep budget exceeded）退出。
+            lua_pushinteger(L, 0);
+            lua_setfield(L, LUA_REGISTRYINDEX, "LUA_THREAD_SLEEP_BUDGET");
             // 安装防死循环看门狗（指令计数 hook），调用返回后移除
             lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame);
         }
@@ -472,23 +490,11 @@ void LuaGameApp::requestExit()
 }
 
 // ============================================================
-//  restart
+//  restart — 已删除（死代码）
+//  ⚠ 原实现有竞态：requestExit() 以 0 延迟调度 popApp（daemon 线程），而 restart 只等
+//    游戏线程退出就 replaceWith 新实例——popApp 可能在新实例入栈后才执行，把刚启动的
+//    新游戏弹掉。全仓无调用方，删除以避免误导。
 // ============================================================
-
-void LuaGameApp::restart()
-{
-    // 通过 requestExit 统一退出（设标志 + 调度 popApp）
-    requestExit();
-    // 等待线程退出
-    while (m_thread.isRunning())
-        vTaskDelay(pdMS_TO_TICKS(20));
-
-    // replaceWith 创建新实例替换当前栈顶
-    replaceWith(new LuaGameApp(display,
-        m_useCode ? m_scriptCode.c_str() : m_scriptPath.c_str(),
-        m_useCode ? m_scriptCode.size() : 0));
-}
-
 // ============================================================
 //  更新状态显示
 // ============================================================

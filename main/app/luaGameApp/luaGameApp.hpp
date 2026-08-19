@@ -45,9 +45,6 @@ public:
     /// 请求退出游戏（设标志 + 调度 popApp，线程安全）
     void requestExit();
 
-    /// 重启当前脚本
-    void restart();
-
     /// 从 AI 生成的代码创建并启动游戏（保存到 /root/lua/game/test.lua）
     /// @param display 显示驱动
     /// @param name    游戏名称（来自 action.text，仅用于日志）
@@ -77,7 +74,7 @@ private:
     TickType_t m_lastWakeTime{};
     int m_frameCount{};
     uint32_t m_fpsTick{};
-    uint32_t m_lastFrameTime{0};   // 上帧时间戳（成员而非 static：static 跨实例共享，restart 后 dt 污染）
+    uint32_t m_lastFrameTime{0};   // 上帧时间戳（成员而非 static：static 跨实例共享会污染新实例 dt）
 
     // ── 输入快照（hostId=0 本地玩家） ──
     GamepadState m_inputs[MaxPlayers]{};        // dispatch Task 实时写入的缓冲（onGamepadInput）
