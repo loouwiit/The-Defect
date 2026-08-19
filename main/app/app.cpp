@@ -4,12 +4,19 @@
 
 App::App(Display* display) :
 	display{ display },
-	screen{ lv_obj_create(nullptr) }
+	screen{ nullptr }
 {
-	lv_obj_set_size(screen, lv_display_get_vertical_resolution(display->getLvglDisplay()), lv_display_get_horizontal_resolution(display->getLvglDisplay()));
-	lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
-	lv_obj_set_scroll_dir(screen, LV_DIR_NONE);
-	lv_obj_set_style_text_font(screen, FontLoader::getDefault(), 0);
+	// ⚠ 构造可能发生在任意线程（app_main / BLE task / Task daemon / deleteApp task），
+	//   而 LVGL worker 此时并发渲染 → 创建/修改对象树必须持 LVGL 锁（本仓库锁纪律）。
+	//   原实现直接在初始化列表 lv_obj_create 裸操作，是随机 UI 崩溃的潜在来源。
+	if (auto guard = display->lockGuard())
+	{
+		screen = lv_obj_create(nullptr);
+		lv_obj_set_size(screen, lv_display_get_vertical_resolution(display->getLvglDisplay()), lv_display_get_horizontal_resolution(display->getLvglDisplay()));
+		lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
+		lv_obj_set_scroll_dir(screen, LV_DIR_NONE);
+		lv_obj_set_style_text_font(screen, FontLoader::getDefault(), 0);
+	}
 }
 
 App::~App()

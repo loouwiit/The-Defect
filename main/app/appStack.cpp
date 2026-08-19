@@ -108,6 +108,15 @@ void AppStack::replace(App* app)
 	}
 
 	auto* oldTop = top();
+
+	// ⚠ 防自替换：replaceWith(同一 App 指针) 会让 scheduleDeletion 删除仍位于栈顶
+	//   且正在显示的 App → dispatchTask 仍可能向其分发输入 → UAF（崩溃根因）。
+	if (app == oldTop)
+	{
+		ESP_LOGW(TAG, "replace: same app %p, ignore", (void*)app);
+		return;
+	}
+
 	m_stack.back() = app;
 
 	// ⚠ push/pop 均调用 oldTop->onBackground()，replace 此前遗漏：
