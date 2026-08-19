@@ -114,9 +114,9 @@ void serverStart(unsigned char maxAutoRestartTimes)
 	for (size_t i = 0; i < CoworkerNumber; i++)
 	{
 		if (coWorkerStack[i] != nullptr) continue;
-		coWorkerStack[i] = new StackType_t[4096];
+		coWorkerStack[i] = new StackType_t[8192];
 		sprintf(serverCoTaskName, "coServer%02d", i);
-		coWorkerHandle[i] = xTaskCreateStatic(serverCoworker, serverCoTaskName, 4096, (void*)i, Task::Priority::Deamon, coWorkerStack[i], &coWorkerTasks[i]);
+		coWorkerHandle[i] = xTaskCreateStatic(serverCoworker, serverCoTaskName, 8192, (void*)i, Task::Priority::Deamon, coWorkerStack[i], &coWorkerTasks[i]);
 		if (coWorkerHandle[i] != nullptr)
 			startedCoTask++;
 		else
