@@ -530,8 +530,9 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 			});
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
+		// ⚠ 长度用 strlen：原硬编码 49 比实际 UTF-8 字节数（52）短，响应被截断（缺"志"）
 		respond.setBody((void*)"⏳ 测试请求已发送，请检查设备日志");
-		respond.setBodyLenght(49);
+		respond.setBodyLenght(strlen("⏳ 测试请求已发送，请检查设备日志"));
 		respond.send(socketStream);
 		return;
 	}
