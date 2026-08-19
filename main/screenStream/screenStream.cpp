@@ -99,7 +99,11 @@ size_t ScreenStream::captureJpeg(uint8_t* jpegBuffer, size_t jpegBufSize)
 	if (!m_started || jpegBuffer == nullptr || jpegBufSize == 0)
 		return 0;
 
-	if (m_cachedFrame == nullptr || m_cachedFrameSize == 0)
+	// ⚠ 一次性快照指针：m_cachedFrame 由帧回调（LVGL 任务）写入、stop()（任意任务）置空——
+	//   判空与使用若分两次读，其间可能被置空 → jpeg_encoder_process 收到 null 源指针。
+	const uint8_t* frame = static_cast<const uint8_t*>(m_cachedFrame);
+	const size_t frameSize = m_cachedFrameSize;
+	if (frame == nullptr || frameSize == 0)
 	{
 		return 0;
 	}
@@ -116,8 +120,8 @@ size_t ScreenStream::captureJpeg(uint8_t* jpegBuffer, size_t jpegBufSize)
 	uint32_t out_size = 0;
 	auto handle = reinterpret_cast<jpeg_encoder_handle_t>(m_jpegHandle);
 	auto err = jpeg_encoder_process(handle, &enc_cfg,
-		static_cast<const uint8_t*>(m_cachedFrame),
-		m_cachedFrameSize,
+		frame,
+		frameSize,
 		jpegBuffer,
 		jpegBufSize,
 		&out_size);

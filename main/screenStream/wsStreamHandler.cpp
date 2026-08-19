@@ -275,6 +275,17 @@ esp_err_t wsStreamHandler(httpd_req_t* req)
 {
     if (req->method == HTTP_GET)
     {
+        /* ⚠ 校验 WebSocket 握手头：普通浏览器直接 GET /ws/stream（非 WS 握手）若挂
+         *  pending，send task 采纳后因 fd 非 WEBSOCKET 会停掉正在进行的活跃串流。 */
+        char upgrade[16] = "";
+        if (httpd_req_get_hdr_value_str(req, "Upgrade", upgrade, sizeof(upgrade)) != ESP_OK ||
+            strncasecmp(upgrade, "websocket", 9) != 0)
+        {
+            ESP_LOGW(TAG, "reject non-WS GET /ws/stream");
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "WebSocket only");
+            return ESP_OK;
+        }
+
         /* 新客户端一律挂 pending，由 send task 在帧边界原子切换，
          * 不再粗暴杀旧管线（旧逻辑让活跃流直接停摆） */
         taskENTER_CRITICAL(&s_pendingMux);
