@@ -43,6 +43,7 @@
 #include "monitor/systemMonitor.hpp"
 #include "battery/batteryManager.hpp"
 #include "battery/batteryMonitor.hpp"
+#include "gui/systemPopup.hpp"
 #include "time/timeService.hpp"
 #include "elfSdk/elf_sdk.h"
 #include "ota/otaManager.hpp"
@@ -220,9 +221,10 @@ extern "C" void app_main(void)
 	// 启动 AI 助手浮动 Overlay（驻留在 lv_layer_sys 上，不影响 AppStack）
 	AiAgentOverlay::instance().start(&display);
 
-	// 手势检测由 AiAgentOverlay 内部通过 LVGL 事件完成（无需后台 Task）
+	// 系统弹窗服务（lv_layer_sys，队列管理，BatteryMonitor / OTA 弹窗共用）
+	SystemPopup::instance().start(&display);
 
-	// 低电量检测提醒（主机 + 蓝牙手柄，lv_layer_sys 弹窗 + 提示音）
+	// 低电量检测提醒（主机 + 蓝牙手柄，通过 SystemPopup 弹窗）
 	BatteryMonitor::instance().start(&display);
 
 	// wifi
@@ -293,8 +295,58 @@ extern "C" void app_main(void)
 	Task::addTask([](void*) -> TickType_t {
 		OtaManager::instance().runInInternalStack(
 			[](void*) { OtaManager::instance().checkRollback(); }, nullptr);
+
+		// checkRollback 完成后弹窗提示 OTA 结果
+		auto& result = OtaManager::instance().getOtaResult();
+		if (result.hasEvent)
+		{
+			// 有 OTA 事件：升级成功或回滚
+			if (result.rolledBack)
+			{
+				char body[256];
+				snprintf(body, sizeof(body),
+					"上次升级（%s）未通过验证，已自动回滚。\n当前运行 %s 版本 %s",
+					result.pendingSlot, result.slot, result.version);
+				SystemPopup::Options opts;
+				opts.accent = GUI::Color::DANGER;
+				opts.footerText = "请到 web 页面（server/ota）检查固件兼容性";
+				SystemPopup::instance().show(SystemPopup::kOta,
+					LV_SYMBOL_WARNING " OTA 升级失败", body, opts);
+			}
+			else
+			{
+				char body[256];
+				if (result.pendingVerify)
+					snprintf(body, sizeof(body),
+						"已升级到 %s 版本 %s\n固件回滚窗口开启中，请到 web 页面（server/ota）确认此固件，否则重启将自动回退",
+						result.slot, result.version);
+				else
+					snprintf(body, sizeof(body),
+						"已升级到 %s 版本 %s",
+						result.slot, result.version);
+				SystemPopup::Options opts;
+				opts.accent = GUI::Color::SUCCESS;
+				opts.footerText = result.pendingVerify ? "请到 web 页面确认此固件" : "";
+				SystemPopup::instance().show(SystemPopup::kOta,
+					LV_SYMBOL_OK " OTA 升级成功", body, opts);
+			}
+		}
+		else if (result.pendingVerify)
+		{
+			// 无新 OTA 事件，但当前固件仍待确认
+			char body[256];
+			snprintf(body, sizeof(body),
+				"当前固件 %s 版本 %s 未确认。\n请到 web 页面（server/ota）确认此固件，否则重启将自动回退",
+				result.slot, result.version);
+			SystemPopup::Options opts;
+			opts.accent = GUI::Color::WARNING;
+			opts.footerText = "请到 web 页面确认此固件";
+			SystemPopup::instance().show(SystemPopup::kOta,
+				LV_SYMBOL_WARNING " 固件待确认", body, opts);
+		}
+
 		return Task::infinityTime;
-	}, "ota init", nullptr, 10000, Task::Affinity::None);
+		}, "ota init", nullptr, 10000, Task::Affinity::None);
 	ESP_LOGI(TAG, "serverStart");
 	serverStart();
 	ESP_LOGI(TAG, "serverStart done");

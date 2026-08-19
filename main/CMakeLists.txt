@@ -7,7 +7,7 @@ idf_component_register(SRCS "main.cpp"
                             "storage/fat.cpp" "storage/mem.cpp" "storage/sd.cpp"
 
                             "task/task.cpp"
-                            "gui/gui.cpp"
+                            "gui/gui.cpp" "gui/systemPopup.cpp"
                             "utility/stringCompare.cpp"
                             "monitor/systemMonitor.cpp"
                             "battery/batteryManager.cpp" "battery/batteryMonitor.cpp"

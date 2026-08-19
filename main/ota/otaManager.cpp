@@ -171,17 +171,43 @@ static void otaSlotVersion(const esp_partition_t* part, char* out, size_t size)
 void OtaManager::checkRollback()
 {
 	const esp_partition_t* running = esp_ota_get_running_partition();
+	m_otaResult = {};   // 每次启动重置
+
+	// 填充运行中槽位信息
+	if (running != nullptr)
+	{
+		snprintf(m_otaResult.slot, sizeof(m_otaResult.slot), "%s", running->label);
+		esp_app_desc_t desc;
+		if (esp_ota_get_partition_description(running, &desc) == ESP_OK)
+			snprintf(m_otaResult.version, sizeof(m_otaResult.version), "%s", desc.version);
+	}
+
+	// 检查当前固件状态（pendingVerify 独立于 OTA 事件，每次启动都查）
+	if (running != nullptr)
+	{
+		esp_ota_img_states_t state;
+		if (esp_ota_get_state_partition(running, &state) == ESP_OK)
+		{
+			m_otaResult.pendingVerify = (state == ESP_OTA_IMG_PENDING_VERIFY);
+			const char* hint = m_otaResult.pendingVerify ? "（未确认则重启回退）" : "";
+			ESP_LOGI(TAG, "当前固件 %s 状态: %s%s", running->label, otaStateName(state), hint);
+		}
+	}
 
 	// 比对 pending 槽与 running：判断上次升级是否回滚
 	char pendingSlot[32] = "";
 	if (otaNvsLoadString(NvsKeyPendingSlot, pendingSlot, sizeof(pendingSlot)))
 	{
+		m_otaResult.hasEvent = true;
+		snprintf(m_otaResult.pendingSlot, sizeof(m_otaResult.pendingSlot), "%s", pendingSlot);
+
 		if (running != nullptr && strcmp(pendingSlot, running->label) != 0)
 		{
 			// 目标槽没跑起来 → 回滚发生
 			int64_t bootSec = esp_timer_get_time() / 1000000;
 			otaNvsSaveString(NvsKeyLastRollback, pendingSlot);
 			otaNvsSaveI64(NvsKeyLastRollbackSec, bootSec);
+			m_otaResult.rolledBack = true;
 			ESP_LOGW(TAG, "上次 OTA 已回滚: %s 无效, 当前运行 %s", pendingSlot, running->label);
 		}
 		else
@@ -189,20 +215,6 @@ void OtaManager::checkRollback()
 			ESP_LOGI(TAG, "OTA 升级成功, 当前运行 %s", running ? running->label : "?");
 		}
 		otaNvsEraseKey(NvsKeyPendingSlot);
-	}
-
-	// 不自动 mark VALID —— 回滚确认改全手动（见头文件「回滚确认语义」）：
-	//   首次 USB 烧录固件 = UNDEFINED（出厂信任，无需确认）；
-	//   OTA 升级固件 = PENDING_VERIFY（回滚窗口打开）→ 用户在 web 页面确认后才关闭。
-	if (running != nullptr)
-	{
-		esp_ota_img_states_t state;
-		if (esp_ota_get_state_partition(running, &state) == ESP_OK)
-		{
-			const char* hint = (state == ESP_OTA_IMG_PENDING_VERIFY)
-				? "（未确认则重启回退）" : "";
-			ESP_LOGI(TAG, "当前固件 %s 状态: %s%s", running->label, otaStateName(state), hint);
-		}
 	}
 }
 

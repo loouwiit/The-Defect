@@ -5,7 +5,7 @@
 #include "task/task.hpp"
 #include "storage/fat.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
-#include "battery/batteryMonitor.hpp"
+#include "gui/systemPopup.hpp"
 #include "gamepad/bleGamepad.hpp"
 #include "touch/gt911Indev.hpp"
 #include <esp_log.h>
@@ -338,7 +338,7 @@ void LuaGameApp::gameLoop()
     // 触摸快照是直读 GT911Indev::getSlots()，需在此拦截防穿透
     const bool overlayVisible =
         AiAgentOverlay::instance().isVisible() ||
-        BatteryMonitor::instance().isAlertShown();
+        SystemPopup::instance().isShown();
 
     if (overlayVisible) {
         // 手柄 + 触摸快照全部置中（prev/cur 同步清空：is_just_pressed 恒 false）

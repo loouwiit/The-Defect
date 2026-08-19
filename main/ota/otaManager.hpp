@@ -81,6 +81,17 @@ public:
     // 生成 JSON 到 buffer（含 running/next/last_invalid/last_rollback/slots 状态）
     void getInfoJson(char* buffer, size_t size);
 
+    // ── 启动弹窗结果（checkRollback 后供 main.cpp 调用 showOtaResultPopup）──
+    struct OtaResult {
+        bool hasEvent{};          // 本次启动有 OTA 事件（升级成功或回滚）
+        bool rolledBack{};        // 回滚发生（目标槽没跑起来）
+        bool pendingVerify{};     // 当前固件待确认（PENDING_VERIFY）
+        char slot[32]{};          // 当前运行槽 label
+        char version[32]{};       // 当前运行版本
+        char pendingSlot[32]{};   // 上次升级目标槽（回滚时填充）
+    };
+    const OtaResult& getOtaResult() const { return m_otaResult; }
+
 private:
     OtaManager();                // 私有构造：创建内部 RAM 常驻任务 + 请求队列
     ~OtaManager() = default;     // 单例常驻，永不析构
@@ -104,4 +115,7 @@ private:
     // 并发标志：httpOtaInternal 经 runInInternalStack（队列深度 1）串行执行，
     // 故 isUpdating 的读-判-写序列实际不会并发（安全由队列串行化保证）
     std::atomic<bool> m_otaUpdating{false};
+
+    // checkRollback 结果（供 main.cpp 弹窗用）
+    OtaResult m_otaResult{};
 };
