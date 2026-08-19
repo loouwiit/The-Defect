@@ -10,7 +10,7 @@ extern "C" {
 /**
  * @brief Lua input 绑定的上下文
  *
- * 通过 lua_upvalue 注入到 input API 函数中。
+ * 通过 lua registry（LUA_REGISTRYINDEX）注入到 input API 函数中（非 lua_upvalue）。
  * LuaGameApp 在每帧游戏循环前更新这些指针。
  */
 struct LuaInputContext {
