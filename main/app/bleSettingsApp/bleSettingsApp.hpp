@@ -110,6 +110,7 @@ private:
 	int8_t m_focusBtnIdx{ 0 };     // 0=移动按钮, 1=断开按钮（FOCUS_CARD_BTNS 内）
 	TickType_t m_nextMoveTime[MaxHosts][MaxPlayers]{};
 	TickType_t m_nextActionTime{};
+	uint16_t m_prevButtons{};  // 按钮边沿检测
 	static constexpr TickType_t MOVE_DELAY_FIRST = 300;
 	static constexpr TickType_t MOVE_DELAY = 120;
 
@@ -155,6 +156,7 @@ private:
 	lv_obj_t* m_renameLayer{};    // lv_layer_top 遮罩
 	lv_obj_t* m_renameTa{};      // textarea
 	lv_obj_t* m_renameKb{};      // 键盘
+	lv_group_t* m_renameGroup{}; // 键盘焦点组（手柄摇杆导航用）
 	uint8_t m_renamePlayerId{0xff};
 
 	// ── AI 能力 ──

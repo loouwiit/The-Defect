@@ -1047,7 +1047,11 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 		m_lastActivityTime[hostId][playerId] = xTaskGetTickCount();
 
 	// ── 返回 / 取消移动 / 退出卡片按钮层 ──
-	if (state.isPressed(GamepadButton::BTN_B))
+	// 边沿检测（仅在按钮按下瞬间触发）
+	uint16_t newPress = state.buttons & ~m_prevButtons;
+	m_prevButtons = state.buttons;
+
+	if (newPress & static_cast<uint16_t>(GamepadButton::BTN_B))
 	{
 		if (m_nextActionTime < xTaskGetTickCount())
 		{
@@ -1070,8 +1074,10 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 		}
 	}
 
-	// ── 激活 ──
-	if (state.isPressed(GamepadButton::BTN_A) || state.isPressed(GamepadButton::BTN_L3))
+	// ── 激活（FOCUS_RENAME 由下方专门处理，不走 activateFocus） ──
+	if (m_focusGroup != FOCUS_RENAME &&
+		((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+		 (newPress & static_cast<uint16_t>(GamepadButton::BTN_L3))))
 	{
 		if (xTaskGetTickCount() < m_nextActionTime) {
 			ESP_LOGI(TAG, "多次点击，已过滤");
@@ -1079,6 +1085,54 @@ void BleSettingsApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const Game
 		}
 		m_nextActionTime = xTaskGetTickCount() + 500;
 		activateFocus();
+	}
+
+	// ── 键盘对话框：摇杆导航 + A/L3 按键 ──
+	if (m_focusGroup == FOCUS_RENAME) {
+		// A/L3/START → 按下当前选中的键盘按键
+		if ((newPress & static_cast<uint16_t>(GamepadButton::BTN_A)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_L3)) ||
+			(newPress & static_cast<uint16_t>(GamepadButton::BTN_START)))
+		{
+			if (m_nextActionTime < xTaskGetTickCount())
+			{
+				m_nextActionTime = xTaskGetTickCount() + 500;
+				if (auto guard = display->lockGuard()) {
+					if (m_renameKb) {
+						uint16_t btn_id = lv_btnmatrix_get_selected_btn(m_renameKb);
+						if (btn_id != LV_BUTTONMATRIX_BUTTON_NONE) {
+							uint32_t id = btn_id;
+							lv_obj_send_event(m_renameKb, LV_EVENT_VALUE_CHANGED, &id);
+						}
+					}
+				}
+			}
+			return;
+		}
+
+		// 摇杆归位重置
+		if (!lxLeft && !lxRight && !lyUp && !lyDown) {
+			m_nextMoveTime[hostId][playerId] = 0;
+			return;
+		}
+		// 摇杆方向 → 键盘按键导航
+		if (lxLeft || lxRight || lyUp || lyDown) {
+			if (m_nextMoveTime[hostId][playerId] >= xTaskGetTickCount()) return;
+			TickType_t delay = (m_nextMoveTime[hostId][playerId] == 0) ? MOVE_DELAY_FIRST : MOVE_DELAY;
+			m_nextMoveTime[hostId][playerId] = xTaskGetTickCount() + delay;
+
+			uint32_t key = 0;
+			if (lxLeft)  key = LV_KEY_LEFT;
+			if (lxRight) key = LV_KEY_RIGHT;
+			if (lyUp)    key = LV_KEY_UP;
+			if (lyDown)  key = LV_KEY_DOWN;
+
+			if (auto guard = display->lockGuard()) {
+				if (m_renameGroup)
+					lv_group_send_data(m_renameGroup, key);
+			}
+		}
+		return;
 	}
 
 	// ── 摇杆归位判断 ──
@@ -1476,6 +1530,11 @@ void BleSettingsApp::showRenameDialog(uint8_t playerId)
 	lv_textarea_set_max_length(m_renameTa, 20);
 	lv_textarea_set_text(m_renameTa, ctx->name);
 	lv_obj_set_style_text_font(m_renameTa, FontLoader::getDefault(FontLoader::FontSize::Small), 0);
+	// 键盘右下角确定按钮 → LV_EVENT_READY → 确认重命名
+	lv_obj_add_event_cb(m_renameTa, [](lv_event_t* e) {
+		auto* self = static_cast<BleSettingsApp*>(lv_event_get_user_data(e));
+		self->confirmRename();
+	}, LV_EVENT_READY, this);
 
 	// 键盘（固定高度，避免 flex 重算导致光标晃动）
 	m_renameKb = lv_keyboard_create(card);
@@ -1524,6 +1583,9 @@ void BleSettingsApp::showRenameDialog(uint8_t playerId)
 	}, LV_EVENT_CLICKED, this);
 
 	m_focusGroup = FOCUS_RENAME;
+	// 创建焦点组，使手柄摇杆可通过 lv_group_send_data 向键盘发送按键事件
+	m_renameGroup = lv_group_create();
+	lv_group_add_obj(m_renameGroup, m_renameKb);
 	lv_group_focus_obj(m_renameKb);
 }
 
@@ -1535,6 +1597,10 @@ void BleSettingsApp::closeRenameDialog()
 	m_renameLayer = nullptr;
 	m_renameTa = nullptr;
 	m_renameKb = nullptr;
+	if (m_renameGroup) {
+		lv_group_del(m_renameGroup);
+		m_renameGroup = nullptr;
+	}
 	m_renamePlayerId = 0xff;
 	m_focusGroup = FOCUS_SLOTS;
 	applyFocus();
