@@ -376,8 +376,7 @@ void AudioHandle::play()
 		&impl->stream);
 	if (!impl->stream) {
 		ESP_LOGE(TAG, "无法获取 render stream %u", impl->streamId);
-		// ⚠ 流获取失败必须立即释放 stream ID：~Impl 中 `if (stream)` 为假会跳过
-		//   freeStreamId → 流号永久占用（usedStreamCount 虚高，MaxStreamNum=14 逐渐耗尽）。
+		// 流获取失败必须立即释放 stream ID
 		if (impl->manager)
 			impl->manager->freeStreamId(impl->streamId);
 		impl->streamId = 0xFF;
@@ -605,10 +604,7 @@ bool AudioSample::load(const char* path)
 		if (esp_ae_rate_cvt_open(&rsCfg, &rsHd) == ESP_AE_ERR_OK) {
 			uint32_t maxOut = 0;
 			esp_ae_rate_cvt_get_max_out_sample_num(rsHd, 2048, &maxOut);
-			// ⚠ 64 位计算：m_frames(uint32) × 48000 在 32 位算术中溢出回绕
-			//   （>2.03s @44.1kHz 即溢出）→ 目标缓冲远小于实际输出 → 越界写堆。
-			//   例：10s/44.1kHz → 441000×48000 溢出为 3,988,130,816 → 缓冲仅 ~9 万帧，
-			//   实际写入 ~48 万帧 → 堆损坏。
+			// 64 位计算：m_frames(uint32) × 48000 在 32 位算术中会溢出
 			size_t maxDstFrames = (size_t)m_frames * 48000 / m_sampleRate + 1024;
 			auto* dst = new int16_t[maxDstFrames * m_channels];
 			size_t dstPos = 0;
@@ -891,8 +887,7 @@ AudioHandle Audio::play(const AudioSample& sample, bool loop)
 	auto sid = self.allocStreamId();
 	if (sid == 0xFF) {
 		ESP_LOGE(TAG, "无空闲音频流");
-		// ⚠ 流分配失败必须回退 activeCount：原实现只增不减，应用层限流
-		//   （activeCount() < 3）在流满后会逐渐失效
+		// 流分配失败必须回退 activeCount
 		sample.m_activeCount.fetch_sub(1);
 		return {};
 	}
@@ -921,8 +916,7 @@ int Audio::usedStreamCount()
 
 esp_audio_render_stream_id_t Audio::allocStreamId()
 {
-	// ⚠ 多个解码 task 并发启动（BGM/提示音/SFX detach）会同时读到同一空闲位
-	//   → 相同 stream ID 冲突。必须互斥。
+	// 多个解码 task 并发启动需互斥分配
 	Lock lock(m_streamMutex);
 	for (uint8_t i = 0; i < MaxStreamNum; ++i) {
 		if (!(streamUsedMask & (1 << i))) {

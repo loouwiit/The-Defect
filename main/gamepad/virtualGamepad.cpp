@@ -68,8 +68,7 @@ void VirtualGamepad::resetPlayer(int8_t hostId, int8_t playerId)
 void VirtualGamepad::waitDispatchIdle()
 {
 	// 拿即放：若 dispatchTask 正在分发（持锁中），阻塞到该帧 handler 全部返回。
-	// 调用方（deleteApp 任务）借此保证不再对已删除 App 调用虚函数。
-	// ⚠ 必须在未持有 LVGL 锁 / AppStackManager::m_mutex 时调用（锁序：dispatchLock 在前）。
+	// 必须在未持有 LVGL 锁 / AppStackManager::m_mutex 时调用（锁序：dispatchLock 在前）
 	Lock lock{ m_dispatchLock };
 }
 
@@ -95,9 +94,7 @@ void VirtualGamepad::startForwarder()
 void VirtualGamepad::stopForwarder()
 {
 	m_forwarderRunning = false;
-	// ⚠ 必须等待旧线程真正退出（forwarderTask 收尾执行 m_forwardThread = {} 已清空句柄）
-	//   再返回：否则旧线程收尾会把新 startForwarder() 写入的句柄从成员换走并 vTaskDelete，
-	//   新转发线程被误杀（从机断线重连场景，m_forwardThread 永久为空）。
+	// 等待旧线程真正退出（防新线程被误杀）
 	while (m_forwardThread.isRunning())
 		vTaskDelay(10);
 	ESP_LOGI(TAG, "forwarder stopped");
@@ -129,12 +126,8 @@ void VirtualGamepad::dispatchTask(void* arg)
 	while (true) {
 		auto startTick = xTaskGetTickCount();
 
-		// ⚠ 分发段持 m_dispatchLock：deleteApp 删除 App 前 waitDispatchIdle()（拿即放）
-		//   确保无分发进行中 → 不会在已删除 App 上调用 onGamepadInput 虚函数
-		//   （UAF 崩溃根因，vGamepadDisp 悬空指针）。
-		//   锁序：dispatchLock → LVGL（handler 内等 LVGL 锁），与 deleteApp
-		//   （waitDispatchIdle 不持锁 → LVGL）一致，无 ABBA 死锁。
-		//   ⚠ 锁只包分发段，不包 vTaskDelay：否则 deleteApp 会被迫等整帧。
+		// 分发段持 m_dispatchLock，deleteApp 在 delete 前 waitDispatchIdle() 等待
+		// 锁只包分发段，不包 vTaskDelay（否则 deleteApp 被迫等整帧）
 		{
 			Lock lock{ self.m_dispatchLock };
 
@@ -176,9 +169,7 @@ void VirtualGamepad::forwarderTask(void* arg)
 	auto& self = *static_cast<VirtualGamepad*>(arg);
 	self.forwarderLoop();
 	self.m_forwardThread = {};
-	// ⚠ 自删任务不可再被调度：此前 `while (true) vTaskDelay(1000)` 死循环是残留死代码
-	//   （只执行一次 vTaskDelay 就永不复原）。直接挂起等同退出（m_forwardThread 已置空，
-	//   任务栈由 FreeRTOS 回收）。
+	// 自删任务：m_forwardThread 已置空，挂起等同退出，栈由 FreeRTOS 回收
 	vTaskSuspend(nullptr);
 }
 
@@ -197,8 +188,7 @@ void VirtualGamepad::forwarderLoop()
 			{
 				if (sock >= 0) udpInputCloseSocket(sock);
 				sock = udpInputCreateSocket(hostIp, 8082);
-				// ⚠ 创建失败必须保留 needCreateSocket=true 下轮重试：原实现无条件置 false，
-				//   "will retry" 日志永不兑现——远程主机保持连接期间转发器永久死亡。
+				// 创建失败保留 needCreateSocket=true 下轮重试
 				if (sock < 0)
 				{
 					ESP_LOGW(TAG, "create socket failed, will retry");
@@ -229,9 +219,7 @@ void VirtualGamepad::forwarderLoop()
 						{
 							uint8_t buf[11];
 							packFrame(buf, slot, p, state);
-							// ⚠ 仅发送成功才更新去重基准：若在发送前记账（last = state），
-							//   UDP 丢包/发送失败时"按住不放"的按键变化被永久去重——主机侧
-							//   表现为按键根本没按下（60fps 输入流里真实功能缺陷）。
+						// 仅发送成功才更新去重基准（UDP 丢包时不丢按键变化）
 							if (udpInputSend(sock, buf, 11))
 								last = state;
 						}

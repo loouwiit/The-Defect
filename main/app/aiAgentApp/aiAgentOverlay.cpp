@@ -943,19 +943,13 @@ void AiAgentOverlay::onAiResponse(uint32_t seq, bool success, const std::string&
 	ESP_LOGI(TAG, "onAiResponse: success=%d, textLen=%zu, err=%s",
 		success, responseText.size(), errorMsg.c_str());
 
-	// ⚠ 过期响应丢弃：hide() 已清 m_isWaiting，用户可能已发起新请求——旧请求（未取消）
-	//   的响应若继续处理，会与新请求的 onAiResponse 并发交错写共享状态（历史错乱）。
+	// 过期响应丢弃：用户可能已发起新请求
 	if (seq != m_requestSeq) {
 		ESP_LOGW(TAG, "丢弃过期响应 (seq=%u, cur=%u)", seq, m_requestSeq);
 		return;
 	}
 
-	// 注意：不在函数开头清 loading —— 链式 follow-up 期间保持等待态，
-	// 防止轮次间隙用户插入新消息导致上下文错乱；仅在本轮链结束时清 loading。
-
-	// ⚠ 锁策略：解析/UI 更新在锁内执行；AiExecutor::execute 必须在锁外执行（防 ABBA
-	//   死锁，见步骤 2 注释）。App 的 onAiSelect/onAiActivate/executeAiAction 内部均
-	//   自行 lockGuard（递归锁），锁外调用安全。
+	// 注意：链式 follow-up 期间保持等待态，仅在本轮链结束时清 loading
 
 	// ── 锁内 ①：解析 + 错误处理 + UI 更新 ──
 	AiResponse response;
@@ -1038,10 +1032,7 @@ void AiAgentOverlay::onAiResponse(uint32_t seq, bool success, const std::string&
 		}
 	}
 
-	// ── 2. 执行系统动作（必须在 LVGL 锁外）──
-	// ⚠ 防 ABBA 死锁：execute 内部做 AppStackManager 栈操作（m_mutex → applyApp → LVGL 锁，
-	//   与 dispatchTask/BLE 输入路径 pushApp 的锁序相同）。若在持 LVGL 锁时调用 execute，
-	//   与"持 m_mutex 等 LVGL 锁"的任务互相等待 → 经典死锁（AI 助手 + 手柄同时操作触发）。
+	// ── 2. 执行系统动作（必须在 LVGL 锁外，防 ABBA 死锁）──
 	AiExecutor::Result execResult;
 	{
 		auto* mgr = m_display->getStackManager();
@@ -1061,11 +1052,8 @@ void AiAgentOverlay::onAiResponse(uint32_t seq, bool success, const std::string&
 			reportAiError(execResult.failureDetail);
 		}
 
-		// ── 3. 提交本轮对话到 m_history（每轮都提交，含 follow-up 轮） ──
-		// 修复：原实现只在链结束时记录历史，导致：
-		//   1) 多轮(nextRound)交互的中间轮次不落历史 → 下次用户消息上下文丢失
-		//   2) 链中途若插入新消息，将带着空历史发送
-		// 现在每轮立即提交，m_history 成为完整对话的唯一数据源。
+		// ── 3. 提交本轮对话到 m_history ──
+		// 每轮立即提交，m_history 成为完整对话的唯一数据源
 		if (!m_lastUserInput.empty()) {
 			std::string assistantReply = !response.parsedContent.empty()
 				? response.parsedContent
@@ -1397,9 +1385,7 @@ void AiAgentOverlay::setImeMode(ImeMode mode)
 
 	// 中文模式注入对应词库（拼音/五笔）；英文模式保持当前词库
 	if (mode != ImeMode::English) {
-		// ⚠ 🔣 按钮会同时触发 LVGL lv_ime_pinyin_kb_event 做 K26↔K9 模式翻转，
-		//   而 CONFIG_LV_IME_PINYIN_USE_K9_MODE 未启用（K9 分支被编译掉）→ mode=K9 时候选失效、字母直接上屏。
-		//   本回调在 LVGL 回调之后执行，强制回 K26 全键盘模式，保证拼音/五笔候选正常。
+		// 强制回 K26 全键盘模式（LVGL 🔣 按钮可能触发 K9 翻转，K9 未启用）
 		lv_ime_pinyin_set_mode(m_pinyinIme, LV_IME_PINYIN_MODE_K26);
 
 		const lv_pinyin_dict_t* dict = (mode == ImeMode::Wubi)

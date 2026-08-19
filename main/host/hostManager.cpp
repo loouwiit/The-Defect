@@ -74,9 +74,7 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 		int n = snprintf(regMsg, sizeof(regMsg),
 			R"({"type":"register","hostname":"%s","gamepad_count":4})",
 			myHostname);
-		// ⚠ 回调在 WS task 上下文，this->m_consoleClient 可能被 cleanupConnection 并发销毁
-		//   （UAF）。锁内取快照：清理路径 delete 前必先置空 m_consoleClient 并等 WS task 退出
-		//   → 回调执行期间 delete 不会完成，快照指针在发送时仍有效。
+		// 锁内取快照防 UAF：清理路径 delete 前必先置空 m_consoleClient
 		WsClient* aliveClient = nullptr;
 		{
 			Lock lock{ m_mutex };
@@ -86,9 +84,7 @@ bool HostManager::connectToHost(const char* ip, uint16_t port, const char* hostn
 		if (aliveClient) aliveClient->sendText(regMsg, n);
 		});
 
-	// ⚠ 断开回调绝不在 WS task 上下文直接 delete/清理：
-	//   esp_websocket_client_stop 会等待客户端 task 退出 → 在自身回调内调用 = 自等待死锁。
-	//   改为：置标志 + 投递 daemon 清理 + 通知 UI。
+	// 断开回调不在 WS task 上下文直接 delete（esp_websocket_client_stop 会等待 task 退出 → 死锁）
 	client->setOnDisconnected([this]() {
 		ESP_LOGI(TAG, "console channel disconnected");
 
@@ -235,12 +231,8 @@ void HostManager::scheduleConnectionCleanup()
 
 void HostManager::cleanupConnection()
 {
-	// 先断开并销毁所有客户端（不在 WS 回调上下文：esp_websocket_client_stop 等 task 退出）
-	// delete 前必先 disconnect()（内部 stop 等待 WS task 退出）→ 回调不会与删除并发。
-	// ⚠ m_wsPool 的删除必须"锁内摘除 + 锁外 delete"（与 m_consoleClient 同款）：
-	//   原实现无锁 delete 与 getWsConnection（持锁遍历使用池）并发 → UAF。
-	//   锁内 delete 又会死锁（~WsClient → disconnect → stop 等待 WS task 退出，
-	//   期间 DISCONNECTED 回调可能再取 m_mutex）。
+	// 先断开并销毁所有客户端
+	// m_wsPool 的删除必须"锁内摘除 + 锁外 delete"（防止与 getWsConnection 并发 UAF）
 	std::vector<WsClient*> poolToDelete;
 	{
 		Lock lock{ m_mutex };
@@ -252,9 +244,7 @@ void HostManager::cleanupConnection()
 	for (auto* c : poolToDelete)
 		delete c;
 
-	// ⚠ 不能持锁 delete m_consoleClient：~WsClient → disconnect → esp_websocket_client_stop
-	//   等待 WS task 退出，期间 DISCONNECTED 回调（内部 Lock m_mutex）阻塞 → 死锁。
-	//   锁内仅取指针并清空，解锁后再销毁。
+	// m_consoleClient 的删除也须锁内摘除 + 锁外 delete（~WsClient → disconnect → stop 死锁）
 	WsClient* consoleToDelete = nullptr;
 	m_mutex.lock();
 	if (m_consoleClient)
@@ -329,9 +319,7 @@ WsClient* HostManager::createOrGetWsClient(const char* uri)
 	}
 
 	// 查找缓存（含"已断开"检测：断开的死连接应重建）
-	// ⚠ 已断开 client 的删除必须"锁内摘除 + 锁外 delete"：锁内 delete 时
-	//   ~WsClient → disconnect → esp_websocket_client_stop 等待 WS task 退出，
-	//   期间 DISCONNECTED 回调（WS task 上下文）再取 m_mutex → 死锁。
+	// 已断开 client 的删除必须"锁内摘除 + 锁外 delete"
 	WsClient* deadClient = nullptr;
 	{
 		Lock lock{ m_mutex };

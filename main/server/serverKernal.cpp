@@ -41,9 +41,8 @@ constexpr size_t MemPutMaxSize = 10 * 1024 * 1024; //10M
 constexpr size_t SdPutMaxSize = 50 * 1024 * 1024; //50M
 constexpr size_t PutBufferSize = 512;
 
-// ⚠ POST API 合理 body 上限（防伪造超大 Content-Length → new 失败崩溃；OTA 流式上传单独放行）
+// POST body 上限 64KB（防伪造超大 Content-Length 导致 new 失败崩溃；OTA 流式上传单独放行）
 constexpr size_t kMaxPostBody = 64 * 1024;
-// ⚠ DELETE body 是路径，上限 512
 constexpr size_t kMaxDeletePath = 512;
 
 constexpr size_t SocketStreamWindowNumber = 16;
@@ -202,7 +201,7 @@ void server(void*)
 		setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
 
 		// Convert ip address to string
-		char addr_str[128] = "unknown";   // ⚠ 初始化默认值：IPv6 分支不写 → 避免打印未初始化栈内存
+		char addr_str[128] = "unknown";
 		if (source_addr.ss_family == PF_INET)
 		{
 			inet_ntoa_r(((sockaddr_in*)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
@@ -221,9 +220,7 @@ void server(void*)
 			{
 				index = 0;
 				ESP_LOGW(TAG, "all window was occupied");
-				// ⚠ 不能无限自旋持有已 accept 的 fd：16 个 keep-alive 空闲连接即可占满
-				//   窗口池，每个新连接泄漏一个 fd，且 accept 循环被占死（listen 队列积压）。
-				//   直接关闭本连接拒绝服务（客户端稍后重试即可）。
+				// 窗口池满时关闭连接拒绝服务（防止 fd 泄漏）
 				close(sock);
 				ESP_LOGW(TAG, "no free window, connection rejected");
 				sock = -1;
@@ -249,16 +246,13 @@ void server(void*)
 			while (coWorkerHandle[i] != nullptr)
 				vTaskDelay(1);
 
-			// ⚠ coworker 先置空句柄再 vTaskDelete(nullptr)，两者间有窗口：此时栈仍在使用中，
-			//   立即 delete[] 会释放"运行中任务"的栈（UB）。延迟一拍等任务真正退出。
+			// coworker 先置空句柄再 vTaskDelete(nullptr)，延迟一拍等任务真正退出
 			vTaskDelay(2);
 			delete[] coWorkerStack[i];
 			coWorkerStack[i] = nullptr;
 		}
 
-		// ⚠ 删除 serverStack 的延迟任务必须放在循环**外**：原实现在 for 循环体内
-		//   Task::addTask 被调度 6 次 → 2 个 daemon 线程并发 delete[] 同一指针 =
-		//   double-free（堆损坏/assert 崩溃）；若期间 serverStart() 重建了新栈还会误删。
+		// 延迟删除 serverStack：放在循环外防止并发 delete[] 导致 double-free
 		Task::addTask([](void*)->TickType_t
 			{
 				delete[] serverStack;
@@ -392,7 +386,6 @@ void sendOk(OSocketStream& socketStream)
 	respond.cookies.clear();
 
 	respond.heads.clear();
-	// ⚠ 必须设置 Content-Type：缺失时浏览器按 text/xml 解析（Firefox 报 XML 解析错误）
 	respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 
 	respond.setBody((void*)HttpReason::Ok);
@@ -444,7 +437,7 @@ static const char* resetReasonName(int reason)
 }
 
 // 循环读取完整 body。readByte 非阻塞（IBuffer 仅 64B），单次可能读不满；
-// 残留 body 会被同一连接的下一个请求误当请求行（曾出现 path=ota_1",... 诡异 POST）。
+// 残留 body 会被同一 keep-alive 连接的下一个请求误当请求行。
 // 成功返回 true，并在 buf[len] 写 '\0'（调用方需保证 buf 至少 len+1 字节）。
 static bool readBodyFully(IOSocketStream& socketStream, size_t len, char* buf)
 {
@@ -500,7 +493,6 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 			cfg.apiUrl.c_str(), cfg.model.c_str(),
 			cfg.timeoutMs, cfg.maxTokens,
 			cfg.valid ? "true" : "false");
-		// ⚠ snprintf 返回值可能 ≥ sizeof(body)（配置超长时），必须截断防越界读
 		if (n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
@@ -530,7 +522,6 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 			});
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
-		// ⚠ 长度用 strlen：原硬编码 49 比实际 UTF-8 字节数（52）短，响应被截断（缺"志"）
 		respond.setBody((void*)"⏳ 测试请求已发送，请检查设备日志");
 		respond.setBodyLenght(strlen("⏳ 测试请求已发送，请检查设备日志"));
 		respond.send(socketStream);
@@ -569,7 +560,7 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 				if (n > 0 && n <= 2000) maxLines = (size_t)n;
 			}
 		}
-		// ⚠ 栈上 64KB 会爆 worker 栈（16KB）→ 堆分配（PSRAM）
+		// 日志缓冲区用堆分配（64KB 会爆 worker 栈的 16KB）
 		char* body = new char[64 * 1024];
 		LogService::instance().readTail(body, 64 * 1024, maxLines);
 		HttpRespond respond;
@@ -636,7 +627,6 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		}
 		else
 			n = (int)sizeof(body) - 1;
-		// ⚠ snprintf 返回值可能 ≥ sizeof(body)，必须截断防越界读
 		if (n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
@@ -747,8 +737,7 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 	{
 		IFile file;
 		char* path = nullptr;
-		// ⚠ 剥离 query string：静态资源带缓存破坏参数（如 /server/screen/screen.js?v=2）
-		//   时，原实现把整个 uri（含 ?v=2）拼进路径 → 404。
+		// 剥离 query string（如 /server/screen/screen.js?v=2 中的 ?v=2）
 		size_t uriLen = strlen(uri);
 		for (size_t i = 0; i < uriLen; i++) {
 			if (uri[i] == '?' || uri[i] == '#') { uriLen = i; break; }
@@ -778,7 +767,6 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		}
 		else
 		{
-			// ⚠ Content-Type 缺失 → Firefox 报 "XML 解析错误"
 			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 			respond.setBody((void*)HttpReason::NotFound);
 			respond.setBodyLenght(sizeof(HttpReason::NotFound) - 1);
@@ -796,15 +784,13 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	const char* uri = request.getPath();
 	const size_t uriLenght = strlen(uri);
 
-	// ⚠ 伪造超大 Content-Length（如 2GB）→ new 失败 → 无异常处理 → abort 崩溃。
-	//   统一上限 64KB（覆盖各 POST API 合理 body）；OTA 上传是流式写入（httpOta），
-	//   不分配 body 缓冲，且 body 可达 6MB → 精确匹配 /api/ota（8 字符）单独放行。
+	// POST body 上限 64KB（防伪造超大 Content-Length 导致 new 失败崩溃）
+	// OTA 流式上传不分配 body 缓冲，单独放行
 	if (!stringCompare((char*)uri, uriLenght, "/api/ota", 8) &&
 		request.getBodyLenght() > kMaxPostBody)
 	{
-		// ⚠ 拒绝超大 body 必须关闭连接：sendBadRequest 保持 keep-alive，
-		//   残留 body（可达 2GB，消费会拖死 worker）会被同一连接的下一个请求
-		//   误当请求行 → 协议污染（与 readBodyFully 防的是同一类坑）。
+		// 拒绝超大 body 必须关闭连接：sendBadRequest 保持 keep-alive，
+		// 残留 body 会被下一个请求误当请求行
 		socketStream.close();
 		return;
 	}
@@ -836,7 +822,6 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		count = sprintf(buffer, "%llu,%llu", free, totol);
 
 		HttpRespond respond;
-		// ⚠ 必须设置 Content-Type：缺失时浏览器按 text/xml 解析（Firefox 报 XML 解析错误）
 		respond.cookies.clear();
 		respond.heads.clear();
 		respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
@@ -849,9 +834,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	{
 		if (!wifiStationIsStarted())
 		{
-			// 发送错误
 			HttpRespond respond;
-			// ⚠ Content-Type 缺失 → Firefox 报 "XML 解析错误"（规范按 text/xml 默认解析）
 			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 			respond.setBody((void*)"ERROR:wifi not started");
 			respond.setBodyLenght(22);
@@ -860,10 +843,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 		}
 
 		// 扫描
-		wifi_ap_record_t* wifi = new wifi_ap_record_t[WifiApRecordSize]; // 96 bytes per record
+		wifi_ap_record_t* wifi = new wifi_ap_record_t[WifiApRecordSize];
 		size_t count = wifiStationScan(wifi, WifiApRecordSize);
-		// ⚠ esp_wifi_scan_get_ap_records 的返回数是实际 AP 数（可能 > 传入上限），
-		//   写入缓冲的记录数 ≤ WifiApRecordSize —— 必须截断，否则下方循环越界读
 		if (count > WifiApRecordSize) count = WifiApRecordSize;
 
 		// 统计长度
@@ -915,7 +896,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			char password[64] = "";
 			strncpy(ssid, body, sizeof(ssid) - 1);
 			strncpy(password, nl ? nl + 1 : "", sizeof(password) - 1);
-			ssid[sizeof(ssid) - 1] = '\0';          // ⚠ strncpy 不保证 null 终止（超长 body 越界读）
+			ssid[sizeof(ssid) - 1] = '\0';
 			password[sizeof(password) - 1] = '\0';
 			delete[] body;
 			wifiConnect(ssid, password);
@@ -952,7 +933,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			char password[64] = "";
 			strncpy(ssid, body, sizeof(ssid) - 1);
 			strncpy(password, nl ? nl + 1 : "", sizeof(password) - 1);
-			ssid[sizeof(ssid) - 1] = '\0';          // ⚠ strncpy 不保证 null 终止（超长 body 越界读）
+			ssid[sizeof(ssid) - 1] = '\0';
 			password[sizeof(password) - 1] = '\0';
 			delete[] body;
 			wifiApSet(ssid, password);
@@ -1077,9 +1058,6 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 				apiUrl[0] ? apiUrl : "https://api.openai.com",
 				model[0]  ? model  : "gpt-4o-mini",
 				timeoutMs, maxTokens);
-			// ⚠ snprintf 返回"本应写入"的长度，api_url/model 超长时可能 > 缓冲 →
-			// 写入长度必须截断到缓冲内，否则 file.write 越界读
-			if (n >= (int)sizeof(jsonBuf)) n = (int)sizeof(jsonBuf) - 1;
 
 			OFile file;
 			if (file.open("/root/system/ai_config.json")) {
@@ -1145,10 +1123,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/resetInfo/clear", 20))
 	{
-		// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
 		if (request.getBodyLenght() > 0)
 		{
-			// ⚠ readBodyFully 末尾写 buf[len]='\0'，必须分配 len+1（此前 1 字节堆越界写）
 			char* tmp = new char[request.getBodyLenght() + 1];
 			if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
 			{
@@ -1216,10 +1192,8 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else if (stringCompare((char*)uri, uriLenght, "/api/coredump/clear", 19))
 	{
-		// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
 		if (request.getBodyLenght() > 0)
 		{
-			// ⚠ readBodyFully 末尾写 buf[len]='\0'，必须分配 len+1（此前 1 字节堆越界写）
 			char* tmp = new char[request.getBodyLenght() + 1];
 			if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
 			{
@@ -1253,9 +1227,7 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else
 	{
-		// ⚠ 未知路由若带 body 必须循环消费：否则残留 body（同文件 readBodyFully 防的
-		//   同类坑）会被同一 keep-alive 连接的下一个请求误当请求行 → 协议污染
-		//   （实测：PUT 到目录 URL 后 196B 残留被解析成诡异 POST 的根因）。
+		// 未知路由若带 body 必须循环消费，防止残留 body 被下一个请求误当请求行
 		if (request.getBodyLenght() > 0)
 		{
 			const size_t len = request.getBodyLenght();
@@ -1270,11 +1242,9 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 }
 void httpOta(IOSocketStream& socketStream, HttpRequest& request)
 {
-	// httpOta 内部大量调用 OTA API（esp_ota_begin/end、get_last_invalid 等）会 mmap flash
-	// （禁用 cache 要求栈在内部 RAM），coWorker 栈在 PSRAM → 经 runInInternalStack 执行（阻塞）。
-	// ⚠ 写缓冲（4KB）+ 镜像头（512B）用 getWriteBuffer/getHeaderBuffer 提供的**内部 RAM
-	//   静态缓冲**（.bss）——写 flash 禁 cache 窗口内 PSRAM 不可访问；静态缓冲避免堆损坏与栈溢出。
-	//   （曾踩坑：栈上大数组→栈溢出；heap_caps_malloc 内部堆→堆相邻块被踩 Bad tail。）
+	// httpOta 调用 OTA API 会 mmap flash（禁用 cache 要求栈在内部 RAM），
+	// coWorker 栈在 PSRAM → 经 runInInternalStack 执行
+	// 写缓冲（4KB）+ 镜像头（512B）用内部 RAM 静态缓冲（.bss）
 	struct OtaCtx { IOSocketStream* stream; HttpRequest* request; };
 	OtaCtx ctx{ &socketStream, &request };
 	OtaManager::instance().runInInternalStack([](void* p) { httpOtaInternal((OtaCtx*)p); }, &ctx);
@@ -1479,7 +1449,6 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 	// slot 在调用者栈（PSRAM）：worker 仅在 mmap 窗口外读取（strcmp 发生在库调用之前），安全。
 	struct Ctx { char slot[16]; bool invalidate; esp_err_t err; };
 	Ctx ctx{};
-	// ⚠ snprintf 保证终止（strncpy 在源恰好填满时不写 '\0'，GCC O2 -Wstringop-truncation 报错）
 	snprintf(ctx.slot, sizeof(ctx.slot), "%s", slot);
 	ctx.invalidate = invalidate;
 	ctx.err = ESP_FAIL;
@@ -1521,10 +1490,8 @@ void httpOtaSetBoot(IOSocketStream& socketStream, HttpRequest& request)
 // ── POST /api/ota/confirm — 手动确认当前固件（关闭回滚窗口，无需重启）──
 void httpOtaConfirm(IOSocketStream& socketStream, HttpRequest& request)
 {
-	// 读掉 body（若带 body 不消费会残留，被下一请求误当请求行）
 	if (request.getBodyLenght() > 0)
 	{
-		// ⚠ readBodyFully 末尾写 buf[len]='\0'，必须分配 len+1（此前 1 字节堆越界写）
 		char* tmp = new char[request.getBodyLenght() + 1];
 		if (!readBodyFully(socketStream, request.getBodyLenght(), tmp))
 		{
@@ -1573,13 +1540,9 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 	{
 		//floor
 		newFloor(path);
-		// tree(PerfixRoot); //[debug]
 		delete[] path;
 
-		// ⚠ 建目录无需 body，但必须消费完：readByte 非阻塞单次读不满，残留 body 会被
-		//   同一连接的下一个请求误当请求行（曾出现 POST "name": 诡异请求——客户端把
-		//   manifest 内容 PUT 到目录 URL 时 body 196B 全部残留）。空 body（file 页面
-		//   newFloor 的 send("")）不受影响。
+		// 建目录无需 body，但必须消费完残留 body 防止协议污染
 		size_t left = request.getBodyLenght();
 		char discard[PutBufferSize];
 		bool drained = true;
@@ -1619,7 +1582,6 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 			ESP_LOGW(TAG, "put file is too large");
 
 			HttpRespond respond;
-			// ⚠ Content-Type 缺失 → Firefox 报 "XML 解析错误"
 			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 			respond.setBody((void*)"file too large");
 			respond.setBodyLenght(14);
@@ -1629,7 +1591,7 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 
 			vTaskDelay(100 / portTICK_PERIOD_MS);
 			socketStream.close();
-			delete[] path;   // ⚠ 此前泄漏：超大文件 PUT 每次累积 path（其他分支均有释放）
+			delete[] path;
 			return;
 		}
 
@@ -1680,23 +1642,20 @@ void httpPut(IOSocketStream& socketStream, HttpRequest& request)
 			vTaskDelay(1);
 		}
 
-		// tree(PerfixRoot); //[debug]
-
 #if false
 		printf("coworker:httpPut(): stack high water = %u\n", uxTaskGetStackHighWaterMark(nullptr));
 #endif
 
-		delete[] path;   // ⚠ 成功路径释放（此前泄漏，反复上传累积）
+		delete[] path;
 		sendOk(socketStream);
 	}
 }
 
 void httpDelete(IOSocketStream& socketStream, HttpRequest& request)
 {
-	// ⚠ 伪造超大 Content-Length → new 失败崩溃。DELETE body 是路径，上限 512。
+	// DELETE body 是路径，上限 512
 	if (request.getBodyLenght() > kMaxDeletePath)
 	{
-		// ⚠ 同 httpPost：拒绝路径直接关闭连接，防残留 body 污染下一请求
 		socketStream.close();
 		return;
 	}
@@ -1722,8 +1681,7 @@ void httpDelete(IOSocketStream& socketStream, HttpRequest& request)
 		//file
 		removeFile(path);
 	}
-	// tree(PerfixRoot); //[debug]
-	delete[] path;   // ⚠ 成功路径释放（此前泄漏）
+	delete[] path;
 	sendOk(socketStream);
 }
 
@@ -1763,8 +1721,7 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 	char* body = nullptr; //new later
 	size_t bodyOffset = 0;
 
-	//统计总字符数（⚠ 计数阶段与写入阶段同样判空——6 worker 并发 PUT/DELETE
-	// 改目录内容时 readdir 耗尽返回 nullptr，strlen(nullptr) 直接崩溃）
+	// 统计总字符数（readdir 可能因并发 PUT/DELETE 返回 nullptr）
 	for (size_t i = 0; i < contentCount[0]; i++)
 	{
 		buffer = floor.read(Floor::Type::Floor);
@@ -1808,8 +1765,7 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 			contentCount[1] = 0;
 			continue;
 		}
-		// ⚠ 并发 PUT/DELETE 使目录条目变多/名字变长时，预分配的 totolSize 可能不够 →
-		//   堆越界写。写入前检查剩余容量，超限即截断（宁缺勿滥，防崩溃）。
+		// 并发 PUT/DELETE 可能使预分配的 totolSize 不够，超限即截断
 		size_t need = strlen(buffer) + 2;   // '/' + '\n'
 		if (bodyOffset + need > totolSize) break;
 		for (size_t j = 0; buffer[j] != '\0'; j++)
@@ -1846,12 +1802,10 @@ void apiFloor(OSocketStream& socketStream, const char* path)
 	}
 
 	respond.setBody((void*)body);
-	// ⚠ 并发 PUT/DELETE 下预分配不够会提前 break（bodyOffset < totolSize），
-	//   必须按**实际写入量**截断：原 setBodyLenght(totolSize-1) 会把未初始化
-	//   堆内存发给客户端（越界读 + 响应乱码）。
+	// 按实际写入量截断（并发 PUT/DELETE 可能使预分配的 totolSize 不够）
 	if (bodyOffset > 1) respond.setBodyLenght(bodyOffset - 1); //去除最后一个'\n'
 	else respond.setBodyLenght(0);
 	respond.send(socketStream);
 
-	delete[] body; //body is deleted here
+	delete[] body;
 }

@@ -19,9 +19,7 @@ bool VirtualIndev::start(Display* disp)
 	display = disp;
 	s_instance = this;
 
-	// ⚠ 必须赋值成员 `this->indev`：原实现 `lv_indev_t* indev = lv_indev_create()` 是
-	//   局部变量遮蔽成员 → 成员恒为 nullptr → 幂等守卫永不成立，重复 start() 会重复注册
-	//   indev（泄漏 + 双输入源）。
+	// 必须赋值成员 this->indev（非局部变量），否则幂等守卫永不成立
 	this->indev = lv_indev_create();
 
 	if (!indev)

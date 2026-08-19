@@ -103,13 +103,11 @@ EXT_RAM_BSS_ATTR static httpd_handle_t    s_wsHd   = nullptr;
 EXT_RAM_BSS_ATTR static int               s_wsFds[kMaxWsClients];
 static portMUX_TYPE s_wsMux = portMUX_INITIALIZER_UNLOCKED;
 
-/* ⚠ LogTask 静态栈必须放内部 RAM（普通 static → .bss）：
- * LogTask 每 200ms 调 fsync → FatFs f_sync → 写 flash 期间
- * spi_flash_disable_interrupts_caches_and_other_cpu 禁用 cache →
- * PSRAM 栈不可访问 = 崩（曾实测 49s 后 LogTask 静默死亡，日志停写）。
+/* LogTask 静态栈必须放内部 RAM（.bss）：
+ * LogTask 每 200ms 调 fsync → FatFs 写 flash 期间禁用 cache → PSRAM 栈不可访问。
  * 与 OtaManager/ElfManager 同款规则。勿加 EXT_RAM_BSS_ATTR。 */
 static StaticTask_t s_logTcb;
-static StackType_t  s_logStack[4096];   // 内部 RAM（fwrite→FatFs→flash 写调用链深）
+static StackType_t  s_logStack[4096];
 
 /* 诊断计数（LogTask 自检日志用） */
 EXT_RAM_BSS_ATTR static volatile uint32_t s_writeCount   = 0;  // 成功写入行数
@@ -131,9 +129,7 @@ static int nvsReadLevel(const char* key);   // 定义在下方（start() 早于�
 
 static void nvsTagKey(char* out, size_t outSize, const char* prefix, size_t idx)
 {
-    // ⚠ %.*s 限定 prefix 精度 + idx 取模：GCC O2 下 -Wformat-truncation 对未知长度
-    // 字符串做最坏推断（strlen 可达数百字节）→ 恒误报截断。实际输出最长
-    // 6(prefix) + 1(idx<8，取模后单十进制位) = 7 字节 < 16，精度约束后编译器可证明不截断
+    // %.*s 限定 prefix 精度防止 GCC O2 -Wformat-truncation 误报
     snprintf(out, outSize, "%.*s%u", (int)kMaxTagPrefixLen, prefix, (unsigned)(idx % 10));
 }
 
@@ -175,9 +171,7 @@ static void flushLogFile()
         s_errCount = s_errCount + 1;
         ESP_LOGE(TAG, "fflush failed (err=%d)", errno);
     }
-    /* ⚠ 关键：fflush 只刷 newlib stdio 缓冲，不更新 FAT 目录项中的文件大小——
-     * FatFs 的 f_write 只改内存中文件对象的 fsize，目录项大小须 f_sync（fsync）才写回。
-     * 若只 fflush，stat()/ftell() 恒返回旧值（新文件=0），/api/log 会读到空。 */
+    // fflush 只刷 newlib 缓冲，fsync 才更新 FAT 目录项中的文件大小
     if (fsync(fileno(s_file)) != 0)
     {
         s_errCount = s_errCount + 1;
@@ -316,7 +310,6 @@ static void pushToWsClients(const char* line, size_t len)
 
 static void logTask(void* arg)
 {
-    /* ⚠ 这条日志会入队自己，被下方循环收到后写入文件（无害） */
     ESP_LOGI(TAG, "log task started (internal RAM stack)");
     dumpEarlyToFile();
 
@@ -463,8 +456,7 @@ void LogService::start()
     s_oldVprintf = esp_log_set_vprintf(logVprintf);
     s_running = true;
 
-    /* ⚠ 必须 xTaskCreateStatic + 内部 RAM 静态栈（见 s_logStack 注释）：
-     * 普通 xTaskCreate 栈落 PSRAM，写 flash 禁 cache 期间访问 = 崩 */
+    // LogTask 必须用 xTaskCreateStatic + 内部 RAM 静态栈（写 flash 禁 cache 期间访问 PSRAM 会崩）
     s_task = xTaskCreateStatic(logTask, "logTask",
                                sizeof(s_logStack) / sizeof(StackType_t),
                                nullptr, Task::Priority::Deamon,
@@ -530,9 +522,7 @@ bool LogService::readTail(char* buf, size_t bufSize, size_t maxLines)
         portEXIT_CRITICAL(&s_earlyMux);
         if (pos == 0) { buf[0] = '\0'; return true; }
 
-        /* ⚠ 早期缓冲以 '\0' 分隔行（enqueue 写入 s_earlyBuf[pos+len]='\0'，非 '\n'）——
-         *   原按 '\n' 查找导致 maxLines 截断失效（整段被当一行）+ 崩溃 backtrace
-         *   内含 '\n' 时误切行。此处按 '\0' 对齐写入侧。 */
+        // 早期缓冲以 '\0' 分隔行（非 '\n'）
         size_t start = 0, nl = 0;
         for (long i = (long)pos - 1; i >= 0 && nl < maxLines; i--)
         {
@@ -706,10 +696,7 @@ void LogService::setTagLevel(const char* tag, int level)
 void LogService::clearTagLevel(const char* tag)
 {
     if (!tag || !tag[0]) return;
-    // ⚠ 恢复为当前全局级别而非 ESP_LOG_NONE：esp_log 中 tag 级别优先于 "*" 级别，
-    //   置 NONE 会让该 tag 日志彻底静默（即使全局级别允许也不产生），
-    //   与"清除 tag 过滤"语义不符。注意：清除后再改全局级别不会联动本 tag
-    //   （esp_log 固有覆盖语义，可接受）。
+    // 恢复为当前全局级别而非 ESP_LOG_NONE（tag 级别优先于 "*" 级别）
     int global = getGlobalLevel();
     esp_log_level_set(tag, (global >= 0 && global <= 5) ? (esp_log_level_t)global : ESP_LOG_INFO);
 

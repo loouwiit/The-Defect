@@ -10,8 +10,7 @@ public:
 		rtosMutex = xSemaphoreCreateMutex();
 	}
 
-	// ⚠ 互斥锁不可拷贝/移动：句柄按值拷贝 + 临时对象析构 vSemaphoreDelete
-	//   会留下悬空句柄（UAF）→ 后续 lock() 在已释放队列上 assert 崩溃。
+	// 互斥锁不可拷贝/移动：句柄按值拷贝 + 临时对象析构 → 悬空句柄
 	Mutex(const Mutex&) = delete;
 	Mutex& operator=(const Mutex&) = delete;
 	Mutex(Mutex&&) = delete;
@@ -19,10 +18,7 @@ public:
 
 	~Mutex()
 	{
-		// ⚠ 析构前确保无并发持有者：非递归锁阻塞 take 直到独占（当前调用方须未持有
-		//   该锁，否则同任务重复 take 永久阻塞——本仓库 Mutex 均为常驻单例，不会触发）。
-		//   原实现 `while (take != pdTRUE) vTaskDelay(1)` 中 take 用 portMAX_DELAY 永不返回
-		//   非 pdTRUE → 循环体为死代码，已简化。
+		// 析构前确保无并发持有者（非递归锁 take 会阻塞直到独占）
 		xSemaphoreTake(rtosMutex, portMAX_DELAY);
 		vSemaphoreDelete(rtosMutex);
 	}
@@ -56,7 +52,7 @@ public:
 		rtosMutex = xSemaphoreCreateRecursiveMutex();
 	}
 
-	// ⚠ 同上：不可拷贝/移动（悬空句柄 UAF）
+	// 不可拷贝/移动（悬空句柄 UAF）
 	RecursiveMutex(const RecursiveMutex&) = delete;
 	RecursiveMutex& operator=(const RecursiveMutex&) = delete;
 	RecursiveMutex(RecursiveMutex&&) = delete;
@@ -64,8 +60,7 @@ public:
 
 	~RecursiveMutex()
 	{
-		// ⚠ 阻塞 take 直到独占（析构前提：当前调用方未持有；递归锁可安全重复 take
-		//   计数归零后删除）。原实现 while 循环体为死代码，已简化。
+		// 阻塞 take 直到独占，递归锁可安全重复 take 计数归零后删除
 		xSemaphoreTakeRecursive(rtosMutex, portMAX_DELAY);
 		vSemaphoreDelete(rtosMutex);
 	}

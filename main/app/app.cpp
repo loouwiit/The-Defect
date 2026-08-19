@@ -6,9 +6,7 @@ App::App(Display* display) :
 	display{ display },
 	screen{ nullptr }
 {
-	// ⚠ 构造可能发生在任意线程（app_main / BLE task / Task daemon / deleteApp task），
-	//   而 LVGL worker 此时并发渲染 → 创建/修改对象树必须持 LVGL 锁（本仓库锁纪律）。
-	//   原实现直接在初始化列表 lv_obj_create 裸操作，是随机 UI 崩溃的潜在来源。
+	// 构造可能发生在任意线程，创建 LVGL 对象须持锁
 	if (auto guard = display->lockGuard())
 	{
 		screen = lv_obj_create(nullptr);

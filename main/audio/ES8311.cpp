@@ -60,8 +60,7 @@ bool ES8311::init(IIC& iic, Config config)
 	// ── 2. 创建 Codec 接口 ────────────────────────────────
 	ESP_LOGI(TAG, "创建 Codec 接口");
 
-	// ⚠ 后续任一创建失败必须清理已创建的 I2S 通道：原实现直接 return false，
-	//   txHandle 泄漏（失败重试每次泄漏一个 I2S 通道）。
+	// 后续任一创建失败必须清理已创建的 I2S 通道
 	auto failCleanup = [&](const char* what) -> bool {
 		ESP_LOGE(TAG, "%s", what);
 		if (txHandle) {

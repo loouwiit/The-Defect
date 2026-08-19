@@ -246,8 +246,6 @@ size_t OtaManager::getUpdatePartitionSize()
 esp_err_t OtaManager::precheckImage(const uint8_t* header, size_t headerLen)
 {
 	// 头不够覆盖整个 app_desc → 无法预检，拒绝
-	// ⚠ 原 AppDescOffset + 8（40B）过松：strncmp(desc->version) 需要完整 app_desc
-	//   （约 96B），40~95B 区间读到的是静态缓冲未初始化区域（防御性不足）。
 	if (header == nullptr || headerLen < HeaderReadSize)
 		return ESP_ERR_INVALID_ARG;
 
@@ -260,7 +258,7 @@ esp_err_t OtaManager::precheckImage(const uint8_t* header, size_t headerLen)
 	if (desc->magic_word != ESP_APP_DESC_MAGIC_WORD)
 		return ESP_ERR_IMAGE_INVALID;
 
-	// 版本防重烧：与 last_invalid（曾升级失败的槽）同版本 → 拒绝
+	// 版本防重烧：与 last_invalid 同版本 → 拒绝
 	const esp_partition_t* invalid = esp_ota_get_last_invalid_partition();
 	if (invalid != nullptr)
 	{
@@ -329,8 +327,7 @@ esp_err_t OtaManager::finish(void* handle)
 	if (err != ESP_OK)
 	{
 		ESP_LOGE(TAG, "esp_ota_end 校验失败: %s", esp_err_to_name(err));
-		// ⚠ 校验失败必须清除 pending：否则重启后 checkRollback 会把"升级失败未切换"
-		//   误报为一次回滚事件（last_rollback）。abort() 路径同样清除。
+		// 校验失败必须清除 pending，防止重启后误报为回滚事件
 		otaNvsEraseKey(NvsKeyPendingSlot);
 		return err;
 	}

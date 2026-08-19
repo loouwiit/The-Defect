@@ -160,9 +160,7 @@ void LuaGameApp::init()
     registerBindings();
 
     // 5. 加载脚本
-    // ⚠ 顶层代码同样需要看门狗：恶意脚本顶层 `while true do end` 会永久占住
-    //    daemon 线程（loadScript 的 lua_pcall 执行顶层代码）。预算放宽到帧预算 20 倍
-    //    （2 亿条，正常顶层定义数十行；恶意死循环 ~2s 内被中断）。
+    // 顶层代码同样需要看门狗（恶意脚本 while true do end 会永久占住线程）
     lua_State* L = m_lua.state();
     if (L) lua_sethook(L, luaWatchdogHook, LUA_MASKCOUNT, kMaxInstructionsPerFrame * 20);
     bool loaded = false;
@@ -183,8 +181,6 @@ void LuaGameApp::init()
     m_luaReady = true;
 
     // 6. 调用 setup()（可选）——同样装看门狗
-    // ⚠ 返回值必须检查：setup 内运行时错误（nil 访问 / 看门狗中断）若被吞掉，
-    //    游戏会在未初始化状态下进入循环，产生难排查的后续行为异常。
     if (m_lua.hasFunction("setup")) {
 		if (L) {
 			// 清零 sleep 预算（setup 内 sleep 独立于每帧预算）
@@ -274,19 +270,13 @@ void LuaGameApp::onBackground()
 
 // ============================================================
 //  onGamepadInput — 缓存输入快照
-//  ⚠ 仅接收本机（hostId=0）输入：远程联机（hostId 1-3）的手柄输入不进入 Lua 游戏
-//    （设计取舍：Lua 游戏为单人本地体验；ConsoleManager 联机面向 ELF 多人游戏）。
-// ============================================================
+//  仅接收本机（hostId=0）输入：Lua 游戏为单人本地体验
 
 void LuaGameApp::onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state)
 {
     if (hostId != 0 || playerId >= MaxPlayers) return;
     m_inputs[playerId] = state;
 }
-
-// ============================================================
-//  游戏循环（C++ Task 驱动，60fps）
-// ============================================================
 
 void LuaGameApp::loopTaskFunc(void* param)
 {
@@ -344,21 +334,14 @@ void LuaGameApp::gameLoop()
     if (last == 0 || dt < 0.1f) dt = 16.0f;     // 初始值
     if (dt > 100.0f) dt = 16.0f;   // 防止跳帧
 
-    // 系统浮层（AI 助手 / 低电量弹窗）显示时独占输入：Lua 一律看到中立输入。
-    // ⚠ 与 VirtualGamepad::dispatchTask 的门控语义保持一致——dispatch 已拦截
-    //    onGamepadInput（手柄不会再写入 m_inputs），但触摸快照是直读
-    //    GT911Indev::getSlots() 的"原始输入"，不经 dispatch：浮层上触摸/按键
-    //    若不在此拦截会穿透进 Lua 游戏（AI 键盘打字时游戏被误触的根因）。
-    //    同时清空 m_inputs 实时缓冲，防止浮层关闭后残留按压被采样进快照
-    //    （浮层期间 dispatch 门控不写 m_inputs，最后按压值会滞留）。
+    // 系统浮层（AI 助手 / 低电量弹窗）显示时独占输入：Lua 一律看到中立输入
+    // 触摸快照是直读 GT911Indev::getSlots()，需在此拦截防穿透
     const bool overlayVisible =
         AiAgentOverlay::instance().isVisible() ||
         BatteryMonitor::instance().isAlertShown();
 
     if (overlayVisible) {
-        // 手柄 + 触摸快照全部置中（prev/cur 同步清空：is_just_pressed 恒 false）。
-        // ⚠ 必须用 GamepadState{} 值构造（dpad=15 松开 / 摇杆 128），
-        //   memset(0) 会把 dpad 置 0=「上」被按下，等于伪造输入。
+        // 手柄 + 触摸快照全部置中（prev/cur 同步清空：is_just_pressed 恒 false）
         for (int i = 0; i < MaxPlayers; i++) {
             m_inputs[i]      = GamepadState{};
             m_frameInputs[i] = GamepadState{};
@@ -368,12 +351,7 @@ void LuaGameApp::gameLoop()
         memset(m_touchCtx.prevDown, 0, sizeof(m_touchCtx.prevDown));
         m_touchCtx.downCount = 0;
     } else {
-        // 更新输入上下文（先归档上一帧快照，再刷新当前帧快照）
-        // ⚠ 归档+采样须在游戏循环 Task 内完成（与 updateTouchSnapshot 同款）：
-        //   若直接 memcpy(m_prevInputs, m_inputs)，dispatch Task 并发写入的按键
-        //   上升沿可能"归档前已写入"→ prev 已按下 → is_just_pressed 整个按键期间
-        //   恒 false，本次按下被吸收永不触发（颜色切换/退出偶发失效的根因）。
-        //   帧快照模式下最坏延迟 1 帧捕获，边沿不丢失。
+        // 更新输入上下文（帧快照模式：先归档上一帧快照，再刷新当前帧快照）
         memcpy(m_prevInputs, m_frameInputs, sizeof(m_prevInputs));
         memcpy(m_frameInputs, m_inputs, sizeof(m_frameInputs));
 
@@ -399,9 +377,7 @@ void LuaGameApp::gameLoop()
         lua_State* L = m_lua.state();
         if (L) {
             lua_pushnumber(L, dt);
-            // ⚠ 每帧清零 sleep 预算（l_thread_sleep 按帧累计，注释契约由本帧负责重置）。
-            //   若不重置：预算跨帧无限累计，任何在 loop(dt) 内调用 thread.sleep() 的
-            //   合法游戏累计 500ms 后被误杀（sleep budget exceeded）退出。
+            // 每帧清零 sleep 预算
             lua_pushinteger(L, 0);
             lua_setfield(L, LUA_REGISTRYINDEX, "LUA_THREAD_SLEEP_BUDGET");
             // 安装防死循环看门狗（指令计数 hook），调用返回后移除
@@ -488,16 +464,6 @@ void LuaGameApp::requestExit()
         return Task::infinityTime;
         }, "luaGameExit", this, 0, Task::Affinity::None);
 }
-
-// ============================================================
-//  restart — 已删除（死代码）
-//  ⚠ 原实现有竞态：requestExit() 以 0 延迟调度 popApp（daemon 线程），而 restart 只等
-//    游戏线程退出就 replaceWith 新实例——popApp 可能在新实例入栈后才执行，把刚启动的
-//    新游戏弹掉。全仓无调用方，删除以避免误导。
-// ============================================================
-// ============================================================
-//  更新状态显示
-// ============================================================
 
 void LuaGameApp::updateStatus()
 {

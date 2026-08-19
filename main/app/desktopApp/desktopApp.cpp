@@ -94,8 +94,6 @@ void DesktopApp::init()
 			char buf[8]{};
 			strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
 			lv_label_set_text(self->m_timeLabel, buf);
-			// ⚠ 必须记录已显示时间：原实现缺少赋值 → 每秒都重写标签（浪费），
-			//   且每天 00:00（hour==0 && min==0）整分钟被跳过不刷新
 			self->showedTime = timeinfo;
 		}, 1000, this);
 	lv_timer_ready(m_timeTimer); // 首帧立即触发
@@ -111,15 +109,13 @@ void DesktopApp::init()
 		}, 5000, this);
 	updateBatteryIcon();
 
-	// ELF 卡片由 onForeground 的 syncElfCards 差量同步插入（桌面 push 后必调 onForeground）
-	// ⚠ 不再在此启动后台 startElfScan：与 syncElfCards 功能重复，并发会插出重复卡片
+	// ELF 卡片由 onForeground 的 syncElfCards 差量同步插入
 
 	ESP_LOGI(TAG, "桌面初始化完成");
 }
 
 void DesktopApp::deinit()
 {
-	// ⚠ lv_timer_del 与 LVGL 任务并发（deleteApp task 无锁运行）→ 必须持锁
 	if (m_timeTimer || m_batteryTimer || m_volumeSliderTimer || m_brightnessSliderTimer)
 	{
 		auto guard = display->lockGuard();
@@ -133,8 +129,7 @@ void DesktopApp::deinit()
 			lv_timer_del(m_batteryTimer);
 			m_batteryTimer = nullptr;
 		}
-		// ⚠ 音量/亮度滑块定时器（200ms 周期）也是 LVGL 全局注册，不随 screen 删除：
-		//   桌面在滑块打开状态被销毁时，回调会访问已析构 this → UAF。必须同款清理。
+		// 音量/亮度滑块定时器也是 LVGL 全局注册，不随 screen 删除
 		if (m_volumeSliderTimer)
 		{
 			lv_timer_del(m_volumeSliderTimer);
@@ -436,11 +431,9 @@ lv_obj_t* DesktopApp::createCardObject(int idx)
 
 void DesktopApp::addElfCard(const ElfManager::ScanEntry& e)
 {
-	auto guard = display->lockGuard();   // 数据 + LVGL 对象须在锁内
+	auto guard = display->lockGuard();
 
 	// 防重复：同 elfPath 卡片已存在 → 跳过
-	// ⚠ 检查必须在锁内：onForeground 的 syncElfCards 与 init 的后台 elfScanTask 并发时，
-	//   若检查在锁外，两个任务会先后通过检查再各自持锁插入 → 首启动出现重复卡片
 	for (const auto& c : m_cards)
 		if (c.kind == CardKind::Elf && strcmp(c.elfPath, e.path) == 0)
 			return;
@@ -1082,8 +1075,7 @@ void DesktopApp::showBrightnessSlider()
 	lv_obj_move_to_index(m_brightnessSlider, lv_obj_get_index(m_brightnessLabel) + 1);  // 动态定位到亮度标签之后
 	lv_obj_add_event_cb(m_brightnessSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-		// ⚠ 收起动画期间 m_brightnessSlider 已置空但对象仍存活可触摸（deleted_cb 才异步删除），
-		//   直接 lv_slider_get_value(NULL) 崩溃。
+		// 收起动画期间 m_brightnessSlider 已置空但对象仍存活
 		if (!self->m_brightnessSlider) return;
 		int val = lv_slider_get_value(self->m_brightnessSlider);
 		self->display->setBrightness(val);
@@ -1193,7 +1185,7 @@ void DesktopApp::showVolumeSlider()
 	lv_obj_move_to_index(m_volumeSlider, lv_obj_get_index(m_volumeLabel) + 1);  // 动态定位到音量标签之后
 	lv_obj_add_event_cb(m_volumeSlider, [](lv_event_t* e) {
 		auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-		// ⚠ 收起动画期间 m_volumeSlider 已置空但对象仍存活可触摸（deleted_cb 才异步删除）
+		// 收起动画期间 m_volumeSlider 已置空但对象仍存活
 		if (!self->m_volumeSlider) return;
 		int val = lv_slider_get_value(self->m_volumeSlider);
 		Audio::setMasterVolume(val);

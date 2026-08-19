@@ -35,8 +35,7 @@ public:
 
 	AppStackManager(AppStackManager& copy) = delete;
 	AppStackManager& operator=(AppStackManager& copy) = delete;
-	// ⚠ 不可移动：成员 RecursiveMutex 无移动语义，隐式移动会按值拷贝句柄 +
-	//   临时对象析构删除句柄 → 悬空锁 panic（曾由 main.cpp 的 std::move 赋值触发）。
+	// 不可移动：成员 RecursiveMutex 无移动语义，隐式移动会按值拷贝句柄 → 悬空锁
 	AppStackManager(AppStackManager&& move) = delete;
 	AppStackManager& operator=(AppStackManager&& move) = delete;
 
@@ -68,7 +67,7 @@ private:
 	Display* m_display{};
 	std::vector<AppStack*> m_stacks;
 	AppStack* m_activeStack{};
-	RecursiveMutex m_mutex;   // ⚠ 递归锁：持锁期间 push 的 App::init() 可再调 pushApp
+	RecursiveMutex m_mutex;
 
 	static constexpr char TAG[] = "AppStackManager";
 };

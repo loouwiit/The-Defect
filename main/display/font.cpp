@@ -100,9 +100,7 @@ const lv_font_t* FontLoader::getDefault(FontSize size)
 
 bool FontLoader::setDefault(const lv_font_t* font, FontSize size)
 {
-	// ⚠ 失败加载（esp_lv_adapter_ft_font_init 返回 nullptr）不得占用空槽：
-	//   原实现 `|| s_fonts[i].font == nullptr` 会把后续字号错配（Small 请求拿到 Medium 字体），
-	//   且 getDefault(Small) 可能返回 nullptr → 调用方解引用崩溃。
+	// 失败加载（nullptr）不得占用空槽（会导致字号错配）
 	if (!font)
 	{
 		ESP_LOGW(TAG, "setDefault 收到 null 字体（size=%d），不占用槽位", (int)size);

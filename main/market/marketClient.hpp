@@ -198,8 +198,7 @@ private:
         if (contentLen > 0 && offset < (size_t)contentLen)
             truncated = true;
 
-        // ⚠ 截断必须判失败：原实现 (offset > 0) 把截断数据报成功 → >2MB 的 ELF 插件
-        //   会被静默装成损坏文件（桌面 dlopen 才暴露）。
+        // 截断必须判失败（防止装成损坏文件）
         bool ok = (offset > 0) && !truncated;
         if (ok) {
             outBody.assign(buf, offset);

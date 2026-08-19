@@ -38,12 +38,7 @@ void MarketApp::setStatus(const char* text, lv_color_t color)
 	lv_obj_set_style_text_color(m_statusLabel, color, 0);
 }
 
-// ============================================================
-//  cleanupLegacyFlatFiles — 清理旧版扁平市场文件
-// ============================================================
-
-// 旧版把市场游戏存为 /root/lua/market/<id>.lua 扁平文件，直接删除不做迁移。
-// 新结构为 /root/lua/market/<作者>/<游戏>/，此处仅清理顶层 .lua，不动作者子目录。
+// cleanupLegacyFlatFiles — 清理旧版扁平市场文件（顶层 .lua）
 void MarketApp::cleanupLegacyFlatFiles()
 {
 	DIR* d = opendir("/root/lua/market");
@@ -226,8 +221,8 @@ void MarketApp::confirmServerDialog()
 		return;
 	}
 
-	// 更新内存地址并重新拉取（等效连接测试）
-	// ⚠ m_serverUrl 的写须在锁内：fetchList 回调在锁内读取，避免跨任务数据竞争
+	// 更新内存地址并重新拉取
+	// m_serverUrl 的写须在锁内：fetchList 回调在锁内读取
 	if (auto g = display->lockGuard()) {
 		m_serverUrl = url;
 		setStatus(("服务器: " + url).c_str(), GUI::Color::SUBTLE);
@@ -386,14 +381,9 @@ void MarketApp::init()
 	ESP_LOGI(TAG, "MarketApp 初始化完成, server=%s", m_serverUrl.c_str());
 }
 
-// ============================================================
-//  deinit / onForeground / onBackground
-// ============================================================
-
 void MarketApp::deinit()
 {
-	// ⚠ LVGL 操作（hideServerDialog 内部 lv_obj_del）须持锁：
-	//   deleteApp task 与 LVGL task 并发；hideServerDialog 内部自带递归锁，嵌套安全
+	// 关闭服务器编辑弹窗（lv_layer_top 上创建，App screen 删除不会自动清理）
 	{
 		auto guard = display->lockGuard();
 		// 关闭服务器编辑弹窗（lv_layer_top 上创建，App screen 删除不会自动清理）
@@ -434,22 +424,17 @@ void MarketApp::fetchList()
 	auto guard = display->lockGuard();
 	if (guard) setStatus("连接服务器中...", GUI::Color::SUBTLE);
 
-	// ⚠ 捕获发起时的服务器地址：弹窗期间改地址后旧响应不得覆盖新状态
+	// 捕获发起时的服务器地址，弹窗期间改地址后旧响应不得覆盖新状态
 	std::string url = m_serverUrl;
 	MarketClient::fetchList(url,
 		[this, url](bool ok, std::vector<MarketScript> list, const std::string& err) {
-			// ⚠ 回调在 daemon 任务执行，App 可能已被 pop + delete（UAF）。
-			//   deleteApp 流程：deinit（running=false）→ waitDispatchIdle → 持锁 delete。
-			//   此处先无锁快速检查 running（deinit 后 99% 提前返回）；再取锁复查。
-			//   注意局限：若 delete 恰在取锁前完成，锁内访问 this 仍可能 UAF
-			//   （lockGuard 是阻塞的，delete 也在锁内）——此模式只能缩小窗口不能根治；
-			//   实践中下载/列表回调多在用户停留期间完成，窗口极小。
+			// 回调在 daemon 任务执行，先检查 running 防 UAF
 			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
-			if (!running) return;   // 已 deinit
+			if (!running) return;
 
-			// ⚠ 竞态防护：请求期间服务器地址被修改（编辑弹窗确认）→ 丢弃旧响应，用新地址重拉
+			// 竞态防护：请求期间服务器地址被修改 → 丢弃旧响应，用新地址重拉
 			if (url != m_serverUrl) {
 				m_loading = false;
 				fetchList();
@@ -722,9 +707,7 @@ void MarketApp::processThumbQueue()
 
 	MarketClient::downloadFile(url, imgRel, path,
 		[this, idx, path](bool ok, const std::string& /*err*/) {
-			// ⚠ 回调在 daemon 任务执行，App 可能已被 delete（UAF）：
-			//   先无锁快速检查 running（deinit 已置 false 提前返回），再取锁复查。
-			//   局限：delete 恰在取锁前完成时锁内仍可能 UAF（窗口极小，见 fetchList 注释）
+			// 回调在 daemon 任务执行，先检查 running 防 UAF
 			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
@@ -964,7 +947,7 @@ void MarketApp::loadScreenshot(const MarketScript& s)
 	std::string url = m_serverUrl;
 	MarketClient::downloadFile(url, s.screenshot, m_detailImagePath,
 		[this](bool ok, const std::string& /*err*/) {
-			// ⚠ 先快速检查 running 再取锁（防 App 已 delete 的 UAF），见 fetchList 注释
+			// 先检查 running 防 UAF
 			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
@@ -1016,7 +999,7 @@ void MarketApp::download()
 	MarketClient::downloadScriptText(url, s.download,
 		[this, selIdx, wasDownloaded, id = s.id, author = s.author, download = s.download]
 		(bool ok, const std::string& content, const std::string& err) {
-			// ⚠ 先快速检查 running 再取锁（防 App 已 delete 的 UAF），见 fetchList 注释
+			// 先检查 running 防 UAF
 			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;
@@ -1152,7 +1135,7 @@ void MarketApp::downloadElf()
 	MarketClient::downloadFile(url, manifestRel, dir + "/manifest.json",
 		[this, selIdx, wasDownloaded, url, dir, mainName, soRel, iconRel, id = s.id, author = s.author]
 		(bool ok, const std::string& err) {
-			// ⚠ 先快速检查 running 再取锁（防 App 已 delete 的 UAF），见 fetchList 注释
+			// 先检查 running 防 UAF
 			if (!running) return;
 			auto g = display->lockGuard();
 			if (!g) return;

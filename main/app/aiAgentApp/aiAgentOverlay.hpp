@@ -15,8 +15,7 @@
  *
  * 唤出方式：
  * - 屏幕顶部下滑手势（由 gestureDetection Task 检测）
- * - 手柄 Y+X+B 组合键（⚠ 实现在 gestureTimerCb 检测 Y/X/B 三键同按；
- *   旧注释"SELECT+START"与实现不符，已更正）
+ * - 手柄 Y+X+B 组合键（实现在 gestureTimerCb 检测 Y/X/B 三键同按）
  * - 桌面 AI 卡片点击
  *
  * 布局（400×280）：
@@ -178,8 +177,7 @@ private:
         uint32_t seq{};   // 请求序号（丢弃过期响应用）
     };
 
-    // ⚠ 请求序号：hide() 清 m_isWaiting 允许新请求，但旧 HTTP 请求未取消——
-    //   无序号隔离时新旧响应并发回调会交错写 m_history / m_followUpCount / m_lastUserInput。
+    // 请求序号：隔离过期响应（hide() 清 m_isWaiting 允许新请求，旧 HTTP 请求未取消）
     uint32_t m_requestSeq{};
 };
 
