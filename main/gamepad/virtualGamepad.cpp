@@ -176,8 +176,10 @@ void VirtualGamepad::forwarderTask(void* arg)
 	auto& self = *static_cast<VirtualGamepad*>(arg);
 	self.forwarderLoop();
 	self.m_forwardThread = {};
-	while (true)
-		vTaskDelay(1000);
+	// ⚠ 自删任务不可再被调度：此前 `while (true) vTaskDelay(1000)` 死循环是残留死代码
+	//   （只执行一次 vTaskDelay 就永不复原）。直接挂起等同退出（m_forwardThread 已置空，
+	//   任务栈由 FreeRTOS 回收）。
+	vTaskSuspend(nullptr);
 }
 
 void VirtualGamepad::forwarderLoop()
@@ -195,9 +197,15 @@ void VirtualGamepad::forwarderLoop()
 			{
 				if (sock >= 0) udpInputCloseSocket(sock);
 				sock = udpInputCreateSocket(hostIp, 8082);
-				needCreateSocket = false;
+				// ⚠ 创建失败必须保留 needCreateSocket=true 下轮重试：原实现无条件置 false，
+				//   "will retry" 日志永不兑现——远程主机保持连接期间转发器永久死亡。
 				if (sock < 0)
+				{
 					ESP_LOGW(TAG, "create socket failed, will retry");
+					needCreateSocket = true;
+				}
+				else
+					needCreateSocket = false;
 			}
 
 			if (sock >= 0)
@@ -219,10 +227,13 @@ void VirtualGamepad::forwarderLoop()
 							last.lt != state.lt || last.rt != state.rt ||
 							last.dpad != state.dpad)
 						{
-							last = state;
 							uint8_t buf[11];
 							packFrame(buf, slot, p, state);
-							udpInputSend(sock, buf, 11);
+							// ⚠ 仅发送成功才更新去重基准：若在发送前记账（last = state），
+							//   UDP 丢包/发送失败时"按住不放"的按键变化被永久去重——主机侧
+							//   表现为按键根本没按下（60fps 输入流里真实功能缺陷）。
+							if (udpInputSend(sock, buf, 11))
+								last = state;
 						}
 					}
 				}
