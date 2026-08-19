@@ -146,9 +146,9 @@ resourse/
 | **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对 |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
-| | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → `lv_layer_sys` 弹窗 + 循环提示音，弹窗显示时屏蔽底层 App 输入 |
+| | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → SystemPopup 弹窗，弹窗显示时屏蔽底层 App 输入 |
 | | **SystemMonitor** | `main/monitor/` | 系统监视器：CPU 利用率 + 内存（内部 RAM/PSRAM 已用）+ 显示 FPS，串口输出 |
-| **GUI** | GUI | `main/gui/` | 色板（8 色）+ 16 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) |
+| **GUI** | GUI | `main/gui/` | 色板（8 色）+ 16 个工厂方法 (`createPage/Card/Flex/Button/Title/Switch/Slider` 等) + **SystemPopup** 系统弹窗服务 |
 | **存储** | FAT | `main/storage/fat.hpp` | FAT 分区 (16MB)，VFS `/root/`，文件/目录 CRUD |
 | | memFS | `main/storage/mem.hpp` | 内存文件系统 (6MB max)，VFS `/root/mem` |
 | | SD | `main/storage/sd.hpp` | SD 卡，VFS `/root/sd` |
@@ -201,7 +201,7 @@ class LuaRuntime {
 - `gameLoop()` 每帧在游戏循环 Task 内两步：`memcpy(m_prevInputs, m_frameInputs)` 归档上一帧快照 → `memcpy(m_frameInputs, m_inputs)` 刷新当前帧快照
 - Lua 绑定 `states/prevStates` 指向 `m_frameInputs`/`m_prevInputs`，边沿 `is_just_pressed = cur && !prev` 同源自洽
 - ⚠ 修复前直接 `memcpy(m_prevInputs, m_inputs)`：按键上升沿若在归档前已被 dispatch Task 写入 → `prev` 已按下 → 整个按键期间 `cur && !prev` 恒 false，**本次按下被吸收永不触发**（A 键切色/B 键退出偶发失效的根因）。帧快照模式下最坏延迟 1 帧捕获，边沿不丢失
-- **系统浮层门控**（AI Overlay `isVisible()` **或** 低电量弹窗 `BatteryMonitor::isAlertShown()`）：`gameLoop()` 每帧先判 `overlayVisible`，浮层可见时**手柄+触摸快照全部置中**（`GamepadState{}` 值构造 + `down/prevDown` 清空 + `downCount=0`，含清 `m_inputs` 实时缓冲防浮层关闭后残留按压泄漏），跳过采样——与 `VirtualGamepad::dispatchTask` 门控语义一致。⚠ 触摸快照直读 `GT911Indev::getSlots()` 是**原始输入**，不经 dispatch（dispatch 只拦手柄分发），浮层上触摸/按键若不在此拦截会穿透进 Lua 游戏（AI 键盘打字误触游戏）；⚠ 置中必须用 `GamepadState{}` 值构造（dpad=15 松开/摇杆 128），`memset(0)` 会把 dpad 置 0=「上」按下=伪造输入
+- **系统浮层门控**（AI Overlay `isVisible()` **或** `SystemPopup::instance().isShown()`）：`gameLoop()` 每帧先判 `overlayVisible`，浮层可见时**手柄+触摸快照全部置中**（`GamepadState{}` 值构造 + `down/prevDown` 清空 + `downCount=0`，含清 `m_inputs` 实时缓冲防浮层关闭后残留按压泄漏），跳过采样——与 `VirtualGamepad::dispatchTask` 门控语义一致。⚠ 触摸快照直读 `GT911Indev::getSlots()` 是**原始输入**，不经 dispatch（dispatch 只拦手柄分发），浮层上触摸/按键若不在此拦截会穿透进 Lua 游戏（AI 键盘打字误触游戏）；⚠ 置中必须用 `GamepadState{}` 值构造（dpad=15 松开/摇杆 128），`memset(0)` 会把 dpad 置 0=「上」按下=伪造输入
 ⚠ `LuaGameApp::init()` 的 `m_canvas` 须移除 `LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE`（`lv_obj_create` 默认可滚动+可点击，子对象越出画布边界时触摸拖拽会滚动整个画布——FruitNinja 画布同款处理；`LV_SCROLLBAR_MODE_OFF` 只隐藏滚动条，不防滚动）。
 
 ### Lua 沙箱（安全边界）
@@ -438,7 +438,7 @@ VirtualGamepad:
 | 掩码默认 | `{0x0F, 0x00, 0x00, 0x00}`（仅本机 P0-P3 启用；远程输入默认不进入本地游戏，由 ConsoleManager 打开后 `setAllMasks` 按用户配置覆盖） |
 | 掩码来源 | 主机由 ConsoleManager UI 控制；从机接收主机下发的反码 |
 | AI Overlay | `isVisible()` 时跳过分发，AI 独占输入 |
-| 系统浮层屏蔽 | AI Overlay `isVisible()` **或** 低电量弹窗 `BatteryMonitor::isAlertShown()` 时跳过分发，底层 App 不收输入 |
+| 系统浮层屏蔽 | AI Overlay `isVisible()` **或** `SystemPopup::instance().isShown()` 时跳过分发，底层 App 不收输入 |
 | 从机转发 | forwarderThread 后检查 `~m_hostMask[0] & 0x0F` 决定转发哪些玩家到主机 |
 | 传输方式 | UDP（11 字节/帧），持久 socket `connect()` + `send()`，零创建开销 |
 | 注入去重 | 状态未变化时不转发（forwarder 侧有 `m_lastForwarded` 去重） |
@@ -452,7 +452,7 @@ VirtualGamepad:
 **`onGamepadInput` 签名**:
 ```cpp
 // hostId: 0=本机, 1-3=从机；playerId: 设备上的手柄编号 (0-3)
-virtual void onGamepadInput(int8_t hostId, int8_t playerId, const GamepadState& state);
+virtual void onGamepadInput(uint8_t hostId, uint8_t playerId, const GamepadState& state);
 ```
 
 **掩码语义**（由 ConsoleManager 控制，wsConsoleHandler 广播到从机）：
@@ -1207,7 +1207,7 @@ class App {
 |-----|------|------|
 | **BleSettingsApp** | `main/app/bleSettingsApp/` | BLE 手柄扫描/连接/断开/删除配对，NVS 持久化 |
 | **WifiSettingsApp** | `main/app/wifiSettingsApp/` | WiFi AP 扫描/连接/断开，密码输入键盘 |
-| **TimeSettingsApp** | `main/app/timeSettingsApp/` | 手动调时 / SNTP 自动同步 / 时区设置 |
+| **TimeSettingsApp** | `main/app/timeSettingsApp/` | 手动调时 / SNTP 自动同步 / 立即同步 |
 | **PowerManagementApp** | `main/app/powerManagementApp/` | 主机+手柄电量显示 / 关机 (Deep-sleep) / 低功耗 |
 
 ### 其他
@@ -1523,9 +1523,10 @@ HTTP 服务器使用 6 个窗口作为工作者线程池。
 |-----|------|
 | `POST /api/ota` | **流式写入 OTA 分区**（浏览器/curl 上传 `build/The-Defect.bin`，成功后 1s 自动重启） |
 | `GET /api/otaInfo` | JSON 状态：running/next 槽位 + 版本、last_invalid（失败槽）、last_rollback（NVS 记录）、各槽状态 |
-| `checkRollback()` | 启动早期（延迟 10s）比对 pending 槽 → 判定上次升级是否回滚（NVS 记录）。**不自动确认固件**——回滚确认全手动（见下） |
+| `checkRollback()` | 启动早期（延迟 10s）比对 pending 槽 → 判定上次升级是否回滚（NVS 记录）。填充 `OtaResult` 结构体供 main.cpp 弹窗用。**不自动确认固件**——回滚确认全手动（见下） |
 | `POST /api/ota/confirm` | **手动确认当前固件**：OTA 升级后的固件处于 `PENDING_VERIFY`（回滚窗口打开），用户验证正常后调用 → `esp_ota_mark_app_valid_cancel_rollback()` 标记 VALID 关闭窗口（无需重启） |
 | `POST /api/ota/setBoot` | 手动切换下次启动分区（body `{"slot":"ota_1","invalidate":false}`；`invalidate=true` 同时标记当前分区无效=手动回退；成功 1s 后重启） |
+| `getOtaResult()` | `checkRollback()` 后获取 OTA 结果（`OtaResult`：`hasEvent`/`rolledBack`/`pendingVerify`/`slot`/`version`/`pendingSlot`），供 main.cpp 弹窗 |
 
 **单例化**：
 - `instance()` 用 C++11 magic static（函数局部 static），**语言保证**首次构造仅一次 + 线程安全（并发调用者阻塞等待）
@@ -1843,7 +1844,7 @@ bgm.setLoop(true).setVolume(0.8).play();
 Audio::play("/root/sfx/click.wav").setVolume(0.5).detach();
 ```
 
-**移动语义**：`AudioHandle` 支持 move 构造/赋值（`std::swap(impl)`），返回值走 move 而非拷贝，规避旧版「局部 handle 析构误 stop」问题。持有句柄时可用 `handle = {}`（右值 → 移动赋值）把旧 `impl` 移交临时对象，临时析构按绑定模式触发 `stop()` —— **即用此模式停止循环播放**（如 BatteryMonitor 关闭弹窗 `alertAudio = {}` 停止循环提示音）。
+**移动语义**：`AudioHandle` 支持 move 构造/赋值（`std::swap(impl)`），返回值走 move 而非拷贝，规避旧版「局部 handle 析构误 stop」问题。持有句柄时可用 `handle = {}`（右值 → 移动赋值）把旧 `impl` 移交临时对象，临时析构按绑定模式触发 `stop()` —— **即用此模式停止循环播放**（如 SystemPopup 关闭弹窗 `alertAudio = {}` 停止循环提示音）。
 
 **依赖组件**: `esp_codec_dev`, `esp_audio_codec`, `esp_audio_render`, `gmf_audio`, `esp_audio_effects`
 
@@ -2045,19 +2046,63 @@ class BatteryManager {
 
 **模块路径**: `main/battery/batteryMonitor.hpp` / `.cpp`
 
-系统级单例：周期 Task（15s）轮询主机 `BatteryManager` 与 4 个手柄槽位 `BleGamepad`，单阈值穿越判定后弹出 `lv_layer_sys()` 系统级弹窗（列出所有低电量设备）+ 循环提示音。
+系统级单例：周期 Task（15s）轮询主机 `BatteryManager` 与 4 个手柄槽位 `BleGamepad`，单阈值穿越判定后通过 **SystemPopup** 弹出系统级弹窗（列出所有低电量设备）+ 循环提示音。
 
 | 项 | 说明 |
 |----|------|
 | 阈值 | 主机 `kHostLowPercent=20`、手柄 `kPadLowPercent=20`（constexpr 可调）；连续 2 次低于阈值确认防抖 |
-| 弹窗 | `lv_layer_sys()` 全屏半透明遮罩（拦截底层触摸）+ 居中卡片（⚠「电量不足」+ 每行设备 + [知道了]） |
-| 关闭 | [知道了] 按钮 或 任意手柄新按键（`VirtualGamepad::getState(0,p)` 边沿检测，100ms LVGL 定时器） |
+| 弹窗 | 通过 `SystemPopup::instance().show(kBattery, ...)` 弹出（accent=DANGER，footer="请及时充电…"，playAlertSound=newlyAlerted） |
+| 关闭 | SystemPopup 管理（[知道了] 按钮 或 任意手柄新按键）；`onDismiss` 回调标记当前设备 `dismissed` |
 | 仅提醒一次（按设备） | 每源 `alerted`+`dismissed`；用户关闭仅影响当前设备，其他设备后续掉电仍触发提醒；充电/回升/断连 → 该源复位 |
-| 输入屏蔽 | 弹窗显示时 `isAlertShown()` → VirtualGamepad 停止向底层 App 分发（同 AI Overlay 门控） |
-| 提示音 | `AudioHandle alertAudio` 持有循环播放 `/root/system/music/alert.aac`；关闭弹窗 `alertAudio = {}`（移动赋值）停止 |
-| 接线 | `main.cpp`：`AiAgentOverlay::start()` 之后 `BatteryMonitor::instance().start(&display)` |
+| 输入屏蔽 | 弹窗显示时 `SystemPopup::isShown()` → VirtualGamepad 停止向底层 App 分发（同 AI Overlay 门控） |
+| 接线 | `main.cpp`：`SystemPopup::start()` 之后 `BatteryMonitor::instance().start(&display)` |
 
-**状态机（每源）**：`low`（当前低于阈值，主机还需非充电）+ `alerted`（已提醒）+ `dismissed`（用户已关闭）+ `confirmTicks`。`tick()` 每周期读电量 → 更新状态机 → 汇总「低电 && 已触发 && 未关闭」设备 → 更新弹窗；`newlyAlerted`（新设备触发）时播放提示音。
+**状态机（每源）**：`low`（当前低于阈值，主机还需非充电）+ `alerted`（已提醒）+ `dismissed`（用户已关闭）+ `confirmTicks`。`tick()` 每周期读电量 → 更新状态机 → 汇总「低电 && 已触发 && 未关闭」设备 → 通过 SystemPopup 更新弹窗；`newlyAlerted` 时 playAlertSound=true 触发提示音。
+
+### SystemPopup — 通用系统弹窗服务（lv_layer_sys）
+
+**模块路径**: `main/gui/systemPopup.hpp` / `.cpp`
+
+系统级单例，提供 FIFO 队列管理的 `lv_layer_sys()` 弹窗。任意模块通过唯一 Key 显示弹窗，同 key 幂等更新内容；多弹窗时按 FIFO 顺序排队（上限 `kMaxQueue=4`），前一个关闭后自动显示下一个。
+
+```cpp
+class SystemPopup {
+public:
+    using Key = const char*;
+    static constexpr Key kBattery = "battery";
+    static constexpr Key kOta      = "ota";
+
+    struct Options {
+        lv_color_t            accent{ GUI::Color::PRIMARY };
+        const char*           buttonText{ "知道了" };
+        const char*           footerText{ "" };
+        bool                  playAlertSound{ false };
+        std::function<void()> onDismiss{ nullptr };
+    };
+
+    static SystemPopup& instance();
+    bool start(Display* display);
+    void stop();
+    void show(Key key, const char* title, const char* body, const Options& opts = {});
+    void hide(Key key, bool userDismiss = true);
+    bool isShown() const;   // std::atomic，60fps 门控零锁读取
+};
+```
+
+| 项 | 说明 |
+|----|------|
+| 构建 | 建在 `lv_layer_sys()` 上：全屏遮罩 + 居中卡片（标题/正文/可选 footer/按钮） |
+| 幂等更新 | `show()` 同 key 已显示 → 原地更新标题、正文、footer、accent 色 |
+| 队列 | 多弹窗排队（FIFO），当前弹窗关闭后显示下一项 |
+| 关闭 | [知道了] 按钮 或 任意手柄按键（100ms 边沿检测定时器） |
+| 提示音 | `playAlertSound=true` 时循环播放 `/root/system/music/alert.aac`，关闭时 `alertAudio = {}`（移动赋值）停止 |
+| 回调 | `onDismiss` 在用户操作（按钮/手柄）关闭时触发；`hide(key, false)` 自动隐藏不触发 |
+| 输入屏蔽 | `isShown()` 返回 true → VirtualGamepad dispatchTask / LuaGameApp gameLoop 停止向底层 App 分发 |
+| 线程安全 | `show()`/`hide()` 任意线程调用（内部 `Mutex` + `lockGuard`） |
+
+**使用方**：
+- `BatteryMonitor::tick()` → `show(kBattery, ...)` / `hide(kBattery, false)`
+- `main.cpp` OTA 延迟任务 → `show(kOta, ...)` 提示升级结果
 
 ### SystemMonitor — 系统监视器（CPU + 内存 + FPS）
 
@@ -2185,7 +2230,7 @@ LogTask（独立低优先级任务，内部 RAM 静态栈）
 
 **⚠ coredump 读取必须经 `OtaManager::runInInternalStack` + 内部 RAM 块缓冲**：
 - 读 flash 分区（非 mmap）会 `spi_flash_disable_interrupts_caches_and_other_cpu`，coWorker 栈在 PSRAM = 崩
-- `s_coredumpChunk[4096]` 静态 `.bss`（不加 `EXT_RAM_BSS_ATTR`）在内部 RAM，分块读入中转后拷贝 PSRAM 缓冲发送
+- `s_coredumpChunk[16 * 1024]` 静态 `.bss`（不加 `EXT_RAM_BSS_ATTR`）在内部 RAM，分块读入中转后拷贝 PSRAM 缓冲发送
 - 下载前检查 `OtaManager::isUpdating()`（与 OTA 串行，避免插队）
 - 分区第一个 4 字节 = 转储大小（`0xFFFFFFFF` = 空 → 404）
 
@@ -2379,6 +2424,7 @@ lvgl **9.5.0** / esp_lvgl_adapter **0.4.3~1** / esp_lv_decoder 0.4.3 / esp_webso
 ```
 Task::init(2)                           ← 协程调度器
 srand(esp_random())                     ← 随机种子（60s 周期）
+Task::addTask(TZ 设置)                  ← setenv("TZ","CST-8",1) + tzset()（时区固定东八区）
 
 SystemMonitor::instance().setBrief(true) ← 系统监视器（CPU + 内存 + FPS）
 SystemMonitor::instance().start(&display)
@@ -2387,7 +2433,7 @@ esp_event_loop_create_default()         ← 默认事件循环
 // ── 存储 ──
 mountFlash()                            ← FAT 分区 → /root/
 mountMem()                              ← 内存文件系统 → /root/mem
-mountSd()                               ← SD 卡 → /root/sd
+Task::addTask(mountSd)                  ← SD 卡挂载（后台异步，不阻塞启动）
 nvsInit()                               ← NVS 初始化
 
 // ── 日志重定向 + 崩溃检测（封壳设备远程调试） ──
@@ -2407,6 +2453,7 @@ display.bindDisplay()                   ← 绑定面板
 Touch::init(iic, ...)                   ← GT911 触摸（可选）
 GT911Indev::instance().start(...)       ← 五 indev 多指桥接（取代 bindTouch）
 display.start()                         ← LVGL worker task
+display.setFpsStatisticsEnabled()       ← 开启 FPS 统计（SystemMonitor 读取）
 
 // ── 屏幕串流 ──
 ScreenStream::instance().start(&display, 720, 1280)
@@ -2415,7 +2462,7 @@ ScreenStream::instance().start(&display, 720, 1280)
 FontLoader::load("F:system/NotoSC.ttf", 24)   ← Small
 FontLoader::load("F:system/NotoSC.ttf", 32)   ← Medium (Default)
 FontLoader::load("F:system/NotoSC.ttf", 56)   ← Large
-// 字体回退链
+// 字体回退链（逐个判空：load 失败回退 lv_font_get_default，防空指针解引用）
 const_cast...->fallback = lv_font_get_default();
 
 // ── 虚拟输入 ──
@@ -2441,12 +2488,17 @@ BleGamepad::instance().start(&display)
 // ── AI 助手浮动 Overlay ──
 AiAgentOverlay::instance().start(&display)
 
+// ── 系统弹窗服务（lv_layer_sys，队列管理，BatteryMonitor / OTA 弹窗共用） ──
+SystemPopup::instance().start(&display)
+
 // ── 低电量检测提醒（主机+手柄） ──
 BatteryMonitor::instance().start(&display)
 
 // ── 网络 ──
 wifiInit(true)                          ← 初始化（通过 C6）
 wifiStart()
+wifiNatSetAutoStart(true)               ← STA→AP NAT 自动转发
+TimeService::instance().start()         ← 全局时间同步（SNTP 一次性初始化，GOT_IP 自动同步）
 wifiStationStart(); wifiConnect(ssid, pass)
 if (!connected) wifiApStart()           ← 连接失败 → AP 模式
 mdnsInit(); mdnsStart(hostname, ...)
@@ -2459,7 +2511,7 @@ OtaManager::instance()                  ← 单例构造：内部 RAM 栈任务 
 Task::addTask(延迟 10s → checkRollback) ← OTA 启动检查：回滚判定 + 状态日志（注册点在启动流程末尾）
 serverStart()                           ← HTTP 端口 80
 wsServerStart()                         ← WebSocket 端口 8080
-wsServerRegisterWs("/ws/log", logWsHandler) ← 实时日志推送（诊断页订阅）
+wsServerRegisterWs("/ws/touch|/ws/stream|/ws/input|/ws/console|/ws/log") ← 5 个动态 URI（触摸注入/串流/输入/管理/日志）
 udpInputStart()                         ← UDP 端口 8082（P4→P4 手柄透传）
 
 // ⚠ 无主循环：app_main 至此返回（所有后台工作由独立 Task 承担：LVGL worker /
