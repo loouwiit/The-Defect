@@ -59,7 +59,7 @@ public:
 
 	/**
 	 * @brief 在 batteryIconLabel 上启动电池格数循环动画
-	 *        EMPTY→1→2→3→FULL→3→2→1→EMPTY→...
+	 *        EMPTY→1→2→3→FULL→EMPTY→...（(step+1)%5 循环取模，非 ping-pong）
 	 *        内部自动管理定时器生命周期，重复调用安全。
 	 */
 	static void startChargingAnim(lv_obj_t* batteryIconLabel);
