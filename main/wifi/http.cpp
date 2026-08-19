@@ -304,34 +304,34 @@ void HttpStringPair::clear()
 
 void HttpStringPair::setName(const char* name)
 {
+	// ⚠ 判空须在 strlen 之前：传 nullptr 时 strlen 直接崩
+	if (name == nullptr)
+	{
+		delete[] this->name;
+		this->name = nullptr;
+		return;
+	}
 	size_t lenght;
 	lenght = strlen(name) + 1;
 	delete[] this->name;
-	if (name != nullptr)
-	{
-		this->name = new char[lenght];
-		memcpy(this->name, name, lenght);
-	}
-	else
-	{
-		this->name = nullptr;
-	}
+	this->name = new char[lenght];
+	memcpy(this->name, name, lenght);
 }
 
 void HttpStringPair::setValue(const char* value)
 {
+	// ⚠ 判空须在 strlen 之前：传 nullptr 时 strlen 直接崩
+	if (value == nullptr)
+	{
+		delete[] this->value;
+		this->value = nullptr;
+		return;
+	}
 	size_t lenght;
 	lenght = strlen(value) + 1;
 	delete[] this->value;
-	if (value != nullptr)
-	{
-		this->value = new char[lenght];
-		memcpy(this->value, value, lenght);
-	}
-	else
-	{
-		this->value = nullptr;
-	}
+	this->value = new char[lenght];
+	memcpy(this->value, value, lenght);
 }
 
 const char* HttpStringPair::getName()
