@@ -1253,6 +1253,17 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 	}
 	else
 	{
+		// ⚠ 未知路由若带 body 必须循环消费：否则残留 body（同文件 readBodyFully 防的
+		//   同类坑）会被同一 keep-alive 连接的下一个请求误当请求行 → 协议污染
+		//   （实测：PUT 到目录 URL 后 196B 残留被解析成诡异 POST 的根因）。
+		if (request.getBodyLenght() > 0)
+		{
+			const size_t len = request.getBodyLenght();
+			char* body = new char[len + 1];
+			bool ok = readBodyFully(socketStream, len, body);
+			delete[] body;
+			if (!ok) { socketStream.close(); return; }
+		}
 		sendBadRequest(socketStream);
 		return;
 	}
