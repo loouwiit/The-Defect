@@ -242,10 +242,12 @@ void server(void*)
 	close(serverListenSocket);
 
 	// 如果是restart过来的就不需要释放内存
-	if (!serverRunning) for (size_t i = 0; i < CoworkerNumber; i++)
+	if (!serverRunning)
 	{
-		while (coWorkerHandle[i] != nullptr)
-			vTaskDelay(1);
+		for (size_t i = 0; i < CoworkerNumber; i++)
+		{
+			while (coWorkerHandle[i] != nullptr)
+				vTaskDelay(1);
 
 		delete[] coWorkerStack[i];
 		coWorkerStack[i] = nullptr;
