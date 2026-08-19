@@ -209,23 +209,42 @@ App* ElfManager::createApp(const char* fullPath, Display* display, const cJSON* 
     if (!ensureLoaded(fullPath))
         return nullptr;
 
-    Lock lock(m_mutex);
-    auto it = m_modules.find(fullPath);
-    if (it == m_modules.end() || !it->second.info || !it->second.info->create_app)
-        return nullptr;
+    // ⚠ 插件工厂 create_app 是 .so 任意代码，不能在 m_mutex（非递归）内执行：
+    //   插件构造期间回调 ElfManager 任何方法（unload/createApp/onAppDestroyed）即死锁。
+    //   改为：锁内 refcount++（先增后建，refcount>0 期间 onAppDestroyed/unload 不会
+    //   dlclose，防止插件构造中途 .so 被卸载 → UAF）→ 锁外调用工厂 → 失败回滚 refcount。
+    void* (*createAppFn)(void*, const void*) = nullptr;
+    {
+        Lock lock(m_mutex);
+        auto it = m_modules.find(fullPath);
+        if (it == m_modules.end() || !it->second.info || !it->second.info->create_app)
+            return nullptr;
+        createAppFn = it->second.info->create_app;
+        it->second.refcount++;
+    }
 
-    void* appPtr = it->second.info->create_app(display, params);
+    void* appPtr = createAppFn(display, params);
     if (!appPtr)
     {
-        ESP_LOGE(TAG, "create_app 返回 null");
+        ESP_LOGE(TAG, "create_app 返回 null，回滚 refcount");
+        Lock lock(m_mutex);
+        auto it = m_modules.find(fullPath);
+        if (it != m_modules.end() && it->second.refcount > 0)
+        {
+            it->second.refcount--;
+            if (it->second.refcount <= 0 && it->second.handle)
+            {
+                ESP_LOGI(TAG, "dlclose(%s)", it->second.path);
+                dlclose(it->second.handle);
+                m_modules.erase(it);
+            }
+        }
         return nullptr;
     }
 
     auto* app = (App*)appPtr;
     app->setElfModule(fullPath);   // 存 path（map 节点地址不稳，不能用指针）
-    it->second.refcount++;
-    ESP_LOGI(TAG, "createApp OK: app=%p module=%s refcount=%d",
-             (void*)app, it->second.path, it->second.refcount);
+    ESP_LOGI(TAG, "createApp OK: app=%p module=%s", (void*)app, fullPath);
     return app;
 }
 
@@ -286,15 +305,23 @@ bool ElfManager::readManifest(const char* dirPath, ScanEntry* out)
     if (!f)
         return false;
 
-    // 文件 ≤4KB，直接整读
-    char buf[4096];
-    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    // ⚠ 动态读取：原固定 4096 缓冲整读，manifest 超 4KB 被截断 → 得到截断的 name/icon 路径。
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || sz > 64 * 1024)   // 上限 64KB 防御（正常 manifest < 4KB）
+    {
+        fclose(f);
+        return false;
+    }
+    std::string bufStr(static_cast<size_t>(sz), '\0');
+    size_t n = fread(&bufStr[0], 1, static_cast<size_t>(sz), f);
     fclose(f);
     if (n == 0)
         return false;
-    buf[n] = '\0';
+    bufStr.resize(n);
 
-    cJSON* root = cJSON_Parse(buf);
+    cJSON* root = cJSON_Parse(bufStr.c_str());
     if (!root)
         return false;
 

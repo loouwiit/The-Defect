@@ -111,7 +111,8 @@ private:
 
     // ── 工具 ──
     static void relativePath(const char* fullPath, char* out, size_t n); // "/root/elf/x.so" → "elf/x.so"
-    static bool statFile(const char* fullPath, size_t* size, time_t* mtime); // 失败返回 true
+    // 查询插件文件状态：返回 true=文件缺失，false=存在（size/mtime 输出，热更新检测用）
+    static bool statFile(const char* fullPath, size_t* size, time_t* mtime);
 
     // path → Module（单表多模块；m_mutex 保护结构）
     std::map<std::string, Module> m_modules;
