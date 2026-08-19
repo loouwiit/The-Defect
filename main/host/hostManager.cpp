@@ -11,6 +11,7 @@
 #include "wifi/mdns.hpp"
 #include <esp_log.h>
 #include <cstring>
+#include <vector>
 #include <cJSON.h>
 
 static constexpr char TAG[] = "HostManager";
@@ -236,10 +237,20 @@ void HostManager::cleanupConnection()
 {
 	// 先断开并销毁所有客户端（不在 WS 回调上下文：esp_websocket_client_stop 等 task 退出）
 	// delete 前必先 disconnect()（内部 stop 等待 WS task 退出）→ 回调不会与删除并发。
-	for (auto& e : m_wsPool) {
-		if (e.client) { delete e.client; e.client = nullptr; }
-		e.uri[0] = '\0';
+	// ⚠ m_wsPool 的删除必须"锁内摘除 + 锁外 delete"（与 m_consoleClient 同款）：
+	//   原实现无锁 delete 与 getWsConnection（持锁遍历使用池）并发 → UAF。
+	//   锁内 delete 又会死锁（~WsClient → disconnect → stop 等待 WS task 退出，
+	//   期间 DISCONNECTED 回调可能再取 m_mutex）。
+	std::vector<WsClient*> poolToDelete;
+	{
+		Lock lock{ m_mutex };
+		for (auto& e : m_wsPool) {
+			if (e.client) { poolToDelete.push_back(e.client); e.client = nullptr; }
+			e.uri[0] = '\0';
+		}
 	}
+	for (auto* c : poolToDelete)
+		delete c;
 
 	// ⚠ 不能持锁 delete m_consoleClient：~WsClient → disconnect → esp_websocket_client_stop
 	//   等待 WS task 退出，期间 DISCONNECTED 回调（内部 Lock m_mutex）阻塞 → 死锁。
@@ -318,30 +329,39 @@ WsClient* HostManager::createOrGetWsClient(const char* uri)
 	}
 
 	// 查找缓存（含"已断开"检测：断开的死连接应重建）
+	// ⚠ 已断开 client 的删除必须"锁内摘除 + 锁外 delete"：锁内 delete 时
+	//   ~WsClient → disconnect → esp_websocket_client_stop 等待 WS task 退出，
+	//   期间 DISCONNECTED 回调（WS task 上下文）再取 m_mutex → 死锁。
+	WsClient* deadClient = nullptr;
 	{
 		Lock lock{ m_mutex };
 		for (auto& e : m_wsPool) {
 			if (e.client && strcmp(e.uri, uri) == 0) {
 				if (e.client->isConnected())
 					return e.client;
-				// 已断开 → 摘除，走重建
-				delete e.client;
+				// 已断开 → 摘除，走重建（锁外 delete）
+				deadClient = e.client;
 				e.client = nullptr;
 				e.uri[0] = '\0';
 				break;
 			}
 		}
+	}
+	if (deadClient) delete deadClient;
 
-		// 找空位创建
+	// 找空位创建
+	{
+		Lock lock{ m_mutex };
 		for (auto& e : m_wsPool) {
 			if (!e.client) {
 				e.client = new WsClient();
 				strncpy(e.uri, uri, sizeof(e.uri) - 1);
 				if (!e.client->connect(m_remoteIp, m_remotePort, uri)) {
 					ESP_LOGE(TAG, "connect %s:%u%s failed", m_remoteIp, m_remotePort, uri);
-					delete e.client;
+					WsClient* failed = e.client;
 					e.client = nullptr;
 					e.uri[0] = '\0';
+					delete failed;
 					return nullptr;
 				}
 				ESP_LOGI(TAG, "connected to %s", uri);
