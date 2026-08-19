@@ -249,9 +249,16 @@ void server(void*)
 			while (coWorkerHandle[i] != nullptr)
 				vTaskDelay(1);
 
-		delete[] coWorkerStack[i];
-		coWorkerStack[i] = nullptr;
+			// ⚠ coworker 先置空句柄再 vTaskDelete(nullptr)，两者间有窗口：此时栈仍在使用中，
+			//   立即 delete[] 会释放"运行中任务"的栈（UB）。延迟一拍等任务真正退出。
+			vTaskDelay(2);
+			delete[] coWorkerStack[i];
+			coWorkerStack[i] = nullptr;
+		}
 
+		// ⚠ 删除 serverStack 的延迟任务必须放在循环**外**：原实现在 for 循环体内
+		//   Task::addTask 被调度 6 次 → 2 个 daemon 线程并发 delete[] 同一指针 =
+		//   double-free（堆损坏/assert 崩溃）；若期间 serverStart() 重建了新栈还会误删。
 		Task::addTask([](void*)->TickType_t
 			{
 				delete[] serverStack;
