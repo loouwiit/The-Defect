@@ -747,17 +747,23 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 	{
 		IFile file;
 		char* path = nullptr;
+		// ⚠ 剥离 query string：静态资源带缓存破坏参数（如 /server/screen/screen.js?v=2）
+		//   时，原实现把整个 uri（含 ?v=2）拼进路径 → 404。
+		size_t uriLen = strlen(uri);
+		for (size_t i = 0; i < uriLen; i++) {
+			if (uri[i] == '?' || uri[i] == '#') { uriLen = i; break; }
+		}
 		if (prefixCompare(uri, strlen(uri), "/file", 5) || prefixCompare(uri, strlen(uri), "/File", 5) || prefixCompare(uri, strlen(uri), "/FILE", 5))
 		{
 			//全部文件
-			path = new char[sizeof(PerfixRoot) + strlen(uri) - 5];
-			sprintf(path, "%s%s", PerfixRoot, uri + 5);
+			path = new char[sizeof(PerfixRoot) + uriLen - 5];
+			sprintf(path, "%s%.*s", PerfixRoot, (int)(uriLen - 5), uri + 5);
 		}
 		else
 		{
 			//转到serverPath下
-			path = new char[sizeof(PerfixRoot) + sizeof(ServerPath) + strlen(uri)];
-			sprintf(path, "%s%s%s", PerfixRoot, ServerPath, uri);
+			path = new char[sizeof(PerfixRoot) + sizeof(ServerPath) + uriLen];
+			sprintf(path, "%s%s%.*s", PerfixRoot, ServerPath, (int)uriLen, uri);
 		}
 		file.open(path);
 		delete[] path;
@@ -772,6 +778,8 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		}
 		else
 		{
+			// ⚠ Content-Type 缺失 → Firefox 报 "XML 解析错误"
+			respond.heads.add({ "Content-Type", " text/plain; charset=utf-8" });
 			respond.setBody((void*)HttpReason::NotFound);
 			respond.setBodyLenght(sizeof(HttpReason::NotFound) - 1);
 
