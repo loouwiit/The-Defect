@@ -45,7 +45,14 @@ int udpInputCreateSocket(const char* host, uint16_t port)
 	struct sockaddr_in dest{};
 	dest.sin_family = AF_INET;
 	dest.sin_port = htons(port);
-	inet_pton(AF_INET, host, &dest.sin_addr);
+	// ⚠ 检查 inet_pton：失败时 sin_addr 保持 0（0.0.0.0）→ connect 仍成功但帧全发往
+	//   localhost，转发静默失效且无任何错误日志。
+	if (inet_pton(AF_INET, host, &dest.sin_addr) != 1)
+	{
+		ESP_LOGW(TAG, "invalid host ip: %s", host);
+		close(sock);
+		return -1;
+	}
 
 	// connect 后可用 send() 代替 sendto()，略快
 	if (connect(sock, (struct sockaddr*)&dest, sizeof(dest)) < 0)
