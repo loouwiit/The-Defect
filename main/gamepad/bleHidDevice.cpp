@@ -2,6 +2,7 @@
 #include "gamepadState.hpp"
 #include "gamepad/virtualGamepad.hpp"
 #include "battery/batteryManager.hpp"
+#include "wifi/mdns.hpp"
 
 #include "esp_log.h"
 #include "esp_err.h"
@@ -14,10 +15,6 @@
 #include "host/ble_gap.h"
 #include "host/ble_hs_adv.h"
 #include "services/gap/ble_svc_gap.h"
-
-// NVS
-#include "nvs_flash.h"
-#include "nvs.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -87,7 +84,7 @@ static esp_hid_device_config_t s_hidConfig = {
     .vendor_id         = HID_VID,
     .product_id        = HID_PID,
     .version           = HID_VERSION,
-    .device_name       = "The-Defect",     // 默认值，init() 中可覆盖
+    .device_name       = "esp32p4",       // 默认值，init() 中用 mDNS 主机名覆盖
     .manufacturer_name = HID_MANUFACTURER,
     .serial_number     = HID_SERIAL,
     .report_maps       = s_bleReportMaps,
@@ -183,27 +180,17 @@ bool BleHidDevice::init()
 
     ESP_LOGI(TAG, "Initializing BLE HID Device");
 
-    // 从 NVS 读取设备名称（与 BleGamepad 共用 namespace "gamepad"）
+    // 从 NVS 读取设备名称（优先 mDNS 主机名）
     {
-        nvs_handle handle;
-        esp_err_t err = nvs_open("gamepad", NVS_READONLY, &handle);
-        if (err == ESP_OK)
+        const char* host = mdnsGetConfiguredHostname();
+        if (host && host[0] != '\0')
         {
-            size_t len = sizeof(s_advDeviceName);
-            err = nvs_get_str(handle, "device_name", s_advDeviceName, &len);
-            if (err == ESP_OK && s_advDeviceName[0] != '\0')
-            {
-                ESP_LOGI(TAG, "HID device name from NVS: %s", s_advDeviceName);
-            }
-            else
-            {
-                strncpy(s_advDeviceName, "The-Defect", sizeof(s_advDeviceName) - 1);
-            }
-            nvs_close(handle);
+            strncpy(s_advDeviceName, host, sizeof(s_advDeviceName) - 1);
+            ESP_LOGI(TAG, "HID device name from mDNS: %s", s_advDeviceName);
         }
         else
         {
-            strncpy(s_advDeviceName, "The-Defect", sizeof(s_advDeviceName) - 1);
+            strncpy(s_advDeviceName, "esp32p4", sizeof(s_advDeviceName) - 1);
         }
     }
     s_advDeviceName[sizeof(s_advDeviceName) - 1] = '\0';
