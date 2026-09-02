@@ -1,4 +1,5 @@
 #include "battery/batteryManager.hpp"
+#include "gamepad/bleGamepad.hpp"
 #include "adc_battery_estimation.h"
 #include "gui/gui.hpp"
 #include "esp_log.h"
@@ -147,6 +148,29 @@ void BatteryManager::deinit()
 // ════════════════════════════════════════════════════════════════
 // 数据读取
 // ════════════════════════════════════════════════════════════════
+
+int BatteryManager::getMinBatteryLevel()
+{
+	int minBat = -1;
+
+	// P4 主机电池
+	int hostBat = instance().getPercent();
+	if (hostBat >= 0)
+		minBat = hostBat;
+
+	// BLE 手柄电池（取已知值的最低）
+	for (int i = 0; i < MaxPlayers; i++)
+	{
+		uint8_t padBat = BleGamepad::instance().getBatteryLevel(i);
+		if (padBat <= 100)
+		{
+			if (minBat < 0 || padBat < minBat)
+				minBat = padBat;
+		}
+	}
+
+	return minBat;
+}
 
 int BatteryManager::getPercent()
 {

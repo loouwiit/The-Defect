@@ -1,6 +1,7 @@
 #include "bleHidDevice.hpp"
 #include "gamepadState.hpp"
 #include "gamepad/virtualGamepad.hpp"
+#include "battery/batteryManager.hpp"
 
 #include "esp_log.h"
 #include "esp_err.h"
@@ -129,7 +130,12 @@ static void hidEventHandler(void* /*handler_args*/, esp_event_base_t /*base*/,
         ESP_LOGI(TAG, "HID connected");
         self.setConnected(true);
         self.startPollTask();
-        esp_hidd_dev_battery_set(self.hidDev(), 100);
+        // 立即用真实电量做首次上报（避免 PC 缓存初始值）
+        {
+            int bat = BatteryManager::getMinBatteryLevel();
+            if (bat >= 0)
+                self.setBatteryLevel(static_cast<uint8_t>(bat));
+        }
         break;
     }
 
@@ -287,9 +293,10 @@ bool BleHidDevice::startAdvertising()
     memset(&rsp_fields, 0, sizeof(rsp_fields));
 
     rsp_fields.uuids16 = (ble_uuid16_t[]){
-        BLE_UUID16_INIT(0x1812)   // HID Service UUID
+        BLE_UUID16_INIT(0x1812),   // HID Service UUID
+        BLE_UUID16_INIT(0x180F)    // Battery Service UUID
     };
-    rsp_fields.num_uuids16 = 1;
+    rsp_fields.num_uuids16 = 2;
     rsp_fields.uuids16_is_complete = 1;
 
     rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
@@ -413,14 +420,15 @@ void BleHidDevice::pollTaskEntry(void* arg)
 void BleHidDevice::pollLoop()
 {
     GamepadState prevState{};
+    int lastBattery = -1;
+    int batteryTick = 0;
 
     while (m_pollRunning)
     {
-        // 仅在 HID 连接时读取并发送
         if (m_connected)
         {
+            // ── 输入转发 ──
             const auto& state = VirtualGamepad::instance().getState(0, 0);
-
             if (state != prevState)
             {
                 Report report;
@@ -430,10 +438,25 @@ void BleHidDevice::pollLoop()
                 sendReport(report);
                 prevState = state;
             }
+
+            // ── 电量上报（每 30 秒） ──
+            if (++batteryTick >= 1875)  // 1875 × 16ms ≈ 30s
+            {
+                batteryTick = 0;
+                int minBat = BatteryManager::getMinBatteryLevel();
+
+                if (minBat >= 0 && minBat != lastBattery)
+                {
+                    ESP_LOGI(TAG, "Updating battery level: %d%%", minBat);
+                    setBatteryLevel(static_cast<uint8_t>(minBat));
+                    lastBattery = minBat;
+                }
+            }
         }
         else
         {
-            prevState = {};  // 连接恢复后重新触发首次发送
+            prevState = {};
+            batteryTick = 0;
         }
 
         vTaskDelay(pdMS_TO_TICKS(16));

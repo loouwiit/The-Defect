@@ -75,6 +75,12 @@ public:
 	/** 根据百分比返回颜色（≥61% 绿, 21~60% 黄, ≤20% 红） */
 	static lv_color_t getColor(int percent);
 
+	/**
+	 * @brief 获取系统最低电量（P4 主机 + BLE 手柄中的最小已知值）
+	 * @return 0~100 最低电量, 无任何已知电量时返回 -1
+	 */
+	static int getMinBatteryLevel();
+
 private:
 	BatteryManager() = default;
 	~BatteryManager() = default;
