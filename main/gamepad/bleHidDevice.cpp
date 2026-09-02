@@ -138,6 +138,9 @@ static void hidEventHandler(void* /*handler_args*/, esp_event_base_t /*base*/,
         ESP_LOGI(TAG, "HID disconnected (reason=%d)", param->disconnect.reason);
         self.setConnected(false);
         self.stopPollTask();
+        // NimBLE 断连时自动停止广播，但 m_advertising 仍为 true，
+        // 必须先重置再调用 startAdvertising()，否则早返回检查会跳过
+        self.resetAdvertising();
         self.startAdvertising();
         break;
     }
@@ -413,20 +416,26 @@ void BleHidDevice::pollLoop()
 
     while (m_pollRunning)
     {
-        // 读取 P0 本机输入（VirtualGamepad hostId=0, playerId=0）
-        const auto& state = VirtualGamepad::instance().getState(0, 0);
-
-        // 状态有变化时发送 HID 报告
-        if (state != prevState)
+        // 仅在 HID 连接时读取并发送
+        if (m_connected)
         {
-            Report report;
-            report.buttons = state.buttons;
-            report.x = static_cast<int8_t>(state.lx - 128);  // uint8(0~255) → int8(-127~+127)
-            report.y = static_cast<int8_t>(state.ly - 128);
-            sendReport(report);
-            prevState = state;
+            const auto& state = VirtualGamepad::instance().getState(0, 0);
+
+            if (state != prevState)
+            {
+                Report report;
+                report.buttons = state.buttons;
+                report.x = static_cast<int8_t>(state.lx - 128);
+                report.y = static_cast<int8_t>(state.ly - 128);
+                sendReport(report);
+                prevState = state;
+            }
+        }
+        else
+        {
+            prevState = {};  // 连接恢复后重新触发首次发送
         }
 
-        vTaskDelay(pdMS_TO_TICKS(16));  // ~60fps
+        vTaskDelay(pdMS_TO_TICKS(16));
     }
 }

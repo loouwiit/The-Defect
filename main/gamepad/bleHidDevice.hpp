@@ -84,6 +84,9 @@ public:
     /// @brief 设置连接状态（供事件回调使用）
     void setConnected(bool v) { m_connected = v; }
 
+    /// @brief 重置广播状态（供断连回调强制重启广播）
+    void resetAdvertising() { m_advertising = false; }
+
     // 输入轮询任务（事件回调中调用）
     void startPollTask();
     void stopPollTask();
