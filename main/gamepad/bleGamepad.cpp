@@ -4,6 +4,8 @@
 
 #include "app/app.hpp"
 #include "gamepad/virtualGamepad.hpp"
+#include "gamepad/mergedGamepad.hpp"
+#include "bt/bleScheduler.hpp"
 #include "esp_log.h"
 #include "esp_err.h"
 
@@ -51,7 +53,20 @@ BleGamepad& BleGamepad::instance()
 void BleGamepad::onSync()
 {
 	ESP_LOGI(TAG, "NimBLE synced");
+
+	// 恢复合并手柄 NVS 配置
+	MergedGamepad::instance().loadSettings();
+
+	// 在 scan 启动前设置 HID 广播数据（ble_gap_adv_set_fields 必须在 scan 前调用）
+	MergedGamepad::instance().initAdvertisingData();
+
+	// 启动自动重连扫描
 	instance().autoConnectPaired();
+
+	// 请求 HID 广播（调度器在 scan 结束后执行 ble_gap_adv_start）
+	if (MergedGamepad::instance().isActive()) {
+		MergedGamepad::instance().startAdvertising();
+	}
 }
 
 void BleGamepad::onReset(int reason)
@@ -214,6 +229,10 @@ int BleGamepad::autoScanCb(struct ble_gap_event* event, void* /*arg*/)
 							{
 								auto& self = *(BleGamepad*)param;
 
+								// ⚠ NimBLE adv/connect/scan 互斥：先停扫描再 connect，
+								// 必须延迟恢复广播，否则 onScanComplete 恢复 adv 后
+								// connect 立即失败（BLE_HS_EBUSY / EALREADY）。
+								BleScheduler::instance().setDeferAdvResume(true);
 								self.stopScan();
 								self.m_autoConnectPending = false;
 								self.conectNext(0);
@@ -276,28 +295,9 @@ void BleGamepad::autoConnectPaired()
 	// 清空上次扫描结果
 	m_connectQueue.clear();
 
-	m_scanning = true;
-
-	// 启动扫描
-	uint8_t own_addr_type;
-	int rc = ble_hs_id_infer_auto(0, &own_addr_type);
-	if (rc != 0)
-	{
-		ESP_LOGE(TAG, "auto-connect: ble_hs_id_infer_auto failed: %d", rc);
-		own_addr_type = BLE_OWN_ADDR_PUBLIC;
-	}
-
-	struct ble_gap_disc_params params{};
-	params.passive = 1;
-	params.itvl = 0;
-	params.window = 0;
-	params.filter_duplicates = 1;
-
-	rc = ble_gap_disc(own_addr_type, pdMS_TO_TICKS(5000), &params, autoScanCb, nullptr);
-	if (rc != 0)
-		ESP_LOGE(TAG, "auto-connect: scan start failed: %d", rc);
-	else
-		ESP_LOGI(TAG, "auto-connect: 扫描中...");
+	// 通过调度器启动扫描（5 秒），扫描结束后 MergedGamepad 广播自动恢复
+	BleScheduler::instance().startScan(5000, autoScanCb, nullptr);
+	ESP_LOGI(TAG, "auto-connect: 扫描中...");
 }
 
 void BleGamepad::conectNext(TickType_t delay)
@@ -378,7 +378,17 @@ void BleGamepad::conectNext()
 	// 队列清空
 	ESP_LOGI(TAG, "连接队列已清空");
 
-	// auto-connect 模式：队列为空 → 等一会再扫（给刚连上的设备一点时间）
+	// 连接流程结束 → 恢复之前延迟的广播（如果有的话）
+	BleScheduler::instance().resumePendingAdv();
+
+	// auto-connect 模式：已有设备连接 → 不再重扫，保持广播让 PC 可发现
+	if (m_autoConnectActive && connectedCount() > 0) {
+		ESP_LOGI(TAG, "已有设备连接 (%d)，停止 auto-connect 扫描", connectedCount());
+		m_autoConnectActive = false;
+		return;
+	}
+
+	// auto-connect 模式：无设备连接 → 等一会再扫（给刚连上的设备一点时间）
 	if (m_autoConnectActive) {
 		Task::addTask([](void*)
 			{
@@ -491,15 +501,7 @@ int BleGamepad::scanGapEventCb(struct ble_gap_event* event, void* /*arg*/)
 	case BLE_GAP_EVENT_DISC_COMPLETE:
 	{
 		ESP_LOGI(TAG, "Scan complete, found %zu devices", self.m_scanResults.size());
-		// 扫描自动重新开始（持续模式）
-		if (self.m_scanning) {
-			uint8_t own_addr_type;
-			ble_hs_id_infer_auto(0, &own_addr_type);
-			struct ble_gap_disc_params params{};
-			params.passive = 1;
-			params.filter_duplicates = 1;
-			ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, scanGapEventCb, nullptr);
-		}
+		// 扫描生命周期由 BleScheduler 管理，不在此重启
 		break;
 	}
 	default:
@@ -538,6 +540,9 @@ void BleGamepad::processTask(void* arg)
 				}
 				// 注入到 VirtualGamepad（不再直接调 App）
 				VirtualGamepad::instance().inject(0, evt.playerId, evt.state);
+
+				// 注入到 MergedGamepad（PC HID 合并输出）
+				MergedGamepad::instance().onGamepadInput(0, evt.playerId, evt.state);
 			}
 		}
 	}
@@ -591,6 +596,9 @@ bool BleGamepad::initNimble()
 		ESP_LOGE(TAG, "Failed to create process task");
 		return false;
 	}
+
+	// 注册 HID GATT 服务（PC 合并手柄）— 必须在 host task 启动前
+	MergedGamepad::instance().init();
 
 	// 启动 NimBLE 任务
 	nimble_port_freertos_init(hostTask);
@@ -661,39 +669,16 @@ void BleGamepad::startScan()
 		}
 	}
 
-	// 获取正确的地址类型
-	uint8_t own_addr_type;
-	int rc = ble_hs_id_infer_auto(0, &own_addr_type);
-	if (rc != 0) {
-		ESP_LOGE(TAG, "ble_hs_id_infer_auto failed: %d", rc);
-		own_addr_type = BLE_OWN_ADDR_PUBLIC;
-	}
-
-	struct ble_gap_disc_params params{};
-	params.filter_policy = 0;
-	params.passive = 1;
-	params.itvl = 0;
-	params.window = 0;
-	params.filter_duplicates = 1;  // 去重，减少刷屏
-
-	rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, scanGapEventCb, nullptr);
-	if (rc == 0) {
-		ESP_LOGI(TAG, "Scan started (own_addr_type=%d)", own_addr_type);
-	}
-	else {
-		ESP_LOGE(TAG, "Scan start failed: %d (%s)", rc,
-			rc == BLE_HS_EBUSY ? "BUSY" :
-			rc == BLE_HS_ENOTSYNCED ? "NOT SYNCED" :
-			rc == BLE_HS_EALREADY ? "ALREADY" : "OTHER");
-		m_scanning = false;
-	}
+	// 通过调度器启动永久扫描（0 = BLE_HS_FOREVER）
+	BleScheduler::instance().startScan(0, scanGapEventCb, nullptr);
+	ESP_LOGI(TAG, "Scan started via scheduler");
 }
 
 void BleGamepad::stopScan()
 {
 	if (!m_scanning) return;
 	m_scanning = false;
-	ble_gap_disc_cancel();
+	BleScheduler::instance().stopScan();
 	ESP_LOGI(TAG, "Scan stopped");
 }
 

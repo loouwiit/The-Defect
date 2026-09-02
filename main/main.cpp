@@ -39,6 +39,7 @@
 #include "audio/Audio.hpp"
 
 #include "gamepad/bleGamepad.hpp"
+#include "gamepad/mergedGamepad.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
 #include "monitor/systemMonitor.hpp"
 #include "battery/batteryManager.hpp"
@@ -217,6 +218,11 @@ extern "C" void app_main(void)
 	ESP_LOGI(TAG, "BleGamepad start");
 	BleGamepad::instance().start(&display);
 	ESP_LOGI(TAG, "BleGamepad start done");
+
+	// ── 测试：固定将 Player0 → 左侧, Player1 → 右侧 ──
+	MergedGamepad::instance().setLeftPlayer(0, 0);
+	MergedGamepad::instance().setRightPlayer(0, 1);
+	ESP_LOGI(TAG, "MergedGamepad test: left=P0, right=P1");
 
 	// 启动 AI 助手浮动 Overlay（驻留在 lv_layer_sys 上，不影响 AppStack）
 	AiAgentOverlay::instance().start(&display);
