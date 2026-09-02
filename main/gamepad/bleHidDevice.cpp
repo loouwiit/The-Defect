@@ -414,7 +414,8 @@ void BleHidDevice::pollTaskEntry(void* arg)
     auto& self = *static_cast<BleHidDevice*>(arg);
     self.pollLoop();
     self.m_pollTask = nullptr;
-    vTaskSuspend(nullptr);
+    // 自删：FreeRTOS 回收 TCB + 栈，无需外部 delete
+    vTaskDelete(nullptr);
 }
 
 void BleHidDevice::pollLoop()
