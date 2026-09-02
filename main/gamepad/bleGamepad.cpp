@@ -1,4 +1,5 @@
 #include "bleGamepad.hpp"
+#include "bleHidDevice.hpp"
 
 #include "task/task.hpp"
 
@@ -51,6 +52,10 @@ BleGamepad& BleGamepad::instance()
 void BleGamepad::onSync()
 {
 	ESP_LOGI(TAG, "NimBLE synced");
+
+	// 启动 BLE HID Device 广播（P4 作为游戏手柄被 PC 识别）
+	BleHidDevice::instance().startAdvertising();
+
 	instance().autoConnectPaired();
 }
 
@@ -578,6 +583,14 @@ bool BleGamepad::initNimble()
 	ble_store_config_init();
 	ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
+	// 初始化 BLE HID Device（注册 HID GATT 服务）
+	// 必须在 nimble_port_init() 之后、nimble_port_freertos_init() 之前
+	if (!BleHidDevice::instance().init())
+	{
+		ESP_LOGE(TAG, "BleHidDevice init failed");
+		// 非致命：继续启动 Central 角色
+	}
+
 	// 创建输入事件队列
 	m_inputQueue = xQueueCreate(INPUT_QUEUE_LEN, sizeof(GamepadInputEvent));
 	if (!m_inputQueue) {
@@ -627,6 +640,9 @@ bool BleGamepad::start(Display* display)
 void BleGamepad::stop()
 {
 	if (!m_running) return;
+
+	// 反初始化 HID Device
+	BleHidDevice::instance().deinit();
 
 	disconnectAll();
 

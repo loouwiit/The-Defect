@@ -1,0 +1,432 @@
+#include "bleHidDevice.hpp"
+#include "gamepadState.hpp"
+#include "gamepad/virtualGamepad.hpp"
+
+#include "esp_log.h"
+#include "esp_err.h"
+#include "esp_hidd.h"
+#include "esp_hid_common.h"
+#include "esp_event.h"
+
+// NimBLE
+#include "host/ble_hs.h"
+#include "host/ble_gap.h"
+#include "host/ble_hs_adv.h"
+#include "services/gap/ble_svc_gap.h"
+
+// NVS
+#include "nvs_flash.h"
+#include "nvs.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include <cstring>
+
+// ══════════════════════════════════════════════════════════════
+//  HID Report Descriptor — 游戏手柄（与 C6 手柄固件对齐）
+//  报告格式 (4 bytes):
+//    byte 0~1: buttons[15] + padding[1] (uint16, 小端序)
+//    byte 2:   X 轴 (int8, -127~+127)
+//    byte 3:   Y 轴 (int8, -127~+127)
+// ══════════════════════════════════════════════════════════════
+
+static const unsigned char s_gamepadReportMap[] = {
+    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
+    0x09, 0x05,        // Usage (Game Pad)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x01,        //   Report ID (1)
+
+    // Buttons (15 buttons, 1 bit each = 15 bits, 2 bytes with padding)
+    0x05, 0x09,        //   Usage Page (Button)
+    0x19, 0x01,        //   Usage Minimum (0x01)
+    0x29, 0x0F,        //   Usage Maximum (0x0F)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x01,        //   Logical Maximum (1)
+    0x75, 0x01,        //   Report Size (1)
+    0x95, 0x0F,        //   Report Count (15)
+    0x81, 0x02,        //   Input (Data,Var,Abs)
+
+    // Padding to 16-bit boundary (1 bit)
+    0x75, 0x01,        //   Report Size (1)
+    0x95, 0x01,        //   Report Count (1)
+    0x81, 0x03,        //   Input (Cnst,Var,Abs)
+
+    // X and Y axes (8-bit each, signed -127~127)
+    0x05, 0x01,        //   Usage Page (Generic Desktop Ctrls)
+    0x09, 0x30,        //   Usage (X)
+    0x09, 0x31,        //   Usage (Y)
+    0x15, 0x81,        //   Logical Minimum (-127)
+    0x25, 0x7F,        //   Logical Maximum (127)
+    0x75, 0x08,        //   Report Size (8)
+    0x95, 0x02,        //   Report Count (2)
+    0x81, 0x02,        //   Input (Data,Var,Abs)
+
+    0xC0               // End Collection
+};
+
+// ══════════════════════════════════════════════════════════════
+//  HID 设备配置
+// ══════════════════════════════════════════════════════════════
+
+static esp_hid_raw_report_map_t s_bleReportMaps[] = {
+    {
+        .data = s_gamepadReportMap,
+        .len  = sizeof(s_gamepadReportMap)
+    }
+};
+
+static constexpr const char* HID_MANUFACTURER = "Espressif";
+static constexpr const char* HID_SERIAL       = "P4-00000001";
+static constexpr uint16_t    HID_VID          = 0x16C0;
+static constexpr uint16_t    HID_PID          = 0x05DF;
+static constexpr uint16_t    HID_VERSION      = 0x0100;
+
+static esp_hid_device_config_t s_hidConfig = {
+    .vendor_id         = HID_VID,
+    .product_id        = HID_PID,
+    .version           = HID_VERSION,
+    .device_name       = "The-Defect",     // 默认值，init() 中可覆盖
+    .manufacturer_name = HID_MANUFACTURER,
+    .serial_number     = HID_SERIAL,
+    .report_maps       = s_bleReportMaps,
+    .report_maps_len   = 1
+};
+
+// ══════════════════════════════════════════════════════════════
+//  广播参数
+// ══════════════════════════════════════════════════════════════
+
+static constexpr uint16_t ADV_APPEARANCE = 0x03C4; // ESP_HID_APPEARANCE_GAMEPAD
+static char s_advDeviceName[64] = {};
+
+// ══════════════════════════════════════════════════════════════
+//  Singleton
+// ══════════════════════════════════════════════════════════════
+
+BleHidDevice& BleHidDevice::instance()
+{
+    static BleHidDevice inst;
+    return inst;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HID 事件回调
+// ══════════════════════════════════════════════════════════════
+
+static void hidEventHandler(void* /*handler_args*/, esp_event_base_t /*base*/,
+                             int32_t event_id, void* event_data)
+{
+    static constexpr const char* TAG = "BleHidDevice";
+    auto& self = BleHidDevice::instance();
+    auto event = static_cast<esp_hidd_event_t>(event_id);
+    auto* param = static_cast<esp_hidd_event_data_t*>(event_data);
+
+    switch (event)
+    {
+    case ESP_HIDD_CONNECT_EVENT:
+    {
+        ESP_LOGI(TAG, "HID connected");
+        self.setConnected(true);
+        self.startPollTask();
+        esp_hidd_dev_battery_set(self.hidDev(), 100);
+        break;
+    }
+
+    case ESP_HIDD_DISCONNECT_EVENT:
+    {
+        ESP_LOGI(TAG, "HID disconnected (reason=%d)", param->disconnect.reason);
+        self.setConnected(false);
+        self.stopPollTask();
+        self.startAdvertising();
+        break;
+    }
+
+    case ESP_HIDD_PROTOCOL_MODE_EVENT:
+        ESP_LOGD(TAG, "Protocol mode: %d", param->protocol_mode.protocol_mode);
+        break;
+
+    case ESP_HIDD_CONTROL_EVENT:
+        ESP_LOGD(TAG, "Control: %d", param->control.control);
+        break;
+
+    case ESP_HIDD_OUTPUT_EVENT:
+        ESP_LOGD(TAG, "Output report id=%d len=%d",
+                 param->output.report_id, param->output.length);
+        break;
+
+    default:
+        break;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  init — 注册 HID GATT 服务
+// ══════════════════════════════════════════════════════════════
+
+bool BleHidDevice::init()
+{
+    if (m_initialized)
+    {
+        ESP_LOGW(TAG, "Already initialized");
+        return true;
+    }
+
+    ESP_LOGI(TAG, "Initializing BLE HID Device");
+
+    // 从 NVS 读取设备名称（与 BleGamepad 共用 namespace "gamepad"）
+    {
+        nvs_handle handle;
+        esp_err_t err = nvs_open("gamepad", NVS_READONLY, &handle);
+        if (err == ESP_OK)
+        {
+            size_t len = sizeof(s_advDeviceName);
+            err = nvs_get_str(handle, "device_name", s_advDeviceName, &len);
+            if (err == ESP_OK && s_advDeviceName[0] != '\0')
+            {
+                ESP_LOGI(TAG, "HID device name from NVS: %s", s_advDeviceName);
+            }
+            else
+            {
+                strncpy(s_advDeviceName, "The-Defect", sizeof(s_advDeviceName) - 1);
+            }
+            nvs_close(handle);
+        }
+        else
+        {
+            strncpy(s_advDeviceName, "The-Defect", sizeof(s_advDeviceName) - 1);
+        }
+    }
+    s_advDeviceName[sizeof(s_advDeviceName) - 1] = '\0';
+    s_hidConfig.device_name = s_advDeviceName;
+
+    // ── 保存 ble_hs_cfg 回调（esp_hidd_dev_init 会覆盖） ──
+    m_savedResetCb = ble_hs_cfg.reset_cb;
+    m_savedSyncCb  = ble_hs_cfg.sync_cb;
+
+    // ── 注册 HID GATT 服务 ──
+    // esp_hidd_dev_init 内部调用 nimble_hid_start_gatts()，
+    // 注册 HID/Battery/DIS GATT 服务 + GAP event listener。
+    // 会覆盖 ble_hs_cfg.reset_cb / sync_cb / gatts_register_cb。
+    esp_err_t ret = esp_hidd_dev_init(&s_hidConfig, ESP_HID_TRANSPORT_BLE,
+                                       (esp_event_handler_t)hidEventHandler, &m_hidDev);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "esp_hidd_dev_init failed: %d", ret);
+        return false;
+    }
+
+    // ── 恢复 BleGamepad 的 ble_hs_cfg 回调 ──
+    ble_hs_cfg.reset_cb = m_savedResetCb;
+    ble_hs_cfg.sync_cb  = m_savedSyncCb;
+
+    ESP_LOGI(TAG, "BLE HID Device initialized (GATT services registered)");
+    m_initialized = true;
+    return true;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  deinit
+// ══════════════════════════════════════════════════════════════
+
+void BleHidDevice::deinit()
+{
+    if (!m_initialized) return;
+
+    stopPollTask();
+    stopAdvertising();
+
+    if (m_hidDev)
+    {
+        esp_hidd_dev_deinit(m_hidDev);
+        m_hidDev = nullptr;
+    }
+
+    m_connected   = false;
+    m_initialized = false;
+    ESP_LOGI(TAG, "BLE HID Device deinitialized");
+}
+
+// ══════════════════════════════════════════════════════════════
+//  广播管理
+// ══════════════════════════════════════════════════════════════
+
+bool BleHidDevice::startAdvertising()
+{
+    if (!m_initialized || m_advertising)
+        return m_advertising;
+
+    // ── 设置广播数据 ──
+    struct ble_hs_adv_fields adv_fields;
+    memset(&adv_fields, 0, sizeof(adv_fields));
+
+    adv_fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+
+    adv_fields.tx_pwr_lvl_is_present = 1;
+    adv_fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
+
+    adv_fields.appearance = ADV_APPEARANCE;
+    adv_fields.appearance_is_present = 1;
+
+    adv_fields.name = (uint8_t*)s_advDeviceName;
+    adv_fields.name_len = strlen(s_advDeviceName);
+    adv_fields.name_is_complete = 1;
+
+    int rc = ble_gap_adv_set_fields(&adv_fields);
+    if (rc != 0)
+    {
+        ESP_LOGE(TAG, "ble_gap_adv_set_fields failed: %d", rc);
+        return false;
+    }
+
+    // ── 设置 Scan Response（含 HID Service UUID） ──
+    struct ble_hs_adv_fields rsp_fields;
+    memset(&rsp_fields, 0, sizeof(rsp_fields));
+
+    rsp_fields.uuids16 = (ble_uuid16_t[]){
+        BLE_UUID16_INIT(0x1812)   // HID Service UUID
+    };
+    rsp_fields.num_uuids16 = 1;
+    rsp_fields.uuids16_is_complete = 1;
+
+    rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
+    if (rc != 0)
+    {
+        ESP_LOGE(TAG, "ble_gap_adv_rsp_set_fields failed: %d", rc);
+        return false;
+    }
+
+    // ── 设置 GAP Device Name ──
+    rc = ble_svc_gap_device_name_set(s_advDeviceName);
+    if (rc != 0)
+    {
+        ESP_LOGW(TAG, "ble_svc_gap_device_name_set failed: %d (non-fatal)", rc);
+        // 非致命：GAP Name 不影响广播功能
+    }
+
+    // ── 启动广播 ──
+    struct ble_gap_adv_params adv_params;
+    memset(&adv_params, 0, sizeof(adv_params));
+    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;    // 可连接
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;    // 一般可发现
+    adv_params.itvl_min  = BLE_GAP_ADV_ITVL_MS(200);
+    adv_params.itvl_max  = BLE_GAP_ADV_ITVL_MS(337);
+
+    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, nullptr, BLE_HS_FOREVER,
+                           &adv_params, nullptr, nullptr);
+    if (rc != 0)
+    {
+        ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
+        return false;
+    }
+
+    m_advertising = true;
+    ESP_LOGI(TAG, "HID advertising started: %s", s_advDeviceName);
+    return true;
+}
+
+void BleHidDevice::stopAdvertising()
+{
+    if (!m_advertising) return;
+
+    int rc = ble_gap_adv_stop();
+    if (rc != 0)
+    {
+        ESP_LOGW(TAG, "ble_gap_adv_stop failed: %d", rc);
+    }
+
+    m_advertising = false;
+    ESP_LOGI(TAG, "HID advertising stopped");
+}
+
+// ══════════════════════════════════════════════════════════════
+//  发送 HID 输入报告
+// ══════════════════════════════════════════════════════════════
+
+bool BleHidDevice::sendReport(const Report& report)
+{
+    if (!m_connected || !m_hidDev)
+        return false;
+
+    // Report ID = 1, index 0, 数据 = {buttons_lo, buttons_hi, x, y}
+    uint8_t data[4];
+    data[0] = static_cast<uint8_t>(report.buttons & 0xFF);
+    data[1] = static_cast<uint8_t>((report.buttons >> 8) & 0xFF);
+    data[2] = static_cast<uint8_t>(report.x);
+    data[3] = static_cast<uint8_t>(report.y);
+
+    esp_err_t ret = esp_hidd_dev_input_set(m_hidDev, 0, 1, data, sizeof(data));
+    if (ret != ESP_OK)
+    {
+        ESP_LOGD(TAG, "sendReport failed: %d", ret);
+        return false;
+    }
+    return true;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  电池电量
+// ══════════════════════════════════════════════════════════════
+
+void BleHidDevice::setBatteryLevel(uint8_t level)
+{
+    if (m_hidDev)
+        esp_hidd_dev_battery_set(m_hidDev, level);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  输入轮询任务 — 监控 VirtualGamepad 状态，转发到 BLE HID
+// ══════════════════════════════════════════════════════════════
+
+void BleHidDevice::startPollTask()
+{
+    if (m_pollRunning) return;
+    m_pollRunning = true;
+    TaskHandle_t pollHandle = nullptr;
+    xTaskCreate(pollTaskEntry, "bleHidPoll", 4096, this, 5, &pollHandle);
+    m_pollTask = pollHandle;
+    ESP_LOGI(TAG, "HID poll task started");
+}
+
+void BleHidDevice::stopPollTask()
+{
+    if (!m_pollRunning) return;
+    m_pollRunning = false;
+    // 等待任务自行退出（检查 m_pollRunning 标志）
+    for (int i = 0; i < 50 && m_pollTask != nullptr; i++)
+        vTaskDelay(pdMS_TO_TICKS(10));
+    m_pollTask = nullptr;
+    ESP_LOGI(TAG, "HID poll task stopped");
+}
+
+void BleHidDevice::pollTaskEntry(void* arg)
+{
+    auto& self = *static_cast<BleHidDevice*>(arg);
+    self.pollLoop();
+    self.m_pollTask = nullptr;
+    vTaskSuspend(nullptr);
+}
+
+void BleHidDevice::pollLoop()
+{
+    GamepadState prevState{};
+
+    while (m_pollRunning)
+    {
+        // 读取 P0 本机输入（VirtualGamepad hostId=0, playerId=0）
+        const auto& state = VirtualGamepad::instance().getState(0, 0);
+
+        // 状态有变化时发送 HID 报告
+        if (state != prevState)
+        {
+            Report report;
+            report.buttons = state.buttons;
+            report.x = static_cast<int8_t>(state.lx - 128);  // uint8(0~255) → int8(-127~+127)
+            report.y = static_cast<int8_t>(state.ly - 128);
+            sendReport(report);
+            prevState = state;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(16));  // ~60fps
+    }
+}
