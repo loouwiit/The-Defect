@@ -143,7 +143,8 @@ resourse/
 | **媒体** | ScreenStream | `main/screenStream/` | MJPEG 硬件 JPEG 编码 + WebSocket 流，直接读 bridge 帧缓冲 |
 | | ES8311 | `main/audio/ES8311.hpp` | ES8311 编解码器驱动（I²C + I²S） |
 | | Audio | `main/audio/Audio.hpp` | 音频管理器（Meyer's Singleton）+ AudioHandle 值类型 |
-| **外设** | BLE Gamepad | `main/bleGamepad/` | NimBLE + esp_hosted，4 玩家上限，NVS 持久化配对，**自定义 GATT 服务支持远程改名** |
+| **外设** | BLE Gamepad | `main/gamepad/bleGamepad.cpp` | NimBLE Central：扫描/连接/读取 C6 手柄输入，4 玩家上限，NVS 持久化配对，**自定义 GATT 服务支持远程改名** |
+| | **BLE HID Device** | `main/gamepad/bleHidDevice.cpp` | NimBLE Peripheral：P4 作为 HID 游戏手柄被 PC/手机识别（esp_hid 组件），广播 → 连接 → 60fps HID Report 转发 + 30s 电量上报 |
 | | 手柄固件 | [`gamepad/`](https://codeberg.org/loouwiit/esp32c6HidJoystick) (submodule) | ESP32-C6 BLE HID 手柄固件，独立仓库 |
 | | Battery Manager | `main/battery/` | ADC 电池电量估算 + 充电检测 (GPIO23) + 充电动画 |
 | | **BatteryMonitor** | `main/battery/batteryMonitor.hpp` | 低电量检测提醒（主机+手柄）：15s 轮询单阈值 → SystemPopup 弹窗，弹窗显示时屏蔽底层 App 输入 |
@@ -2043,6 +2044,110 @@ DiscHid → DiscBattery → SubHid → SubBattery → ReadBattery → DiscCustom
 | esp-hosted 异步 `EBUSY` | `disc_cancel()` 异步 → `connect()` 返回 `EBUSY`，200ms 重试 |
 | `m_scanning` 标志同步 | 手动扫描时必须同步设置标志，否则 `stopScan()` 无效 |
 
+### BLE HID Device — P4 作为游戏手柄
+
+**模块路径**: `main/gamepad/bleHidDevice.hpp` / `bleHidDevice.cpp`
+
+让 P4 游戏机本身作为 BLE HID 游戏手柄被 PC/手机识别。使用 ESP-IDF 内置 `esp_hid` 组件（NimBLE 后端），与 BleGamepad（Central）共享同一 NimBLE 实例。
+
+#### 架构（Dual Role）
+
+```
+                    NimBLE（单实例，Central + Peripheral 共存）
+                         ↕ ble_hs_cfg 保存/恢复
+ESP32-C6 手柄 ←── BleGamepad (Central) ──→ VirtualGamepad ←── BleHidDevice (Peripheral) ──→ PC/手机
+                                          getState(0,0)
+                                          只读观察者
+```
+
+#### 初始化时序（由 BleGamepad 驱动）
+
+```
+BleGamepad::initNimble()
+  ├─ nimble_port_init()
+  ├─ ble_hs_cfg.reset_cb / sync_cb = BleGamepad 回调
+  ├─ BleHidDevice::instance().init()        ← ⭐ 注册 HID GATT 服务
+  │    ├─ 保存 ble_hs_cfg 回调
+  │    ├─ esp_hidd_dev_init()               ← HID + Battery + DIS GATT
+  │    └─ 恢复 ble_hs_cfg 回调
+  └─ nimble_port_freertos_init()            ← 启动 host task
+
+BleGamepad::onSync()  (NimBLE 同步回调)
+  ├─ BleHidDevice::instance().startAdvertising()  ← ⭐ 开始 BLE 广播
+  └─ autoConnectPaired()
+```
+
+⚠ **必须在 `nimble_port_freertos_init()` 之前注册 GATT 服务**，否则 NimBLE host task 启动后 GATT 数据库为空。
+
+#### 关键类
+
+```cpp
+class BleHidDevice {
+public:
+    struct Report { uint16_t buttons; int8_t x, y; };  // 4 bytes, 与 C6 对齐
+    static BleHidDevice& instance();
+    bool init();
+    void deinit();
+    bool startAdvertising();
+    void stopAdvertising();
+    bool sendReport(const Report& report);
+    void setBatteryLevel(uint8_t level);
+    bool isConnected() const;
+    void startPollTask();   // 供事件回调使用
+    void stopPollTask();    // 供事件回调使用
+};
+```
+
+#### HID Report 格式（与 C6 手柄固件对齐）
+
+```
+byte 0~1: buttons[15] + padding[1]  (uint16, 小端序)
+byte 2:   X 轴 (int8, -127~+127)
+byte 3:   Y 轴 (int8, -127~+127)
+```
+
+PC 端免驱识别为标准 HID Gamepad（Appearance 0x03C4）。
+
+#### 数据流
+
+```
+BLE 手柄 → BleGamepad::processTask → VirtualGamepad::inject()
+                                              ↓
+                                     getState(0, 0) 只读
+                                              ↓
+                                    bleHidPoll Task (~60fps)
+                                     ├─ diff 检测 → sendReport() → BLE Notification → PC
+                                     └─ 每 30s: BatteryManager::getMinBatteryLevel()
+                                               → setBatteryLevel() → Battery Service 通知
+```
+
+#### BLE 广播配置
+
+| 参数 | 值 |
+|------|-----|
+| Appearance | 0x03C4 (Gamepad) |
+| 设备名称 | 与 mDNS 主机名同步 (`mdnsGetConfiguredHostname()`) |
+| 广播间隔 | 200~337ms |
+| Scan Response | HID Service (0x1812) + Battery Service (0x180F) |
+| 配对 | Just Works (NO_IO)，bonding + NVS 持久化 |
+
+#### sdkconfig 关键配置
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| `CONFIG_BT_NIMBLE_HID_SERVICE` | y | NimBLE HID Service 支持 |
+| `CONFIG_BT_NIMBLE_SVC_HID_MAX_INSTANCES` | 2 | HID 服务最大实例数 |
+| `CONFIG_BT_NIMBLE_SVC_BAS_BATTERY_LEVEL_NOTIFY` | y | **必须开启**：否则 Battery Level 通知被编译排除 |
+| `CONFIG_BT_NIMBLE_SM_BONDING` | y | 配对密钥存储 |
+| `CONFIG_BT_NIMBLE_NVS_PERSIST` | y | bonding 数据持久化到 NVS |
+| `CONFIG_BT_NIMBLE_HANDLE_REPEAT_PAIRING_DELETION` | y | 处理重复配对删除 |
+
+#### 已知限制
+
+- HID Report 仅有 15 按钮 + 2 轴（X/Y），dpad 通过按钮位映射，扳机未包含
+- 输入源固定为 VirtualGamepad P0（hostId=0, playerId=0）
+- 断连后自动重启广播，支持重新发现和配对
+
 ### Battery Manager — 电池管理
 
 **模块路径**: `main/battery/`
@@ -2058,6 +2163,7 @@ class BatteryManager {
     static void stopChargingAnim(lv_obj_t* label);
     static const char* getIcon(int percent);    // LV_SYMBOL_BATTERY_*
     static lv_color_t getColor(int percent);   // ≥61%绿, 21~60%黄, ≤20%红
+    static int getMinBatteryLevel();            // P4 + BLE 手柄中的最低已知电量，无数据返回 -1
 };
 ```
 
