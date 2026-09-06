@@ -1,5 +1,5 @@
 #include "bleHidDevice.hpp"
-#include "gamepadState.hpp"
+#include "mixedInput.hpp"
 #include "gamepad/virtualGamepad.hpp"
 #include "battery/batteryManager.hpp"
 #include "wifi/mdns.hpp"
@@ -22,11 +22,14 @@
 #include <cstring>
 
 // ══════════════════════════════════════════════════════════════
-//  HID Report Descriptor — 游戏手柄（与 C6 手柄固件对齐）
-//  报告格式 (4 bytes):
+//  HID Report Descriptor — 游戏手柄（混合输入，Xbox 布局）
+//  报告格式 (7 bytes):
 //    byte 0~1: buttons[15] + padding[1] (uint16, 小端序)
-//    byte 2:   X 轴 (int8, -127~+127)
-//    byte 3:   Y 轴 (int8, -127~+127)
+//    byte 2:   X  轴 (int8, -127~+127)
+//    byte 3:   Y  轴 (int8, -127~+127)
+//    byte 4:   RX 轴 (int8, -127~+127)
+//    byte 5:   RY 轴 (int8, -127~+127)
+//    byte 6:   Hat(4bit) + padding(4bit)
 // ══════════════════════════════════════════════════════════════
 
 static const unsigned char s_gamepadReportMap[] = {
@@ -50,15 +53,34 @@ static const unsigned char s_gamepadReportMap[] = {
     0x95, 0x01,        //   Report Count (1)
     0x81, 0x03,        //   Input (Cnst,Var,Abs)
 
-    // X and Y axes (8-bit each, signed -127~127)
+    // X, Y, RX, RY axes (8-bit each, signed -127~127)
     0x05, 0x01,        //   Usage Page (Generic Desktop Ctrls)
     0x09, 0x30,        //   Usage (X)
     0x09, 0x31,        //   Usage (Y)
+    0x09, 0x33,        //   Usage (Rx)
+    0x09, 0x34,        //   Usage (Ry)
     0x15, 0x81,        //   Logical Minimum (-127)
     0x25, 0x7F,        //   Logical Maximum (127)
     0x75, 0x08,        //   Report Size (8)
-    0x95, 0x02,        //   Report Count (2)
+    0x95, 0x04,        //   Report Count (4)
     0x81, 0x02,        //   Input (Data,Var,Abs)
+
+    // Hat Switch (D-Pad)
+    0x09, 0x39,        //   Usage (Hat Switch)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x07,        //   Logical Maximum (7)
+    0x35, 0x00,        //   Physical Minimum (0)
+    0x46, 0x3B, 0x01,  //   Physical Maximum (315)
+    0x65, 0x14,        //   Unit (Eng Rot: Degree)
+    0x55, 0x0E,        //   Unit Exponent (-2)
+    0x75, 0x04,        //   Report Size (4)
+    0x95, 0x01,        //   Report Count (1)
+    0x81, 0x42,        //   Input (Data,Var,Abs,Null)
+
+    // Padding (4 bits to byte boundary)
+    0x75, 0x04,        //   Report Size (4)
+    0x95, 0x01,        //   Report Count (1)
+    0x81, 0x01,        //   Input (Cnst)
 
     0xC0               // End Collection
 };
@@ -340,19 +362,12 @@ void BleHidDevice::stopAdvertising()
 //  发送 HID 输入报告
 // ══════════════════════════════════════════════════════════════
 
-bool BleHidDevice::sendReport(const Report& report)
+bool BleHidDevice::sendReport(const uint8_t* data, size_t len)
 {
     if (!m_connected || !m_hidDev)
         return false;
 
-    // Report ID = 1, index 0, 数据 = {buttons_lo, buttons_hi, x, y}
-    uint8_t data[4];
-    data[0] = static_cast<uint8_t>(report.buttons & 0xFF);
-    data[1] = static_cast<uint8_t>((report.buttons >> 8) & 0xFF);
-    data[2] = static_cast<uint8_t>(report.x);
-    data[3] = static_cast<uint8_t>(report.y);
-
-    esp_err_t ret = esp_hidd_dev_input_set(m_hidDev, 0, 1, data, sizeof(data));
+    esp_err_t ret = esp_hidd_dev_input_set(m_hidDev, 0, 1, const_cast<uint8_t*>(data), len);
     if (ret != ESP_OK)
     {
         ESP_LOGD(TAG, "sendReport failed: %d", ret);
@@ -407,7 +422,7 @@ void BleHidDevice::pollTaskEntry(void* arg)
 
 void BleHidDevice::pollLoop()
 {
-    GamepadState prevState{};
+    MixedHidState prevMixed{};
     int lastBattery = -1;
     int batteryTick = 0;
 
@@ -415,16 +430,14 @@ void BleHidDevice::pollLoop()
     {
         if (m_connected)
         {
-            // ── 输入转发 ──
-            const auto& state = VirtualGamepad::instance().getState(0, 0);
-            if (state != prevState)
+            // ── 混合输入转发 ──
+            MixedHidState mixed = mixInputs(kDefaultMixedConfig);
+            if (mixed != prevMixed)
             {
-                Report report;
-                report.buttons = state.buttons;
-                report.x = static_cast<int8_t>(state.lx - 128);
-                report.y = static_cast<int8_t>(state.ly - 128);
-                sendReport(report);
-                prevState = state;
+                uint8_t report[kHidReportSize];
+                buildHidReport(mixed, report);
+                sendReport(report, kHidReportSize);
+                prevMixed = mixed;
             }
 
             // ── 电量上报（每 30 秒） ──
@@ -443,7 +456,7 @@ void BleHidDevice::pollLoop()
         }
         else
         {
-            prevState = {};
+            prevMixed = {};
             batteryTick = 0;
         }
 

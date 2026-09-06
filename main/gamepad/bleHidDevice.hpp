@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include "esp_event.h"
 
 struct esp_hidd_dev_s;
@@ -11,6 +12,9 @@ typedef struct esp_hidd_dev_s esp_hidd_dev_t;
 /// 使用 esp_hid 组件（NimBLE 后端）注册 HID GATT 服务，
 /// 通过 BLE Notification 发送 HID 输入报告。
 ///
+/// 输入通过 MixedInputConfig 混合多个 BLE 手柄的摇杆和按钮，
+/// 输出标准 Xbox 布局 HID 报文 (7 bytes: buttons+X/Y+RX/RY+Hat)。
+///
 /// 初始化时序（由 BleGamepad 调用）：
 ///   1. init()        — nimble_port_init() 之后、nimble_port_freertos_init() 之前
 ///   2. startAdv()    — NimBLE sync_cb 回调中
@@ -19,31 +23,6 @@ typedef struct esp_hidd_dev_s esp_hidd_dev_t;
 class BleHidDevice
 {
 public:
-    /// @brief HID 报告结构体 (4 bytes) — 与 C6 手柄固件对齐
-    struct Report
-    {
-        uint16_t buttons;   // bit0~14: 按钮, bit15: padding
-        int8_t x;           // X 轴 (-127 ~ +127)
-        int8_t y;           // Y 轴 (-127 ~ +127)
-    };
-
-    /// @brief 按钮遮罩 — 与 GamepadButton / C6 HIDGamepad::Button 对齐
-    enum Button : uint16_t
-    {
-        BTN_A      = 1 << 0,
-        BTN_B      = 1 << 1,
-        BTN_X      = 1 << 3,
-        BTN_Y      = 1 << 4,
-        BTN_TL     = 1 << 6,   // LB
-        BTN_TR     = 1 << 7,   // RB
-        BTN_TL2    = 1 << 8,   // LT
-        BTN_TR2    = 1 << 9,   // RT
-        BTN_SELECT = 1 << 10,
-        BTN_START  = 1 << 11,
-        BTN_L3     = 1 << 13,
-        BTN_R3     = 1 << 14,
-    };
-
     static BleHidDevice& instance();
 
     /// @brief 初始化 HID 设备（注册 GATT 服务）
@@ -62,9 +41,11 @@ public:
     /// @brief 停止广播
     void stopAdvertising();
 
-    /// @brief 发送 HID 输入报告
+    /// @brief 发送 HID 输入报告（原始字节）
+    /// @param data  报文字节（不含 Report ID）
+    /// @param len   字节数
     /// @return true 成功（已连接且发送成功）
-    bool sendReport(const Report& report);
+    bool sendReport(const uint8_t* data, size_t len);
 
     /// @brief 设置电池电量 (0-100)
     void setBatteryLevel(uint8_t level);
