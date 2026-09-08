@@ -6,6 +6,13 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__cmake_utilities
     ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/lvgl__lvgl
     ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__esp_lvgl_adapter
+    # 复用主工程 managed_components 的音频组件——.so 编译只需其头文件（链接仅收 __idf_main，不包含音频代码）
+    ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__esp_audio_render
+    ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__gmf_audio
+    ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__esp_audio_codec
+    ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__esp_audio_effects
+    ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__gmf_core
+    ${CMAKE_CURRENT_LIST_DIR}/../../managed_components/espressif__gmf_fft
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
@@ -16,7 +23,6 @@ project(douDiZhu)
 # 这里仅把组件库（libmain.a，只含 douDiZhu 的 .o）强制全量链接为 .so。
 # 链接 flags：-nostdlib -static-libgcc；libstdc++ 不链接 → 运行时符号
 # （operator new / lwip_* 等）保持 UND，运行时解析到主固件注册表。
-# douDiZhu 无音频/WS 依赖（纯 TCP 联机 + AI 引擎），REQUIRES 仅 lvgl + lwip + cJSON。
 if(CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT)
     set(so_link_flags -shared
                       -fPIC

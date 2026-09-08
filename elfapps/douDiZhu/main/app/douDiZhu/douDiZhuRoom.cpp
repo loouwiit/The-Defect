@@ -64,6 +64,10 @@ void DouDizhuRoom::init()
 
 	// 轮询 Task：统一执行延迟动作（pushApp/popApp/startGame）
 	m_roomTask = Task::addTask(roomTaskFn, "ddzRoom", this, 50, Task::Affinity::None);
+
+	bgm = Audio::play("/root/system/music/douDiZhu/bgm.aac");
+	bgm.setLoop(true);
+	bgm.play();
 }
 
 void DouDizhuRoom::deinit()

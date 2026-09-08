@@ -3,6 +3,7 @@
 #include "app/app.hpp"
 #include "task/task.hpp"
 #include "gamepad/gamepadState.hpp"
+#include "audio/Audio.hpp"
 #include <cJSON.h>
 
 /**
@@ -80,6 +81,8 @@ private:
 	static void onBackBtnCb(lv_event_t* e);
 	static void onModeBtnCb(lv_event_t* e);
 	static void onStartBtnCb(lv_event_t* e);
+
+	AudioHandle bgm{};
 
 	// ── AI 能力 ──
 	std::string getAiContext() override;
