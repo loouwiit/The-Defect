@@ -47,8 +47,17 @@ void luaRegisterModules(lua_State* L)
     // 设置随机种子
     lua_getglobal(L, "math");
     if (lua_istable(L, -1)) {
-        lua_pushinteger(L, (lua_Integer)esp_random());
-        lua_setfield(L, -2, "randomseed");
+        lua_getfield(L, -1, "randomseed");
+        if (lua_isfunction(L, -1)) {
+            lua_pushinteger(L, (lua_Integer)esp_random());
+            if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+                ESP_LOGW(TAG, "math.randomseed 自动播种失败");
+                lua_pop(L, 1);
+            }
+        } else {
+            lua_pop(L, 1);
+            ESP_LOGW(TAG, "math.randomseed 不可用");
+        }
     }
     lua_pop(L, 1);
 
