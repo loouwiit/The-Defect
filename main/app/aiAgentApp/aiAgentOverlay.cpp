@@ -1228,6 +1228,22 @@ void AiAgentOverlay::gamepadReadCb(lv_indev_t* indev, lv_indev_data_t* data)
 		}
 		if (edge & static_cast<uint16_t>(GamepadButton::BTN_A) ||
 			edge & static_cast<uint16_t>(GamepadButton::BTN_L3)) {
+			// 键盘收起时：A/L3 = 语音输入开关（点一次开始录音 / 再点一次结束并识别）
+			// 此时 ENTER 没有可用焦点（键盘已隐藏），原本是空转
+			if (kbdHidden) {
+				switch (self->m_voiceState) {
+				case VoiceState::Idle:
+					self->startVoice();
+					break;
+				case VoiceState::Recording:
+					self->stopVoiceAndTranscribe();
+					break;
+				default:
+					break;   // 识别中：忽略
+				}
+				return;
+			}
+			// 键盘展开时：保持原行为（确认按键 / 选候选字）
 			data->key = LV_KEY_ENTER;
 			data->state = LV_INDEV_STATE_PRESSED;
 			return;
