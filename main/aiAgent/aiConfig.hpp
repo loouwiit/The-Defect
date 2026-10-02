@@ -24,6 +24,12 @@ struct AiConfig {
     int maxTokens     = 4096;                        // 最大 token 数（游戏生成需要较大值）
     int timeoutMs     = 90000;                       // HTTP 超时（毫秒，推理模型 + 大上下文需较长等待；可在 ai_config.json 的 timeout_ms 配置）
 
+    // ── 语音识别（云端 ASR，可选） ──
+    std::string asrUrl;                              // 识别接口基地址（空 = 复用 apiUrl）
+    std::string asrPath = "/v1/audio/transcriptions"; // 识别接口路径（本地 crispasr 服务用 /inference）
+    std::string asrModel = "whisper-1";              // 识别模型
+    std::string asrLanguage = "zh";                  // 识别语言（如 zh / en；空 = 自动检测）
+
     bool valid = false;                              // 配置是否有效（有 API Key）
 };
 
@@ -86,6 +92,11 @@ static bool loadConfigFromFile(AiConfig& cfg) {
     readFloat("temperature", cfg.temperature);
     readInt("max_tokens",  cfg.maxTokens);
     readInt("timeout_ms",  cfg.timeoutMs);
+    // 语音识别（可选）：readStr 仅在非空时覆盖，故缺省字段保留默认值
+    readStr("asr_url",      cfg.asrUrl);
+    readStr("asr_path",     cfg.asrPath);
+    readStr("asr_model",    cfg.asrModel);
+    readStr("asr_language", cfg.asrLanguage);
 
     cJSON_Delete(root);
     delete[] buf;

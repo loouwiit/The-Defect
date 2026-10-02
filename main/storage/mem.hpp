@@ -17,4 +17,6 @@ constexpr size_t MemFileBlockTotolSize = 512;
 constexpr size_t MemFileMaxSize = 6 * 1024 * 1024; // 6MB
 
 bool mountMem();
+/** memFS 是否已成功挂载（挂载点 /root/mem）。未挂载时该路径会落回 FAT！ */
+bool memFsIsMounted();
 // void testMem();

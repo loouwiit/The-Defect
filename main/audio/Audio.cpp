@@ -1,5 +1,6 @@
 #include "Audio.hpp"
 #include "audio/ES8311.hpp"
+#include "audio/wavFile.hpp"
 
 #include <cstring>
 #include <cctype>
@@ -484,6 +485,12 @@ bool AudioSample::load(const char* path)
 		file.close();
 		return false;
 	}
+	// 同 Audio::play()：PCM/WAV 不能走解码器（esp_pcm_dec_open 缺 cfg 会崩）
+	if (type == ESP_AUDIO_TYPE_PCM) {
+		ESP_LOGE(TAG, "WAV/PCM 不支持解码缓存，请直接用 Audio::playWavFile(): %s", path);
+		file.close();
+		return false;
+	}
 
 	esp_audio_dec_handle_t dec{};
 	esp_audio_dec_cfg_t decCfg{};
@@ -835,6 +842,13 @@ AudioHandle Audio::play(const char* path)
 		ESP_LOGE(TAG, "不支持的音频格式: %s", path);
 		return {};
 	}
+	// ⚠ PCM/WAV 不能走解码器路径：esp_pcm_dec_open 需要 esp_pcm_dec_cfg_t，
+	//   而通用层 `esp_audio_dec_open` 不会传该 cfg（cfg_sz=0）→ 空指针崩溃。
+	//   请改用 Audio::playWavFile()（raw PCM 直写 DAC）。
+	if (type == ESP_AUDIO_TYPE_PCM) {
+		ESP_LOGE(TAG, "WAV/PCM 不支持经解码器播放，请使用 Audio::playWavFile(): %s", path);
+		return {};
+	}
 
 	// 打开文件
 	if (!impl->file.open(path)) {
@@ -864,6 +878,75 @@ AudioHandle Audio::play(const char* path)
 	ESP_LOGI(TAG, "play: %s (type=%d, stream=%u)", path, type, sid);
 
 	return AudioHandle(std::move(impl));
+}
+
+bool Audio::playWavFile(const char* path, uint32_t* outMs)
+{
+	Audio& self = instance();
+	if (outMs) *outMs = 0;
+	if (self.codec == nullptr || path == nullptr) {
+		return false;
+	}
+	// raw PCM 直写 DAC 会与 render 的 outWriter 争用同一 I2S TX
+	if (usedStreamCount() > 0) {
+		ESP_LOGW(TAG, "有 render 流在运行，拒绝 raw WAV 播放");
+		return false;
+	}
+
+	IFile file;
+	if (!file.open(path)) {
+		ESP_LOGE(TAG, "无法打开: %s", path);
+		return false;
+	}
+
+	Wav::Info info{};
+	if (!Wav::readInfo(file, info) ||
+	    info.bitsPerSample != 16 || info.channels == 0 || info.sampleRate == 0) {
+		ESP_LOGE(TAG, "不是有效的 16bit WAV: %s", path);
+		file.close();
+		return false;
+	}
+
+	esp_codec_dev_sample_info_t fs{};
+	fs.bits_per_sample = 16;
+	fs.channel = info.channels;
+	fs.sample_rate = info.sampleRate;
+
+	constexpr size_t BufSize = 8192;
+	uint8_t* buf = new uint8_t[BufSize];
+	bool ok = false;
+
+	if (self.codec->open(&fs)) {
+		self.codec->setVolume(self.m_volume);
+
+		file.setOffset(Wav::HeaderSize, FileBase::OffsetMode::Begin);
+		uint32_t remaining = info.dataBytes;
+		ok = true;
+		while (remaining > 0) {
+			size_t want = (remaining < BufSize) ? remaining : BufSize;
+			size_t got = file.read(buf, want);
+			if (got == 0) break;
+			if (!self.codec->write(buf, (int)got)) {
+				ESP_LOGW(TAG, "raw WAV 写入失败");
+				ok = false;
+				break;
+			}
+			remaining -= (uint32_t)got;
+		}
+
+		// 等 I2S TX FIFO 播完尾部再关（否则尾部被截断）
+		vTaskDelay(pdMS_TO_TICKS(80));
+		self.codec->close();
+
+		const uint32_t frameBytes = 2u * info.channels;
+		if (outMs) *outMs = (uint32_t)((uint64_t)info.dataBytes * 1000 /
+		                              ((uint64_t)info.sampleRate * frameBytes));
+	}
+
+	delete[] buf;
+	file.close();
+	ESP_LOGI(TAG, "raw WAV 播放结束: ok=%d, %s", (int)ok, path);
+	return ok;
 }
 
 AudioHandle Audio::play(const AudioSample& sample, bool loop)
@@ -912,6 +995,27 @@ int Audio::usedStreamCount()
 	return cnt;
 }
 
+void Audio::setRecordMode(bool enable)
+{
+	Audio& self = instance();
+	if (self.m_recordMode.exchange(enable) == enable) return;
+
+	if (!self.codec) return;
+
+	if (enable) {
+		// 录音中：静音 DAC（功放/PA 不受影响——ADC 实例已用 pa_pin=-1 规避 PA 劫持）
+		self.codec->setMute(true);
+	} else {
+		self.codec->setMute(false);
+	}
+	ESP_LOGI(TAG, "录音模式 %s", enable ? "开启（输出静音）" : "关闭（输出恢复）");
+}
+
+bool Audio::isRecordMode()
+{
+	return instance().m_recordMode.load();
+}
+
 // ── 流分配 ──
 
 esp_audio_render_stream_id_t Audio::allocStreamId()
@@ -949,6 +1053,9 @@ int Audio::onRenderEvent(esp_audio_render_event_type_t event, void* ctx)
 		if (self->codec->open(&info)) {
 			// 恢复音量（close/open 后编解码器可能丢失音量寄存器）
 			self->codec->setVolume(self->m_volume);
+			// 录音中：新起的播放流必须保持静音（es8311_start 会清掉 mute 位）
+			if (self->m_recordMode.load())
+				self->codec->setMute(true);
 		}
 	}
 	else if (event == ESP_AUDIO_RENDER_EVENT_TYPE_CLOSED) {
@@ -962,6 +1069,11 @@ int Audio::outWriter(uint8_t* pcm, uint32_t size, void* ctx)
 {
 	auto* self = static_cast<Audio*>(ctx);
 	if (!self || !self->codec) return -1;
+
+	// 录音模式：输出数据置零（仍写入，保持 I2S TX DMA 节奏，避免 TX 欠载异常）
+	if (self->m_recordMode.load()) {
+		memset(pcm, 0, size);
+	}
 
 	self->codec->write(pcm, size);
 	return 0;  // render 期望 0 表示成功

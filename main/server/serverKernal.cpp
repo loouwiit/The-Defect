@@ -10,6 +10,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <string>
 
 #include "utility/stringCompare.hpp"
 
@@ -24,8 +26,11 @@
 #include "aiAgent/aiConfig.hpp"
 #include "aiAgent/aiClient.hpp"
 #include "aiAgent/aiParser.hpp"
+#include "aiAgent/asrClient.hpp"
 #include "ota/otaManager.hpp"
 #include "logService/logService.hpp"
+#include "audio/Audio.hpp"
+#include "audio/audioInput.hpp"
 
 #include "task/task.hpp"
 
@@ -457,6 +462,30 @@ static bool readBodyFully(IOSocketStream& socketStream, size_t len, char* buf)
 	return true;
 }
 
+// ── /api/asrTest 跨任务状态 ──
+// 识别在 Task 线程执行（同 AiClient 的 HTTP 流程），HTTP worker 轮询等待结果。
+// 用 generation 隔离超时后迟到的旧回调，避免污染下一次请求。
+namespace {
+	struct AsrTestSlot {
+		std::atomic<int>      phase{ 0 };   // 0=idle 1=running 2=done
+		std::atomic<uint32_t> gen{ 0 };     // 请求代号
+		bool                  ok{};
+		std::string           text;
+		std::string           error;
+	};
+	AsrTestSlot s_asrTest;
+}
+
+/** 简易 JSON 字串转义（引号/反斜杠/控制字符 → 空格）
+ *  用于把配置内容拼进 JSON 响应或写入 ai_config.json，防止内容破坏 JSON 结构 */
+static std::string jsonSafe(std::string s)
+{
+	for (auto& c : s) {
+		if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t') c = ' ';
+	}
+	return s;
+}
+
 void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 {
 	const char* uri = (!(request.getPath()[0] == '/' && request.getPath()[1] == '\0')) ? (request.getPath()) : ("/index.html");
@@ -487,13 +516,22 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 	if (stringCompare((char*)uri, strlen(uri), "/api/aiConfig", 13))
 	{
 		AiConfig cfg = aiConfigLoad();
-		char body[512];
+		// 返回文件中的原始值（asr_url 可能为空 = 回落到 api_url），供网页回显/清空
+		const std::string sApiUrl = jsonSafe(cfg.apiUrl);
+		const std::string sModel = jsonSafe(cfg.model);
+		const std::string sAsrUrl = jsonSafe(cfg.asrUrl);
+		const std::string sAsrPath = jsonSafe(cfg.asrPath);
+		const std::string sAsrModel = jsonSafe(cfg.asrModel);
+		const std::string sAsrLang = jsonSafe(cfg.asrLanguage);
+		char body[1024];
 		int n = snprintf(body, sizeof(body),
-			"{\"api_url\":\"%s\",\"model\":\"%s\",\"timeout_ms\":%d,\"max_tokens\":%d,\"has_key\":%s}",
-			cfg.apiUrl.c_str(), cfg.model.c_str(),
+			"{\"api_url\":\"%s\",\"model\":\"%s\",\"timeout_ms\":%d,\"max_tokens\":%d,\"has_key\":%s,"
+			"\"asr_url\":\"%s\",\"asr_path\":\"%s\",\"asr_model\":\"%s\",\"asr_language\":\"%s\"}",
+			sApiUrl.c_str(), sModel.c_str(),
 			cfg.timeoutMs, cfg.maxTokens,
-			cfg.valid ? "true" : "false");
-		if (n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
+			cfg.valid ? "true" : "false",
+			sAsrUrl.c_str(), sAsrPath.c_str(), sAsrModel.c_str(), sAsrLang.c_str());
+		if (n < 0 || n >= (int)sizeof(body)) n = (int)sizeof(body) - 1;
 		HttpRespond respond;
 		respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
 		respond.setBody(body);
@@ -575,6 +613,255 @@ void httpGet(IOSocketStream& socketStream, HttpRequest& request)
 		respond.setReason(HttpReason::Ok);
 		respond.send(socketStream);
 		delete[] body;
+		return;
+	}
+
+	// ── API: 麦克风自测（录音 → 统计 → 可选回放）──
+	// 例: GET /api/micTest?ms=2000[&play=1][&gain=30][&adcvol=191]
+	// 用途：封壳设备验线——确认 I2S DIN(GPIO11) 与麦克风通路是否工作。
+	// ⚠ 同步阻塞 coWorker（ms + 300ms，play=1 再叠加播放时长），仅供诊断使用。
+	if (strncmp(uri, "/api/micTest", 12) == 0 && (uri[12] == '\0' || uri[12] == '?'))
+	{
+		uint32_t ms = 2000;
+		bool play = false;
+		float gainDb = 30.0f;
+		int adcVol = -1;
+		const char* q = strchr(uri, '?');
+		if (q)
+		{
+			const char* p = strstr(q, "ms=");
+			if (p)
+			{
+				int v = atoi(p + 3);
+				if (v > 0) ms = (uint32_t)v;
+			}
+			p = strstr(q, "gain=");
+			if (p)
+			{
+				float g = (float)atof(p + 5);
+				if (g >= 0.0f && g <= 42.0f) gainDb = g;
+			}
+			p = strstr(q, "adcvol=");
+			if (p)
+			{
+				int v = atoi(p + 7);
+				if (v >= 0 && v <= 255) adcVol = v;
+			}
+			play = strstr(q, "play=1") != nullptr;
+		}
+		if (ms > AudioInput::DefaultMaxMs) ms = AudioInput::DefaultMaxMs;
+
+		auto sendJson = [&](const char* json, int len) {
+			HttpRespond respond;
+			respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+			respond.heads.add({ "Cache-Control", " no-store" });
+			respond.setBody((void*)json);
+			respond.setBodyLenght(len);
+			respond.setStatus(HttpStatus::Ok);
+			respond.setReason(HttpReason::Ok);
+			respond.send(socketStream);
+		};
+
+		AudioInput& mic = AudioInput::instance();
+		char body[512];
+		int n = 0;
+
+		if (mic.isRecording())
+		{
+			n = snprintf(body, sizeof(body), "{\"ok\":false,\"error\":\"录音进行中\"}");
+			sendJson(body, n);
+			return;
+		}
+
+		mic.setMicGainDb(gainDb);
+		mic.setAdcVolumeReg(adcVol);
+		if (!mic.start(AudioInput::DefaultPath, ms))
+		{
+			n = snprintf(body, sizeof(body),
+				"{\"ok\":false,\"error\":\"无法开始录音（i2s_din 未配置 / memFS 未挂载 / 设备忙）\"}");
+			sendJson(body, n);
+			return;
+		}
+
+		// 等待到达时长上限自动停止
+		vTaskDelay(pdMS_TO_TICKS(ms + 300));
+		AudioInput::Result r = mic.stop();
+		AudioInput::Stats st = mic.stats();
+
+		if (play && r.ok && r.path)
+		{
+			// raw PCM 直写 DAC（不走解码器：.wav 走 Audio::play() 会崩）
+			ESP_LOGI(TAG, "micTest 回放 %s", r.path);
+			uint32_t playedMs = 0;
+			Audio::playWavFile(r.path, &playedMs);
+		}
+
+		n = snprintf(body, sizeof(body),
+			"{\"ok\":%s,\"ms\":%lu,\"bytes\":%lu,\"gain\":%.1f,\"adcvol\":%d,"
+			"\"peakL\":%d,\"peakR\":%d,\"dc\":%d,\"rms\":%d,\"clipped\":%lu,\"frames\":%lu,\"path\":\"%s\"}",
+			r.ok ? "true" : "false",
+			(unsigned long)r.ms, (unsigned long)r.bytes, (double)gainDb, adcVol,
+			st.peakLeft, st.peakRight, st.dcLeft, st.rmsLeft,
+			(unsigned long)st.clipped, (unsigned long)st.frames,
+			r.path ? r.path : "");
+		sendJson(body, n);
+		return;
+	}
+
+	// ── API: 语音识别自测（录音 → ASR → 返回识别文本）──
+	// 例: GET /api/asrTest?ms=3000[&gain=30][&dely=0]
+	// 用途：无 UI（封壳设备）验证 AsrClient 全链路（录音→multipart 上传→解析 text）。
+	// `dely=0` 时保留 WAV（默认删除），便于下载 /file/mem/voice.wav 人工对比。
+	// ⚠ 同步阻塞 coWorker：录音 ms + 识别耗时（Whisper 数秒，超时上限 60s）
+	if (strncmp(uri, "/api/asrTest", 12) == 0 && (uri[12] == '\0' || uri[12] == '?'))
+	{
+		uint32_t ms = 3000;
+		float gainDb = 30.0f;
+		bool keepWav = false;
+		const char* q = strchr(uri, '?');
+		if (q)
+		{
+			const char* p = strstr(q, "ms=");
+			if (p)
+			{
+				int v = atoi(p + 3);
+				if (v > 0) ms = (uint32_t)v;
+			}
+			p = strstr(q, "gain=");
+			if (p)
+			{
+				float g = (float)atof(p + 5);
+				if (g >= 0.0f && g <= 42.0f) gainDb = g;
+			}
+			keepWav = strstr(q, "dely=0") != nullptr;
+		}
+		if (ms > AudioInput::DefaultMaxMs) ms = AudioInput::DefaultMaxMs;
+
+		char* body = new char[2048];
+		int n = 0;
+		auto sendJson = [&](int len) {
+			HttpRespond respond;
+			respond.heads.add({ "Content-Type", " application/json; charset=utf-8" });
+			respond.heads.add({ "Cache-Control", " no-store" });
+			respond.setBody((void*)body);
+			respond.setBodyLenght(len);
+			respond.setStatus(HttpStatus::Ok);
+			respond.setReason(HttpReason::Ok);
+			respond.send(socketStream);
+			delete[] body;
+		};
+
+		// 单实例：同一时刻只允许一个 asrTest
+		int expected = 0;
+		if (!s_asrTest.phase.compare_exchange_strong(expected, 1))
+		{
+			n = snprintf(body, 2048, "{\"ok\":false,\"error\":\"已有 asrTest 在运行\"}");
+			sendJson(n);
+			return;
+		}
+		const uint32_t myGen = s_asrTest.gen.fetch_add(1) + 1;
+		s_asrTest.ok = false;
+		s_asrTest.text.clear();
+		s_asrTest.error.clear();
+
+		AiConfig cfg = aiConfigLoad();
+		AudioInput& mic = AudioInput::instance();
+
+		if (!cfg.valid)
+		{
+			s_asrTest.phase.store(0);
+			n = snprintf(body, 2048, "{\"ok\":false,\"error\":\"AI 未配置（缺少 API Key）\"}");
+			sendJson(n);
+			return;
+		}
+		if (mic.isRecording())
+		{
+			s_asrTest.phase.store(0);
+			n = snprintf(body, 2048, "{\"ok\":false,\"error\":\"录音进行中\"}");
+			sendJson(n);
+			return;
+		}
+
+		mic.setMicGainDb(gainDb);
+		mic.setAdcVolumeReg(-1);
+		if (!mic.start(AudioInput::DefaultPath, ms))
+		{
+			s_asrTest.phase.store(0);
+			n = snprintf(body, 2048,
+				"{\"ok\":false,\"error\":\"无法开始录音（i2s_din 未配置 / memFS 未挂载 / 设备忙）\"}");
+			sendJson(n);
+			return;
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(ms + 300));
+		AudioInput::Result r = mic.stop();
+		AudioInput::Stats st = mic.stats();
+
+		if (!r.ok || r.path == nullptr)
+		{
+			s_asrTest.phase.store(0);
+			n = snprintf(body, 2048, "{\"ok\":false,\"error\":\"录音失败或没有采集到声音\"}");
+			sendJson(n);
+			return;
+		}
+
+		ESP_LOGI(TAG, "asrTest 录音完成: %lu 字节 peakL=%d rms=%d → 上传识别",
+			(unsigned long)r.bytes, st.peakLeft, st.rmsLeft);
+
+		AsrClient::transcribeFile(cfg, r.path, cfg.asrLanguage,
+			[myGen](const AsrResult& res) {
+				// 迟到的旧回调（已超时返回）直接丢弃
+				if (s_asrTest.gen.load() != myGen) {
+					ESP_LOGW(TAG, "asrTest 丢弃过期识别结果 (gen=%lu)", (unsigned long)myGen);
+					return;
+				}
+				s_asrTest.ok = res.ok;
+				s_asrTest.text = res.text;
+				s_asrTest.error = res.error;
+				s_asrTest.phase.store(2);
+			});
+
+		// 等待识别完成（50ms × 1200 = 最长 60s）
+		uint32_t waitedMs = 0;
+		while (s_asrTest.phase.load() != 2 && waitedMs < 60000)
+		{
+			vTaskDelay(pdMS_TO_TICKS(50));
+			waitedMs += 50;
+		}
+
+		if (s_asrTest.phase.load() != 2)
+		{
+			s_asrTest.phase.store(0);
+			n = snprintf(body, 2048, "{\"ok\":false,\"error\":\"识别超时（%lus）\"}",
+				(unsigned long)(waitedMs / 1000));
+			sendJson(n);
+			return;
+		}
+
+		const bool ok = s_asrTest.ok;
+		std::string msg = ok ? s_asrTest.text : s_asrTest.error;
+		// 简单转义（保持 JSON 合法）：引号/反斜杠/控制字符 → 空格
+		for (auto& c : msg)
+		{
+			if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t') c = ' ';
+		}
+		if (msg.size() > 1500) msg.resize(1500);
+		s_asrTest.phase.store(0);
+
+		if (ok && !keepWav)
+		{
+			removeFile(r.path);
+		}
+
+		n = snprintf(body, 2048,
+			"{\"ok\":%s,\"ms\":%lu,\"bytes\":%lu,\"peakL\":%d,\"rms\":%d,"
+			"\"asr_url\":\"%s\",\"asr_path\":\"%s\",\"elapsed_ms\":%lu,\"%s\":\"%s\"}",
+			ok ? "true" : "false",
+			(unsigned long)r.ms, (unsigned long)r.bytes, st.peakLeft, st.rmsLeft,
+			(cfg.asrUrl.empty() ? cfg.apiUrl : cfg.asrUrl).c_str(), cfg.asrPath.c_str(),
+			(unsigned long)waitedMs,
+			ok ? "text" : "error", msg.c_str());
+		sendJson(n);
 		return;
 	}
 
@@ -1036,6 +1323,13 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 				cJSON* v = cJSON_GetObjectItem(root, key);
 				return (v && cJSON_IsNumber(v)) ? v->valueint : def;
 			};
+			// 键缺失 → 沿用现有值；键存在但为空串 → 清空（允许网页把 asr_url 置空以回落 api_url）
+			auto readStrOrKeep = [&](const char* key, const std::string& cur) -> std::string {
+				cJSON* v = cJSON_GetObjectItem(root, key);
+				if (v == nullptr) return cur;
+				if (cJSON_IsString(v) && v->valuestring) return jsonSafe(v->valuestring);
+				return cur;
+			};
 
 			const char* apiUrl = readStr("api_url");
 			const char* model  = readStr("model");
@@ -1045,24 +1339,53 @@ void httpPost(IOSocketStream& socketStream, HttpRequest& request)
 			int maxTokens = readInt("max_tokens", curCfg.maxTokens);
 			if (maxTokens < 256 || maxTokens > 131072) maxTokens = curCfg.maxTokens;   // 防非法值
 
+			// 语音识别（可选）：未提供则沿用现有配置
+			const std::string asrUrl = readStrOrKeep("asr_url", curCfg.asrUrl);
+			std::string asrPath = readStrOrKeep("asr_path", curCfg.asrPath);
+			std::string asrModel = readStrOrKeep("asr_model", curCfg.asrModel);
+			std::string asrLang = readStrOrKeep("asr_language", curCfg.asrLanguage);
+			if (asrPath.empty())  asrPath = "/v1/audio/transcriptions";
+			if (asrModel.empty()) asrModel = "whisper-1";
+			if (asrLang.empty())  asrLang = "zh";
+
+			const std::string safeApiUrl = jsonSafe(apiUrl[0] ? apiUrl : "https://api.openai.com");
+			const std::string safeModel = jsonSafe(model[0] ? model : "gpt-4o-mini");
+
 			// 写 AI config 到 FAT
-			char jsonBuf[512];
+			char jsonBuf[1024];
 			int n = snprintf(jsonBuf, sizeof(jsonBuf),
 				"{\n"
 				"  \"api_url\": \"%s\",\n"
 				"  \"model\": \"%s\",\n"
 				"  \"temperature\": 0.7,\n"
 				"  \"timeout_ms\": %d,\n"
-				"  \"max_tokens\": %d\n"
+				"  \"max_tokens\": %d,\n"
+				"  \"asr_url\": \"%s\",\n"
+				"  \"asr_path\": \"%s\",\n"
+				"  \"asr_model\": \"%s\",\n"
+				"  \"asr_language\": \"%s\"\n"
 				"}\n",
-				apiUrl[0] ? apiUrl : "https://api.openai.com",
-				model[0]  ? model  : "gpt-4o-mini",
-				timeoutMs, maxTokens);
+				safeApiUrl.c_str(), safeModel.c_str(),
+				timeoutMs, maxTokens,
+				asrUrl.c_str(), asrPath.c_str(), asrModel.c_str(), asrLang.c_str());
+			if (n < 0) n = 0;
+			if (n >= (int)sizeof(jsonBuf)) {
+				ESP_LOGW(TAG, "ai_config JSON 过长(%d 字节)，已截断", n);
+				n = (int)sizeof(jsonBuf) - 1;
+			}
 
+			// ⚠ OFile::open 无 O_TRUNC：先删再写，否则旧内容比新内容长时会残留尾部字节
+			removeFile("/root/system/ai_config.json");
 			OFile file;
 			if (file.open("/root/system/ai_config.json")) {
-				file.write(jsonBuf, n);
+				size_t wrote = file.write(jsonBuf, n);
 				file.close();
+				if (wrote != (size_t)n) {
+					ESP_LOGW(TAG, "ai_config 写入不完整: %u/%d", (unsigned)wrote, n);
+				}
+			}
+			else {
+				ESP_LOGE(TAG, "ai_config 打开失败，写入被跳过");
 			}
 
 			// 写 API Key 到 NVS

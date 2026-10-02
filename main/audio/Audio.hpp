@@ -196,8 +196,34 @@ public:
 	/** 从预解码缓存播放 */
 	static AudioHandle play(const AudioSample& sample, bool loop = false);
 
+	/**
+	 * @brief 直接播放 WAV(PCM) 文件（**阻塞**，绕开解码器与 render，raw PCM 直写 DAC）
+	 * @param path  WAV 路径（16bit PCM，单/双声道）
+	 * @param outMs 可选返回播放时长（毫秒）
+	 * @return false = 文件无效 / 有其他 render 流在跑 / 播放失败
+	 *
+	 * 为什么需要它：`.wav` 被 `detectFormat` 判为 `ESP_AUDIO_TYPE_PCM`，
+	 * 而 `esp_pcm_dec_open` 需要 `esp_pcm_dec_cfg_t`（通用层不传，cfg_sz=0）→ 空指针崩溃。
+	 * 故 `Audio::play()` / `AudioSample::load()` 对 PCM 直接拒绝，走本接口。
+	 */
+	static bool playWavFile(const char* path, uint32_t* outMs = nullptr);
+
 	/** 当前已分配的音频流数（应用层用于限流，避免超出 MaxStreamNum） */
 	static int usedStreamCount();
+
+	/**
+	 * @brief 录音模式开关
+	 *
+	 * 开启时：DAC 输出静音（`setMute(true)`）+ outWriter 零填充，保证录音期间
+	 * 喇叭无声、不产生回声；解码线程不暂停（保持全双工，避免 I2S 时钟重配）。
+	 * 关闭时：恢复 DAC 输出。
+	 *
+	 * ⚠ 由 AudioInput 在 openInput()/closeInput() 前后成对调用。
+	 * ⚠ 录音期间若有新播放流启动，`onRenderEvent(OPENED)` 会重新应用静音
+	 *   （`es8311_start` 会清掉 mute 位）。
+	 */
+	static void setRecordMode(bool enable);
+	static bool isRecordMode();
 
 	/** 检测文件格式 */
 	static esp_audio_type_t detectFormat(const char* path);
@@ -221,6 +247,8 @@ private:
 	Mutex                     m_streamMutex{}; // 保护 streamUsedMask 分配/释放/计数并发
 
 	uint16_t streamUsedMask{};  // 流分配位图，bit n = stream n 已分配
+
+	std::atomic<bool> m_recordMode{false};  // 录音模式：输出静音（outWriter 零填充 + DAC mute）
 
 	/** 分配一个空闲的 stream ID，返回 0xFF 表示无空闲 */
 	esp_audio_render_stream_id_t allocStreamId();

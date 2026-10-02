@@ -8,6 +8,10 @@
 #include "aiAgent/aiSystemInfo.hpp"
 #include "gamepad/bleGamepad.hpp"
 #include "pinyinDict.hpp"
+#include "aiAgent/asrClient.hpp"
+#include "audio/Audio.hpp"
+#include "audio/audioInput.hpp"
+#include "storage/fat.hpp"
 
 #include <esp_log.h>
 #include <cstring>
@@ -406,6 +410,12 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_text_font(m_modeLabel, smlFont, 0);
 	lv_obj_set_style_text_color(m_modeLabel, GUI::Color::SUBTLE, 0);
 
+	// 语音输入状态（录音计时 / 识别中），默认隐藏
+	m_voiceLabel = lv_label_create(m_titleBar);
+	lv_label_set_text(m_voiceLabel, "");
+	lv_obj_set_style_text_font(m_voiceLabel, smlFont, 0);
+	lv_obj_set_style_text_color(m_voiceLabel, GUI::Color::WARNING, 0);
+
 	// 标题栏不应拦截拖动事件：清除点击标志，让事件穿透到容器
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_clear_flag(m_titleBar, LV_OBJ_FLAG_CLICK_FOCUSABLE);
@@ -448,6 +458,19 @@ void AiAgentOverlay::buildUi()
 	lv_obj_set_style_pad_top(inputRow, 4, 0);
 	lv_obj_set_style_pad_bottom(inputRow, 4, 0);
 	lv_obj_set_scrollbar_mode(inputRow, LV_SCROLLBAR_MODE_OFF);
+
+	// ── 🎤 语音输入按钮（点一次开始 / 再点一次结束）──
+	m_micBtn = lv_btn_create(inputRow);
+	lv_obj_set_size(m_micBtn, 48, 46);
+	lv_obj_set_style_radius(m_micBtn, 8, 0);
+	lv_obj_set_style_bg_color(m_micBtn, GUI::Color::PRIMARY, 0);
+	lv_obj_add_event_cb(m_micBtn, onMicBtnCb, LV_EVENT_CLICKED, this);
+	// 语音按钮不从游戏手柄导航（触摸操作）
+	lv_group_remove_obj(m_micBtn);
+	auto* micLabel = lv_label_create(m_micBtn);
+	lv_label_set_text(micLabel, LV_SYMBOL_AUDIO);
+	lv_obj_set_style_text_font(micLabel, smlFont, 0);
+	lv_obj_center(micLabel);
 
 	m_inputField = lv_textarea_create(inputRow);
 	lv_obj_set_flex_grow(m_inputField, 1);
@@ -618,6 +641,18 @@ void AiAgentOverlay::hide()
 
 	// 重置等待状态
 	m_isWaiting = false;
+
+	// 录音中隐藏 → 放弃本次录音（延后执行：AudioInput::cancel 会等待采集任务退出，
+	// 不可在持有 LVGL 锁的上下文阻塞）
+	if (m_voiceState == VoiceState::Recording) {
+		ESP_LOGI(TAG, "hide: 放弃正在进行的录音");
+		m_voiceState = VoiceState::Idle;
+		updateVoiceUi();
+		Task::addTask([](void*) -> TickType_t {
+			AudioInput::instance().cancel();
+			return Task::infinityTime;
+		}, "voiceCancel", nullptr, 0, Task::Affinity::None);
+	}
 
 	ESP_LOGI(TAG, "hide");
 }
@@ -1318,7 +1353,15 @@ void AiAgentOverlay::gestureTimerCb(lv_timer_t* timer)
 		self->m_gamepadComboPrev = comboNow;
 	}
 
-	// ── 2. 下滑手势检测 ──
+	// ── 2. 录音状态 UI 刷新（30ms 定时器 → 每 4 次 ≈120ms 刷一次计时/电平）──
+	if (self->m_voiceState == VoiceState::Recording && self->m_visible) {
+		if (++self->m_voiceUiTick >= 4) {
+			self->m_voiceUiTick = 0;
+			self->updateVoiceUi();
+		}
+	}
+
+	// ── 3. 下滑手势检测 ──
 	//     overlay 显示时不检测触摸（防遮挡干扰）
 	if (self->m_visible) return;
 
@@ -1509,4 +1552,143 @@ void AiAgentOverlay::onDragEndCb(lv_event_t* e)
 	x = std::max<int32_t>(0, std::min(x, screenW - objW));
 	y = std::max<int32_t>(0, std::min(y, screenH - objH));
 	lv_obj_set_pos(obj, x, y);
+}
+// ============================================================
+//  语音输入（🎤 点一次开始 / 再点一次结束 → 云端识别 → 填入输入框）
+// ============================================================
+
+void AiAgentOverlay::updateVoiceUi()
+{
+	if (!m_micBtn) return;
+	auto guard = m_display->lockGuard();
+
+	switch (m_voiceState) {
+	case VoiceState::Recording: {
+		AudioInput& mic = AudioInput::instance();
+		lv_obj_set_style_bg_color(m_micBtn, GUI::Color::DANGER, 0);
+		uint32_t ms = mic.elapsedMs();
+		char buf[64];
+		snprintf(buf, sizeof(buf), LV_SYMBOL_AUDIO " %lu.%lus Lv%d",
+			(unsigned long)(ms / 1000), (unsigned long)((ms % 1000) / 100), mic.level());
+		lv_label_set_text(m_voiceLabel, buf);
+		break;
+	}
+	case VoiceState::Transcribing:
+		lv_obj_set_style_bg_color(m_micBtn, GUI::Color::WARNING, 0);
+		lv_label_set_text(m_voiceLabel, "识别中…");
+		break;
+	default:
+		lv_obj_set_style_bg_color(m_micBtn, GUI::Color::PRIMARY, 0);
+		lv_label_set_text(m_voiceLabel, "");
+		break;
+	}
+}
+
+void AiAgentOverlay::onMicBtnCb(lv_event_t* e)
+{
+	auto* self = static_cast<AiAgentOverlay*>(lv_event_get_user_data(e));
+	if (!self) return;
+
+	// 防重（与发送共用冷却时间戳）
+	if (xTaskGetTickCount() < self->m_nextActionTime) return;
+	self->m_nextActionTime = xTaskGetTickCount() + ACTION_COOLDOWN;
+
+	switch (self->m_voiceState) {
+	case VoiceState::Idle:
+		self->startVoice();
+		break;
+	case VoiceState::Recording:
+		self->stopVoiceAndTranscribe();
+		break;
+	default:
+		break;   // 识别中：忽略
+	}
+}
+
+void AiAgentOverlay::startVoice()
+{
+	if (!m_config.valid) {
+		addChatEntry("!", "AI 未配置（缺少 API Key），无法识别语音");
+		return;
+	}
+
+	AudioInput& mic = AudioInput::instance();
+	if (mic.isRecording() || !mic.start()) {
+		addChatEntry("!", "无法开始录音（麦克风不可用或设备忙）");
+		return;
+	}
+
+	m_voiceState = VoiceState::Recording;
+	updateVoiceUi();
+	ESP_LOGI(TAG, "开始语音输入");
+}
+
+void AiAgentOverlay::stopVoiceAndTranscribe()
+{
+	m_voiceState = VoiceState::Transcribing;
+	updateVoiceUi();
+
+	// ⚠ 独立 Task 中停止录音：AudioInput::stop 会等待采集任务退出（最长数百毫秒），
+	//   不可在持有 LVGL 锁的上下文阻塞
+	Task::addTask([](void* param) -> TickType_t {
+		auto* self = static_cast<AiAgentOverlay*>(param);
+
+		AudioInput::Result r = AudioInput::instance().stop();
+		std::string path = (r.path != nullptr) ? r.path : "";
+
+		if (!r.ok) {
+			self->postVoiceResult(false, "录音失败或没有采集到声音");
+			return Task::infinityTime;
+		}
+
+		AiConfig cfg = aiConfigLoad();
+		if (!cfg.valid) {
+			removeFile(path.c_str());
+			self->postVoiceResult(false, "AI 未配置，无法识别");
+			return Task::infinityTime;
+		}
+
+		ESP_LOGI(TAG, "上传识别: %s (%lu 字节)", path.c_str(), (unsigned long)r.bytes);
+		AsrClient::transcribeFile(cfg, path, cfg.asrLanguage,
+			[self, path](const AsrResult& res) {
+				if (res.ok) {
+					// 识别成功 → 即用即删
+					removeFile(path.c_str());
+					self->postVoiceResult(true, res.text);
+				}
+				else {
+					// 失败保留 WAV 供排查（/root/mem/voice.wav 可经 HTTP 下载）
+					self->postVoiceResult(false, "识别失败: " + res.error);
+				}
+			});
+		return Task::infinityTime;
+	}, "voiceStop", this, 0, Task::Affinity::None);
+}
+
+void AiAgentOverlay::postVoiceResult(bool ok, const std::string& text)
+{
+	// 任意线程 → 投递到 Task 线程，锁内更新 UI
+	auto* ctx = new std::pair<bool, std::string>{ ok, text };
+	Task::addTask([](void* param) -> TickType_t {
+		auto* c = static_cast<std::pair<bool, std::string>*>(param);
+		auto& self = AiAgentOverlay::instance();
+
+		if (auto guard = self.m_display->lockGuard()) {
+			if (c->first) {
+				// 仅填入输入框，由用户确认后发送（不自动发送）
+				lv_textarea_set_text(self.m_inputField, c->second.c_str());
+				lv_textarea_set_cursor_pos(self.m_inputField, LV_TEXTAREA_CURSOR_LAST);
+				lv_obj_add_state(self.m_inputField, LV_STATE_FOCUSED);
+				ESP_LOGI(TAG, "语音识别结果已填入输入框: %s", c->second.c_str());
+			}
+			else {
+				self.addChatEntry("!", c->second);
+			}
+			self.m_voiceState = VoiceState::Idle;
+			self.updateVoiceUi();
+		}
+
+		delete c;
+		return Task::infinityTime;
+	}, "voiceRsp", ctx, 0, Task::Affinity::None);
 }

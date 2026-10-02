@@ -37,6 +37,7 @@
 
 #include "audio/ES8311.hpp"
 #include "audio/Audio.hpp"
+#include "audio/audioInput.hpp"
 
 #include "gamepad/bleGamepad.hpp"
 #include "app/aiAgentApp/aiAgentOverlay.hpp"
@@ -185,6 +186,7 @@ extern "C" void app_main(void)
 		.i2s_bck = GPIO_NUM_12,
 		.i2s_ws = GPIO_NUM_10,
 		.i2s_dout = GPIO_NUM_9,
+		.i2s_din = GPIO_NUM_11,
 		.pa_pin = GPIO_NUM_53,
 		}))
 	{
@@ -196,6 +198,10 @@ extern "C" void app_main(void)
 		ESP_LOGE(TAG, "音频管理器初始化失败");
 	else
 		Audio::loadVolumeFromNvs();
+
+	// 初始化录音服务（麦克风 → /root/mem/voice.wav）
+	if (!AudioInput::instance().init(&audio))
+		ESP_LOGE(TAG, "录音服务初始化失败");
 
 	// 初始化主机电池 ADC（全局一次性）
 	BatteryManager::instance().init();

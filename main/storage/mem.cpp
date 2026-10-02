@@ -154,6 +154,9 @@ EXT_RAM_BSS_ATTR MemFloorHead memRoot;
 EXT_RAM_BSS_ATTR MemFileView memFileDescriptions[MaxMemFileDescriptionCount] = {};
 EXT_RAM_BSS_ATTR Mutex mutex;
 
+// memFS 挂载状态（未挂载时 /root/mem 会落回 FAT → 意外 flash 写入）
+static bool memMounted = false;
+
 // class函数
 
 MemFileHead::MemFileHead()
@@ -857,7 +860,13 @@ bool mountMem()
 	}
 	ESP_ERROR_CHECK(esp_vfs_register(PerfixMem, &memFs, NULL));
 
+	memMounted = true;
 	return true;
+}
+
+bool memFsIsMounted()
+{
+	return memMounted;
 }
 
 int memOpen(const char* path, int flags, int mode)

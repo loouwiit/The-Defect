@@ -89,6 +89,17 @@ private:
     lv_obj_t* m_pinyinIme{};
     lv_obj_t* m_candPanel{};
 
+    // ── 语音输入（🎤 点一次开始 / 再点一次结束 → 云端识别 → 填入输入框） ──
+    enum class VoiceState { Idle, Recording, Transcribing };
+    VoiceState m_voiceState{ VoiceState::Idle };
+    uint32_t m_voiceUiTick{};          // 30ms 定时器分频计数（UI 刷新节流）
+
+    void updateVoiceUi();              //!< 刷新 🎤 按钮配色与状态标签（内部取 LVGL 锁）
+    void startVoice();                 //!< 开始录音（须在 LVGL 上下文调用）
+    void stopVoiceAndTranscribe();     //!< 停止录音并异步识别（须在 LVGL 上下文调用）
+    void postVoiceResult(bool ok, const std::string& text);  //!< 任意线程：回填输入框/错误
+    static void onMicBtnCb(lv_event_t* e);
+
     // ── 输入法模式（拼音/五笔/英文），键盘图标按钮循环切换 ──
     enum class ImeMode { Pinyin, Wubi, English };
     ImeMode m_imeMode{ ImeMode::Pinyin };
@@ -110,6 +121,8 @@ private:
     lv_obj_t* m_chatWrapper{};  // 聊天区滚动容器
     lv_obj_t* m_inputField{};   // 输入框
     lv_obj_t* m_sendBtn{};      // 发送按钮
+    lv_obj_t* m_micBtn{};       // 语音输入按钮 🎤
+    lv_obj_t* m_voiceLabel{};   // 标题栏语音状态（录音计时 / 识别中）
     lv_obj_t* m_modeLabel{};    // 拼/五/EN 模式指示
     lv_obj_t* m_keyboard{};     // LVGL 键盘
 
